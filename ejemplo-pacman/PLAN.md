@@ -27,6 +27,8 @@ pará y avisá.
 - **Los fantasmas persiguen con distancia Manhattan**, eligiendo la celda válida que más
   los acerca, con desempate estable. No hay pathfinding.
 - **El mapa se escribe como texto** (`mapas/clasico.txt`), no en código.
+- **La fila 9 del mapa es el túnel**: sus extremos están abiertos y el movimiento
+  envuelve de un lado al otro. El resto de las filas tiene pared en los bordes.
 
 ## Arquitectura
 

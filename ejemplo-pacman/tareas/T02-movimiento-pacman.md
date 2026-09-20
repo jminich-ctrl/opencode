@@ -16,6 +16,10 @@ Entra:
 - `mover(laberinto)`: si la dirección deseada es posible, gira y avanza; si no, sigue derecho;
   si tampoco puede, se queda quieto.
 - Túnel horizontal: salir por un borde lateral reaparece por el otro (solo izquierda/derecha).
+  En `mapas/clasico.txt` la fila del túnel es la **9**: sus columnas de los extremos
+  están abiertas. En las demás filas los extremos son pared, así que ahí no hay túnel.
+  El envolvimiento se calcula con el módulo del ancho; si la celda del otro lado es
+  pared, Pacman no se mueve.
 
 No entra:
 - Comer puntos ni sumar puntaje (eso es T03).
