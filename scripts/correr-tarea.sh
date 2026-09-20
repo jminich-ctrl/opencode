@@ -22,6 +22,8 @@ lanzar() {
   archivo="$(ls "$BASE/tareas/${id}"-*.md 2>/dev/null | head -1)"
   [ -n "$archivo" ] || { echo "✗ $id: no existe tareas/${id}-*.md"; return 1; }
 
+  # El worktree se crea desde HEAD: los cambios sin commitear (al gate, por ejemplo)
+  # NO viajan. Commiteá antes de lanzar.
   local wt="$RAIZ/../trabajo-$id"
   rm -rf "$wt"
   git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
@@ -43,7 +45,12 @@ lanzar() {
       bash scripts/gate.sh 2>&1
       echo "=== fin $id · $(date -u +'%H:%M:%S UTC')"
     } > "$wt/.tarea.log" 2>&1
-    if grep -q "GATE VERDE" "$wt/.tarea.log"; then echo "✓ $id gate VERDE"; else echo "✗ $id gate ROJO"; fi
+    # Un error de OpenCode manda, aunque el gate diga verde: si el agente no llegó a
+    # trabajar, el gate solo está viendo el repo intacto.
+    if grep -qE '^\[?[0-9;m[:space:]]*Error:|inference timed out|database is locked' "$wt/.tarea.log"; then
+      echo "✗ $id ERROR del agente: $(grep -m1 -oE '\{.*\}|Error:.*' "$wt/.tarea.log" | cut -c1-70)"
+    elif grep -q "GATE VERDE" "$wt/.tarea.log"; then echo "✓ $id gate VERDE"
+    else echo "✗ $id gate ROJO"; fi
   ) &
 }
 

@@ -43,6 +43,40 @@ mergeada— aparecía como pendiente.
 - El gate atrapó un error humano: al escribir los tests de T01 puse `(2,2)` como celda
   libre cuando es pared. **El primer bug que encontró el gate fue mío, no del agente.**
 
+### Final de la corrida: las dos tareas fallaron, y el gate igual dijo verde
+
+T02 esperó **20 minutos** al 27B (que se había enfriado por el mantenimiento) y murió con
+`{"message":"inference timed out or returned no result"}`. T03 ya había muerto por el lock
+de SQLite. Ninguna tocó un archivo.
+
+Y sin embargo las dos reportaron **GATE VERDE**. Tres causas encadenadas, las tres
+instructivas:
+
+**4. El worktree congela el código al momento de crearse**
+
+Arreglé `gate.sh` (sin cambios = rojo) *después* de crear los worktrees, así que las
+tareas corrieron con la versión vieja del gate. Un worktree se crea desde `HEAD`: lo que
+no está commiteado no viaja.
+
+*Arreglo:* commitear los cambios de herramientas **antes** de lanzar. Queda avisado en el runner.
+
+**5. Editar un script de bash mientras corre lo rompe**
+
+`scripts/correr-tarea.sh: line 57: unexpected EOF`. Bash lee el script por partes mientras
+lo ejecuta: si lo editás en el medio, sigue leyendo desde un offset que ya no corresponde.
+
+*Arreglo:* no tocar un script en ejecución. Si hay que arreglarlo, se para, se edita y se relanza.
+
+**6. Un error del agente tiene que ganarle al gate**
+
+El gate mira el repo, no al agente. Si el agente nunca llegó a trabajar, el gate ve un
+repo sano y aprueba. Ahora el runner marca ROJO si el log tiene un error de OpenCode
+(`Error:`, `inference timed out`, `database is locked`), sin importar lo que diga el gate.
+
+*Lección general:* **cada verificador tiene un punto ciego, y el punto ciego del gate es
+todo lo que pasa fuera del repo.** Por eso hacen falta las dos señales: que el agente
+haya terminado bien, y que el repo quede verde.
+
 ### Interrumpida
 
 La corrida se cortó porque el equipo de la plataforma se puso a recargar modelos y todo
