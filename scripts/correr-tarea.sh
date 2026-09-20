@@ -28,6 +28,9 @@ lanzar() {
   local archivo
   archivo="$(ls "$BASE/tareas/${id}"-*.md 2>/dev/null | head -1)"
   [ -n "$archivo" ] || { echo "✗ $id: no existe tareas/${id}-*.md"; return 1; }
+  # Ruta RELATIVA al worktree: si le pasamos la absoluta del repo original, OpenCode
+  # la ve como external_directory y rechaza leerla por permisos.
+  archivo="tareas/$(basename "$archivo")"
 
   # El worktree se crea desde HEAD: los cambios sin commitear (al gate, por ejemplo)
   # NO viajan. Commiteá antes de lanzar.
