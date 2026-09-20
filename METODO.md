@@ -168,6 +168,10 @@ bash scripts/correr-tarea.sh T03
 # varias en paralelo (solo las que no dependen entre sí)
 bash scripts/correr-tarea.sh T03 T04 T05
 
+# más de 16 tareas: el runner las va soltando de a 16
+bash scripts/correr-tarea.sh T03 T04 T05 T06 T07 T08 ...
+PARALELAS=8 bash scripts/correr-tarea.sh T03 T04 T05   # bajar el tope
+
 # estado de todo
 bash scripts/estado.sh
 ```
@@ -191,6 +195,12 @@ Verificado con 3 `opencode run` simultáneos: las tres terminan bien y cada una 
 
 El límite de cuántas tareas lanzar en paralelo no lo pone OpenCode sino el backend:
 cuántas requests concurrentes aguantan tus modelos antes de que la latencia se dispare.
+
+**Medido sobre este cluster: el tope son 16 por modelo**, y es el valor por defecto del
+runner. Hasta ahí el costo de sumar tareas es casi cero (vLLM las mete en el mismo lote);
+con 24 el throughput deja de subir y la peor request salta de 3 s a 12,6 s.
+Tabla completa en [INFRAESTRUCTURA.md](INFRAESTRUCTURA.md). Con otro backend, medilo:
+`~/colabhive-opencode/scripts/concurrencia.py`.
 
 ---
 

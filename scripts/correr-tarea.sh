@@ -4,17 +4,24 @@
 #   bash scripts/correr-tarea.sh T03              una tarea
 #   bash scripts/correr-tarea.sh T03 T04 T05      varias en paralelo
 #   PROYECTO=ejemplo-pacman bash scripts/correr-tarea.sh T02
+#   PARALELAS=8 bash scripts/correr-tarea.sh T02 T03 T04    baja el tope
+#
+# Corren hasta PARALELAS a la vez (16 por defecto). Medido sobre Qwen3-8B: hasta 16
+# el costo de sumar tareas es casi cero; con 24 empieza a formarse cola (la peor
+# request salta de 3 s a 12,6 s) y el throughput ya no sube. Ver INFRAESTRUCTURA.md.
 #
 # Cada tarea corre en ../trabajo-TNN sobre la rama tarea/TNN, con contexto limpio.
 # Al terminar deja el log en ../trabajo-TNN/.tarea.log y corre el gate.
 set -uo pipefail
 
 PROYECTO="${PROYECTO:-.}"
+PARALELAS="${PARALELAS:-16}"
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASE="$RAIZ/$PROYECTO"
 [ -d "$BASE/tareas" ] || { echo "✗ No encuentro $BASE/tareas (¿falta PROYECTO=?)" >&2; exit 1; }
 [ -f "$HOME/.config/colabhive/env" ] && . "$HOME/.config/colabhive/env"
 [ $# -gt 0 ] || { echo "uso: $0 T01 [T02 ...]" >&2; exit 1; }
+[ $# -gt "$PARALELAS" ] && echo "· $# tareas, de a $PARALELAS por vez"
 
 lanzar() {
   local id="$1"
@@ -54,7 +61,11 @@ lanzar() {
   ) &
 }
 
-for id in "$@"; do lanzar "$id"; done
+for id in "$@"; do
+  # esperar a que se libere un lugar antes de lanzar la próxima
+  while [ "$(jobs -rp | wc -l)" -ge "$PARALELAS" ]; do wait -n 2>/dev/null || sleep 1; done
+  lanzar "$id"
+done
 wait
 echo
 echo "Logs en ../trabajo-TNN/.tarea.log · resumen: bash scripts/estado.sh"
