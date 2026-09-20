@@ -1,0 +1,51 @@
+# T02 — Movimiento de Pacman
+
+**Depende de:** T01
+**Archivos que podés tocar:** `src/pacman/entidades.py`, `tests/test_entidades.py`
+**Prohibido tocar:** `src/pacman/laberinto.py`, `src/pacman/juego.py`, `src/pacman/render.py`
+
+## Objetivo
+
+Pacman se mueve por el laberinto respetando las paredes y recordando hacia dónde va.
+
+## Alcance
+
+Entra:
+- Clase `Pacman` con posición y dirección actual.
+- `intentar_girar(direccion)`: guarda la dirección deseada aunque todavía no se pueda girar.
+- `mover(laberinto)`: si la dirección deseada es posible, gira y avanza; si no, sigue derecho;
+  si tampoco puede, se queda quieto.
+- Túnel horizontal: salir por un borde lateral reaparece por el otro (solo izquierda/derecha).
+
+No entra:
+- Comer puntos ni sumar puntaje (eso es T03).
+- Fantasmas (eso es T04).
+
+## Contrato
+
+    ARRIBA = (-1, 0); ABAJO = (1, 0); IZQUIERDA = (0, -1); DERECHA = (0, 1)
+
+    class Pacman:
+        def __init__(self, pos: tuple[int, int], direccion: tuple[int, int] = DERECHA)
+        pos: tuple[int, int]
+        direccion: tuple[int, int]
+        def intentar_girar(self, direccion: tuple[int, int]) -> None
+        def mover(self, laberinto) -> tuple[int, int]   # devuelve la posición nueva
+
+## Criterio de terminado
+
+- [ ] Contra una pared, Pacman se queda quieto y no cambia de dirección
+- [ ] Un giro pedido en un pasillo recto se aplica recién cuando hay lugar
+- [ ] El túnel horizontal funciona en los dos sentidos
+- [ ] Hay un test por cada punto del alcance
+- [ ] Los tests nuevos fallan si se revierte `entidades.py` (verificalo)
+- [ ] `bash scripts/gate.sh` en verde
+
+## Verificación
+
+    bash scripts/gate.sh
+
+## Si algo no cierra
+
+- Si necesitás un método del laberinto que no existe: **pará y decilo**, no lo agregues.
+- Si encontrás un bug en `laberinto.py`: reportalo, no lo arregles.
