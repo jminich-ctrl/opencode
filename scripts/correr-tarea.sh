@@ -32,6 +32,10 @@ lanzar() {
   echo "▶ $id lanzada en $dir"
   (
     cd "$dir" || exit 1
+    # OpenCode guarda su estado en SQLite y dos procesos sobre la misma base
+    # chocan con "database is locked": cada tarea necesita el suyo.
+    export XDG_DATA_HOME="$wt/.opencode-data"
+    mkdir -p "$XDG_DATA_HOME"
     {
       echo "=== $id · $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
       opencode run "Implementá la tarea descrita en $archivo. Leela completa antes de empezar. Respetá los archivos permitidos y prohibidos. Al terminar corré 'bash scripts/gate.sh' y mostrá su salida real." 2>&1

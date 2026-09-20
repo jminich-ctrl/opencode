@@ -21,7 +21,7 @@ echo "── 2. Alcance"
 BASE_REF="$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null || echo HEAD)"
 CAMBIADOS="$(git diff --name-only "$BASE_REF" 2>/dev/null; git ls-files --others --exclude-standard)"
 if [ -z "$CAMBIADOS" ]; then
-  verde "sin cambios (¿todavía no empezaste?)"
+  rojo "no hay ningún cambio: la tarea no se hizo"
 else
   echo "$CAMBIADOS" | sed 's/^/     /' | sort -u
   # render.py solo puede tocarse en la tarea T07

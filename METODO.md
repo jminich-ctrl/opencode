@@ -175,6 +175,23 @@ bash scripts/estado.sh
 Cada tarea corre en su propio worktree de git (`../trabajo-T03`, rama `tarea/T03`),
 así no se pisan y podés descartar una sin tocar el resto.
 
+### Por qué hace falta aislar el estado de OpenCode
+
+OpenCode guarda sesiones y snapshots en **una sola SQLite**: `~/.local/share/opencode/opencode.db`.
+Dos `opencode run` simultáneos se pelean por el lock y el segundo muere con
+`Error: database is locked`. Por eso el runner le da a cada tarea su propio directorio de datos:
+
+    export XDG_DATA_HOME="$worktree/.opencode-data"
+
+**Solo se aísla `XDG_DATA_HOME`, nunca `XDG_CONFIG_HOME`**: la config
+(`~/.config/opencode/opencode.json`) tiene que seguir siendo la misma para todas,
+o las tareas se quedan sin provider ni modelos.
+
+Verificado con 3 `opencode run` simultáneos: las tres terminan bien y cada una crea su base.
+
+El límite de cuántas tareas lanzar en paralelo no lo pone OpenCode sino el backend:
+cuántas requests concurrentes aguantan tus modelos antes de que la latencia se dispare.
+
 ---
 
 ## 6. Cuando una tarea falla

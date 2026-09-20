@@ -12,7 +12,9 @@ for f in "$BASE"/tareas/T*.md; do
   id="$(basename "$f" | cut -d- -f1)"
   titulo="$(head -1 "$f" | sed 's/^# T[0-9]* — //' | cut -c1-36)"
   wt="$RAIZ/../trabajo-$id"
-  if [ ! -d "$wt" ]; then
+  if grep -q '^\*\*Estado:\*\* ✅' "$f" 2>/dev/null && [ ! -d "$wt" ]; then
+    estado="✅ hecha"; detalle="mergeada en master"
+  elif [ ! -d "$wt" ]; then
     estado="pendiente"; detalle=""
   elif grep -q "GATE VERDE" "$wt/.tarea.log" 2>/dev/null; then
     estado="✓ verde"; detalle="$(git -C "$wt" diff --stat HEAD 2>/dev/null | tail -1 | xargs)"
