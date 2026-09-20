@@ -67,6 +67,30 @@ python3 ~/colabhive-opencode/scripts/check_cache.py   # verifica que siga activo
 
 Si una tanda de tareas se puso lenta sin razón, esto es lo primero que hay que mirar.
 
+### Cuántas tareas en paralelo (medido)
+
+Qwen3-8B, prompt de 2k tokens y 200 de salida:
+
+| Paralelas | TTFT p50 | TTFT max | Throughput | Veredicto |
+|---|---|---|---|---|
+| 1 | 1.9 s | 1.9 s | 24 tok/s | |
+| 8 | 2.8 s | 3.1 s | 157 tok/s | cómodo |
+| **16** | **3.0 s** | **3.0 s** | **262 tok/s** | **óptimo** |
+| 24 | 3.3 s | 12.6 s | 235 tok/s | empieza la cola |
+| 32 | 12.4 s | 16.3 s | 260 tok/s | latencia ×4, sin ganancia |
+| 48 | 14.3 s | 29.5 s | 249 tok/s | peor en todo |
+
+Los otros modelos, con 8 paralelas: gpt-oss-20b 228 tok/s (TTFT 5.1 s),
+Qwen3-Coder-30B 95 tok/s (TTFT 2.6 s). Ninguno dio error en ningún nivel.
+
+**Regla:** hasta 16 por modelo el costo de sumar paralelas es casi cero — vLLM las mete
+en el mismo lote. Pasado ese punto el throughput se plancha y solo sube la espera.
+Mirá siempre el **TTFT máximo**, no la mediana: la cola aparece ahí primero (con 24,
+la mediana todavía daba 3.3 s mientras la peor request se iba a 12.6 s).
+
+El límite práctico deja de ser el cluster y pasa a ser tu máquina: 16 procesos de
+OpenCode a la vez pesan.
+
 ### Paralelismo: una base de datos por tarea
 
 OpenCode guarda su estado en **una sola SQLite** (`~/.local/share/opencode/opencode.db`).
