@@ -40,3 +40,21 @@ No entra:
 ## Verificación
 
     bash scripts/gate.sh
+
+---
+
+## Intento anterior (falló) — leé esto antes de empezar
+
+El gate quedó ROJO. Los tests fallan porque sus expectativas no coinciden con el mapa
+de prueba: contás con celdas vacías donde tu mapa tiene puntos, y al revés.
+
+```
+test_comer_celda_vacia_no_suma:                    AssertionError: 10 != 0
+test_comer_misma_celda_dos_veces_solo_suma_una_vez: AssertionError: 0 != 10
+test_comer_pastilla_suma_50:                        falla
+```
+
+**Antes de escribir un assert, verificá el contenido de la celda** con
+`laberinto.contenido((fila, col))`. Contá las columnas del mapa de prueba con cuidado:
+la columna 0 es el primer carácter de la fila. Un mapa 5x5 explícito alcanza y es
+más fácil de verificar que uno grande.

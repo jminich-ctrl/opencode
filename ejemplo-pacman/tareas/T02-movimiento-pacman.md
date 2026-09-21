@@ -53,3 +53,20 @@ No entra:
 
 - Si necesitás un método del laberinto que no existe: **pará y decilo**, no lo agregues.
 - Si encontrás un bug en `laberinto.py`: reportalo, no lo arregles.
+
+---
+
+## Intento anterior (falló) — leé esto antes de empezar
+
+El gate quedó ROJO con 2 tests fallando. Los dos son **errores de los tests**, no del código:
+las expectativas no coinciden con el mapa de prueba que vos mismo escribiste.
+
+```
+test_pacman_no_se_mueve_contra_pared:  AssertionError: (1, 1) != (1, 2)
+test_pacman_gira_cuando_es_posible:    AssertionError: (1, 3) != (1, 2)
+```
+
+**Antes de escribir un assert sobre una posición, verificá qué hay en esa celda.**
+Escribí el mapa de prueba con las columnas contadas, y comprobá con
+`laberinto.es_pared((fila, col))` que la celda que creés pared lo sea de verdad.
+Un mapa chico y explícito (5x5) es más fácil de razonar que uno grande.
