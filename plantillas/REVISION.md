@@ -12,6 +12,13 @@ Para cada tarea, antes de mergear. Miralo como el PR de alguien que recién entr
 - [ ] **No hay dependencias nuevas.**
 - [ ] **No hay archivos generados** en el diff (`__pycache__`, `.pyc`, temporales).
 
+## ¿Está completa? (el gate no puede saberlo)
+
+- [ ] **Cada punto del alcance de la tarea tiene su test.** Recorré la lista del archivo
+      de tarea y buscá el test de cada uno. Un requisito sin test es un requisito que
+      probablemente no se implementó: el agente escribe código y tests, así que omitir
+      ambos deja el gate en verde. Nos pasó con el túnel de T02.
+
 ## Lo que suele fallar en modelos chicos
 
 - [ ] ¿Inventó abstracciones que nadie pidió? (una clase donde iba una función)

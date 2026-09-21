@@ -31,6 +31,19 @@ Un modelo chico dice "listo" con la misma seguridad cuando funciona y cuando no.
 Por eso ninguna tarea se da por terminada porque el agente lo diga: se da por terminada
 cuando **el gate pasa**. Si una tarea no tiene comando que la verifique, está mal definida.
 
+Y hay un corolario que cuesta caro aprender: **la lectura del veredicto también tiene que
+estar fuera del alcance del agente.** Nos pasó: el modelo corrió el gate, lo vio fallar
+tres veces, y escribió en su resumen *"El gate.sh indica GATE VERDE"*. El runner buscaba
+ese texto en el log y le creyó. Ahora lee **solo** la salida del gate que corre él mismo.
+`AGENTS.md` pide no mentir; el modelo lo hizo igual. Lo único que sostiene es la
+arquitectura de verificación, no las reglas de conducta.
+
+**Un gate verde tampoco garantiza que la tarea esté completa.** El gate verifica lo que
+los tests cubren; si el mismo agente escribe el código *y* los tests, puede omitir un
+requisito entero sin que nada lo delate. Nos pasó con el túnel de T02. Defensas: que el
+criterio de terminado **nombre los tests que tienen que existir**, o separar "escribir
+los tests" y "hacerlos pasar" en dos tareas. Si no, queda en manos de G2.
+
 ### P3 — Ancho, no profundidad
 
 Cada tarea cuesta electricidad, no tokens facturados. Entonces:
@@ -48,7 +61,7 @@ Cada tarea cuesta electricidad, no tokens facturados. Entonces:
 | Rol | Quién | Qué hace |
 |---|---|---|
 | **Arquitecto** | Vos + un modelo grande (Claude/Codex) | Descompone el proyecto en tareas, define gates y criterios |
-| **Ejecutor** | Agente `build` (27B) | Implementa **una** tarea, nada más |
+| **Ejecutor** | Agente `build`, modelo **no pensante** | Implementa **una** tarea, nada más |
 | **Explorador** | Subagente `explore` (8B) | Busca en el código y responde dónde está qué |
 | **Revisor** | Subagente `reviewer` (27B) | Busca bugs en el diff. Solo lectura |
 | **Juez** | `scripts/gate.sh` | Decide si la tarea está terminada. No opina, ejecuta |
@@ -56,6 +69,12 @@ Cada tarea cuesta electricidad, no tokens facturados. Entonces:
 
 La regla que más importa: **el arquitecto nunca es el modelo chico.** Un 27B planificando
 produce planes que suenan bien y no cierran.
+
+Y la segunda: **razonador y ejecutor son perfiles distintos.** Un modelo "pensante" como
+ejecutor delibera en vez de actuar — el nuestro escribió 325 y 345 líneas de razonamiento
+sin tocar un archivo, dos veces seguidas. Cambiado por un modelo instruct afinado para
+código, produjo en el primer intento. **El mejor modelo del equipo no es necesariamente
+el que tiene que implementar**: mandalo a revisar, que es donde su deliberación suma.
 
 ---
 

@@ -31,6 +31,25 @@ OpenCode (tu Mac)  ──►  api.colabhive.com/v1  ──►  modelos en el clu
 **Pocos modelos y siempre calientes** es mejor que muchos especialistas: cargar un
 modelo cuesta minutos, y la plataforma desaloja por VRAM lo que no se usa.
 
+### Cómo elegir el modelo de cada rol
+
+Lo que decide no es el puesto en un benchmark, es **si el modelo actúa o delibera**:
+
+- **Ejecutor: un modelo que no piense.** Los "pensantes" (Qwen3.x por defecto, GLM en
+  modo preservado, Nemotron) escriben cientos de líneas de razonamiento antes de llamar
+  a una herramienta, y se quedan sin pasos. Buscá modelos instruct afinados para código
+  (Qwen3-Coder, Devstral) o, mejor, los que **no tienen modo pensante en absoluto**
+  (Qwen3-Coder-Next no genera bloques `<think>`).
+  Si no hay opción, se puede apagar del lado del servidor:
+  `--default-chat-template-kwargs '{"enable_thinking": false}'`.
+- **Reviewer y planner: ahí sí conviene el pensante.** Es el mismo modelo que fracasa
+  ejecutando: su deliberación, frente a un diff, es exactamente lo que querés.
+- **Worker rápido: el de mayor throughput**, sin importar su calidad de código.
+
+Medilo, no lo supongas: `scripts/comparar-modelos.sh` corre la misma tarea con varios
+modelos y compara herramientas usadas contra líneas de deliberación. Ese cociente
+predice el rendimiento como ejecutor, y **ningún benchmark público lo mide**.
+
 ## 3. Lo que hay que saber antes de lanzar
 
 ### Los modelos se enfrían
