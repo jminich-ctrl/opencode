@@ -187,6 +187,57 @@ nada. El integrador tiene que copiar a mano, o el runner debería commitear al d
 
 ---
 
+---
+
+## 2026-09-21 · Post-mortem: el juego terminó verde y malo
+
+Lo jugamos. Es malo. Con 54 tests en verde y las 8 tareas cerradas.
+
+Lo que se ve en el primer minuto de juego:
+
+| Problema | De dónde vino |
+|---|---|
+| Un solo fantasma | **plan**: el mapa tenía una sola `G` y ninguna tarea pidió cuatro |
+| Pacman y el fantasma se atraviesan | **plan**: T05 decía "colisión" sin definir el intercambio de celdas |
+| El fantasma se traba oscilando | **plan**: "Manhattan codicioso, sin pathfinding" fue decisión explícita |
+| Se pierden teclas, se siente trabado | **plan**: T08 especificaba `getch()` una vez por turno de 150 ms |
+| Los tests no detectaron nada | **método**: ninguno de los cuatro era testeable |
+
+**Casi todo fue planificación, no ejecución.** Los agentes y el gate hicieron lo que
+les pedimos; lo que les pedimos estaba incompleto.
+
+### Los dos errores de fondo
+
+**1. Lo no verificable por comando se cayó del plan.** P2 exige criterios verificables,
+y eso sesga la descomposición hacia lo testeable. "Que se sienta fluido", "que haya
+varios fantasmas", "que el fantasma dé miedo" no pasaban ese filtro, así que no entraron
+en ninguna tarea — y nadie los construyó. El gate verde dio sensación de terminado.
+
+**2. Saltamos nuestro propio G3.** El plan decía, textual: *"integración: gate completo
+sobre el tronco, **más una partida real jugada a mano**"*. Corrimos simulaciones
+automáticas, vimos que no explotaba, y dimos el juego por terminado. La partida a mano
+habría encontrado los cinco problemas en 60 segundos.
+
+**3. Cada simplificación achicó el resultado.** Las "decisiones tomadas" evitan que el
+agente improvise — y funcionan. Pero "sin pathfinding, todos los fantasmas iguales,
+turnos en vez de reloj" hicieron el plan ejecutable **y** el juego aburrido. Cerrá lo
+necesario para que la tarea sea ejecutable, no más.
+
+### Qué cambió en el método
+
+- `METODO.md` P2: **lo que no es verificable por comando no desaparece del proyecto,
+  desaparece del plan.** Con la defensa: convertirlo en gate humano explícito.
+- `METODO.md` G3: la prueba de uso es parte del gate, con preguntas concretas y responsable.
+- `DESCOMPOSICION.md` §8b: la lista de preguntas cualitativas para pasarle al plan
+  antes de lanzar, y la advertencia sobre simplificar de más.
+- `plantillas/PLAN.md`: G3 viene con checklist de prueba de uso.
+- `plantillas/TAREA.md`: sección de verificación humana.
+
+**El Pacman quedó como está a propósito**, como evidencia. Un ejemplo que saliera bien
+enseñaría menos que este.
+
+---
+
 ## Plantilla para las próximas entradas
 
 ```markdown

@@ -78,6 +78,8 @@ El análisis está en [BITACORA.md](BITACORA.md).
 - **G1** por tarea: `bash scripts/gate.sh` verde (tests + alcance + higiene)
 - **G2** revisión humana del diff, con `plantillas/REVISION.md`
 - **G3** integración: gate completo sobre el tronco, más una partida real jugada a mano
+  ⚠️ **Esta segunda parte se salteó, y por eso el juego terminó verde y malo.**
+  Ver el post-mortem en [BITACORA.md](BITACORA.md).
 
 ## Riesgos
 
