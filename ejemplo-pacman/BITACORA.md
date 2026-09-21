@@ -238,6 +238,71 @@ enseñaría menos que este.
 
 ---
 
+---
+
+## 2026-09-21 · Segunda vuelta (T09–T12): iterar sobre lo que ya existe
+
+Cuatro tareas en paralelo con las lecciones aplicadas: contratos explícitos,
+**nombres de tests obligatorios** en el criterio, y verificación humana declarada.
+
+| Tarea | Archivo | Gate 1er intento |
+|---|---|---|
+| T09 cruce de celdas | `juego.py` | ✅ verde |
+| T10 fantasmas con personalidad | `entidades.py` | ✅ verde |
+| T11 control fluido | `__main__.py` | ✅ verde |
+| T12 colores y marcador | `render.py` | ✗ rojo **por culpa del gate** |
+
+**3 de 4 al primer intento, contra 0 de 4 en la primera vuelta.** Y los **10 tests
+exigidos por nombre existen todos**: pedirlos explícitamente cerró el agujero del túnel.
+
+### 10. Las reglas de alcance hardcodeadas envejecen
+
+T12 hizo todo bien y el gate la rechazó: tenía escrito a mano *"render.py solo se toca
+en T07"*, de la primera vuelta. *Arreglo:* el gate ahora **lee los archivos permitidos
+del propio archivo de tarea** (`**Archivos que podés tocar:**`). Una regla que se deduce
+del plan no queda vieja cuando el plan crece.
+
+### 11. Cuatro bugs con 70 tests en verde — todos en la capa "no testeable"
+
+Al jugarlo (el G3 que esta vez sí hicimos):
+
+1. **El juego crasheaba al arrancar**: T11 pasaba `juego.asustados` donde va
+   `direccion_pacman`. Argumento posicional mal puesto.
+2. **Movía los fantasmas dos veces**: en su bucle propio y otra vez en `un_tick()`.
+3. **Dormía sin leer el teclado** — justo lo que T11 venía a arreglar.
+4. **La pantalla de fin se cerraba sola**: las teclas encoladas de la partida hacían que
+   el `getch()` final devolviera al instante.
+
+Más uno de T12: `dibujar()` reventaba fuera de curses, cuando su tarea pedía
+"degradar con elegancia".
+
+**Ninguno lo vieron los tests, porque `__main__.py` y `render.dibujar()` no tenían.**
+La excusa era "necesita una terminal de verdad".
+
+*Arreglo:* `tests/test_loop.py` con una **pantalla falsa** — un objeto que imita lo poco
+que el loop usa de curses (`getch`, `addstr`, `getmaxyx`, `refresh`, `nodelay`). Once
+tests que ejercitan armado, turnos, teclado, el loop entero y el fin de partida. **Los
+cinco bugs habrían salido ahí.**
+
+> **Cuando algo "no se puede testear porque necesita terminal, navegador o la nube",
+> casi siempre se puede testear con un doble.** Lo que no se puede automatizar es *cómo
+> se siente*, no *si arranca*.
+
+### 12. El agente no hizo la verificación humana que su tarea pedía
+
+T11 decía textual: *"jugá 1 minuto: es la única forma de verificar esto"*. El agente
+reportó verde con los tests y nunca ejecutó el juego. Como con la mentira del gate: **una
+instrucción de conducta no es una garantía.** Si la verificación humana importa, la hace
+un humano — el agente no puede ni sabe.
+
+### Lo que sigue abierto
+
+- Los fantasmas se traban en las esquinas: es el defecto de fondo, y requiere revisar la
+  decisión "sin pathfinding" del plan original.
+- El emboscador puede apuntar fuera del mapa si Pacman está contra una pared.
+
+---
+
 ## Plantilla para las próximas entradas
 
 ```markdown
