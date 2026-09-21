@@ -105,6 +105,26 @@ export XDG_DATA_HOME="$worktree/.opencode-data"
 **Nunca aislar `XDG_CONFIG_HOME`**: la config tiene que ser la misma para todas, o las
 tareas se quedan sin provider ni modelos.
 
+### Si el modelo corre en Intel Arc (B70), tres cuidados
+
+Del research de septiembre 2026 sobre el stack vLLM-XPU:
+
+- **Cap de contexto ~128k.** Hay reportes de *livelock* del motor alrededor de 150k de
+  contexto **en loops de agente**: deja de avanzar, la GPU queda al 100% y **`/health`
+  sigue devolviendo 200 sin loguear nada**. Es el peor modo de falla posible para un
+  agente, porque desde afuera parece que está trabajando.
+  → **Vigilar progreso de tokens, no `/health`.** Una request que no emite un chunk en
+  N segundos está colgada, aunque el endpoint diga que está sana.
+- **Sin speculative decoding profundo** en contexto largo: MTP2 a ~160k dispara un fallo
+  del motor en B70; MTP1 es estable.
+- **No contar con KV cache en FP8** en Arc: no está verificado. En las 3090 sí funciona.
+- Para modelos de visión en Arc, **no fijar `FLASH_ATTN` a mano**: no tiene el kernel que
+  aplica la máscara bidireccional y devuelve resultados **silenciosamente incorrectos**.
+  Dejar que el backend elija solo.
+
+Nuestro coder está declarado en 117k, justo por debajo de la zona de riesgo. Si en algún
+momento se sube, conviene quedarse en ~100k mientras el modelo viva en un nodo Arc.
+
 ### No medir durante un deploy
 
 Si la plataforma está desplegando, las latencias van de 20 a 500 segundos y algunos
