@@ -198,6 +198,17 @@ bash scripts/estado.sh
 Cada tarea corre en su propio worktree de git (`../trabajo-T03`, rama `tarea/T03`),
 así no se pisan y podés descartar una sin tocar el resto.
 
+### Dos detalles que muerden
+
+**El worktree congela el código al crearse.** Se arma desde `HEAD`: si arreglaste el
+gate o el runner y no commiteaste, la tarea corre con la versión vieja. **Commiteá las
+herramientas antes de lanzar.** (Y nunca edites un script de bash mientras corre: bash
+lo lee por partes y se rompe a mitad de camino.)
+
+**El agente no commitea.** Deja los archivos sin trackear en el worktree, así que
+`git merge tarea/T03` no trae nada. Al integrar, copiá los archivos a mano o hacé que el
+runner commitee cuando el gate da verde.
+
 ### Por qué hace falta aislar el estado de OpenCode
 
 OpenCode guarda sesiones y snapshots en **una sola SQLite**: `~/.local/share/opencode/opencode.db`.
