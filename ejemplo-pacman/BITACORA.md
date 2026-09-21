@@ -140,6 +140,53 @@ por favor que no lo haga.
 
 ---
 
+---
+
+## 2026-09-21 · Cierre: el juego terminado
+
+| Tarea | Quién | Intentos del agente | Resultado |
+|---|---|---|---|
+| T01 laberinto | humano | — | referencia de calidad, 15 tests |
+| T02 movimiento | **agente** | 3 (deliberó ×2, tests mal ×1) | ✅ verde al 3º — **pero le faltaba el túnel** |
+| T03 puntos | humano | 2 fallidos | el agente nunca llamó a `laberinto.comer()` |
+| T04 fantasmas | humano | 1 sin terminar | el agente seguía explorando cuando cerré |
+| T05–T08 | humano | — | modo asustado, vidas, render, loop |
+
+**Tasa de gate verde al primer intento: 0 de 4.** Según el propio método
+(`DESCOMPOSICION.md` §11), menos del 30% significa que **el problema está en el plan,
+no en el modelo**. Y es cierto: T02 tenía una contradicción con el mapa, y las tareas
+pedían escribir código *y* tests en el mismo paso, que es demasiado para un 27B.
+
+### 8. Gate verde no significa tarea completa
+
+T02 pasó el gate **sin implementar el túnel**, que su propia tarea pedía. Pudo hacerlo
+porque el agente escribe el código *y* los tests: si omite un requisito entero, no hay
+test que lo delate y el gate no tiene de dónde agarrarse.
+
+*Lección:* **el gate verifica lo que los tests cubren, nada más.** Si el mismo agente
+escribe ambos, el alcance queda sin verificar. Tres defensas posibles:
+1. Que el criterio de terminado nombre **los tests que tienen que existir**
+   (`test_tunel_izquierda_derecha`), y que el gate chequee que estén.
+2. Separar en dos tareas: una escribe los tests, otra el código que los hace pasar.
+3. Aceptarlo y confiar en G2 — que es lo que pasó acá: lo encontró la revisión humana.
+
+### 9. El agente nunca commitea
+
+Los archivos quedan sin trackear en el worktree, así que `git merge tarea/T02` no trae
+nada. El integrador tiene que copiar a mano, o el runner debería commitear al dar verde.
+
+### Lo que el ejercicio demostró
+
+- **El método funciona**: el gate atrapó todo lo que tenía que atrapar, incluida una
+  mentira del agente y un error mío en los tests de T01.
+- **Las tareas estaban mal dimensionadas**: "escribí el módulo y sus tests" es dos
+  tareas para un modelo de este tamaño.
+- **La regla de no insistir es correcta**: T03 falló dos veces por la misma causa
+  (no vaciar la celda). Hacerla a mano llevó 10 minutos.
+- **Lo más valioso no fue el código, fueron los 9 hallazgos** de esta bitácora.
+
+---
+
 ## Plantilla para las próximas entradas
 
 ```markdown
