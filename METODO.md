@@ -38,6 +38,17 @@ ese texto en el log y le creyó. Ahora lee **solo** la salida del gate que corre
 `AGENTS.md` pide no mentir; el modelo lo hizo igual. Lo único que sostiene es la
 arquitectura de verificación, no las reglas de conducta.
 
+**Y lo que no es verificable por comando no desaparece del proyecto: desaparece del plan.**
+Este es el riesgo grande del método, y es el precio de P2. Como cada criterio tiene que
+ser verificable, el plan se llena de lo que se puede testear y deja caer en silencio todo
+lo cualitativo: que se sienta fluido, que el resultado sea usable, que tenga sentido para
+quien lo use. Nadie lo escribe, entonces nadie lo construye, y el gate verde te da la
+sensación de terminado sin serlo.
+
+**La defensa:** cuando una cualidad importa y no se puede testear, no la omitas —
+convertila en un **gate humano explícito**, con preguntas concretas, un responsable y un
+tiempo. Es verificable aunque no sea automatizable. Ver G3 más abajo.
+
 **Un gate verde tampoco garantiza que la tarea esté completa.** El gate verifica lo que
 los tests cubren; si el mismo agente escribe el código *y* los tests, puede omitir un
 requisito entero sin que nada lo delate. Nos pasó con el túnel de T02. Defensas: que el
@@ -133,6 +144,26 @@ El subagente `@reviewer` te da una primera pasada, pero **la decisión es tuya**
 
 Con todas las tareas de una etapa mergeadas, corre el gate completo sobre el tronco.
 Acá aparecen los choques entre tareas que individualmente estaban bien.
+
+**Y acá va la prueba humana de punta a punta**, que no es opcional: usar la cosa como la
+va a usar alguien. Es el único gate que mide lo que ningún comando puede medir.
+
+Nos lo saltamos en el Pacman: el gate estaba verde, los 54 tests pasaban, corrí
+simulaciones automáticas y di el juego por terminado. Cuando lo jugamos, aparecieron en
+el primer minuto cinco problemas —teclas que se pierden, el juego se traba, un solo
+fantasma, los personajes se atraviesan sin chocar, el fantasma se queda oscilando—
+**y ninguno estaba roto según los tests, porque ninguno era testeable.**
+
+La prueba humana tiene que estar **escrita en el plan, con preguntas concretas y un
+responsable**, o no se hace:
+
+```markdown
+## G3 — prueba de uso (responsable: Jose, 5 min)
+- [ ] ¿Responde al instante al apretar una tecla, o se siente trabado?
+- [ ] ¿El fantasma persigue de forma creíble, o se queda oscilando?
+- [ ] ¿Se puede perder? ¿Se puede ganar?
+- [ ] ¿Alguien que no lo programó entiende qué hacer sin explicación?
+```
 
 ---
 

@@ -31,7 +31,17 @@ Módulos, qué hace cada uno y quién depende de quién. Un diagrama de texto al
 - **G0** este plan aprobado
 - **G1** por tarea: `scripts/gate.sh` verde
 - **G2** revisión humana del diff (ver `plantillas/REVISION.md`)
-- **G3** integración: gate completo sobre el tronco
+- **G3** integración: gate completo sobre el tronco **+ prueba de uso**
+
+### G3 — prueba de uso (responsable: <quién>, <cuántos minutos>)
+
+Lo que ningún comando puede medir. **Sin esto, el proyecto termina verde y malo.**
+
+- [ ] ¿Se siente bien usarlo? (latencia, fluidez, pasos para lo más común)
+- [ ] ¿Qué pasa cuando el usuario se equivoca?
+- [ ] ¿Cubre los casos reales, o solo el mínimo que pedían las tareas?
+- [ ] ¿Lo entiende alguien que no lo programó?
+- [ ] <pregunta propia del proyecto>
 
 ## Riesgos
 

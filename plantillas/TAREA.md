@@ -36,6 +36,12 @@ Cuanto más preciso esto, menos improvisa el modelo.>
 
     bash scripts/gate.sh
 
+## Verificación humana (si aplica)
+
+Si esta tarea tiene algo que un comando no puede medir —cómo se siente, si el resultado
+es usable, si cubre los casos reales— escribilo acá como preguntas cerradas y decí quién
+las responde. Si no lo escribís, no lo verifica nadie.
+
 ## Si algo no cierra
 
 - Bug fuera del alcance: reportalo, no lo arregles.

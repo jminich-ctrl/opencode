@@ -176,6 +176,47 @@ implementa en la misma sesión termina implementando sobre supuestos que nadie r
 
 ---
 
+## 8b. Lo cualitativo: el agujero que te va a morder
+
+La pregunta del §1 ("¿puedo verificarlo con un comando?") es lo que hace que el método
+funcione. También es su punto ciego: **lo que no pasa ese filtro no se omite conscientemente,
+se olvida.** El plan queda lleno de lo testeable y el resultado cumple todos los criterios
+siendo malo.
+
+Nos pasó con el Pacman: 54 tests en verde, 8 tareas cerradas, y el juego se siente mal.
+Las teclas se pierden, hay un solo fantasma, los personajes se atraviesan. Nada de eso
+estaba roto según los tests **porque nada de eso estaba en el plan**.
+
+### Cómo se evita
+
+Al terminar el plan, pasale esta lista y agregá lo que falte:
+
+| Pregunta | Si la respuesta importa, va al plan |
+|---|---|
+| ¿Cómo se siente usarlo? | latencia, fluidez, cuántos pasos cuesta la tarea más común |
+| ¿Qué pasa cuando el usuario se equivoca? | errores entendibles, nada que se rompa feo |
+| ¿Cuántos casos reales cubre? | *un* fantasma no es el juego; *un* tipo de usuario no es el producto |
+| ¿Lo entiende alguien que no lo programó? | |
+| ¿Cómo se comporta con datos de verdad? | volumen, casos raros, datos sucios |
+
+Lo que salga de ahí no se escribe como criterio de test, porque no se puede. Se escribe
+como **gate humano** en el plan, con preguntas cerradas y un responsable:
+
+```markdown
+## G3 — prueba de uso (responsable: X, 10 min)
+- [ ] pregunta concreta, respondible con sí o no
+```
+
+### La regla corta
+
+> Si te importa y no se puede testear, **escribilo igual como gate humano**.
+> Lo que no está en el plan, no lo construye nadie.
+
+Y una advertencia sobre las decisiones cerradas del §7: cerrar decisiones evita que el
+agente improvise, pero **cada simplificación que cerrás también achica el resultado**.
+"Sin pathfinding, todos los fantasmas iguales" hizo el plan ejecutable **y** el juego
+aburrido. Cerrá lo que hace falta para que la tarea sea ejecutable, no más.
+
 ## 9. Qué no delegar nunca
 
 - **Decisiones de arquitectura.** Ya lo dijimos, pero es el que más se viola.
