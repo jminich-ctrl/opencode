@@ -62,6 +62,42 @@ def un_tick(juego, pacman, fantasmas) -> None:
     juego.tick()
 
 
+def leer_direccion(pantalla):
+    """Vacía el buffer de teclado y devuelve la última dirección pedida.
+
+    Devuelve `"salir"` si se pidió salir, `None` si no hubo ninguna tecla útil.
+    Vaciar el buffer es lo que evita perder teclas: con un solo `getch()` por
+    turno, apretar dos direcciones rápido descarta la segunda.
+    """
+    direccion = None
+    while True:
+        tecla = pantalla.getch()
+        if tecla == -1:
+            return direccion
+        if tecla in (ord("q"), 27):
+            return "salir"
+        if tecla in TECLAS:
+            direccion = TECLAS[tecla]
+
+
+def esperar_turno(pantalla, pacman, segundos=SEGUNDOS_POR_TICK):
+    """Espera el turno leyendo el teclado en tramos cortos.
+
+    Dormir de una sola vez es lo que hace que el juego se sienta trabado: una
+    tecla apretada al principio del turno no se ve hasta el siguiente. Devuelve
+    True si hay que salir.
+    """
+    tramos = max(1, int(segundos / TIEMPO_DE_ESPERA_POR_ITERACION))
+    for _ in range(tramos):
+        pedido = leer_direccion(pantalla)
+        if pedido == "salir":
+            return True
+        if pedido:
+            pacman.intentar_girar(pedido)
+        time.sleep(TIEMPO_DE_ESPERA_POR_ITERACION)
+    return False
+
+
 def loop(pantalla) -> None:
     """Loop principal: lee el teclado, avanza el juego y dibuja."""
     curses.curs_set(0)
@@ -69,42 +105,12 @@ def loop(pantalla) -> None:
     pantalla.keypad(True)
     juego, pacman, fantasmas = armar()
 
-    # Variable para controlar cuándo mover los fantasmas (cada 2 ticks en modo asustado)
-    tick_count = 0
-    
     while not juego.terminado():
-        # Vaciamos el buffer de teclado: leemos todas las teclas disponibles
-        ultima_tecla_valida = None
-        while True:
-            tecla = pantalla.getch()
-            if tecla == -1:  # No hay más teclas en el buffer
-                break
-            if tecla in (ord("q"), 27):
-                return
-            if tecla in TECLAS:
-                ultima_tecla_valida = tecla
-        
-        # Aplicamos la última tecla válida si existe
-        if ultima_tecla_valida is not None:
-            pacman.intentar_girar(TECLAS[ultima_tecla_valida])
-        
-        # Mover fantasmas solo en ciertos ticks si están asustados
-        for fantasma in fantasmas:
-            # Solo mover si no está en modo asustado o si es un tick par
-            if not juego.asustados or tick_count % 2 == 0:
-                fantasma.mover(juego.laberinto, pacman.pos, juego.asustados)
-        
+        # un_tick() es el único que mueve: acá no se duplica nada.
         un_tick(juego, pacman, fantasmas)
         dibujar(pantalla, juego, pacman, fantasmas)
-        
-        # Dormir en tramos cortos para mejorar la sensación de respuesta
-        tiempo_total = SEGUNDOS_POR_TICK
-        iteraciones = int(tiempo_total / TIEMPO_DE_ESPERA_POR_ITERACION)
-        for _ in range(iteraciones):
-            time.sleep(TIEMPO_DE_ESPERA_POR_ITERACION)
-            
-        # Incrementar el contador de ticks
-        tick_count += 1
+        if esperar_turno(pantalla, pacman):
+            return
 
     dibujar(pantalla, juego, pacman, fantasmas)
     pantalla.nodelay(False)

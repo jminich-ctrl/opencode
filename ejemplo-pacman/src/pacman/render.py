@@ -53,6 +53,14 @@ def componer(juego, pacman, fantasmas) -> list[str]:
     return lineas
 
 
+def _color(par):
+    """Atributo de color, o 0 si la terminal no los soporta."""
+    try:
+        return curses.color_pair(par)
+    except Exception:
+        return 0
+
+
 def dibujar(pantalla, juego, pacman, fantasmas) -> None:
     """Pinta el tablero en una pantalla de curses.
 
@@ -60,7 +68,11 @@ def dibujar(pantalla, juego, pacman, fantasmas) -> None:
     reventar: escribir fuera de la pantalla en curses lanza una excepción.
     """
     # Verificar si la terminal soporta colores
-    if curses.has_colors():
+    try:
+        hay_color = curses.has_colors()
+    except Exception:
+        hay_color = False          # no estamos dentro de curses (tests, tubería)
+    if hay_color:
         # Inicializar pares de colores
         curses.start_color()
         curses.init_pair(1, curses.COLOR_BLUE, curses.COLOR_BLACK)      # Paredes
@@ -88,22 +100,22 @@ def dibujar(pantalla, juego, pacman, fantasmas) -> None:
         for nro, linea in enumerate(lineas):
             # Para el marcador, usar un color diferente
             if nro >= len(juego.laberinto.celdas):
-                pantalla.addstr(nro, 0, linea, curses.color_pair(2))  # Color para marcador
+                pantalla.addstr(nro, 0, linea, _color(2))  # Color para marcador
             else:
                 # Procesar cada carácter con su color correspondiente
                 for i, char in enumerate(linea):
                     if char == PARED:
-                        pantalla.addstr(nro, i, char, curses.color_pair(1))  # Azul para paredes
+                        pantalla.addstr(nro, i, char, _color(1))  # Azul para paredes
                     elif char == PUNTO:
-                        pantalla.addstr(nro, i, char, curses.color_pair(2))  # Blanco para puntos
+                        pantalla.addstr(nro, i, char, _color(2))  # Blanco para puntos
                     elif char == PODER:
-                        pantalla.addstr(nro, i, char, curses.color_pair(3))  # Amarillo para pastillas
+                        pantalla.addstr(nro, i, char, _color(3))  # Amarillo para pastillas
                     elif char == PACMAN:
-                        pantalla.addstr(nro, i, char, curses.color_pair(4))  # Amarillo brillante para Pacman
+                        pantalla.addstr(nro, i, char, _color(4))  # Amarillo brillante para Pacman
                     elif char == FANTASMA:
-                        pantalla.addstr(nro, i, char, curses.color_pair(5))  # Rojo para fantasmas normales
+                        pantalla.addstr(nro, i, char, _color(5))  # Rojo para fantasmas normales
                     elif char == FANTASMA_ASUSTADO:
-                        pantalla.addstr(nro, i, char, curses.color_pair(6))  # Azul para fantasmas asustados
+                        pantalla.addstr(nro, i, char, _color(6))  # Azul para fantasmas asustados
                     else:
                         pantalla.addstr(nro, i, char)  # Carácter normal por defecto
                         
