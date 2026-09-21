@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Atajo para arrancar OpenCode con ColabHive.
+#   oc              → abre la TUI en el directorio actual
+#   oc <mensaje>    → corre una tarea suelta (opencode run)
+#   oc --warm       → deja calientes los modelos del equipo y sale
+#   oc --status     → muestra el estado (warm/cached/cold) de los modelos del equipo
+# Cualquier otro flag se pasa tal cual a opencode.
+set -uo pipefail
+
+# Dónde está este repo: se sigue el symlink (~/bin/oc → colabhive/scripts/oc) a mano,
+# porque `readlink -f` no existe en todas las versiones de macOS.
+SRC="${BASH_SOURCE[0]}"
+while [ -L "$SRC" ]; do
+  LINKDIR="$(cd -P "$(dirname "$SRC")" && pwd)"
+  SRC="$(readlink "$SRC")"
+  case "$SRC" in /*) ;; *) SRC="$LINKDIR/$SRC" ;; esac
+done
+DIR="$(cd -P "$(dirname "$SRC")/.." && pwd)"   # la carpeta colabhive/ del repo
+
+[ -f "$HOME/.config/colabhive/env" ] && . "$HOME/.config/colabhive/env"
+if [ -z "${COLABHIVE_API_KEY:-}" ]; then
+  echo "✗ Falta la API key. Corré: bash $DIR/scripts/set-api-key.sh" >&2
+  exit 1
+fi
+
+BUILDER="${COLABHIVE_BUILDER_URL:-https://api.colabhive.com/api/builder/v1}"
+
+estado() {
+  printf 'X-API-Key: %s\n' "$COLABHIVE_API_KEY" \
+    | curl -sS -m 20 -H @- "$BUILDER/inference/models?include_readiness=true" \
+    | python3 "$DIR/scripts/_status.py"
+}
+
+case "${1:-}" in
+  --warm)   exec bash "$DIR/scripts/warm.sh" ;;
+  --status) estado; exit 0 ;;
+esac
+
+echo "Modelos del equipo:"
+if ! estado; then
+  echo
+  echo "⚠ Hay modelos en frío: la primera tarea que los use espera la carga (minutos)."
+  echo "  Para evitarlo:  oc --warm"
+fi
+echo
+
+if [ $# -gt 0 ] && [[ "$1" != -* ]]; then
+  exec opencode run "$@"
+fi
+exec opencode "$@"

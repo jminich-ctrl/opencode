@@ -1,0 +1,107 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "colabhive": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "ColabHive",
+      "options": {
+        "baseURL": "https://api.colabhive.com/v1",
+        "apiKey": "{env:COLABHIVE_API_KEY}",
+        "headerTimeout": 900000,
+        "chunkTimeout": 120000,
+        "timeout": false
+      },
+      "models": {
+        "1af07b1f-5832-4451-a61c-76d1fe43115a": {
+          "name": "Qwen3.8-27B FP8 · reviewer (razona, NO ejecuta)",
+          "tool_call": true,
+          "reasoning": false,
+          "temperature": true,
+          "limit": {
+            "context": 117000,
+            "output": 4096
+          }
+        },
+        "5d21e32a-3bbb-4040-9c34-3b06c4415b84": {
+          "name": "gpt-oss-20b · plan, explore y títulos (el más rápido)",
+          "tool_call": true,
+          "reasoning": true,
+          "temperature": true,
+          "limit": {
+            "context": 69000,
+            "output": 8625
+          }
+        },
+        "f5d76140-5b4d-41c0-88da-dad6d11f341a": {
+          "name": "Qwen3-Coder-30B-A3B · ejecutor (build/tester)",
+          "tool_call": true,
+          "reasoning": false,
+          "temperature": true,
+          "limit": {
+            "context": 204000,
+            "output": 16384
+          }
+        }
+      }
+    }
+  },
+  "model": "colabhive/5d21e32a-3bbb-4040-9c34-3b06c4415b84",
+  "small_model": "colabhive/5d21e32a-3bbb-4040-9c34-3b06c4415b84",
+  "agent": {
+    "plan": {
+      "model": "colabhive/5d21e32a-3bbb-4040-9c34-3b06c4415b84",
+      "temperature": 0.3,
+      "description": "Analiza, diseña y reparte el trabajo. No edita archivos.",
+      "prompt": "{file:./prompts/plan.md}"
+    },
+    "build": {
+      "model": "colabhive/f5d76140-5b4d-41c0-88da-dad6d11f341a",
+      "temperature": 0.2,
+      "description": "Implementa los cambios ya decididos.",
+      "prompt": "{file:./prompts/build.md}",
+      "steps": 80
+    },
+    "explore": {
+      "model": "colabhive/5d21e32a-3bbb-4040-9c34-3b06c4415b84",
+      "temperature": 0.1,
+      "description": "Busca en el código y responde dónde están las cosas. No edita."
+    },
+    "title": {
+      "model": "colabhive/5d21e32a-3bbb-4040-9c34-3b06c4415b84"
+    },
+    "summary": {
+      "model": "colabhive/5d21e32a-3bbb-4040-9c34-3b06c4415b84"
+    },
+    "compaction": {
+      "model": "colabhive/f5d76140-5b4d-41c0-88da-dad6d11f341a"
+    },
+    "reviewer": {
+      "mode": "subagent",
+      "model": "colabhive/1af07b1f-5832-4451-a61c-76d1fe43115a",
+      "temperature": 0.1,
+      "description": "Revisa un diff o un archivo buscando bugs de correctitud. Solo lee, no edita. Modelo pensante: acá su deliberación suma.",
+      "prompt": "{file:./prompts/reviewer.md}",
+      "permission": {
+        "edit": "deny",
+        "bash": "ask"
+      }
+    },
+    "tester": {
+      "mode": "subagent",
+      "model": "colabhive/f5d76140-5b4d-41c0-88da-dad6d11f341a",
+      "temperature": 0.2,
+      "description": "Escribe y corre tests para un cambio concreto.",
+      "prompt": "{file:./prompts/tester.md}"
+    }
+  },
+  "share": "disabled",
+  "autoupdate": "notify",
+  "compaction": {
+    "auto": true
+  },
+  "instructions": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    ".opencode/rules/*.md"
+  ]
+}
