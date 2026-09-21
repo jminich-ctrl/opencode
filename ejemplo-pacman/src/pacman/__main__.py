@@ -112,11 +112,25 @@ def loop(pantalla) -> None:
         if esperar_turno(pantalla, pacman):
             return
 
+    fin_de_partida(pantalla, juego, pacman, fantasmas)
+
+
+def fin_de_partida(pantalla, juego, pacman, fantasmas) -> None:
+    """Muestra el resultado y espera una tecla de verdad.
+
+    Vaciar el buffer antes de esperar no es un detalle: las teclas que quedaron
+    de la partida hacen que el `getch()` devuelva al instante y la pantalla de
+    fin se cierre sin que nadie la vea.
+    """
     dibujar(pantalla, juego, pacman, fantasmas)
+    try:
+        curses.flushinp()
+    except Exception:
+        pass
     pantalla.nodelay(False)
     alto, _ = pantalla.getmaxyx()
-    pantalla.addstr(min(alto - 1, juego.laberinto.alto + 3),
-                    0, f"{juego.resultado().upper()} — puntaje {juego.puntaje}. Tecla para salir.")
+    mensaje = f"  {juego.resultado().upper()} — puntaje {juego.puntaje}   ·   tecla para salir  "
+    pantalla.addstr(min(alto - 1, juego.laberinto.alto + 3), 0, mensaje)
     pantalla.refresh()
     pantalla.getch()
 

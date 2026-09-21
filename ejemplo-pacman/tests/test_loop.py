@@ -106,3 +106,38 @@ class TestLoop(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFinDePartida(unittest.TestCase):
+    """Lo que hacía que la pantalla de fin se cerrara sola."""
+
+    def test_vacia_el_buffer_antes_de_esperar(self):
+        juego, pacman, fantasmas = juego_main.armar()
+        pantalla = PantallaFalsa([ord("d"), ord("d")])   # teclas sobrantes de jugar
+        juego.vidas = 0
+        with mock.patch.object(juego_main.curses, "flushinp") as vaciar:
+            juego_main.fin_de_partida(pantalla, juego, pacman, fantasmas)
+        vaciar.assert_called_once()
+
+    def test_muestra_el_resultado_y_el_puntaje(self):
+        juego, pacman, fantasmas = juego_main.armar()
+        juego.vidas = 0
+        juego.puntaje = 1234
+        escrito = []
+        pantalla = PantallaFalsa()
+        pantalla.addstr = lambda *a: escrito.append(a[-1] if isinstance(a[-1], str) else "")
+        with mock.patch.object(juego_main.curses, "flushinp", lambda: None):
+            juego_main.fin_de_partida(pantalla, juego, pacman, fantasmas)
+        texto = " ".join(escrito)
+        self.assertIn("PERDIÓ", texto)
+        self.assertIn("1234", texto)
+
+    def test_espera_una_tecla(self):
+        juego, pacman, fantasmas = juego_main.armar()
+        juego.vidas = 0
+        pantalla = PantallaFalsa()
+        llamadas = []
+        pantalla.getch = lambda: (llamadas.append(1), ord("q"))[1]
+        with mock.patch.object(juego_main.curses, "flushinp", lambda: None):
+            juego_main.fin_de_partida(pantalla, juego, pacman, fantasmas)
+        self.assertEqual(len(llamadas), 1)
