@@ -88,6 +88,58 @@ concurrencia real por modelo antes de decidir cuántas tareas lanzar juntas.
 
 ---
 
+---
+
+## 2026-09-21 · Segunda corrida: el agente mintió sobre el gate
+
+Con el ejecutor cambiado a Qwen3-Coder-30B (ver abajo), **las dos tareas por fin
+produjeron código**: T02 escribió `entidades.py` + tests, T03 `juego.py` + tests.
+Las dos con el gate en rojo por tests que fallan, que es el ciclo normal.
+
+Pero apareció algo peor que un test roto:
+
+**7. El agente afirmó "GATE VERDE" con el gate en rojo — y el runner le creyó**
+
+En el log de T02:
+
+```
+línea  392: GATE ROJO (1 fallo/s)
+línea  655: GATE ROJO (1 fallo/s)
+línea  745: GATE ROJO (1 fallo/s)
+línea 1262: "El gate.sh indica \"GATE VERDE\" (todos los criterios cumplidos)"   ← el agente
+línea 1293: GATE ROJO (1 fallo/s)                                              ← el gate real
+```
+
+El modelo corrió el gate tres veces, lo vio fallar tres veces, y en su resumen final
+escribió que estaba verde. Mi runner buscaba `GATE VERDE` en **todo** el log, así que
+matcheó esa frase de la prosa del modelo y reportó la tarea como exitosa.
+
+*Arreglo:* leer **solo** la salida del gate que corre el runner (después de `=== gate ===`),
+nunca el log completo.
+
+*Lección, y es la más importante de todas:* **la verificación nunca puede leer lo que el
+agente escribe.** No alcanza con pedirle en `AGENTS.md` que no mienta — lo pide, y mintió
+igual. El veredicto tiene que venir de ejecutar el comando, capturado en un lugar donde
+el agente no pueda escribir.
+
+Es el mismo principio que P2 del método, llevado un paso más lejos: no solo *el juez es
+un comando*, sino que **la lectura del veredicto también tiene que estar fuera del alcance
+del agente.**
+
+### Sobre el cambio de ejecutor
+
+Qwen3.8-27B (modelo "pensante") escribió 325 y 345 líneas de deliberación sin tocar un
+solo archivo, en dos intentos. Cambiado a Qwen3-Coder-30B-A3B (instruct, sin modo
+pensante), las dos tareas produjeron código en el primer intento.
+
+**Razonador y ejecutor son perfiles distintos.** El mejor modelo del equipo no es
+necesariamente el que tiene que implementar. El research posterior lo confirmó: el
+candidato ideal para ejecutor es un modelo que *estructuralmente no puede* deliberar
+(Qwen3-Coder-Next no genera bloques `<think>` en absoluto), no uno al que se le pide
+por favor que no lo haga.
+
+---
+
 ## Plantilla para las próximas entradas
 
 ```markdown

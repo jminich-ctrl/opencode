@@ -57,9 +57,13 @@ lanzar() {
     } > "$wt/.tarea.log" 2>&1
     # Un error de OpenCode manda, aunque el gate diga verde: si el agente no llegó a
     # trabajar, el gate solo está viendo el repo intacto.
-    if grep -qE '^\[?[0-9;m[:space:]]*Error:|inference timed out|database is locked' "$wt/.tarea.log"; then
-      echo "✗ $id ERROR del agente: $(grep -m1 -oE '\{.*\}|Error:.*' "$wt/.tarea.log" | cut -c1-70)"
-    elif grep -q "GATE VERDE" "$wt/.tarea.log"; then echo "✓ $id gate VERDE"
+    # Leer SOLO el gate que corrimos nosotros (después de "=== gate ==="), nunca el
+    # log entero: el agente escribe "GATE VERDE" en su prosa aunque el gate esté rojo.
+    # Pasó de verdad: el modelo afirmó "El gate.sh indica GATE VERDE" con 2 tests fallando.
+    veredicto="$(sed -n '/^=== gate ===$/,$p' "$wt/.tarea.log" | grep -m1 -oE 'GATE (VERDE|ROJO)')"
+    if grep -qE 'inference timed out|database is locked' "$wt/.tarea.log"; then
+      echo "✗ $id ERROR del agente: $(grep -m1 -oE 'inference timed out[^\"]*|database is locked' "$wt/.tarea.log")"
+    elif [ "$veredicto" = "GATE VERDE" ]; then echo "✓ $id gate VERDE"
     else echo "✗ $id gate ROJO"; fi
   ) &
 }
