@@ -27,12 +27,24 @@ elif [ -z "$CAMBIADOS" ]; then
 else
   echo "$CAMBIADOS" | sed 's/^/     /' | sort -u
   # render.py solo puede tocarse en la tarea T07
-  # Regla de alcance por tarea. En integración (sin TAREA) no aplica: el tronco
-  # junta el trabajo de todas las tareas.
-  if [ -n "${TAREA:-}" ] && [ "$TAREA" != "T07" ] && echo "$CAMBIADOS" | grep -q 'render.py'; then
-    rojo "render.py solo se toca en T07 (la lógica de juego no va ahí)"
+  # El alcance sale del archivo de la tarea, no de reglas hardcodeadas acá: una regla
+  # escrita a mano queda vieja en cuanto el plan crece (nos pasó con render.py y T12).
+  PERMITIDOS="$(sed -n 's/^\*\*Archivos que podés tocar:\*\* *//p' "tareas/${TAREA:-}"-*.md 2>/dev/null \
+                | tr ',' '\n' | grep -oE '[A-Za-z0-9_./-]+\.(py|txt|md)' | sort -u)"
+  if [ -z "${TAREA:-}" ] || [ -z "$PERMITIDOS" ]; then
+    verde "sin límite de alcance declarado"
   else
-    verde "sin archivos fuera de lugar"
+    FUERA=""
+    while read -r archivo; do
+      [ -n "$archivo" ] || continue
+      echo "$PERMITIDOS" | grep -qF "$(basename "$archivo")" || FUERA="$FUERA $archivo"
+    done <<< "$CAMBIADOS"
+    if [ -n "$FUERA" ]; then
+      rojo "archivos fuera del alcance de $TAREA:$FUERA"
+      echo "     permitidos: $(echo "$PERMITIDOS" | tr '\n' ' ')"
+    else
+      verde "todo dentro del alcance declarado en tareas/$TAREA-*.md"
+    fi
   fi
 fi
 
