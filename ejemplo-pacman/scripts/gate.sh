@@ -25,7 +25,9 @@ if [ -z "$CAMBIADOS" ]; then
 else
   echo "$CAMBIADOS" | sed 's/^/     /' | sort -u
   # render.py solo puede tocarse en la tarea T07
-  if echo "$CAMBIADOS" | grep -q 'render.py' && [ "${TAREA:-}" != "T07" ]; then
+  # Regla de alcance por tarea. En integración (sin TAREA) no aplica: el tronco
+  # junta el trabajo de todas las tareas.
+  if [ -n "${TAREA:-}" ] && [ "$TAREA" != "T07" ] && echo "$CAMBIADOS" | grep -q 'render.py'; then
     rojo "render.py solo se toca en T07 (la lógica de juego no va ahí)"
   else
     verde "sin archivos fuera de lugar"

@@ -51,14 +51,18 @@ solo para leer. Nadie depende de `render`.
 
 | # | Tarea | Depende de | Archivos | Estado |
 |---|---|---|---|---|
-| T01 | Laberinto: parseo del mapa | — | `laberinto.py`, `tests/test_laberinto.py`, `mapas/clasico.txt` | ✅ hecha (referencia) |
-| T02 | Movimiento de Pacman | T01 | `entidades.py`, `tests/test_entidades.py` | pendiente |
-| T03 | Puntos y pastillas de poder | T01 | `juego.py`, `tests/test_juego.py` | pendiente |
-| T04 | Fantasmas: persecución | T01, T02 | `entidades.py`, `tests/test_entidades.py` | pendiente |
-| T05 | Modo asustado y capturas | T03, T04 | `juego.py`, `tests/test_juego.py` | pendiente |
-| T06 | Vidas y fin de partida | T05 | `juego.py`, `tests/test_juego.py` | pendiente |
-| T07 | Render con curses | T06 | `render.py` | pendiente |
-| T08 | Loop y teclado | T07 | `__main__.py` | pendiente |
+| T01 | Laberinto: parseo del mapa | — | `laberinto.py` | ✅ humano (referencia) |
+| T02 | Movimiento de Pacman | T01 | `entidades.py` | ✅ agente (3er intento) + túnel a mano |
+| T03 | Puntos y pastillas | T01 | `juego.py` | ✅ humano (agente falló 2 veces) |
+| T04 | Fantasmas: persecución | T01, T02 | `entidades.py` | ✅ humano |
+| T05 | Modo asustado y capturas | T03, T04 | `juego.py` | ✅ humano |
+| T06 | Vidas y fin de partida | T05 | `juego.py` | ✅ humano |
+| T07 | Render con curses | T06 | `render.py` | ✅ humano |
+| T08 | Loop y teclado | T07 | `__main__.py` | ✅ humano |
+
+**Resultado: juego terminado y jugable, 54 tests en verde.**
+Tasa de gate verde al primer intento por agente: **0 de 4** (T02 verde al tercero).
+El análisis está en [BITACORA.md](BITACORA.md).
 
 **Etapa 1 (en paralelo):** T02, T03 — las dos dependen solo de T01 y tocan archivos distintos
 **Etapa 2:** T04 (necesita T02)
