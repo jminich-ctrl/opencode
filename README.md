@@ -18,7 +18,14 @@ La idea en tres líneas:
 | **[DESCOMPOSICION.md](DESCOMPOSICION.md)** | Cómo bajar un proyecto enorme a tareas ejecutables |
 | **[INFRAESTRUCTURA.md](INFRAESTRUCTURA.md)** | Modelos, contexto, caching, paralelismo, trampas |
 | **[OPENCODE.md](OPENCODE.md)** | La config de OpenCode campo por campo, y los principios de warm |
+| **[colabhive/](colabhive/)** | Los archivos reales: config, prompts, scripts y mediciones |
 | **[AGENTS.md](AGENTS.md)** | Reglas que el agente lee solo (lo carga OpenCode) |
+
+## El entorno de ejecución
+
+[`colabhive/`](colabhive/) tiene todo lo necesario para correrlo: la config de OpenCode
+(provider, 4 modelos, 6 agentes), los prompts, los scripts de setup y medición, y todas
+las mediciones en `research/findings.md`. Instalación de punta a punta en su README.
 
 ## Las herramientas
 
@@ -41,6 +48,17 @@ Lo que conviene mirar, en orden:
 2. `ejemplo-pacman/tareas/T04-fantasmas.md` — cómo se le cierra la puerta a que el modelo improvise
 3. `ejemplo-pacman/scripts/gate.sh` — el juez: tests, alcance, higiene
 4. `ejemplo-pacman/BITACORA.md` — qué se rompió de verdad al usarlo, y cómo se arregló
+
+## De punta a punta
+
+1. **Instalás el entorno** — [`colabhive/README.md`](colabhive/README.md): API key, config, atajo `oc`.
+2. **Entendés el método** — [METODO.md](METODO.md), 10 minutos.
+3. **Descomponés tu proyecto** — [DESCOMPOSICION.md](DESCOMPOSICION.md) + `plantillas/`.
+4. **Lanzás tareas** — `scripts/correr-tarea.sh`, hasta 16 en paralelo.
+5. **Revisás y mergeás** — `plantillas/REVISION.md`.
+
+El ejemplo completo de las cinco etapas está en [`ejemplo-pacman/`](ejemplo-pacman/):
+plan, 8 tareas, gate, el juego terminado y la bitácora de lo que salió mal.
 
 ## Por qué existe esto
 

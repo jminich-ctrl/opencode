@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Atajo para arrancar OpenCode con ColabHive.
+#   oc              → abre la TUI en el directorio actual
+#   oc <mensaje>    → corre una tarea suelta (opencode run)
+#   oc --warm       → deja calientes los 4 modelos del equipo y sale
+#   oc --status     → muestra el estado (warm/cached/cold) de los modelos del equipo
+# Cualquier otro flag se pasa tal cual a opencode.
+set -uo pipefail
+
+[ -f "$HOME/.config/colabhive/env" ] && . "$HOME/.config/colabhive/env"
+if [ -z "${COLABHIVE_API_KEY:-}" ]; then
+  echo "✗ Falta la API key. Corré: bash ~/colabhive-opencode/scripts/set-api-key.sh" >&2
+  exit 1
+fi
+
+DIR="$HOME/colabhive-opencode"
+BUILDER="${COLABHIVE_BUILDER_URL:-https://api.colabhive.com/api/builder/v1}"
+
+estado() {
+  printf 'X-API-Key: %s\n' "$COLABHIVE_API_KEY" \
+    | curl -sS -m 20 -H @- "$BUILDER/inference/models?include_readiness=true" \
+    | python3 "$DIR/scripts/_status.py"
+}
+
+case "${1:-}" in
+  --warm)   exec bash "$DIR/scripts/warm.sh" ;;
+  --status) estado; exit 0 ;;
+esac
+
+echo "Modelos del equipo:"
+if ! estado; then
+  echo
+  echo "⚠ Hay modelos en frío: la primera tarea que los use puede tardar 3–7 min en arrancar."
+  echo "  Para evitarlo:  oc --warm"
+fi
+echo
+
+if [ $# -gt 0 ] && [[ "$1" != -* ]]; then
+  exec opencode run "$@"
+fi
+exec opencode "$@"
