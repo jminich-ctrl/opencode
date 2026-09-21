@@ -16,6 +16,7 @@ OpenCode (tu Mac)  ──►  api.colabhive.com/v1  ──►  modelos en el clu
 - **ColabHive** sirve los modelos. API compatible con OpenAI, así que OpenCode habla
   con ella como si fuera cualquier proveedor.
 - Config en `~/.config/opencode/opencode.json` (enlazada desde `~/colabhive-opencode/config/`).
+  El detalle campo por campo está en **[OPENCODE.md](OPENCODE.md)**.
 
 ## 2. El equipo de modelos
 
@@ -62,7 +63,8 @@ oc --status     # ● warm  ◐ cached  ○ cold
 oc --warm       # los despierta a todos y espera
 ```
 
-**Antes de una tanda de tareas, siempre `oc --warm`.**
+**Antes de una tanda de tareas, siempre `oc --warm`.** Los estados, los tiempos medidos
+y cómo anclar un modelo para que no se enfríe están en [OPENCODE.md §6](OPENCODE.md).
 
 ### El contexto real se consulta, no se supone
 

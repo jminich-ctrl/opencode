@@ -17,6 +17,7 @@ La idea en tres líneas:
 | **[METODO.md](METODO.md)** | Principios, roles, gates G0–G3, cómo se ejecuta y qué medir |
 | **[DESCOMPOSICION.md](DESCOMPOSICION.md)** | Cómo bajar un proyecto enorme a tareas ejecutables |
 | **[INFRAESTRUCTURA.md](INFRAESTRUCTURA.md)** | Modelos, contexto, caching, paralelismo, trampas |
+| **[OPENCODE.md](OPENCODE.md)** | La config de OpenCode campo por campo, y los principios de warm |
 | **[AGENTS.md](AGENTS.md)** | Reglas que el agente lee solo (lo carga OpenCode) |
 
 ## Las herramientas

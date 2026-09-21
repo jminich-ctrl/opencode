@@ -10,7 +10,9 @@ oc --status                                          # los modelos, calientes
 python3 ~/colabhive-opencode/scripts/sync_limits.py  # el contexto, correcto
 ```
 
-Si algo está frío: `oc --warm` y esperá. Detalle en [INFRAESTRUCTURA.md](INFRAESTRUCTURA.md).
+Si algo está frío: `oc --warm` y esperá — un modelo `cached` tarda de 3 a 7 minutos en
+cargar, y una tarea lanzada contra un modelo frío se queda esperando ese tiempo.
+Detalle en [OPENCODE.md](OPENCODE.md) e [INFRAESTRUCTURA.md](INFRAESTRUCTURA.md).
 
 ## 1. Armá el proyecto
 
