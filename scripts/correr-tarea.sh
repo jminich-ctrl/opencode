@@ -46,6 +46,9 @@ lanzar() {
     cd "$dir" || exit 1
     # OpenCode guarda su estado en SQLite y dos procesos sobre la misma base
     # chocan con "database is locked": cada tarea necesita el suyo.
+    # El gate endurece sus reglas cuando sabe que corre dentro de una tarea:
+    # exige que haya cambios y aplica los límites de alcance.
+    export TAREA="$id"
     export XDG_DATA_HOME="$wt/.opencode-data"
     mkdir -p "$XDG_DATA_HOME"
     {

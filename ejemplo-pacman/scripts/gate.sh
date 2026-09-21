@@ -16,12 +16,14 @@ else
   rojo "tests en rojo"; echo "$SALIDA" | tail -15 | sed 's/^/     /'
 fi
 
-echo "── 2. Alcance"
+echo "── 2. Alcance${TAREA:+ (tarea $TAREA)}"
 # archivos modificados respecto del punto de partida de la rama
 BASE_REF="$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null || echo HEAD)"
 CAMBIADOS="$(git diff --name-only "$BASE_REF" 2>/dev/null; git ls-files --others --exclude-standard)"
-if [ -z "$CAMBIADOS" ]; then
+if [ -z "$CAMBIADOS" ] && [ -n "${TAREA:-}" ]; then
   rojo "no hay ningún cambio: la tarea no se hizo"
+elif [ -z "$CAMBIADOS" ]; then
+  verde "árbol limpio (modo integración)"
 else
   echo "$CAMBIADOS" | sed 's/^/     /' | sort -u
   # render.py solo puede tocarse en la tarea T07
