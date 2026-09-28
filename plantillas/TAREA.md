@@ -27,6 +27,13 @@ Cuanto más preciso esto, menos improvisa el modelo.>
     def nombre_funcion(param: tipo) -> tipo:
         """Qué hace."""
 
+## Tests (ya escritos, fallando)
+
+Los tests de esta tarea **ya están en el repo y fallan**. El trabajo del agente es hacerlos
+pasar sin modificarlos. Archivo: `tests/test_<modulo>.py`, clase `<Clase>`.
+
+Si no podés escribir el test antes, la tarea todavía no está entendida: no la lances.
+
 ## Criterio de terminado
 
 - [ ] <condición verificable>

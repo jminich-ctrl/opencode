@@ -217,6 +217,41 @@ agente improvise, pero **cada simplificación que cerrás también achica el res
 "Sin pathfinding, todos los fantasmas iguales" hizo el plan ejecutable **y** el juego
 aburrido. Cerrá lo que hace falta para que la tarea sea ejecutable, no más.
 
+## 8c. Los tests van antes, no después
+
+Medido en 14 tareas: **el agente implementa bien lo que está especificado y escribe mal
+los tests.** Cuatro veces escribió tests con los nombres exigidos cuyos asserts pasaban
+igual con el código viejo.
+
+No es descuido: escribir un test que distinga exige imaginar **el caso donde el código
+nuevo y el viejo se comportan distinto**. Eso es razonamiento contrafáctico, y es
+justamente lo que un modelo de 30B no hace.
+
+**Entonces el test es parte de la especificación, no del trabajo.**
+
+| Forma vieja | Forma nueva |
+|---|---|
+| "Implementá X y escribí tests" | "Estos tests fallan; hacelos pasar" |
+| El agente decide qué verificar | El test define el contrato, sin ambigüedad |
+| El gate verifica lo que el agente quiso | El gate verifica lo que vos querías |
+
+Escribir el test primero cuesta más al planificar y **elimina la clase de falla más difícil
+de detectar**. Además fuerza a que el criterio de terminado sea real: si no podés escribir
+el test, la tarea no estaba bien entendida.
+
+Ejemplo del caso que hizo falta para T13 (BFS contra Manhattan codicioso): un laberinto
+donde la vecina que más acerca en línea recta es un callejón.
+
+```
+#######
+#...#P#     Desde (1,1) hacia (1,5): la vecina (1,2) baja el Manhattan de 5 a 3
+#.###.#     pero muere en el callejón. El BFS elige (2,1), que parece alejarse,
+#.....#     y llega en 8 pasos dando la vuelta.
+#######
+```
+
+El assert es `mover(...) == (2,1)`, no "se movió". **Eso** distingue.
+
 ## 9. Qué no delegar nunca
 
 - **Decisiones de arquitectura.** Ya lo dijimos, pero es el que más se viola.

@@ -49,6 +49,27 @@ sensación de terminado sin serlo.
 convertila en un **gate humano explícito**, con preguntas concretas, un responsable y un
 tiempo. Es verificable aunque no sea automatizable. Ver G3 más abajo.
 
+**Y exigir los nombres de los tests garantiza que existan, no que verifiquen algo.**
+Medido en cuatro tareas seguidas (T13 dos veces, T14, y antes T02): el agente escribe los
+tests con los nombres pedidos y **asserts que pasan igual con el código viejo**
+(`self.assertTrue(len(posiciones) > 0)`, "se movió y no es pared"). Uno de ellos incluso
+llevaba un comentario admitiendo *"esto es más difícil de probar directamente"*.
+
+**Esto sí se puede automatizar**, y es el único de estos problemas que se pudo:
+`gate.sh` paso 4 **revierte la implementación y exige que la suite falle**. Si sigue verde,
+los tests no distinguen nada. Es mutation testing en su versión más simple.
+
+**Y el patrón que dejó al descubierto vale más que el arreglo: el agente implementa bien
+y testea mal.** En 14 tareas nunca falló implementando algo especificado; falló cuatro
+veces escribiendo tests que probaran algo. Tiene sentido: el código lo verifica la suite,
+pero **escribir un test que distinga requiere imaginar el caso donde dos algoritmos
+difieren**, y eso es razonamiento contrafáctico. Un 30B no lo hace.
+
+→ **Consecuencia para el formato de tarea: los tests van escritos de antemano.** En vez de
+pedirle "implementá y testeá", la tarea llega con los tests ya escritos —fallando— y el
+trabajo del agente es hacerlos pasar. Los escribe quien planifica (vos, o el modelo
+grande). Invierte el modo de falla y hace innecesario el paso 4.
+
 **Un gate verde tampoco garantiza que la tarea esté completa.** El gate verifica lo que
 los tests cubren; si el mismo agente escribe el código *y* los tests, puede omitir un
 requisito entero sin que nada lo delate. Nos pasó con el túnel de T02. Defensas: que el
