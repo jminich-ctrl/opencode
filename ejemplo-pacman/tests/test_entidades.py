@@ -4,7 +4,7 @@ Tests para las entidades del juego Pacman.
 """
 
 import unittest
-from src.pacman.entidades import Pacman, ARRIBA, ABAJO, IZQUIERDA, DERECHA
+from src.pacman.entidades import Pacman, Fantasma, ARRIBA, ABAJO, IZQUIERDA, DERECHA
 from src.pacman.laberinto import Laberinto
 
 
@@ -104,8 +104,13 @@ class TestPacman(unittest.TestCase):
         self.assertEqual(pacman.direccion, ARRIBA)
 
 
-if __name__ == '__main__':
-    unittest.main()
+class TestFantasma(unittest.TestCase):
+    """Tests para la clase Fantasma."""
+    
+    def setUp(self):
+        """Configuración inicial para los tests."""
+        self.laberinto = Laberinto.desde_archivo("mapas/clasico.txt")
+        
 
 class TestTunel(unittest.TestCase):
     """El túnel horizontal: salir por un lateral reaparece por el otro."""
@@ -132,3 +137,53 @@ class TestTunel(unittest.TestCase):
         # en la fila 2 los extremos son pared: no envuelve
         pacman = Pacman((2, 1), IZQUIERDA)
         self.assertEqual(pacman.mover(self.lab), (2, 1))
+
+
+# Trampa para el codicioso: desde (1,1) hacia (1,5), la vecina (1,2) baja la distancia
+# Manhattan de 5 a 3 pero es un callejón; el camino real es (2,1) y dar la vuelta.
+MAPA_TRAMPA = [
+    "#######",
+    "#...#P#",
+    "#.###.#",
+    "#.....#",
+    "#######",
+]
+
+
+class TestPerseguidorBFS(unittest.TestCase):
+    """Estos tests fallan con el algoritmo codicioso: es lo que los hace valer."""
+
+    def setUp(self):
+        self.lab = Laberinto(MAPA_TRAMPA)
+        self.objetivo = (1, 5)
+
+    def test_perseguidor_encuentra_camino_corto(self):
+        # el codicioso elegiría (1, 2), que baja el Manhattan y muere en el callejón
+        fantasma = Fantasma((1, 1), direccion=DERECHA, estilo="perseguidor")
+        self.assertEqual(fantasma.mover(self.lab, self.objetivo), (2, 1))
+
+    def test_perseguidor_no_oscilacion_esquinas(self):
+        # llega de verdad, en vez de quedar rebotando en el callejón
+        fantasma = Fantasma((1, 1), direccion=DERECHA, estilo="perseguidor")
+        ruta = [fantasma.mover(self.lab, self.objetivo) for _ in range(8)]
+        self.assertEqual(ruta[-1], self.objetivo)
+        self.assertEqual(len(set(ruta)), len(ruta))          # sin repetir celdas
+
+    def test_perseguidor_no_se_sale_del_mapa(self):
+        fantasma = Fantasma((1, 1), estilo="perseguidor")
+        for _ in range(12):
+            pos = fantasma.mover(self.lab, self.objetivo)
+            self.assertTrue(self.lab.dentro(pos))
+            self.assertFalse(self.lab.es_pared(pos))
+
+    def test_perseguidor_mantiene_determinismo(self):
+        rutas = []
+        for _ in range(3):
+            fantasma = Fantasma((1, 1), direccion=DERECHA, estilo="perseguidor")
+            rutas.append([fantasma.mover(self.lab, self.objetivo) for _ in range(6)])
+        self.assertEqual(rutas[0], rutas[1])
+        self.assertEqual(rutas[1], rutas[2])
+
+
+if __name__ == "__main__":
+    unittest.main()

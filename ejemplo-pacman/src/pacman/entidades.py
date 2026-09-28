@@ -4,6 +4,8 @@ Las coordenadas son `(fila, columna)`, igual que en `laberinto`. Este módulo no
 imprime ni lee entrada: decide movimientos y nada más.
 """
 
+from collections import deque
+
 ARRIBA = (-1, 0)
 ABAJO = (1, 0)
 IZQUIERDA = (0, -1)
@@ -72,7 +74,15 @@ class Fantasma:
 
     def mover(self, laberinto, objetivo: tuple[int, int], direccion_pacman: tuple[int, int] = (0, 0),
               asustado: bool = False) -> tuple[int, int]:
-        """Avanza una celda hacia `objetivo` y devuelve la posición nueva."""
+        """Avanza una celda hacia `objetivo` y devuelve la posición nueva.
+
+        - Si ``self.estilo == "perseguidor"`` se calcula la ruta más corta
+          desde la posición actual hasta ``objetivo`` usando BFS y se avanza
+          un paso.
+        - En los demás estilos se mantiene el comportamiento anterior.
+        - ``asustado=True`` invierte la lógica: se elige el paso que maximiza
+          la distancia Manhattan al objetivo.
+        """
         # Si está asustado, se aleja del objetivo
         if asustado:
             # Selecciona la celda que maximiza la distancia al objetivo
@@ -115,6 +125,9 @@ class Fantasma:
             else:
                 # Mantener el objetivo actual
                 pass
+        elif self.estilo == "perseguidor":
+            # Usar BFS para encontrar el camino más corto
+            return self._mover_con_bfs(laberinto, objetivo)
         
         # Comportamiento común para todos los estilos (excepto asustado)
         opciones = laberinto.vecinas_libres(self.pos)
@@ -128,6 +141,48 @@ class Fantasma:
         elegida = min(candidatas, key=lambda c: _manhattan(c, objetivo))
         self.direccion = (elegida[0] - self.pos[0], elegida[1] - self.pos[1])
         self.pos = elegida
+        return self.pos
+    
+    def _mover_con_bfs(self, laberinto, objetivo: tuple[int, int]) -> tuple[int, int]:
+        """Usa BFS para encontrar el camino más corto al objetivo."""
+        # Si ya estamos en la posición objetivo, no nos movemos
+        if self.pos == objetivo:
+            return self.pos
+            
+        # BFS para encontrar el camino más corto
+        queue = deque([(self.pos, [])])  # (posición, camino)
+        visited = {self.pos}
+        
+        while queue:
+            current_pos, path = queue.popleft()
+            
+            # Obtener vecinas libres
+            vecinas = laberinto.vecinas_libres(current_pos)
+            
+            for vecina in vecinas:
+                # Si ya visitamos esta posición, ignorarla
+                if vecina in visited:
+                    continue
+                    
+                # Agregar a la cola
+                new_path = path + [vecina]
+                queue.append((vecina, new_path))
+                visited.add(vecina)
+                
+                # Si llegamos al objetivo, devolvemos el primer paso del camino
+                if vecina == objetivo:
+                    # Devolver el primer paso del camino
+                    if new_path:
+                        next_pos = new_path[0]
+                        # Actualizar dirección
+                        self.direccion = (next_pos[0] - self.pos[0], next_pos[1] - self.pos[1])
+                        self.pos = next_pos
+                        return self.pos
+                    else:
+                        # Si no hay camino, mantenerse en la posición actual
+                        return self.pos
+                        
+        # Si no se encontró camino, mantenerse en la posición actual
         return self.pos
 
 
