@@ -59,30 +59,29 @@ if ! python3 -m compileall -q src/ >/dev/null 2>&1; then rojo "src/ no compila";
 # nos pasó en T13, con dos tests cuyo assert era "len(posiciones) > 0".
 if [ -n "${TAREA:-}" ]; then
   echo "── 4. ¿Los tests distinguen?"
-  IMPL="$(echo "$CAMBIADOS" | grep -E '^(ejemplo-pacman/)?src/.*\.py$' | sed 's|^ejemplo-pacman/||' || true)"
+  ROOT="$(git rev-parse --show-toplevel)"
+  IMPL="$(echo "$CAMBIADOS" | grep -E 'src/.*\.py$' || true)"   # rutas relativas a la raíz del repo
+  TMP="$(mktemp -d)"; REVERTIDOS=""
+  for f in $IMPL; do
+    if git cat-file -e "HEAD:$f" 2>/dev/null; then
+      cp "$ROOT/$f" "$TMP/$(echo "$f" | tr / _)"
+      git -C "$ROOT" checkout HEAD -- "$f" && REVERTIDOS="$REVERTIDOS $f"
+    fi
+  done
   if [ -z "$IMPL" ]; then
     verde "no hay implementación nueva que revertir"
+  elif [ -z "$REVERTIDOS" ]; then
+    verde "archivos nuevos (no existían en HEAD): nada que revertir"
   else
-    TMP="$(mktemp -d)"; REVERTIDOS=""
-    for f in $IMPL; do
-      if git cat-file -e "HEAD:$f" 2>/dev/null; then
-        cp "$f" "$TMP/$(echo "$f" | tr / _)"
-        git checkout HEAD -- "$f" && REVERTIDOS="$REVERTIDOS $f"
-      fi
-    done
-    if [ -z "$REVERTIDOS" ]; then
-      verde "archivos nuevos (no existían en HEAD): nada que revertir"
+    if python3 -m unittest discover -s tests -t . -q >/dev/null 2>&1; then
+      rojo "los tests PASAN con la implementación vieja: no verifican el cambio"
+      echo "     revertí:$REVERTIDOS y la suite siguió verde"
     else
-      if python3 -m unittest discover -s tests -t . -q >/dev/null 2>&1; then
-        rojo "los tests PASAN con la implementación vieja: no verifican el cambio"
-        echo "     revertí:$REVERTIDOS y la suite siguió verde"
-      else
-        verde "la suite falla al revertir la implementación"
-      fi
-      for f in $REVERTIDOS; do cp "$TMP/$(echo "$f" | tr / _)" "$f"; done
+      verde "la suite falla al revertir$REVERTIDOS"
     fi
-    rm -rf "$TMP"
+    for f in $REVERTIDOS; do cp "$TMP/$(echo "$f" | tr / _)" "$ROOT/$f"; done
   fi
+  rm -rf "$TMP"
 fi
 
 echo

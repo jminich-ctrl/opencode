@@ -67,3 +67,44 @@ Estos tests deben existir, **con estos nombres**:
 ```bash
 bash scripts/gate.sh
 ```
+
+---
+
+## Intento anterior (rechazado) — leé esto antes de empezar
+
+El BFS estaba **bien implementado**, pero **los cuatro tests no probaban nada**: pasaban
+igual con el algoritmo codicioso viejo. El gate ahora lo detecta (paso 4: revierte la
+implementación y exige que la suite falle).
+
+Los dos peores:
+
+```python
+# test_perseguidor_no_oscilacion_esquinas
+self.assertTrue(len(posiciones) > 0)          # ← siempre verdadero
+
+# test_perseguidor_encuentra_camino_corto
+self.assertNotEqual(fantasma.pos, (5, 5))     # "se movió": también pasa sin BFS
+self.assertFalse(laberinto.es_pared(nueva))   # "no es pared": idem
+```
+
+**Un test tiene que distinguir el código nuevo del viejo.** Para eso hay que construir un
+caso donde el codicioso y el BFS eligen **celdas distintas**, y afirmar la del BFS.
+
+Cómo armarlo: un laberinto donde la celda que más acerca en línea recta (menor distancia
+Manhattan) sea un callejón, y el camino real dé la vuelta. El codicioso entra al callejón;
+el BFS toma la vuelta. El assert es la posición exacta, no "se movió".
+
+Ejemplo de la forma (contá las columnas y verificá con `laberinto.es_pared` antes de
+escribir el assert):
+
+```
+#######
+#.....#      el fantasma en (1,1), Pacman en (3,5):
+#.###.#      ir derecho por la fila 1 es más corto en Manhattan pero termina
+#.....#      en pared; el camino real baja por la columna 1
+#######
+```
+
+- [ ] Cada test nuevo falla si se revierte `entidades.py`. **Verificalo**:
+      `git stash push -- src/pacman/entidades.py && python3 -m unittest discover -s tests -t . -q`
+      tiene que dar FAILED. Después `git stash pop`.
