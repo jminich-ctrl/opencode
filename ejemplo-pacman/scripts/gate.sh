@@ -53,5 +53,37 @@ if grep -rqE '^\s*(import|from)\s+(pygame|numpy|pytest)' src/ 2>/dev/null; then 
 if grep -rn "TODO" src/ 2>/dev/null | grep -qv '^\s*$'; then rojo "quedaron TODO en src/: $(grep -rn 'TODO' src/ | head -2 | tr '\n' ' ')"; else verde "sin TODO sueltos"; fi
 if ! python3 -m compileall -q src/ >/dev/null 2>&1; then rojo "src/ no compila"; else verde "src/ compila"; fi
 
+# ── 4. ¿Los tests distinguen? (solo en modo tarea)
+# Revierte la implementación y exige que la suite FALLE. Un test que pasa con el
+# código viejo no prueba nada, y el gate no lo detecta de ninguna otra forma:
+# nos pasó en T13, con dos tests cuyo assert era "len(posiciones) > 0".
+if [ -n "${TAREA:-}" ]; then
+  echo "── 4. ¿Los tests distinguen?"
+  IMPL="$(echo "$CAMBIADOS" | grep -E '^(ejemplo-pacman/)?src/.*\.py$' | sed 's|^ejemplo-pacman/||' || true)"
+  if [ -z "$IMPL" ]; then
+    verde "no hay implementación nueva que revertir"
+  else
+    TMP="$(mktemp -d)"; REVERTIDOS=""
+    for f in $IMPL; do
+      if git cat-file -e "HEAD:$f" 2>/dev/null; then
+        cp "$f" "$TMP/$(echo "$f" | tr / _)"
+        git checkout HEAD -- "$f" && REVERTIDOS="$REVERTIDOS $f"
+      fi
+    done
+    if [ -z "$REVERTIDOS" ]; then
+      verde "archivos nuevos (no existían en HEAD): nada que revertir"
+    else
+      if python3 -m unittest discover -s tests -t . -q >/dev/null 2>&1; then
+        rojo "los tests PASAN con la implementación vieja: no verifican el cambio"
+        echo "     revertí:$REVERTIDOS y la suite siguió verde"
+      else
+        verde "la suite falla al revertir la implementación"
+      fi
+      for f in $REVERTIDOS; do cp "$TMP/$(echo "$f" | tr / _)" "$f"; done
+    fi
+    rm -rf "$TMP"
+  fi
+fi
+
 echo
 if [ "$FALLOS" -eq 0 ]; then echo "GATE VERDE"; exit 0; else echo "GATE ROJO ($FALLOS fallo/s)"; exit 1; fi
