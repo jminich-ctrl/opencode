@@ -101,11 +101,8 @@ class Fantasma:
         
         # Si no está asustado, aplicar el estilo específico
         if self.estilo == "emboscador":
-            # Apunta 4 celdas por delante de Pacman
-            objetivo = (
-                objetivo[0] + direccion_pacman[0] * 4,
-                objetivo[1] + direccion_pacman[1] * 4
-            )
+            # Apunta 4 celdas por delante de Pacman, ajustadas si están fuera del mapa o son paredes
+            objetivo = _objetivo_emboscador(laberinto, objetivo, direccion_pacman)
         elif self.estilo == "timido":
             # Persigue si está a más de 8 celdas de distancia, sino se va a su esquina
             distancia = _manhattan(self.pos, objetivo)
@@ -189,3 +186,25 @@ class Fantasma:
 def _manhattan(a: tuple[int, int], b: tuple[int, int]) -> int:
     """Distancia Manhattan entre dos celdas."""
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+
+def _objetivo_emboscador(laberinto, objetivo: tuple[int, int], direccion_pacman: tuple[int, int]) -> tuple[int, int]:
+    """Celda 4 adelante de Pacman, acortada hasta que sea válida.
+
+    Prueba 4, 3, 2 y 1 celdas en `direccion_pacman`; devuelve la primera que
+    esté dentro de la grilla y no sea pared. Si ninguna lo está, devuelve
+    `objetivo` (la celda de Pacman).
+    """
+    # Probar desde 4 celdas adelante hasta 1
+    for distancia in [4, 3, 2, 1]:
+        candidato = (
+            objetivo[0] + direccion_pacman[0] * distancia,
+            objetivo[1] + direccion_pacman[1] * distancia
+        )
+        
+        # Verificar si está dentro del laberinto y no es una pared
+        if laberinto.dentro(candidato) and not laberinto.es_pared(candidato):
+            return candidato
+    
+    # Si ninguna distancia funciona, retornar la posición actual de Pacman
+    return objetivo

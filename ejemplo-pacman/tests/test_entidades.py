@@ -4,7 +4,7 @@ Tests para las entidades del juego Pacman.
 """
 
 import unittest
-from src.pacman.entidades import Pacman, Fantasma, ARRIBA, ABAJO, IZQUIERDA, DERECHA
+from src.pacman.entidades import _objetivo_emboscador, Pacman, Fantasma, ARRIBA, ABAJO, IZQUIERDA, DERECHA
 from src.pacman.laberinto import Laberinto
 
 
@@ -183,6 +183,46 @@ class TestPerseguidorBFS(unittest.TestCase):
             rutas.append([fantasma.mover(self.lab, self.objetivo) for _ in range(6)])
         self.assertEqual(rutas[0], rutas[1])
         self.assertEqual(rutas[1], rutas[2])
+
+
+
+class TestEmboscadorAcorta(unittest.TestCase):
+    """El objetivo adelantado tiene que ser una celda alcanzable.
+
+    Antes apuntaba 4 celdas adelante a ciegas: contra una pared o el borde, el
+    objetivo caía fuera del mapa y el fantasma quedaba pegado al borde.
+    """
+
+    def setUp(self):
+        # fila 1: (1,1)..(1,5) libres y (1,6) PARED — ahí está la trampa
+        # fila 3: libre, con la P (el laberinto deja esa celda vacía)
+        self.lab = Laberinto([
+            "########",
+            "#.....##",
+            "#.####.#",
+            "#.....P#",
+            "########",
+        ])
+
+    def test_emboscador_sin_obstaculos_apunta_a_cuatro_celdas(self):
+        # Pacman en (3,1) mirando a la derecha: (3,5) está libre
+        self.assertEqual(_objetivo_emboscador(self.lab, (3, 1), DERECHA), (3, 5))
+
+    def test_emboscador_acorta_si_el_objetivo_es_pared(self):
+        # Pacman en (1,2) mirando a la derecha: (1,6) es pared, (1,5) sirve
+        self.assertEqual(_objetivo_emboscador(self.lab, (1, 2), DERECHA), (1, 5))
+        self.assertTrue(self.lab.es_pared((1, 6)))     # el caso que rompía antes
+
+    def test_emboscador_acorta_si_el_objetivo_sale_del_mapa(self):
+        # Pacman en (1,5) mirando a la derecha: (1,6..9) están fuera o son pared
+        destino = _objetivo_emboscador(self.lab, (1, 5), DERECHA)
+        self.assertTrue(self.lab.dentro(destino))
+        self.assertFalse(self.lab.es_pared(destino))
+        self.assertEqual(destino, (1, 5))
+
+    def test_emboscador_cae_en_pacman_si_nada_sirve(self):
+        # Pacman en (1,1) mirando hacia ARRIBA: toda la columna de arriba es pared
+        self.assertEqual(_objetivo_emboscador(self.lab, (1, 1), ARRIBA), (1, 1))
 
 
 if __name__ == "__main__":
