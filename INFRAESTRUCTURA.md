@@ -199,3 +199,44 @@ El método no cambia; cambia el proveedor. Con Ollama o vLLM local, en `opencode
 Lo único que hay que verificar sí o sí: **que el modelo tenga tool calling habilitado**.
 Sin eso, el agente no puede leer ni editar archivos, y falla con un 400 en la primera
 herramienta que intente usar.
+
+---
+
+## 7. Los CPU del nodo: para qué sirven de verdad
+
+Research de septiembre 2026. Intel promociona fuerte el Xeon para "agentic AI", pero
+**su propia arquitectura pone la inferencia en la GPU y el CPU como plano de control**.
+El dato que lo aclara: el CPU que más promocionan para agentic (Xeon 6+ Clearwater Forest,
+288 núcleos) **no tiene AMX ni AVX-512**. No puede hacer la matemática que publicitan.
+
+**El número que ordena todo:** las 6 GPUs del nodo tienen ~1,8× el ancho de banda de
+memoria de todo el complejo Xeon, y **20 a 75× su throughput de prefill**. El trabajo del
+CPU es alimentar las GPUs, no servir tokens.
+
+### Lo que sí rinde, en orden
+
+| Acción | Ganancia | Nota |
+|---|---|---|
+| **Fijar CPU/NUMA para el frontend de vLLM** (`--numa-bind`, escalar API server) | **1,5–7× TTFT** | Paper de Georgia Tech, sin afiliación a Intel: las GPUs quedan ociosas porque el CPU no las alimenta |
+| **Tokenizador rápido en Rust** (`fastokens`) | hasta **40% TTFT** | 17× arriba de 50k tokens. Los agentes viven ahí |
+| **KV cache en RAM** para reutilizar prefijos | **2–22× TTFT** en aciertos | Bug abierto en llm-scaler: crashea con ≥24 clientes concurrentes |
+| **Embeddings + búsqueda vectorial + clasificadores a CPU** | libera VRAM | El reranker **no**: se queda en GPU |
+| **RAM como staging de pesos** | segundos en vez de minutos al cambiar de modelo | Gratis, solo evitar almacenamiento de red |
+
+La tokenización es el cuello específico de los agentes: el contexto acumulado crece
+(más trabajo de CPU) mientras el prefix caching reduce el trabajo de GPU.
+
+### Lo que es perder el tiempo
+
+`--cpu-offload-gb` (19× más lento, medido) · `--swap-space` (ya no existe en vLLM) ·
+esperar offload de expertos MoE (nada mergeado en v0.30) · **IPEX-LLM (archivado en
+enero 2026)** · OpenVINO HETERO CPU+GPU (rechazado en el código) · draft models en CPU
+para speculative decoding · correr un GGUF de 200B+ y pretender programar contra él
+(7,8 tok/s, y 2,4 con contexto largo).
+
+### Forma del nodo de 6 GPUs
+
+**TP=6 no sirve**: TP tiene que dividir los KV heads, y los candidatos tienen 8, 20, 4 y 2.
+Además llm-scaler reporta **escalado casi lineal con data parallel (3,58× en 4 GPUs)**.
+Para un equipo de agentes —muchas tareas en paralelo, no una sola gigante— **DP rinde más
+que TP**: varias réplicas en TP=2 antes que un solo modelo en TP=4.

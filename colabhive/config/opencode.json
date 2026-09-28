@@ -92,6 +92,42 @@
       "temperature": 0.2,
       "description": "Escribe y corre tests para un cambio concreto.",
       "prompt": "{file:./prompts/tester.md}"
+    },
+    "arquitecto": {
+      "model": "colabhive/5d21e32a-3bbb-4040-9c34-3b06c4415b84",
+      "temperature": 0.3,
+      "description": "Convierte un objetivo en PLAN.md y tareas ejecutables. No escribe código.",
+      "prompt": "{file:./prompts/arquitecto.md}",
+      "steps": 120,
+      "permission": {
+        "edit": "ask",
+        "bash": "ask"
+      }
+    },
+    "seguridad": {
+      "mode": "subagent",
+      "model": "colabhive/1af07b1f-5832-4451-a61c-76d1fe43115a",
+      "temperature": 0.1,
+      "description": "Revisa el diff buscando secretos, inyección, permisos y dependencias nuevas. Solo lee.",
+      "prompt": "{file:./prompts/seguridad.md}",
+      "permission": {
+        "edit": "deny",
+        "bash": "ask"
+      }
+    },
+    "devops": {
+      "mode": "subagent",
+      "model": "colabhive/f5d76140-5b4d-41c0-88da-dad6d11f341a",
+      "temperature": 0.2,
+      "description": "Prepara el despliegue: Dockerfiles, CI, scripts de deploy y rollback. NO despliega a producción.",
+      "prompt": "{file:./prompts/devops.md}"
+    },
+    "migrador": {
+      "mode": "subagent",
+      "model": "colabhive/f5d76140-5b4d-41c0-88da-dad6d11f341a",
+      "temperature": 0.1,
+      "description": "Escribe migraciones de base, cada una con su reversa probada. NO las corre en producción.",
+      "prompt": "{file:./prompts/migrador.md}"
     }
   },
   "share": "disabled",
