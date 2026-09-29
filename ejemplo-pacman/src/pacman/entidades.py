@@ -72,6 +72,26 @@ class Fantasma:
         self.estilo = estilo
         self._contador_errante = 0
 
+    def _objetivo_errante(self, objetivo: tuple[int, int]) -> tuple[int, int]:
+        """Celda a la que apunta el errante este turno, alternando cada 10 turnos.
+
+        Turnos 0-9 devuelven `objetivo`; 10-19 devuelven `self.inicio`; 20-29
+        `objetivo` otra vez. Avanza el contador en cada llamada.
+        """
+        # Incrementar el contador
+        self._contador_errante += 1
+        
+        # Determinar la fase actual basada en el valor del contador
+        # Cada 10 turnos se cambia de fase
+        fase_actual = (self._contador_errante - 1) // 10
+        
+        # Si estamos en una fase par (0, 2, 4, ...), perseguimos
+        # Si estamos en una fase impar (1, 3, 5, ...), regresamos a inicio
+        if fase_actual % 2 == 0:
+            return objetivo
+        else:
+            return self.inicio
+    
     def mover(self, laberinto, objetivo: tuple[int, int], direccion_pacman: tuple[int, int] = (0, 0),
               asustado: bool = False) -> tuple[int, int]:
         """Avanza una celda hacia `objetivo` y devuelve la posición nueva.
@@ -110,18 +130,8 @@ class Fantasma:
                 # Se va a su esquina (inicio)
                 objetivo = self.inicio
         elif self.estilo == "errante":
-            # Alterna entre perseguir y volver a su esquina cada 10 movimientos
-            self._contador_errante += 1
-            if self._contador_errante >= 10:
-                self._contador_errante = 0
-                # Alternar entre objetivo normal y inicio
-                if self._contador_errante == 0:
-                    objetivo = self.inicio
-                else:
-                    objetivo = objetivo
-            else:
-                # Mantener el objetivo actual
-                pass
+            # Usar el nuevo método para alternar correctamente
+            objetivo = self._objetivo_errante(objetivo)
         elif self.estilo == "perseguidor":
             # Usar BFS para encontrar el camino más corto
             return self._mover_con_bfs(laberinto, objetivo)

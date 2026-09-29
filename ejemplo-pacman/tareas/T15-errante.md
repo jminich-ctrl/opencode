@@ -1,5 +1,7 @@
 # T15 — El errante tiene que alternar fases de verdad
 
+**Estado:** ✅ hecha — agente, verde al primer intento (tests escritos antes)
+
 **Depende de:** T10, T13, T14 (todas hechas)
 **Archivos que podés tocar:** `src/pacman/entidades.py`
 **Prohibido tocar:** `tests/` (los tests ya están escritos), `laberinto.py`, `juego.py`, `render.py`, `__main__.py`

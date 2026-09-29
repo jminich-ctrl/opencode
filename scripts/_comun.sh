@@ -42,6 +42,14 @@ cerrar_con_gate() {
   local log="$1" id="$2" salida rc
   salida="$(bash scripts/gate.sh 2>&1)"
   rc=$?
+  # El agente nunca commitea: deja todo sin trackear y `git merge tarea/TNN` no trae nada.
+  # Si el gate dio verde, commiteamos nosotros para que la rama sea mergeable.
+  if [ "$rc" = "0" ]; then
+    git add -A >/dev/null 2>&1
+    git -c user.name="agente" -c user.email="agente@local" \
+        commit -q -m "$id: gate verde" >/dev/null 2>&1 \
+      && printf '\n=== commiteado en la rama tarea/%s\n' "$id" >> "$log"
+  fi
   printf '\n=== gate ===\n%s\n=== rc=%s\n=== fin %s · %s\n' \
     "$salida" "$rc" "$id" "$(date -u +'%H:%M:%S UTC')" >> "$log"
   return "$rc"
@@ -58,6 +66,16 @@ parte_del_agente() {
 # el gate solo ve el repo intacto. Se busca sólo en la parte del agente, no en los tests.
 error_del_agente() {
   parte_del_agente "$1" | grep -m1 -oE '^Error: .*|inference timed out[^"]*|database is locked'
+}
+
+# Registro de intentos: una línea por corrida, para que las métricas lean datos y no
+# adivinen del texto de las tareas. Vive fuera del árbol versionado del proyecto.
+anotar_intento() {
+  local id="$1" ver="$2" segs="$3" modelo="${4:-}"
+  local reg="$RAIZ/.metricas/intentos.csv"
+  mkdir -p "$(dirname "$reg")"
+  [ -f "$reg" ] || echo "fecha,proyecto,tarea,veredicto,segundos,modelo" > "$reg"
+  echo "$(date -u +%FT%TZ),${PROYECTO:-.},$id,$ver,$segs,$modelo" >> "$reg"
 }
 
 # VERDE / ROJO si el runner ya cerró el log; vacío si la tarea sigue corriendo.

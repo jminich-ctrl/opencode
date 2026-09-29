@@ -53,7 +53,8 @@ lanzar() {
     export TAREA="$id"
     export XDG_DATA_HOME="$wt/.opencode-data"
     mkdir -p "$XDG_DATA_HOME"
-    local log="$wt/.tarea.log"
+    local log="$wt/.tarea.log" inicio
+    inicio="$(date +%s)"
     {
       echo "=== $id · $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
       opencode run "Implementá la tarea descrita en $archivo. Leela completa antes de empezar. Respetá los archivos permitidos y prohibidos. Al terminar corré 'bash scripts/gate.sh' y mostrá su salida real." 2>&1
@@ -65,6 +66,10 @@ lanzar() {
     error="$(error_del_agente "$log")"
     cerrar_con_gate "$log" "$id"
     local rc=$?
+    # Una línea por intento en el registro: las métricas leen datos, no adivinan del texto.
+    anotar_intento "$id" "$([ -n "$error" ] && echo ERROR || veredicto "$log")" \
+                   "$(( $(date +%s) - inicio ))" \
+                   "$(grep -m1 -oE '^\[0m> [a-z]+ · [0-9a-f]{8}' "$log" | awk '{print $NF}')"
     if [ -n "$error" ]; then echo "✗ $id ERROR del agente: $error"
     elif [ "$rc" -eq 0 ]; then echo "✓ $id gate VERDE"
     else echo "✗ $id gate ROJO"; fi

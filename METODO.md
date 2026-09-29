@@ -305,6 +305,29 @@ explicarle al modelo lo mismo, cerrá la sesión.
 
 ---
 
+## 6b. Las herramientas de medición
+
+El método pedía medir y no daba con qué. Ahora el runner **registra cada intento**
+(`.metricas/intentos.csv`: fecha, tarea, veredicto, segundos, modelo) y
+
+```bash
+PROYECTO=ejemplo-pacman bash scripts/metricas.sh
+```
+
+lo resume. Dos decisiones de diseño que costaron un rato entender:
+
+- **El registro lo escribe el runner, no se deduce del texto de las tareas.** La primera
+  versión contaba las secciones "Intento anterior" de los archivos y daba **80%** donde la
+  realidad era 44%. Adivinar del texto da números lindos y falsos.
+- **El denominador son todas las tareas intentadas, no las que llegaron a verde.** Contar
+  solo las exitosas es sesgo de supervivencia: las cuatro que nunca pasaron el gate y
+  terminó haciendo un humano son justamente las que hay que ver.
+- **Los errores de plataforma se cuentan aparte.** Un intento perdido porque el modelo
+  estaba frío o el stream se cortó no dice nada del modelo ni del plan.
+
+El runner además **commitea la rama cuando el gate da verde**: el agente nunca commitea, y
+sin eso `git merge tarea/TNN` no trae nada y hay que copiar archivos a mano.
+
 ## 7. Qué medir
 
 Para saber si el método funciona, y para dimensionar mejor las próximas tareas:
