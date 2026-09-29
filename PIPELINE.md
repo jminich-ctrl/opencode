@@ -159,6 +159,38 @@ bash scripts/deploy.sh produccion     # ← este lo corrés vos, a mano
 
 ---
 
+## 6b. Probado de punta a punta (2026-09-29)
+
+El pipeline entero corre sobre `ejemplo-pacman`:
+
+```
+G1/G3  gate.sh         tests + alcance + higiene + ¿los tests distinguen?   VERDE
+G4     pre-deploy.sh   secretos · deps · migraciones · env · build · smoke  VERDE
+G5     deploy.sh       artefacto · reversa · deploy · smoke del desplegado  VERDE
+```
+
+Lo que se verificó a propósito, no de palabra:
+
+- **G5 se niega si G4 está en rojo.** Rompimos `render.py` adrede: el deploy no arrancó y
+  **salió con código 1**. Con la app sana, 0. Eso lo hace usable desde CI.
+- **El smoke corre contra lo desplegado**, no contra el árbol de trabajo: si el artefacto
+  se armó mal, se ve ahí y no en producción.
+- **El smoke atrapa el crash original.** Reintrodujimos el bug de T11 (un booleano donde
+  iba la dirección) y lo detectó. Los tests también lo detectan hoy, pero **solo porque
+  después del incidente escribimos el test**; el smoke no necesitaba que nadie lo
+  anticipara.
+
+### Los subagentes solo se invocan por delegación
+
+`opencode run --agent reviewer` **no usa reviewer**: cae en el agente por defecto, sin
+avisar. Verificado dos veces. La única forma de usar `reviewer`, `seguridad`, `devops` o
+`migrador` es que un agente primario los invoque con la herramienta de tareas
+(`@reviewer …`) dentro de una sesión.
+
+Consecuencia práctica: **G2 con subagente no se puede automatizar desde un script** como
+G1/G4/G5. O se hace desde una sesión interactiva, o el revisor humano lee el diff. Lo
+cual, siendo G2 el gate humano, tampoco es tan grave.
+
 ## 7. Qué medir en esta mitad
 
 | Métrica | Qué te dice |
