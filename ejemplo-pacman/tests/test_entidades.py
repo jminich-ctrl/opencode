@@ -227,3 +227,50 @@ class TestEmboscadorAcorta(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestErranteAlterna(unittest.TestCase):
+    """El errante tiene que alternar FASES de 10 turnos, no volver una vez cada 10.
+
+    El código anterior hacía `contador = 0` y después preguntaba `if contador == 0`,
+    que es siempre verdadero: perseguía 9 turnos y volvía a su esquina en el décimo.
+    """
+
+    def setUp(self):
+        self.lab = Laberinto([
+            "#######",
+            "#.....#",
+            "#.###.#",
+            "#....P#",
+            "#######",
+        ])
+        self.fantasma = Fantasma((1, 1), estilo="errante")
+        self.objetivo = (3, 5)
+
+    def fases(self, turnos):
+        """Qué objetivo elige el errante en cada uno de los primeros `turnos`."""
+        return [self.fantasma._objetivo_errante(self.objetivo) for _ in range(turnos)]
+
+    def test_errante_persigue_los_primeros_diez_turnos(self):
+        self.assertEqual(self.fases(10), [self.objetivo] * 10)
+
+    def test_errante_vuelve_a_su_esquina_los_diez_siguientes(self):
+        self.fases(10)
+        self.assertEqual(self.fases(10), [self.fantasma.inicio] * 10)
+
+    def test_errante_vuelve_a_perseguir_en_el_tercer_ciclo(self):
+        self.fases(20)
+        self.assertEqual(self.fases(5), [self.objetivo] * 5)
+
+    def test_errante_no_alterna_en_cada_turno(self):
+        # el bug viejo daba el objetivo 9 veces y el inicio 1: eso NO es alternar
+        fases = self.fases(20)
+        self.assertEqual(fases.count(self.objetivo), 10)
+        self.assertEqual(fases.count(self.fantasma.inicio), 10)
+
+    def test_los_otros_estilos_no_usan_el_contador(self):
+        for estilo in ("perseguidor", "emboscador", "timido"):
+            fantasma = Fantasma((1, 1), estilo=estilo)
+            fantasma.mover(self.lab, self.objetivo)
+            self.assertEqual(getattr(fantasma, "_contador_errante", 0), 0,
+                             f"{estilo} no debería mover el contador del errante")
