@@ -3,11 +3,12 @@
 Sale con código 1 si alguno está en cold."""
 import json, sys
 
-# model_name del catálogo → rol en config/opencode.json. Si cambiás de modelos, cambialo acá.
 ROLES = {
-    "gpt-oss-20b": "plan/explore",
-    "hf-Qwen-Qwen3-Coder-30B-A3B-Instruct-FP8": "build/tester",
-    "hf-Qwen-Qwen3.8-27B-FP8": "reviewer",
+    "gpt-oss-120b": "arquitecto",
+    "hf-Qwen-Qwen3.8-27B-FP8": "coder",
+    "hf-Qwen-Qwen3-8B": "worker",
+    "gpt-oss-20b": "orquestador",
+    "hf-Qwen-Qwen3-Coder-30B-A3B-Instruct-FP8": "tester",
 }
 ICON = {"warm": "●", "cached": "◐", "cold": "○"}
 
