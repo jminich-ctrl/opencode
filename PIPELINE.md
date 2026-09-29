@@ -71,10 +71,22 @@ Lo que rompe en producción y no en local. Corre sobre el tronco, después de G3
 | **Build real** | que compile/empaquete igual que en producción, no solo que pasen los tests |
 | **Smoke local** | que la app **arranque**. Nuestro Pacman crasheaba al arrancar con 70 tests en verde |
 
-Plantilla ejecutable en `plantillas/pre-deploy.sh`.
+Plantilla ejecutable en `plantillas/pre-deploy.sh`, y el ejemplo adaptado en
+`ejemplo-pacman/scripts/pre-deploy.sh`.
+
+**Un G4 al que le falta un chequeo tiene que dar ROJO, no seguir en verde.** La primera
+versión avisaba "sin smoke de arranque" y seguía: daba PRE-DEPLOY VERDE salteándose
+justamente el chequeo que más atrapa. Es la misma trampa que el gate de tareas tenía con
+"sin cambios", y aparece sola cada vez que uno escribe un verificador.
 
 **El smoke de arranque no es opcional.** Es el chequeo que atrapa la clase de bug que los
 tests unitarios no ven: la que vive en el arranque, el wiring y la configuración.
+
+Y no hace falta una terminal ni un navegador: `ejemplo-pacman/scripts/smoke.sh` levanta el
+juego **en una pty**, le manda teclas y verifica que dibuje. Lo probamos reintroduciendo el
+bug original (pasar un booleano donde iba la dirección): el smoke lo atrapa. Los tests
+también, **pero solo porque después del incidente escribimos el test**; el smoke lo
+atrapa sin que nadie haya anticipado ese cableado en particular.
 
 ---
 
@@ -93,7 +105,10 @@ build ─▶ staging ─▶ smoke en staging ─▶ [ decisión humana ] ─▶ 
 6. **Rollback** si algo falla, con el criterio escrito **antes** de desplegar.
 
 Plantilla en `plantillas/deploy.sh`. Adaptala a tu stack: lo que no cambia es el orden y
-que el paso 3 lo hace una persona.
+que el paso 3 lo hace una persona. La plantilla se niega a arrancar si G4 está en rojo, y
+para producción **pregunta cuatro cosas y exige que escribas `desplegar`**: qué cambia para
+el usuario, qué puede romper, si la reversa está probada o solo escrita, y si el código
+viejo sobrevive al esquema nuevo.
 
 ---
 

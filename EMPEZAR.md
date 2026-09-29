@@ -59,7 +59,7 @@ No sigas hasta que el plan esté escrito. Es el gate G0.
 
 ## 3. Ajustá el gate
 
-`scripts/gate.sh` tiene que correr **tu** suite de tests y **tus** reglas de higiene.
+`ejemplo-pacman/scripts/gate.sh` tiene que correr **tu** suite de tests y **tus** reglas de higiene.
 Probalo antes de usarlo:
 
 ```bash

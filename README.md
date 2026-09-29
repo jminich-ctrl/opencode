@@ -48,7 +48,7 @@ file (your previous one is kept as `.bak`). More on choosing roles:
 > No task is done because the agent says so: a command decides.
 > Retrying is cheap: launch several in parallel and discard the ones that went wrong.
 
-Each task runs in its own git worktree with a clean context, and the project's `scripts/gate.sh` —
+Each task runs in its own git worktree with a clean context, and the project's `ejemplo-pacman/scripts/gate.sh` —
 tests, scope and hygiene; the example's is [`ejemplo-pacman/scripts/gate.sh`](ejemplo-pacman/scripts/gate.sh)
 — gives the verdict. The runner runs the gate after the agent has finished and decides on its exit
 code, never on what the agent wrote: in our logs, an agent reported "GATE VERDE" (green) after seeing

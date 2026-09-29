@@ -96,7 +96,7 @@ Cada tarea se paga por tiempo de GPU (o es tu propio hardware), no por token. En
 | **Ejecutor** | Agente `build`, modelo **no pensante** | Implementa **una** tarea, nada más |
 | **Explorador** | Subagente `explore` (el modelo más rápido) | Busca en el código y responde dónde está qué |
 | **Revisor** | Subagente `reviewer` (27B) | Busca bugs en el diff. Solo lectura |
-| **Juez** | `scripts/gate.sh` | Decide si la tarea está terminada. No opina, ejecuta |
+| **Juez** | `ejemplo-pacman/scripts/gate.sh` | Decide si la tarea está terminada. No opina, ejecuta |
 | **Integrador** | Vos | Revisa diffs, mergea, decide qué se relanza |
 
 La regla que más importa: **el arquitecto nunca es el modelo chico.** Un 27B planificando
@@ -142,7 +142,7 @@ dependencias y sus criterios. Lo escribe el arquitecto, lo aprobás vos.
 
 ### G1 — Gate de tarea (automático)
 
-`scripts/gate.sh` corre sobre el worktree de la tarea y verifica, en este orden:
+`ejemplo-pacman/scripts/gate.sh` corre sobre el worktree de la tarea y verifica, en este orden:
 
 1. **Tests**: la suite completa pasa.
 2. **Alcance**: no se tocaron archivos fuera de los declarados en la tarea.
@@ -210,7 +210,7 @@ Una frase. Qué tiene que poder hacer el código cuando esto esté listo.
 ## Criterio de terminado
 - [ ] Condición verificable 1
 - [ ] Condición verificable 2
-- [ ] `scripts/gate.sh` en verde
+- [ ] `ejemplo-pacman/scripts/gate.sh` en verde
 
 ## Verificación
     python3 -m unittest discover -s tests -t . -q
