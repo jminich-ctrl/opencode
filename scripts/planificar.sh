@@ -9,6 +9,12 @@
 # `--agent arquitecto` que en realidad respondía `build` (OPENCODE.md §3).
 #
 # El plan que sale NO está aprobado. G0 lo firma una persona: ver HUMANO.md §1.
+#
+# La instrucción es deliberadamente terminante en un punto: "tu única salida son archivos".
+# Con la versión anterior —"decime qué decisiones te quedaron abiertas"— el arquitecto
+# escribió siete preguntas muy razonables, ningún archivo, y terminó pidiendo confirmación.
+# Un modelo chico al que le ofrecés preguntar, pregunta. Las decisiones abiertas van
+# adentro del plan, donde el humano las ve al revisarlo.
 set -uo pipefail
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$AQUI/_comun.sh"
@@ -46,7 +52,7 @@ inicio=$(date +%s)
 (
   cd "$BASE" || exit 1
   opencode run --agent "$AGENTE" \
-    "Leé $ENCARGO. Es el encargo. Escribí PLAN.md y los archivos de tareas en tareas/, siguiendo el método del repo ($AQUI/../METODO.md, $AQUI/../DESCOMPOSICION.md, plantillas en $AQUI/../plantillas/). Cuando termines, decime qué decisiones te quedaron abiertas." 2>&1
+    "Leé $ENCARGO. Es el encargo. Tu única salida son archivos: PLAN.md y un archivo por tarea en tareas/, siguiendo el método del repo ($AQUI/../METODO.md, $AQUI/../DESCOMPOSICION.md, plantillas en $AQUI/../plantillas/). Escribilos aunque te falte información: las decisiones que queden abiertas van en una sección 'Decisiones abiertas' DENTRO de PLAN.md. No pares a preguntar y no propongas próximos pasos: un plan incompleto es más útil que ninguno." 2>&1
 ) > "$log" 2>&1
 duracion=$(( $(date +%s) - inicio ))
 

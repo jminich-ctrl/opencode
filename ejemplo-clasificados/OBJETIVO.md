@@ -40,3 +40,24 @@ Dos cosas que nos importan especialmente, porque ya nos mordieron antes:
 
 1. **Decinos qué decisiones quedan abiertas** en vez de elegir por tu cuenta y seguir.
 2. **Marcá las tareas que tocan el mismo archivo**, para no lanzarlas en paralelo.
+
+## Decisiones cerradas
+
+Preguntaste siete cosas. Estas son las respuestas; no vuelvas a abrirlas.
+
+1. **La scaffolding es la tarea T01**, no la hacés vos antes de planificar. Planificá primero.
+2. **Sin gestores extra**: `pip` con `requirements.txt` en el backend, `npm` en el frontend.
+   Cuantas menos piezas móviles, menos cosas que expliquen un rojo.
+3. **pytest y vitest**, y sí: **los tests van escritos antes de cada tarea y fallando**. El
+   agente los hace pasar y no los toca — el gate lo verifica, no es una recomendación.
+4. La primera migración y su reversa son parte de la tarea del esquema, no una tarea aparte.
+5. **G3 lo hace Jose, 15 minutos.**
+6. **Capas del backend, en una sola dirección**: `app/datos` → `app/servicios` → `app/rutas`.
+   Cada una sólo importa las anteriores. Escribí `scripts/_arquitectura.py` con esas capas
+   (hay un ejemplo en `../ejemplo-pacman/scripts/_arquitectura.py`) así el gate lo verifica
+   solo.
+7. **El orden de las etapas lo decidís vos**: es tu trabajo, no una decisión de negocio.
+   Infraestructura primero está bien.
+
+Si te queda alguna decisión abierta, **escribila en una sección del plan y seguí**. No
+pares a preguntar: el plan incompleto es más útil que ningún plan.

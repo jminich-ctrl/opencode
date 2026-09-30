@@ -56,6 +56,14 @@ Lo que **no** se le delega, y por eso `DESCOMPOSICION.md` §7 sigue valiendo:
 Úsalo como un borrador acelerado, no como un reemplazo: revisar un plan lleva 10 minutos,
 escribirlo desde cero lleva una hora.
 
+**Y no le ofrezcas una alternativa a producir.** Le pedíamos *"cuando termines, decime qué
+decisiones te quedaron abiertas"*: devolvió un análisis largo, siete preguntas razonables,
+ningún archivo, y un *"¿podés confirmar para que pueda avanzar?"*. No es desobediencia, es la
+lectura literal de una invitación. Pedir lo que falta y entregar lo que se pueda son dos
+cosas distintas, y ofrecidas juntas un modelo chico elige la barata. La instrucción ahora
+dice **"tu única salida son archivos"**, y las decisiones abiertas van en una sección
+*adentro* de `PLAN.md`, que es donde el humano las va a ver igual.
+
 **G0 tiene su script**, `scripts/planificar.sh`, y no es una comodidad. Antes se corría a
 mano y así arrastramos meses un `--agent arquitecto` que en realidad respondía `build`,
 porque OpenCode no registra un agente que no declara `mode` y no avisa. El script verifica
