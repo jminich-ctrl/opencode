@@ -43,6 +43,18 @@ lanzar() {
   git -C "$RAIZ" worktree add -q -b "tarea/$id" "$wt" || { echo "✗ $id: no pude crear el worktree"; return 1; }
 
   local dir="$wt/$PROYECTO"
+
+  # Modo manual: el método no depende de que haya una IA disponible. Preparamos el
+  # worktree, mostramos la tarea, y la hace una persona; el gate decide igual.
+  if [ "${MANUAL:-0}" = "1" ] || ! command -v opencode >/dev/null 2>&1; then
+    [ "${MANUAL:-0}" = "1" ] || echo "· no encuentro opencode: modo manual"
+    echo "▶ $id preparada para hacerla a mano"
+    echo "    tarea:     $BASE/tareas/$(basename "$archivo")"
+    echo "    trabajá en: $dir"
+    echo "    al terminar: bash $AQUI/cerrar-tarea.sh $id"
+    return 0
+  fi
+
   echo "▶ $id lanzada en $dir"
   (
     cd "$dir" || exit 1

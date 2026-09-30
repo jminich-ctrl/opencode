@@ -121,7 +121,21 @@
       "steps": 120,
       "permission": {
         "edit": "allow",
-        "bash": "ask"
+        "bash": {
+          "ls*": "allow",
+          "cat*": "allow",
+          "head*": "allow",
+          "tail*": "allow",
+          "grep*": "allow",
+          "rg*": "allow",
+          "find*": "allow",
+          "wc*": "allow",
+          "tree*": "allow",
+          "git log*": "allow",
+          "git status*": "allow",
+          "git diff*": "allow",
+          "*": "ask"
+        }
       }
     },
     "seguridad": {
