@@ -4,7 +4,7 @@ Orquesta el `tick` y decide qué pasa cuando Pacman y un fantasma se encuentran.
 No imprime nada: `render` se encarga de mostrar lo que acá se decide.
 """
 
-from .laberinto import PODER, PUNTO
+from .laberinto import PODER, PUNTO, VACIO
 
 PUNTOS_POR_PUNTO = 10
 PUNTOS_POR_PASTILLA = 50
@@ -14,9 +14,14 @@ VIDAS_INICIALES = 3
 
 
 class Juego:
+    UMBRAL_FRUTA = 300
+    TURNOS_FRUTA = 50
     """Lleva el puntaje y el estado del nivel."""
 
     def __init__(self, laberinto):
+        self.fruta: tuple[int, int] | None = None
+        self._turnos_fruta: int = 0
+        self._fruta_aparecida: bool = False
         """Arranca una partida sobre `laberinto`, con el puntaje en cero."""
         self.laberinto = laberinto
         self.puntaje = 0
@@ -28,10 +33,17 @@ class Juego:
     def comer_en(self, pos: tuple[int, int]) -> str:
         """Come lo que haya en `pos`, suma el puntaje y devuelve qué comió.
 
-        Un punto suma 10 y una pastilla 50; una celda ya comida no suma nada.
+        Un punto suma 10 y una pastilla 50; una fruta suma 100; una celda ya comida no suma nada.
         Deja en `ultima_pastilla` si lo comido fue una pastilla, que es lo que
         dispara el modo asustado (T05).
         """
+        # Si la posición corresponde a la fruta activa
+        if self.fruta is not None and pos == self.fruta:
+            # Comer fruta
+            self.puntaje += 100
+            self.fruta = None
+            # No afecta modo asustado ni última pastilla
+            return "fruta"
         comido = self.laberinto.comer(pos)
         if comido == PUNTO:
             self.puntaje += PUNTOS_POR_PUNTO
@@ -44,9 +56,35 @@ class Juego:
         return comido
 
     def tick(self) -> None:
-        """Avanza un turno: descuenta el modo asustado si está activo."""
+        """Avanza un turno: actualiza modo asustado y maneja la fruta.
+
+        - Descuenta el modo asustado si está activo.
+        - Hace aparecer la fruta al superar el umbral de puntaje, una sola vez.
+        - Reduce la vida útil de la fruta y la elimina al caducar.
+        """
+        # Modo asustado
         if self.asustado_restante > 0:
             self.asustado_restante -= 1
+
+        # Aparición de fruta
+        if not self._fruta_aparecida and self.puntaje >= self.UMBRAL_FRUTA:
+            # Buscar la primera celda libre (VACIO) que no sea pared
+            for fila in range(self.laberinto.alto):
+                for col in range(self.laberinto.ancho):
+                    pos = (fila, col)
+                    if not self.laberinto.es_pared(pos) and self.laberinto.contenido(pos) == VACIO:
+                        self.fruta = pos
+                        self._turnos_fruta = self.TURNOS_FRUTA
+                        self._fruta_aparecida = True
+                        break
+                if self.fruta is not None:
+                    break
+
+        # Caducidad de fruta
+        if self.fruta is not None:
+            self._turnos_fruta -= 1
+            if self._turnos_fruta <= 0:
+                self.fruta = None
 
     @property
     def asustados(self) -> bool:
