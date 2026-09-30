@@ -1,16 +1,19 @@
-"""Estado de la partida: puntaje, vidas y modo asustado.
+"""Estado de la partida: puntaje, vidas, modo asustado y fruta.
 
 Orquesta el `tick` y decide qué pasa cuando Pacman y un fantasma se encuentran.
 No imprime nada: `render` se encarga de mostrar lo que acá se decide.
 """
 
-from .laberinto import PODER, PUNTO
+from .laberinto import PODER, PUNTO, VACIO
 
 PUNTOS_POR_PUNTO = 10
 PUNTOS_POR_PASTILLA = 50
 PUNTOS_PRIMER_FANTASMA = 200
+PUNTOS_POR_FRUTA = 100
 TICKS_ASUSTADO = 20
 VIDAS_INICIALES = 3
+UMBRAL_FRUTA = 300
+TURNOS_FRUTA = 50
 
 
 class Juego:
@@ -24,14 +27,22 @@ class Juego:
         self.asustado_restante = 0
         self.vidas = VIDAS_INICIALES
         self._comidos_en_este_modo = 0
+        self.fruta = None
+        self._fruta_restante = 0
+        self._fruta_aparecida = False
 
     def comer_en(self, pos: tuple[int, int]) -> str:
         """Come lo que haya en `pos`, suma el puntaje y devuelve qué comió.
 
-        Un punto suma 10 y una pastilla 50; una celda ya comida no suma nada.
-        Deja en `ultima_pastilla` si lo comido fue una pastilla, que es lo que
-        dispara el modo asustado (T05).
+        Un punto suma 10, una pastilla 50 y la fruta 100; una celda ya comida
+        no suma nada. Deja en `ultima_pastilla` si lo comido fue una pastilla,
+        que es lo que dispara el modo asustado (T05).
         """
+        if pos == self.fruta:
+            self.fruta = None
+            self.puntaje += PUNTOS_POR_FRUTA
+            self.ultima_pastilla = False
+            return "fruta"
         comido = self.laberinto.comer(pos)
         if comido == PUNTO:
             self.puntaje += PUNTOS_POR_PUNTO
@@ -44,9 +55,35 @@ class Juego:
         return comido
 
     def tick(self) -> None:
-        """Avanza un turno: descuenta el modo asustado si está activo."""
+        """Avanza un turno: descuenta el modo asustado y la vida de la fruta.
+
+        Si el puntaje ya alcanzó `UMBRAL_FRUTA` y la fruta todavía no apareció,
+        la coloca; a los `TURNOS_FRUTA` turnos desaparece sola.
+        """
         if self.asustado_restante > 0:
             self.asustado_restante -= 1
+        if self.fruta is not None:
+            self._fruta_restante -= 1
+            if self._fruta_restante <= 0:
+                self.fruta = None
+        elif not self._fruta_aparecida and self.puntaje >= UMBRAL_FRUTA:
+            self._aparecer_fruta()
+
+    def _aparecer_fruta(self) -> None:
+        """Coloca la fruta en la primera celda libre y sin punto.
+
+        La regla es fija y determinista: recorre la grilla en orden de lectura
+        (arriba a abajo, izquierda a derecha) y elige la primera celda vacía.
+        Si no hay ninguna, la fruta no aparece y se reintenta en el próximo
+        tick.
+        """
+        for fila in range(self.laberinto.alto):
+            for col in range(self.laberinto.ancho):
+                if self.laberinto.contenido((fila, col)) == VACIO:
+                    self.fruta = (fila, col)
+                    self._fruta_restante = TURNOS_FRUTA
+                    self._fruta_aparecida = True
+                    return
 
     @property
     def asustados(self) -> bool:
