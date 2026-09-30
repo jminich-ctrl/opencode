@@ -134,3 +134,23 @@ con lo que medimos antes en las cuatro variantes de `reasoning_effort`. Al motor
 parser de razonamiento para estos modelos. Para nosotros el costo es doble: contamina la
 respuesta que lee el runner, y el razonamiento no se puede descartar del historial.
 Anotado en `colabhive-backlog.md`.
+
+## La regresión de velocidad empeoró (2026-09-30, 13:40 UTC)
+
+Tres modelos, tres endpoints distintos, con una request trivial de 40 tokens:
+
+| Modelo | tok/s hoy | línea base |
+|---|---|---|
+| Qwen3-8B | 2,2 | 178 |
+| Qwen3-Coder-30B | 0,9 | — |
+| Qwen3-8B (180 tokens) | 1,1 | 178 |
+
+**Entre 80× y 200× más lento**, y bastante peor que los 5,3–15,9 tok/s que habíamos medido
+el día anterior. No es contención nuestra: son endpoints separados y la degradación es
+uniforme. Con esto no se puede correr nada: el arquitecto sobre el objetivo de clasificados
+se abandonó después de ~40 minutos sin haber escrito la primera línea del plan.
+
+**Lo que esto le cuesta al método:** nada de lo que depende de un modelo se puede medir hoy.
+Vale como recordatorio de una regla que ya teníamos escrita: **si la plataforma está en
+cambios, las mediciones no sirven, hay que esperar.** Lo que sí se puede hacer mientras tanto
+es todo lo que es comando: gates, scripts, documentación.
