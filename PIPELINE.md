@@ -77,6 +77,7 @@ Lo que rompe en producción y no en local. Corre sobre el tronco, después de G3
 | **Variables de entorno** | las que el código nuevo usa existen en el destino |
 | **Build real** | que compile/empaquete igual que en producción, no solo que pasen los tests |
 | **Smoke local** | que la app **arranque**. Nuestro Pacman crasheaba al arrancar con 70 tests en verde |
+| **La suite sobre un checkout limpio** | todo lo demás corre sobre el árbol de trabajo, donde un archivo sin commitear puede estar sosteniendo los tests. Lo que se despliega es lo commiteado |
 
 Plantilla ejecutable en `plantillas/pre-deploy.sh`, y el ejemplo adaptado en
 `ejemplo-pacman/scripts/pre-deploy.sh`.

@@ -95,6 +95,24 @@ else
   echo "     escribilo: que levante la app de verdad y verifique que responde"
 fi
 
+echo "── 7. La suite sobre un checkout limpio"
+# Todo lo anterior corre sobre el árbol de trabajo, donde puede haber archivos sin
+# commitear que hacen pasar los tests. Lo que se despliega es lo COMMITEADO, así que la
+# última verificación se hace sobre un clon limpio de HEAD. Es la forma en que
+# SWE-Bench Pro V2 atrapó contenidos de archivo falsificados.
+LIMPIO="$(mktemp -d)"
+if git clone -q --no-hardlinks --depth 1 "file://$RAIZ" "$LIMPIO/repo" 2>/dev/null; then
+  if ( cd "$LIMPIO/repo/${PREFIJO:-.}" && python3 -m unittest discover -s tests -t . -q ) >"$LIMPIO/salida" 2>&1; then
+    verde "la suite pasa sobre lo commiteado ($(grep -E '^Ran ' "$LIMPIO/salida" | head -1))"
+  else
+    rojo "la suite FALLA sobre un checkout limpio: hay algo sin commitear que la sostiene"
+    tail -12 "$LIMPIO/salida" | sed 's/^/     /'
+  fi
+else
+  rojo "no pude clonar el repo para verificar sobre lo commiteado"
+fi
+rm -rf "$LIMPIO"
+
 echo
 if [ "$FALLOS" -eq 0 ]; then echo "PRE-DEPLOY VERDE"; exit 0
 else echo "PRE-DEPLOY ROJO ($FALLOS fallo/s) — el deploy no arranca"; exit 1; fi

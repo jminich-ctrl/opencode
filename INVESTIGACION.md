@@ -51,15 +51,18 @@ Ese último es el que justifica todo el aparato de verificación de este repo.
 | **Prohibir enmascarar salida** y tratar "0 tests" como falla | cerrado: `Ran 0 tests` da rojo, y `# noqa`, `# type: ignore`, `except: pass`, `@unittest.skip` y `\|\| true` en `src/` también |
 | **Una función de aptitud arquitectónica sobre el tronco** | cerrado: `_arquitectura.py`, paso 5 del gate en modo integración (§2.3) |
 | **No reintentar la misma falla** | cerrado: el runner compara la huella entre intentos y corta en punto muerto |
+| **Re-evaluar sobre un checkout limpio** | cerrado: paso 7 de G4 clona `HEAD` y corre la suite ahí. Probado con un test commiteado que dependía de un archivo sin commitear: árbol de trabajo verde, checkout limpio rojo |
+| **Gate de obsolescencia** (34 de 35 afirmaciones falsas eran corridas viejas) | no hace falta: el runner **corre el gate él mismo** después de que el agente termina, así que el veredicto nunca es de una corrida anterior. Lo teníamos cubierto por arquitectura sin saber que era el modo de falla dominante |
 
 ### 2.2 Lo que sigue faltando
 
-| Qué | Por qué | Dónde iría |
-|---|---|---|
-| **Re-evaluar sobre un checkout limpio** | SWE-Bench Pro V2 atrapó contenidos de archivo falsificados así | G4 |
-| **Gate de obsolescencia**: comparar la marca de tiempo del último cambio contra la de la última corrida verde | de 35 afirmaciones falsas medidas, **34 eran por corrida vieja**, no por mentira | runner |
-| **Mutation testing acotado al diff** | el único detector confiable de un test tautológico; nuestro paso 4 es la versión pobre | G2 |
-| **Ablación no-op por pieza**: stubear cada cosa que el agente dice haber implementado y ver si la suite se entera | generaliza el paso 4 de "todo el cambio" a "cada afirmación" | G2 |
+| Qué | Por qué | Dónde iría | Por qué todavía no |
+|---|---|---|---|
+| **Mutation testing acotado al diff** | el único detector confiable de un test tautológico; nuestro paso 4 es la versión pobre | G2 | las herramientas maduras son dependencias externas, y el ejemplo es sólo biblioteca estándar. Un mutador propio sería frágil y daría falsos rojos |
+| **Ablación no-op por pieza**: stubear cada cosa que el agente dice haber implementado y ver si la suite se entera | generaliza el paso 4 de "todo el cambio" a "cada afirmación" | G2 | requiere leer qué afirma haber hecho, que es prosa del agente. Habría que pedirle la lista en formato fijo, y eso es un cambio de contrato con el agente que conviene medir aparte |
+
+Los dos son trabajo real, no olvidos: están acá con el motivo por el que no se hicieron, que
+es la única forma de que un backlog no se convierta en una norma obsoleta.
 
 ### 2.3 Lo que falta y es estructural
 
