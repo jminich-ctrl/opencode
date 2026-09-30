@@ -145,7 +145,22 @@ intentos del texto de las tareas y daba **80% donde la realidad era 44%**.
 
 ---
 
-## 6. Lo que nunca delegamos
+## 6. Cuando no hay IA (o no la queremos)
+
+El método corre igual. Los gates son comandos, así que una persona hace la tarea y el
+veredicto no cambia:
+
+```bash
+MANUAL=1 bash scripts/correr-tarea.sh T03    # worktree listo + la tarea a la vista
+bash scripts/cerrar-tarea.sh T03             # el gate decide, y commitea si da verde
+```
+
+Sirve para tres situaciones que ya nos pasaron: el modelo está frío y no queremos esperar
+20 minutos, la tarea falló dos veces y la hacemos nosotros, o la tarea es de las que no se
+delegan. En los tres casos **el registro y las métricas lo anotan como `humano`**, así que
+después se puede ver qué parte del trabajo hizo cada uno.
+
+## 7. Lo que nunca delegamos
 
 - **Las decisiones con trade-off.**
 - **Aprobar un plan** (ni el plan que escribió el propio agente).

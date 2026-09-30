@@ -264,6 +264,29 @@ lo lee por partes y se rompe a mitad de camino.)
 `git merge tarea/T03` no trae nada. Al integrar, copiá los archivos a mano o hacé que el
 runner commitee cuando el gate da verde.
 
+### El método no depende de la IA
+
+Todo lo que decide es un comando: `gate.sh`, `pre-deploy.sh`, `deploy.sh`. **Una persona
+puede ejecutar el método completo sin ningún modelo disponible**, y el veredicto es el mismo.
+
+```bash
+MANUAL=1 bash scripts/correr-tarea.sh T03   # prepara el worktree y te muestra la tarea
+# ... la hacés vos, en ../trabajo-T03/ ...
+bash scripts/cerrar-tarea.sh T03            # el gate juzga igual, y commitea si da verde
+```
+
+El runner entra en modo manual solo si `opencode` no está instalado, así que en una máquina
+sin nada el método sigue funcionando. Los intentos manuales quedan en el registro con
+`modelo=humano`, y las métricas los separan de los del agente.
+
+Probado: T16 (la fruta) se hizo a mano y pasó los cuatro pasos del gate, incluido el de
+revertir la implementación para ver si los tests distinguen.
+
+**Por qué importa más de lo que parece:** si el método sólo funciona con un modelo
+determinado, no es un método, es una dependencia. Los agentes aceleran la ejecución; lo que
+hace que el trabajo sea confiable son las tareas bien cortadas y los gates, y eso no
+necesita IA.
+
 ### Por qué hace falta aislar el estado de OpenCode
 
 OpenCode guarda sesiones y snapshots en **una sola SQLite**: `~/.local/share/opencode/opencode.db`.
