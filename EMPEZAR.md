@@ -98,8 +98,24 @@ dimensionadas. Ajustá el formato con lo que aprendiste y lanzá de a varias:
 
 ```bash
 bash $AGENTES/scripts/correr-tarea.sh T03 T04 T05
-bash $AGENTES/scripts/estado.sh
+bash $AGENTES/scripts/estado.sh        # incluye si el tronco está verde
 ```
 
 **No lances diez tareas antes de haber completado una.** Diez tareas mal especificadas
 son diez diffs para tirar.
+
+## 8. Y recién ahí, el plan entero
+
+Con el formato de tarea ya ajustado, el resto del proyecto va de una. Escribí el encargo en
+`OBJETIVO.md` —en tus palabras, no como especificación— y dejá que el planificador lo baje
+a tareas:
+
+```bash
+bash $AGENTES/scripts/planificar.sh                  # G0: escribe PLAN.md y tareas/
+# ... lo revisás: es el único gate que firma una persona ...
+SOLO_ETAPAS=1 bash $AGENTES/scripts/correr-plan.sh   # ver el corte antes de lanzar
+bash $AGENTES/scripts/correr-plan.sh                 # y ahora sí, el plan entero
+```
+
+De acá en adelante intervenís tres veces: al aprobar el plan, al usar la cosa (G3) y al
+desplegar (G5). Todo lo del medio lo hace el runner — ver [HUMANO.md](HUMANO.md).
