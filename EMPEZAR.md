@@ -33,8 +33,11 @@ mkdir -p tareas scripts src tests
 touch src/__init__.py tests/__init__.py       # el gate descubre los tests como paquete
 printf '__pycache__/\n*.pyc\n.tarea.log\n.opencode-data/\n' > .gitignore
 cp $AGENTES/plantillas/PLAN.md .
-cp $AGENTES/ejemplo-pacman/scripts/gate.sh scripts/
+cp $AGENTES/plantillas/gate.sh scripts/            # el juez; buscá "ADAPTAR": son cuatro líneas
+cp $AGENTES/plantillas/_arquitectura.py scripts/   # el gate de coherencia; declará tus capas
+cp $AGENTES/plantillas/pre-deploy.sh scripts/      # G4, para cuando llegues
 cp $AGENTES/AGENTS.md .                       # las reglas del ejecutor; adaptalas a tu proyecto
+printf 'PLAN.md.previo\n' >> .gitignore
 git add -A && git commit -m "Esqueleto del proyecto"
 ```
 
@@ -42,8 +45,18 @@ El `.gitignore` importa: el runner deja su log (`.tarea.log`) y la base de OpenC
 (`.opencode-data/`) en cada worktree, y sin ignorarlos el gate los cuenta como archivos
 fuera del alcance de la tarea.
 
-`gate.sh` viene del ejemplo y está pensado para Python con `unittest`: tests en `tests/`,
-código en `src/`, sin dependencias externas. Si tu proyecto es otro, el paso 3 es adaptarlo.
+`gate.sh` viene de `plantillas/` y corre tal cual en un proyecto Python con `unittest`,
+tests en `tests/` y código en `src/`. Para otro stack son **cuatro líneas marcadas
+`ADAPTAR`**: el comando de tests, cómo se ve una suite que no corrió nada, dónde vive el
+código, y las reglas de higiene propias.
+
+Dos cosas que **no** conviene tocar al adaptarlo, porque cada una salió de un falso verde
+real: que un chequeo que no pudo ejecutarse dé **rojo** y no verde, y que la lista de
+archivos intocables viva en el gate y no en el archivo de tarea.
+
+`_arquitectura.py` es el gate de coherencia: declarás tus capas en orden y verifica que
+cada una sólo importe las anteriores. Treinta líneas, y es lo único del método que mira
+**a través** de las tareas.
 
 ## 2. Escribí el PLAN.md  ← acá está el 80% del trabajo
 

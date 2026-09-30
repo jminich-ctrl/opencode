@@ -85,7 +85,7 @@ the tasks pass on the first attempt, the problem is the plan, not the model.
 | [INFRAESTRUCTURA.md](INFRAESTRUCTURA.md) | Models, context windows, prefix caching, parallelism, traps |
 | [OPENCODE.md](OPENCODE.md) | The OpenCode configuration, field by field, and cold starts |
 | [colabhive/](colabhive/) | Config, prompts, setup and measurement scripts, dated measurements |
-| [plantillas/](plantillas/) | Templates: plan, task, review checklist |
+| [plantillas/](plantillas/) | Templates: plan, task, review checklist, gate, architecture check, pre-deploy, deploy |
 | [scripts/](scripts/) | `planificar.sh` (G0), `validar-plan.py`, `correr-plan.sh` (the whole plan), `integrar.sh` (merge into the trunk, gate per merge), `estado.sh`, `comparar-modelos.sh` |
 | [AGENTS.md](AGENTS.md) | Rules the agent reads on its own |
 
