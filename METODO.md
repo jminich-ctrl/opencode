@@ -147,10 +147,15 @@ dependencias y sus criterios. Lo escribe el arquitecto, lo aprobás vos.
 `ejemplo-pacman/scripts/gate.sh` corre sobre el worktree de la tarea y verifica, en este orden:
 
 0. **Integridad**: no se tocaron los tests ni los scripts del propio gate.
-1. **Tests**: la suite completa pasa.
+1. **Tests**: la suite completa pasa, y **corrió al menos uno**.
 2. **Alcance**: no se tocaron archivos fuera de los declarados en la tarea.
-3. **Higiene**: sin dependencias nuevas, sin archivos generados, sin `TODO` sueltos.
+3. **Higiene**: sin dependencias nuevas, sin archivos generados, sin `TODO` sueltos, y
+   **sin señales suprimidas** (`# noqa`, `# type: ignore`, `except: pass`,
+   `@unittest.skip`, `|| true`): apagar una señal es más barato que arreglar la causa, y
+   no deja rastro en los tests.
 4. **¿Los tests distinguen?**: revierte la implementación y exige que la suite falle.
+5. **Coherencia**, sólo en modo integración: las dependencias entre módulos van en una
+   sola dirección (§G3).
 
 Rojo en cualquiera = la tarea no está terminada. No se discute.
 
@@ -203,6 +208,33 @@ Lo mirás como mirarías el PR de alguien que recién entró:
 - ¿inventó abstracciones que nadie pidió?
 
 El subagente `@reviewer` te da una primera pasada, pero **la decisión es tuya**.
+
+### El gate de coherencia: lo único que mira a través de las tareas
+
+Los pasos 0 a 4 miran **una** tarea. Por construcción, ninguno puede ver que diez diffs
+correctos por separado dejaron la arquitectura peor. Es la crítica mejor documentada al
+desarrollo con agentes, y la formulación que más duele es esta:
+
+> *"Los agentes escriben unidades de cambio que se ven bien en aislamiento. Son consistentes
+> consigo mismas y con tu prompt. Pero respeto por el conjunto, no hay."*
+
+La degradación **no se ve en los PRs**: aparece leyendo el código de punta a punta, cuando
+ya es cara. La respuesta que se publicó son *funciones de aptitud arquitectónica*: reglas
+sobre la forma del sistema, verificables por comando, corriendo **sobre el tronco**.
+
+`ejemplo-pacman/scripts/_arquitectura.py` es la versión mínima y sirve de plantilla: declara
+las capas en orden y verifica que **cada una sólo importe capas anteriores**.
+
+```python
+CAPAS = ["laberinto", "entidades", "juego", "render", "__main__"]
+```
+
+Una regla, treinta líneas, y atrapa el 90% de la deriva. Corre en el paso 5 del gate en modo
+integración, y por lo tanto también en `estado.sh`, que es donde miramos el tronco.
+
+**Lo probamos rompiéndolo en las dos direcciones** —`laberinto` importando `juego`, y
+`render` importando `__main__`— y detecta ambas. Un verificador que no probaste contra una
+falla real es una opinión.
 
 ### G3 — Integración
 

@@ -89,6 +89,11 @@ if echo "$CAMBIADOS" | grep -qE '__pycache__|\.pyc$'; then rojo "hay archivos ge
 if grep -rqE '^\s*(import|from)\s+(pygame|numpy|pytest)' src/ 2>/dev/null; then rojo "dependencia externa en src/"; else verde "solo biblioteca estándar"; fi
 if grep -rn "TODO" src/ 2>/dev/null | grep -qv '^\s*$'; then rojo "quedaron TODO en src/: $(grep -rn 'TODO' src/ | head -2 | tr '\n' ' ')"; else verde "sin TODO sueltos"; fi
 if ! python3 -m compileall -q src/ >/dev/null 2>&1; then rojo "src/ no compila"; else verde "src/ compila"; fi
+# Apagar una señal es más barato que arreglar la causa, y no deja rastro en los tests.
+SUPRESIONES="$(grep -rnE '# *(noqa|type: *ignore)|except[^:]*: *pass|@unittest\.skip|\|\| *true' src/ 2>/dev/null || true)"
+if [ -n "$SUPRESIONES" ]; then
+  rojo "hay señales suprimidas en src/:"; echo "$SUPRESIONES" | head -3 | sed 's/^/     /'
+else verde "sin señales suprimidas"; fi
 
 # ── 4. ¿Los tests distinguen? (solo en modo tarea)
 # Revierte la implementación y exige que la suite FALLE. Un test que pasa con el
@@ -118,6 +123,16 @@ if [ -n "${TAREA:-}" ]; then
     for f in $REVERTIDOS; do cp "$TMP/$(echo "$f" | tr / _)" "$f"; done
   fi
   rm -rf "$TMP"
+fi
+
+# ── 5. Coherencia (sólo en modo integración)
+# Los pasos 0-4 miran UNA tarea. Ninguno puede ver que diez diffs correctos por separado
+# dejaron la arquitectura peor: esa deriva sólo se ve mirando el conjunto, y por eso este
+# paso corre sobre el tronco y no dentro del worktree de una tarea.
+if [ -z "${TAREA:-}" ] && [ -f scripts/_arquitectura.py ]; then
+  echo "── 5. Coherencia"
+  if OUT="$(python3 scripts/_arquitectura.py 2>&1)"; then echo "$OUT"
+  else echo "$OUT"; FALLOS=$((FALLOS+1)); fi
 fi
 
 echo
