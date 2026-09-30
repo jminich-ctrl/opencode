@@ -42,6 +42,11 @@ lanzar() {
   git -C "$RAIZ" branch -D "tarea/$id" 2>/dev/null
   git -C "$RAIZ" worktree add -q -b "tarea/$id" "$wt" || { echo "✗ $id: no pude crear el worktree"; return 1; }
 
+  # Base del diff FIJADA antes de que el agente toque nada. Sin esto, cualquier chequeo
+  # de diff se vuelve ciego en cuanto el agente commitea: es el defecto más común de los
+  # gates publicados. El gate la lee de acá y sólo deduce la base si el archivo no está.
+  git -C "$wt" rev-parse HEAD > "$wt/.base-ref"
+
   local dir="$wt/$PROYECTO"
 
   # Modo manual: el método no depende de que haya una IA disponible. Preparamos el

@@ -8,8 +8,15 @@ FALLOS=0
 rojo() { echo "  ✗ $1"; FALLOS=$((FALLOS+1)); }
 verde() { echo "  ✓ $1"; }
 
-# punto de partida de la rama, fijado antes de mirar nada
-BASE_REF="$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null || echo HEAD)"
+# Punto de partida del diff. Lo escribe el runner al crear el worktree, ANTES de que el
+# agente toque nada: si lo dedujéramos acá, el primer commit del agente movería la base y
+# los pasos 0 y 2 dejarían de ver sus propios cambios.
+RAIZ_WT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -f "$RAIZ_WT/.base-ref" ]; then
+  BASE_REF="$(cat "$RAIZ_WT/.base-ref")"
+else
+  BASE_REF="$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null || echo HEAD)"
+fi
 
 # ── 0. Integridad (solo en modo tarea)
 # El gate y los tests viven dentro del worktree del agente, así que son editables.
@@ -29,7 +36,11 @@ fi
 
 echo "── 1. Tests"
 SALIDA="$(python3 -m unittest discover -s tests -t . -q 2>&1)"
-if echo "$SALIDA" | grep -qE '^(OK|Ran 0 tests)'; then
+if echo "$SALIDA" | grep -qE '^Ran 0 tests'; then
+  # Una suite vacía pasa siempre. Que "no pude verificar" se parezca a "verifiqué y está
+  # bien" es la trampa recurrente de este archivo: acá, explícito y en rojo.
+  rojo "la suite no corrió ningún test"
+elif echo "$SALIDA" | grep -qE '^OK'; then
   verde "$(echo "$SALIDA" | grep -E '^Ran ' | head -1)"
 else
   rojo "tests en rojo"; echo "$SALIDA" | tail -15 | sed 's/^/     /'

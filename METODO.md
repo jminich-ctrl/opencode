@@ -173,6 +173,7 @@ alcance declarado". Es la tercera vez que aparece esta misma trampa:
 | gate, paso 2 | sin cambios → verde | sin cambios en modo tarea → rojo |
 | pre-deploy | sin smoke de arranque → avisaba y seguía verde | falta el smoke → rojo |
 | gate, paso 2 | sin alcance declarado → "sin límite" y verde | sin alcance en modo tarea → rojo |
+| gate, paso 1 | `Ran 0 tests` contaba como verde | una suite que no corrió ningún test → rojo |
 
 Aparece sola cada vez que uno escribe un verificador, porque la rama "no pude chequearlo"
 se parece a la rama "chequeé y está bien" mientras la escribís. **Escribí siempre esa rama
@@ -185,6 +186,10 @@ Dos detalles que parecen menores y no lo son:
 - **`git diff --name-only` devuelve rutas relativas a la raíz del repo**, no al proyecto.
   Sin `--relative`, el paso 0 daba **verde con un test modificado**. Lo encontramos porque
   lo probamos rompiéndolo a propósito; leyéndolo parecía correcto.
+- **La base del diff la fija el runner**, en `.base-ref`, al crear el worktree y antes de
+  que el agente toque nada. Si la dedujera el gate, el primer commit del agente movería la
+  base y los pasos 0 y 2 dejarían de ver sus propios cambios. Es el defecto más común de
+  los gates publicados, y el más silencioso: no falla, deja de mirar.
 
 ### G2 — Revisión del diff (humano)
 
