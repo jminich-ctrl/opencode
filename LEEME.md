@@ -31,6 +31,9 @@ La idea en tres líneas:
 | **[EMPEZAR.md](EMPEZAR.md)** | De cero a la primera tarea ejecutada. Empezá por acá |
 | **[METODO.md](METODO.md)** | Principios, roles, gates G0–G3, cómo se ejecuta y qué medir |
 | **[DESCOMPOSICION.md](DESCOMPOSICION.md)** | Cómo bajar un proyecto enorme a tareas ejecutables |
+| **[HUMANO.md](HUMANO.md)** | El rol humano: qué decidimos, aprobamos y juzgamos, y cómo intervenir poco |
+| **[PIPELINE.md](PIPELINE.md)** | La otra mitad: arquitecto, pre-deploy (G4) y deploy (G5) |
+| **[INVESTIGACION.md](INVESTIGACION.md)** | Qué dice el trabajo publicado, qué robar, y dónde estamos expuestos |
 | **[INFRAESTRUCTURA.md](INFRAESTRUCTURA.md)** | Modelos, contexto, caching, paralelismo, trampas |
 | **[OPENCODE.md](OPENCODE.md)** | La config de OpenCode campo por campo, y los principios de warm |
 | **[colabhive/](colabhive/)** | Los archivos reales: config, prompts, scripts y mediciones |

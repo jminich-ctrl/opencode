@@ -125,6 +125,13 @@ un agente nuevo.
   pensando en eso, no como documentación.
 - **`permission`** es la defensa real: al reviewer le negamos `edit`, así no puede
   "arreglar" lo que debería solo reportar.
+
+  Pero **`allow`/`deny` funcionan y el allowlist por comando no**. Le habíamos dado al
+  arquitecto `"bash": {"ls*": "allow", …, "*": "ask"}`; en los permisos resueltos
+  (`opencode agent list`) **no aparece ninguna regla `bash`**: se descartó entera. Y como en
+  `opencode run` no hay nadie para contestar, cada `ask` se auto-rechaza y el agente
+  abandona en el primer comando. Si una herramienta es riesgosa para un rol, **no se la des**
+  (`"tools": {"bash": false}`); restringirla a medias es peor que las dos alternativas.
 - **`temperature`**: 0.1 para revisar y explorar, 0.2 para implementar, 0.3 para planificar.
 - **`steps`**: tope de iteraciones. Subilo si el agente se queda corto, pero si se queda
   sin pasos **deliberando**, el problema es el modelo, no el tope.
@@ -318,3 +325,4 @@ necesita `task`. Si una tarea necesita delegar, se lanza con `AGENTE=build`.
 | `--agent reviewer` no usa reviewer | los subagentes no se invocan desde la CLI | usar `@reviewer` dentro de una sesión |
 | `--agent arquitecto` contesta como `build` | el agente propio no declaraba `mode` y no se registró | `"mode": "primary"`, y verificar con `opencode agent list` |
 | `</think>` aparece dentro de la respuesta | el motor no tiene parser de razonamiento para ese modelo | pedirlo a la plataforma; `reasoning_content` viene vacío |
+| `auto-rejecting` y el agente abandona | un `permission.bash` por comando que OpenCode descartó en silencio; en modo no interactivo todo `ask` se auto-rechaza | no dar la herramienta (`"bash": false`) en vez de intentar restringirla |

@@ -79,6 +79,9 @@ the tasks pass on the first attempt, the problem is the plan, not the model.
 | [EMPEZAR.md](EMPEZAR.md) | From zero to the first task run by an agent |
 | [METODO.md](METODO.md) | Principles, roles, gates G0–G3, how to run and what to measure |
 | [DESCOMPOSICION.md](DESCOMPOSICION.md) | How to break a big project into tasks a 30B model can execute |
+| [HUMANO.md](HUMANO.md) | The human role: what we decide, approve and judge — and how to intervene little |
+| [PIPELINE.md](PIPELINE.md) | The other half: architect, pre-deploy (G4) and deploy (G5) |
+| [INVESTIGACION.md](INVESTIGACION.md) | What the published record says, what to steal, and where this method is exposed |
 | [INFRAESTRUCTURA.md](INFRAESTRUCTURA.md) | Models, context windows, prefix caching, parallelism, traps |
 | [OPENCODE.md](OPENCODE.md) | The OpenCode configuration, field by field, and cold starts |
 | [colabhive/](colabhive/) | Config, prompts, setup and measurement scripts, dated measurements |
