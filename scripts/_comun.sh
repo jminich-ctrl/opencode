@@ -20,6 +20,22 @@ ubicar_proyecto() {
       case "$rel" in */*) rel="${rel%/*}" ;; *) rel="" ;; esac
     done
     PROYECTO="${rel:-.}"
+    # Si desde acá no se ve ningún tareas/ hacia arriba, mirá hacia abajo: cuando hay
+    # exactamente un proyecto en el repo, no tiene sentido exigir PROYECTO= a mano.
+    if [ ! -d "$RAIZ/$PROYECTO/tareas" ]; then
+      local candidatos n
+      candidatos="$(cd "$RAIZ" && find . -maxdepth 2 -type d -name tareas -not -path '*/.git/*' \
+                    | sed 's|^\./||; s|/tareas$||')"
+      n="$(echo "$candidatos" | grep -c . || true)"
+      if [ "$n" = "1" ]; then
+        PROYECTO="$candidatos"
+        echo "· proyecto detectado: $PROYECTO" >&2
+      elif [ "${n:-0}" -gt 1 ]; then
+        echo "✗ Hay varios proyectos en el repo; elegí uno con PROYECTO=<carpeta>:" >&2
+        echo "$candidatos" | sed 's/^/    /' >&2
+        exit 1
+      fi
+    fi
   fi
   BASE="$RAIZ/$PROYECTO"
   [ -d "$BASE/tareas" ] \
