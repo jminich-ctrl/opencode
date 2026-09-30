@@ -279,7 +279,10 @@ Los scripts se corren desde adentro del repo de tu proyecto; `$AGENTES` es donde
 este repo (ver [EMPEZAR.md](EMPEZAR.md)).
 
 ```bash
-# una tarea
+# el plan, desde el encargo (G0: lo escribe el arquitecto, lo aprobás vos)
+bash $AGENTES/scripts/planificar.sh
+
+# una tarea suelta: es el modo de depuración
 bash $AGENTES/scripts/correr-tarea.sh T03
 
 # varias en paralelo (solo las que no dependen entre sí)

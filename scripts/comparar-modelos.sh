@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# Corre LA MISMA tarea con varios modelos y compara el resultado.
+# Corre LA MISMA tarea con varios modelos —o con varios agentes— y compara el resultado.
 #
 #   bash $AGENTES/scripts/comparar-modelos.sh T03 \
 #       colabhive/f5d76140-... colabhive/1af07b1f-...
+#
+#   bash $AGENTES/scripts/comparar-modelos.sh T03 @build @ejecutor
+#       un argumento que empieza con @ es un AGENTE, no un modelo: sirve para medir
+#       qué cambia el harness (cuántas herramientas, qué prompt) con el modelo fijo.
 #   (el ejemplo, desde la raíz de este repo: PROYECTO=ejemplo-pacman bash scripts/comparar-modelos.sh ...)
 #
 # Es la única forma honesta de elegir modelo para un rol: los benchmarks públicos
@@ -15,7 +19,7 @@ AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$AQUI/_comun.sh"
 ubicar_proyecto   # RAIZ, PROYECTO, BASE: ver _comun.sh
 [ -f "$HOME/.config/colabhive/env" ] && . "$HOME/.config/colabhive/env"
-[ $# -ge 2 ] || { echo "uso: $0 TNN modelo1 [modelo2 ...]" >&2; exit 1; }
+[ $# -ge 2 ] || { echo "uso: $0 TNN {modelo|@agente} {modelo|@agente} [...]" >&2; exit 1; }
 
 TAREA="$1"; shift
 archivo="$(ls "$BASE/tareas/${TAREA}"-*.md 2>/dev/null | head -1)"
@@ -32,6 +36,12 @@ for modelo in "$@"; do
   git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
   git -C "$RAIZ" branch -D "comparar/$TAREA-$n" 2>/dev/null
   git -C "$RAIZ" worktree add -q -b "comparar/$TAREA-$n" "$wt" || continue
+  # @nombre = agente; cualquier otra cosa = modelo. Con el modelo fijo y el agente
+  # variable se mide el harness; al revés, el modelo.
+  case "$modelo" in
+    @*) COMO=(--agent "${modelo#@}") ;;
+    *)  COMO=(--model "$modelo") ;;
+  esac
   echo "▶ $n: $modelo"
   (
     cd "$wt/$PROYECTO" || exit 1
@@ -39,7 +49,7 @@ for modelo in "$@"; do
     inicio=$(date +%s)
     {
       echo "=== $TAREA · $modelo"
-      opencode run --model "$modelo" "Implementá la tarea descrita en $archivo. Leela completa antes de empezar. Respetá los archivos permitidos y prohibidos. Al terminar corré 'bash scripts/gate.sh' y mostrá su salida real." 2>&1
+      opencode run "${COMO[@]}" "Implementá la tarea descrita en $archivo. Leela completa antes de empezar. Respetá los archivos permitidos y prohibidos. Al terminar corré 'bash scripts/gate.sh' y mostrá su salida real." 2>&1
     } > "$wt/.tarea.log" 2>&1
     duracion=$(( $(date +%s) - inicio ))
     # Veredicto por código de salida del gate, corrido cuando el agente ya terminó.
@@ -51,7 +61,7 @@ done
 wait
 
 echo
-printf '%-3s %-26s %-8s %6s %6s %6s %s\n' '#' MODELO GATE SEGS TOOLS DELIB ARCHIVOS
+printf '%-3s %-26s %-8s %6s %6s %6s %s\n' '#' 'MODELO / @AGENTE' GATE SEGS TOOLS DELIB ARCHIVOS
 printf '%.0s─' {1..88}; echo
 n=0
 for modelo in "$@"; do

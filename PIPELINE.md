@@ -56,6 +56,13 @@ Lo que **no** se le delega, y por eso `DESCOMPOSICION.md` §7 sigue valiendo:
 Úsalo como un borrador acelerado, no como un reemplazo: revisar un plan lleva 10 minutos,
 escribirlo desde cero lleva una hora.
 
+**G0 tiene su script**, `scripts/planificar.sh`, y no es una comodidad. Antes se corría a
+mano y así arrastramos meses un `--agent arquitecto` que en realidad respondía `build`,
+porque OpenCode no registra un agente que no declara `mode` y no avisa. El script verifica
+primero que el agente exista y sea primario, y al terminar **no le cree al agente**: chequea
+que `PLAN.md` exista, que haya archivos de tarea, y que del plan se puedan deducir las
+etapas. Si algo de eso falta, G0 da rojo. Es P2 aplicado al planificador.
+
 ---
 
 ## 3. G4 — pre-deploy (automático)
@@ -138,12 +145,12 @@ problemas.
 
 ```bash
 # G0 — el arquitecto propone, vos aprobás
-oc --agent arquitecto "Objetivo: <qué hay que lograr>. Escribí PLAN.md y las tareas."
+bash $AGENTES/scripts/planificar.sh          # lee OBJETIVO.md, escribe PLAN.md y tareas/
 # ... lo revisás, cerrás las decisiones abiertas, agregás los gates humanos ...
 
-# G1/G2 — las tareas, en paralelo
-PROYECTO=. bash scripts/correr-tarea.sh T01 T02 T03
-bash scripts/estado.sh
+# G1/G2 — el plan entero: etapas deducidas, paralelo donde se puede
+bash $AGENTES/scripts/correr-plan.sh
+bash $AGENTES/scripts/estado.sh
 
 # G3 — integración y prueba humana
 bash scripts/gate.sh          # modo integración
