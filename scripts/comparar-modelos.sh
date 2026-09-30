@@ -62,9 +62,15 @@ for modelo in "$@"; do
   elif [ "$(veredicto "$log")" = "VERDE" ]; then gate="✓ verde"
   else gate="✗ rojo"; fi
   segs="$(cat "$wt/.segundos" 2>/dev/null || echo '?')"
-  tools="$(parte_del_agente "$log" 2>/dev/null | grep -cE '^\[0m(→|\$|✱)')"
+  # Herramientas: contamos las marcas que OpenCode imprime al invocarlas. El patrón
+  # anterior dependía de los códigos de escape exactos y contaba 0 siempre.
+  tools="$(parte_del_agente "$log" 2>/dev/null \
+           | grep -cE '(Read|Write|Edit|Glob|Grep|Bash|List) ' )"
   delib="$(parte_del_agente "$log" 2>/dev/null | wc -l | xargs)"
-  archivos="$(git -C "$wt" status --short -- "$PROYECTO" 2>/dev/null \
+  # Archivos: del commit que deja el runner al dar verde. Contar los sin commitear da 0
+  # desde que el runner commitea (una mejora en un lado rompió la medición en el otro).
+  archivos="$(git -C "$wt" diff --name-only HEAD~1 HEAD -- "$PROYECTO" 2>/dev/null | wc -l | xargs)"
+  [ "${archivos:-0}" = "0" ] && archivos="$(git -C "$wt" status --short -- "$PROYECTO" 2>/dev/null \
               | grep -vc '\.opencode-data\|\.tarea\.log\|\.segundos' | xargs)"
   printf '%-3s %-26s %-8s %6s %6s %6s %s\n' "$n" "$(echo "$modelo" | cut -c1-26)" "$gate" "$segs" "${tools:-0}" "$delib" "$archivos"
 done
