@@ -209,3 +209,54 @@ class TestCruce(unittest.TestCase):
         resultado2 = self.juego.colision((2, 2), [fantasma2])
         self.assertEqual(resultado2, "nada")
 
+
+
+class TestFruta(unittest.TestCase):
+    """La fruta: aparece al pasar cierto puntaje, vale 100 y caduca.
+
+    Tests escritos ANTES de la implementación (ver METODO.md P2): el agente los
+    hace pasar sin tocarlos.
+    """
+
+    def setUp(self):
+        self.juego = Juego(Laberinto(MAPA))
+
+    def test_no_hay_fruta_al_empezar(self):
+        self.assertIsNone(self.juego.fruta)
+
+    def test_aparece_al_pasar_el_umbral(self):
+        self.juego.puntaje = 290
+        self.juego.comer_en((1, 1))          # +10 => 300
+        self.juego.tick()
+        self.assertIsNotNone(self.juego.fruta)
+        self.assertFalse(self.juego.laberinto.es_pared(self.juego.fruta))
+
+    def test_no_aparece_antes_del_umbral(self):
+        self.juego.puntaje = 100
+        self.juego.tick()
+        self.assertIsNone(self.juego.fruta)
+
+    def test_comerla_suma_cien_y_la_saca(self):
+        self.juego.puntaje = 300
+        self.juego.tick()
+        donde = self.juego.fruta
+        antes = self.juego.puntaje
+        self.assertEqual(self.juego.comer_en(donde), "fruta")
+        self.assertEqual(self.juego.puntaje, antes + 100)
+        self.assertIsNone(self.juego.fruta)
+
+    def test_caduca_a_los_cincuenta_turnos(self):
+        self.juego.puntaje = 300
+        self.juego.tick()
+        self.assertIsNotNone(self.juego.fruta)
+        for _ in range(50):
+            self.juego.tick()
+        self.assertIsNone(self.juego.fruta)
+
+    def test_solo_aparece_una_vez_por_umbral(self):
+        self.juego.puntaje = 300
+        self.juego.tick()
+        self.juego.comer_en(self.juego.fruta)
+        for _ in range(60):
+            self.juego.tick()
+        self.assertIsNone(self.juego.fruta)   # no reaparece sola
