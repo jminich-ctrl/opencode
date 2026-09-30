@@ -31,7 +31,7 @@ Detalle en [OPENCODE.md](OPENCODE.md) e [INFRAESTRUCTURA.md](INFRAESTRUCTURA.md)
 mkdir ~/mi-proyecto && cd ~/mi-proyecto && git init    # fuera del clon de este repo
 mkdir -p tareas scripts src tests
 touch src/__init__.py tests/__init__.py       # el gate descubre los tests como paquete
-printf '__pycache__/\n*.pyc\n.tarea.log\n.opencode-data/\n' > .gitignore
+printf '__pycache__/\n*.pyc\n.tarea.log\n.opencode-data/\n.metricas/\n.base-ref\nPLAN.md.previo\n' > .gitignore
 cp $AGENTES/plantillas/PLAN.md .
 cp $AGENTES/plantillas/gate.sh scripts/            # el juez; buscá "ADAPTAR": son cuatro líneas
 cp $AGENTES/plantillas/_arquitectura.py scripts/   # el gate de coherencia; declará tus capas
@@ -41,9 +41,14 @@ printf 'PLAN.md.previo\n' >> .gitignore
 git add -A && git commit -m "Esqueleto del proyecto"
 ```
 
-El `.gitignore` importa: el runner deja su log (`.tarea.log`) y la base de OpenCode
-(`.opencode-data/`) en cada worktree, y sin ignorarlos el gate los cuenta como archivos
-fuera del alcance de la tarea.
+El `.gitignore` importa, y las seis líneas están ahí por un motivo: el runner deja su log
+(`.tarea.log`), la base de OpenCode (`.opencode-data/`), el registro de intentos
+(`.metricas/`) y la base del diff (`.base-ref`). Sin ignorarlos, **`.metricas/` te bloquea
+la integración** —queda como cambio sin commitear en el tronco— y el gate cuenta el resto
+como archivos fuera del alcance de la tarea.
+
+El gate además los filtra por su cuenta, así que un olvido acá no te rompe una tarea; pero
+`.metricas/` sí te frena en `integrar.sh`.
 
 `gate.sh` viene de `plantillas/` y corre tal cual en un proyecto Python con `unittest`,
 tests en `tests/` y código en `src/`. Para otro stack son **cuatro líneas marcadas

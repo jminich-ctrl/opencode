@@ -47,7 +47,11 @@ fi
 [ "$CORRIO" = "0" ] && rojo "no se ejecutó ninguna suite: sin tests no hay gate"
 
 echo "── 2. Alcance${TAREA:+ (tarea $TAREA)}"
-CAMBIADOS="$(git diff --name-only --relative "$BASE_REF" 2>/dev/null; git ls-files --others --exclude-standard)"
+# La infraestructura del runner no es parte del trabajo de la tarea: se filtra ACÁ y no en
+# el .gitignore de cada proyecto, porque olvidarse de una línea del .gitignore ponía en rojo
+# toda tarea (`.base-ref` es un archivo que escribe el propio runner).
+INFRA='^(\.base-ref|\.tarea\.log|\.segundos|\.plan\.log|\.opencode-data/|\.metricas/)'
+CAMBIADOS="$( { git diff --name-only --relative "$BASE_REF" 2>/dev/null; git ls-files --others --exclude-standard; } | grep -vE "$INFRA" || true)"
 if [ -z "$CAMBIADOS" ] && [ -n "${TAREA:-}" ]; then
   rojo "no hay ningún cambio: la tarea no se hizo"
 elif [ -z "$CAMBIADOS" ]; then

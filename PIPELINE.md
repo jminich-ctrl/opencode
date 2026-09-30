@@ -176,26 +176,62 @@ bash scripts/deploy.sh produccion     # ← este lo corrés vos, a mano
 
 ---
 
-## 6b. Probado de punta a punta (2026-09-29)
+## 6b. Probado de punta a punta (2026-09-30)
 
-El pipeline entero corre sobre `ejemplo-pacman`:
+Dos verificaciones distintas, y la segunda es la que importa.
+
+### Sobre `ejemplo-pacman`
 
 ```
-G1/G3  gate.sh         tests + alcance + higiene + ¿los tests distinguen?   VERDE
-G4     pre-deploy.sh   secretos · deps · migraciones · env · build · smoke  VERDE
-G5     deploy.sh       artefacto · reversa · deploy · smoke del desplegado  VERDE
+G1/G3  gate.sh         integridad · tests · alcance · higiene · ¿distinguen? · coherencia   VERDE
+G4     pre-deploy.sh   secretos · deps · migraciones · env · build · smoke · checkout limpio VERDE
+G5     deploy.sh       artefacto · reversa · deploy · smoke del desplegado                   VERDE
 ```
 
-Lo que se verificó a propósito, no de palabra:
+Lo que se verificó a propósito, rompiéndolo:
 
 - **G5 se niega si G4 está en rojo.** Rompimos `render.py` adrede: el deploy no arrancó y
   **salió con código 1**. Con la app sana, 0. Eso lo hace usable desde CI.
-- **El smoke corre contra lo desplegado**, no contra el árbol de trabajo: si el artefacto
-  se armó mal, se ve ahí y no en producción.
-- **El smoke atrapa el crash original.** Reintrodujimos el bug de T11 (un booleano donde
-  iba la dirección) y lo detectó. Los tests también lo detectan hoy, pero **solo porque
-  después del incidente escribimos el test**; el smoke no necesitaba que nadie lo
-  anticipara.
+- **El smoke corre contra lo desplegado**, no contra el árbol de trabajo.
+- **El smoke atrapa el crash original** (un booleano donde iba la dirección). Los tests
+  también lo detectan hoy, pero **sólo porque después del incidente escribimos el test**.
+- **El paso 7 atrapa un test que dependía de un archivo sin commitear**: árbol de trabajo
+  verde, clon de `HEAD` rojo.
+
+### En un proyecto nuevo, siguiendo `EMPEZAR.md`, y sin IA
+
+La prueba que de verdad dice si el método está escrito o sólo propuesto: proyecto vacío,
+las plantillas copiadas tal cual, y el recorrido completo con `MANUAL=1`.
+
+```
+plantillas → gate.sh, _arquitectura.py, pre-deploy.sh   copiados sin editar
+tests primero, fallando                                  3 tests
+MANUAL=1 correr-tarea.sh T01                             worktree listo
+(una persona implementa)
+cerrar-tarea.sh T01                                      GATE VERDE
+integrar.sh T01                                          tronco verde, tarea marcada, rama borrada
+estado.sh                                                ✅ hecha · mergeada · tronco verde
+validar-plan.py                                          1 tarea, sin errores de forma
+mutar.py                                                 ✗ 1 sobreviviente
+```
+
+**Encontró tres cosas que ninguna prueba anterior había encontrado**, y las tres eran
+nuestras:
+
+1. **`.base-ref` ponía en rojo toda tarea.** El archivo con la base del diff lo escribe el
+   runner y el gate lo contaba como archivo fuera de alcance. Un bug del día, que habría
+   roto la primera tarea de cualquiera. Ahora el gate filtra su propia infraestructura, y lo
+   hace en el gate y no en el `.gitignore` de cada proyecto.
+2. **El `.gitignore` de `EMPEZAR.md` no tenía `.metricas/`**, así que el registro de intentos
+   quedaba como cambio sin commitear en el tronco y **`integrar.sh` se negaba a mergear**.
+3. **El mutante `centavos <= 0` sobrevivió**: ningún test distinguía cero de negativo, así
+   que rechazar un importe de `0.00` no rompía nada. Escribimos el test que faltaba y el
+   mutante murió. El código lo habíamos escrito nosotros, con los tests primero, y el
+   agujero estaba igual.
+
+Y una que el gate nos hizo a nosotros: **editamos `scripts/gate.sh` dentro del worktree** y
+el paso 0 lo marcó como archivo intocable. Es la regla que el método ya tenía escrita
+—commiteá las herramientas antes de lanzar— aplicada al que la escribió.
 
 ### Los subagentes solo se invocan por delegación
 
