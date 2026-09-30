@@ -90,8 +90,9 @@ if [ -n "${TAREA:-}" ]; then
   echo "── 4. ¿Los tests distinguen?"
   IMPL="$(echo "$CAMBIADOS" | grep -E '^(backend/app|frontend/src)/.*\.(py|ts|tsx|jsx)$' || true)"
   TMP="$(mktemp -d)"; REVERTIDOS=""
+  PREFIJO="$(git rev-parse --show-prefix)"   # vacío si el proyecto es la raíz del repo
   for f in $IMPL; do
-    if git cat-file -e "HEAD:$f" 2>/dev/null; then
+    if git cat-file -e "HEAD:${PREFIJO}$f" 2>/dev/null; then
       cp "$f" "$TMP/$(echo "$f" | tr / _)"
       git checkout HEAD -- "$f" && REVERTIDOS="$REVERTIDOS $f"
     fi

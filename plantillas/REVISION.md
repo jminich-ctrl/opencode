@@ -33,3 +33,18 @@ Para cada tarea, antes de mergear. Miralo como el PR de alguien que recién entr
 - **Mergeo**: gate verde y checklist limpia.
 - **Relanzo**: algo del checklist falló. Corregí la tarea, no discutas con el modelo.
 - **Lo hago con modelo grande**: ya falló dos veces, o el problema es de criterio.
+
+---
+
+## Y una vez por revisión: mutar el diff
+
+```bash
+BASE=HEAD~1 python3 $AGENTES/scripts/mutar.py
+```
+
+El gate ya verificó que la suite falle si se revierte **todo** el cambio. Esto pregunta lo
+mismo **por línea**: cambia una comparación, mueve un límite en uno, niega un booleano, y
+corre la suite. **Lo que sobrevive es código que ningún test verifica.**
+
+Es lo único que atrapa el test tautológico fino, y en el ejemplo encontró una línea que el
+paso 4 del gate había dado por buena.

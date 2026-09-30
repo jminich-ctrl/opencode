@@ -186,6 +186,33 @@ Aparece sola cada vez que uno escribe un verificador, porque la rama "no pude ch
 se parece a la rama "chequeé y está bien" mientras la escribís. **Escribí siempre esa rama
 como rojo primero**, y recién después decidí si merece una excepción.
 
+#### El paso 4 es grueso; mutar es fino
+
+El paso 4 revierte **todo** el cambio y exige que la suite falle. Atrapa el test vacuo
+grosero y **deja pasar el caso fino**: una implementación con cinco condiciones donde los
+tests verifican una. Para eso está `scripts/mutar.py`, que pregunta por pieza:
+
+```bash
+BASE=HEAD~1 python3 $AGENTES/scripts/mutar.py
+```
+
+Por cada línea nueva o modificada genera variantes con un cambio mínimo —invertir una
+comparación, mover un límite en uno, negar un booleano— y corre la suite. **Un mutante que
+sobrevive es una línea que ningún test verifica.** Está acotado al diff a propósito: mutar
+el repo entero cuesta horas y no dice nada del código que nadie tocó.
+
+Lo probamos con un tope de puntaje que ningún test ejercita. El paso 4 dio **verde**; la
+mutación lo encontró:
+
+```
+✗ 1 sobrevivieron: la suite no nota estos cambios
+   src/pacman/juego.py:93  → >   if self.puntaje >= 999999:
+```
+
+Es el único detector confiable de un test tautológico que encontró la revisión de
+literatura, y va en G2 —donde hay una persona mirando— porque cuesta una corrida de la
+suite por mutante.
+
 Dos detalles que parecen menores y no lo son:
 
 - **El alcance se compara por ruta, no por nombre de archivo.** Permitir `entidades.py`
@@ -193,6 +220,10 @@ Dos detalles que parecen menores y no lo son:
 - **`git diff --name-only` devuelve rutas relativas a la raíz del repo**, no al proyecto.
   Sin `--relative`, el paso 0 daba **verde con un test modificado**. Lo encontramos porque
   lo probamos rompiéndolo a propósito; leyéndolo parecía correcto.
+- **`git cat-file` resuelve rutas desde la raíz del repo, no desde el proyecto.** Sin el
+  prefijo, el paso 4 veía todo archivo del proyecto como "nuevo" y daba **verde sin revertir
+  nada** — el chequeo más importante del gate, apagado en silencio, sólo cuando el proyecto
+  vive en un subdirectorio. Lo encontramos porque la mutación contradijo al paso 4.
 - **La base del diff la fija el runner**, en `.base-ref`, al crear el worktree y antes de
   que el agente toque nada. Si la dedujera el gate, el primer commit del agente movería la
   base y los pasos 0 y 2 dejarían de ver sus propios cambios. Es el defecto más común de
