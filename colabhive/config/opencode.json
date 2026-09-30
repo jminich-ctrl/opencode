@@ -137,25 +137,13 @@
       "description": "Convierte un objetivo en PLAN.md y tareas ejecutables. No escribe código.",
       "prompt": "{file:./prompts/arquitecto.md}",
       "steps": 120,
-      "permission": {
-        "edit": "allow",
-        "bash": {
-          "ls*": "allow",
-          "cat*": "allow",
-          "head*": "allow",
-          "tail*": "allow",
-          "grep*": "allow",
-          "rg*": "allow",
-          "find*": "allow",
-          "wc*": "allow",
-          "tree*": "allow",
-          "git log*": "allow",
-          "git status*": "allow",
-          "git diff*": "allow",
-          "*": "ask"
-        }
-      },
-      "mode": "primary"
+      "mode": "primary",
+      "tools": {
+        "bash": false,
+        "webfetch": false,
+        "skill": false,
+        "todowrite": false
+      }
     },
     "seguridad": {
       "mode": "subagent",

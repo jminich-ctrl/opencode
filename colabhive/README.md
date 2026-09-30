@@ -5,7 +5,7 @@ La explicación de cada campo está en [../OPENCODE.md](../OPENCODE.md); acá es
 archivos y cómo instalarlos.
 
 ```
-config/opencode.json    la config completa: provider, 3 modelos, un agente por rol
+config/opencode.json    la config completa: provider, 5 modelos, un agente por rol
 config/prompts/*.md     el prompt de cada agente
 scripts/                setup, operación y medición
 research/findings.md    las mediciones, con fechas
@@ -14,7 +14,7 @@ research/findings.md    las mediciones, con fechas
 > **¿Solo querés un modelo andando?** `pip install -U colabhive && colabhive agents init`
 > agrega un provider de ColabHive con un modelo probado a tu config de OpenCode, sin tocar
 > lo demás ([guía](https://docs.colabhive.com/guides/agents/quickstart)). Lo de abajo instala
-> el equipo completo de tres modelos, con sus prompts y el atajo `oc`. **Es uno u otro:**
+> el equipo completo de cinco modelos, con sus prompts y el atajo `oc`. **Es uno u otro:**
 > correr `colabhive agents init` después de esta instalación reemplaza el symlink por un archivo
 > común y reescribe el provider `colabhive` entero; para revisar esta config usá
 > `colabhive agents doctor`, que sólo lee.
@@ -60,7 +60,7 @@ Si cambiás de modelos, actualizá también los ids de `scripts/warm.sh` y los n
 
 ```bash
 oc --status     # ● warm  ◐ cached  ○ cold
-oc --warm       # despierta a los tres modelos (hacelo antes de cada tanda)
+oc --warm       # despierta a todo el equipo (hacelo antes de cada tanda)
 oc              # abre la TUI en el directorio actual
 oc "tarea"      # una tarea suelta
 ```

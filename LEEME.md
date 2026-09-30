@@ -43,7 +43,7 @@ La idea en tres líneas:
 ## El entorno de ejecución
 
 [`colabhive/`](colabhive/) tiene todo lo necesario para correrlo: la config de OpenCode
-(provider, 3 modelos, un agente por rol), los prompts, los scripts de setup y medición, y todas
+(provider, 5 modelos, un agente por rol), los prompts, los scripts de setup y medición, y todas
 las mediciones en `research/findings.md`. Instalación de punta a punta en su README.
 
 ## Las herramientas

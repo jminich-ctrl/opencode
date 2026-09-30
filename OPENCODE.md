@@ -5,7 +5,7 @@ Los números vienen de mediciones propias, con fecha, en [`colabhive/research/fi
 
 > **¿Querés lo mínimo?** `pip install -U colabhive && colabhive agents init` escribe un provider
 > de ColabHive con un modelo probado en tu `opencode.json`, sin tocar lo demás. Esta página
-> explica la config completa del equipo de tres modelos. Es uno u otro: `agents init` después
+> explica la config completa del equipo de cinco modelos. Es uno u otro: `agents init` después
 > de instalar esta config reemplaza el symlink y reescribe el provider `colabhive`
 > (`colabhive agents doctor`, en cambio, sólo lee).
 
@@ -254,7 +254,7 @@ está colgada aunque todo parezca sano. Ver [INFRAESTRUCTURA.md](INFRAESTRUCTURA
 oc                  # abre la TUI, avisando antes qué modelos están fríos
 oc "arreglá X"      # una tarea suelta
 oc --status         # estado de residencia del equipo
-oc --warm           # despierta a los tres
+oc --warm           # despierta a todo el equipo
 
 python3 $AGENTES/colabhive/scripts/sync_limits.py [--write]      # contexto real
 python3 $AGENTES/colabhive/scripts/check_cache.py                # ¿hay prefix caching?
