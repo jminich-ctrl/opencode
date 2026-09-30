@@ -79,12 +79,32 @@ Una tarea sana para un modelo de 27B:
 
 | Señal | Bien | Mal |
 |---|---|---|
+| **Cosas que tiene que escribir** | **1 a 3 funciones** | ocho, o "una clase" |
 | Archivos que toca | 1 o 2 | 5+ |
 | Objetivo | una frase sin "y" | una lista |
 | Criterio de terminado | 3 a 6 condiciones verificables | "que funcione" |
 | Tiempo humano equivalente | 30 a 90 minutos | una tarde |
 | Contexto que necesita leer | 1 o 2 archivos + el plan | medio repo |
 | Decisiones que debe tomar | ninguna | "elegí la mejor forma de..." |
+
+### La primera fila es la que importa, y la aprendimos de una medición ajena
+
+Sobre 1.650 sesiones y 16.050 observaciones a nivel de función, se probaron cuatro
+candidatos a predecir si el agente cumple la instrucción —tamaño del archivo, posición de la
+instrucción, arquitectura, contradicciones en las reglas— y **ninguno** mostró efecto. El
+único que sí:
+
+> cada función adicional que el agente genera baja ~**5,6% las chances de que siga la
+> instrucción**, replicado en un segundo repo y un segundo modelo.
+
+O sea: **el cumplimiento se degrada por paso, no por kilobyte.** Una tarea que toca dos
+archivos pero hace escribir nueve funciones es peor que una que toca cuatro y escribe dos.
+Nuestra regla de "1 o 2 archivos" venía midiendo el eje equivocado; queda, porque correlaciona
+y es fácil de mirar, pero **la pregunta primera es cuántas cosas nuevas tiene que escribir.**
+
+⚠️ Y lo que no existe: **ningún umbral publicado de líneas de diff ni de archivos tocados.**
+Los números que circulan en blogs ("10–15 archivos", "500–1000 líneas") no tienen fuente; en
+un caso verificado, los inventó un resumidor. Si alguien te los cita, pedile el estudio.
 
 **Si dudás, partila.** Dos tareas chicas que pasan el gate valen más que una grande
 que hay que revisar tres veces. El costo de una tarea extra es casi cero; el de una

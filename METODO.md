@@ -17,6 +17,8 @@ No es el método que usarías con Claude o Codex. La diferencia de fondo:
 
 Una tarea bien dimensionada para un modelo de 27B:
 
+- le hace escribir **1 a 3 funciones**, no ocho (es lo que mejor predice que cumpla:
+  ver [DESCOMPOSICION.md §4](DESCOMPOSICION.md));
 - toca **1 o 2 archivos**, nunca diez;
 - tiene **un solo objetivo**, enunciado en una frase;
 - se verifica con **un comando que devuelve pasa o falla**;
@@ -287,12 +289,40 @@ bash $AGENTES/scripts/correr-tarea.sh T03 T04 T05
 bash $AGENTES/scripts/correr-tarea.sh T03 T04 T05 T06 T07 T08 ...
 PARALELAS=4 bash $AGENTES/scripts/correr-tarea.sh T03 T04 T05   # bajar el tope
 
-# estado de todo
+# estado de todo, incluido si el tronco está verde
 bash $AGENTES/scripts/estado.sh
 ```
 
 Cada tarea corre en su propio worktree de git (`../trabajo-T03`, rama `tarea/T03`),
 así no se pisan y podés descartar una sin tocar el resto.
+
+### El plan entero, de una
+
+Lanzar tareas a mano es el modo de depuración. Lo normal es correr el plan completo: el
+runner deduce las etapas, lanza en paralelo lo que se puede, y se detiene donde hace falta
+una persona.
+
+```bash
+SOLO_ETAPAS=1 bash $AGENTES/scripts/correr-plan.sh   # ver el corte sin lanzar nada
+bash $AGENTES/scripts/correr-plan.sh                 # de la primera etapa a la última
+bash $AGENTES/scripts/correr-plan.sh 3               # retomar desde la etapa 3
+```
+
+Las etapas salen de `PLAN.md`: o declaradas a mano (`ETAPA 1: T02 T03`) o deducidas de la
+tabla de tareas, con dos reglas —una tarea espera a sus dependencias, y **dos tareas que
+escriben el mismo archivo no van juntas** aunque las dependencias lo permitan.
+
+**Cuando una tarea falla, el runner compara la huella de la falla con la del intento
+anterior.** Si es la misma, no reintenta: la llama punto muerto y corta, porque una falla
+que se repite igual es de especificación y el tercer intento no la arregla. Si cambió,
+reintenta. Esa distinción es la que necesita el humano para decidir (ver
+[HUMANO.md §4](HUMANO.md)).
+
+> **Esto no había corrido nunca.** `correr-plan.sh` usaba `mapfile`, que es de bash 4;
+> macOS trae 3.2. Fallaba con *"No pude determinar las etapas del plan"* —un mensaje que
+> culpa al plan— así que siempre lanzábamos tareas a mano y nadie sospechó del script. El
+> método completo tenía un agujero en el medio durante semanas. **Un script que nadie
+> ejecutó no está escrito, está propuesto.**
 
 ### Dos detalles que muerden
 

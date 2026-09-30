@@ -18,7 +18,7 @@ verifica solo; nosotros manejamos. En condiciones normales eso son **tres moment
 | **Antes de producción (G5)** | contestar cuatro preguntas y escribir `desplegar` | 2 min |
 
 Todo lo del medio —lanzar tareas, correr gates, relanzar lo que falló, commitear las ramas
-verdes— lo hace el runner. Si nos encontramos lanzando tareas a mano, falta automatización,
+verdes— lo hace el runner, con un comando: `bash $AGENTES/scripts/correr-plan.sh`. Si nos encontramos lanzando tareas a mano, falta automatización,
 no disciplina.
 
 Y un cuarto momento, que no es de rutina: **cuando una tarea falla dos veces.** Ahí el
@@ -60,8 +60,9 @@ revisar un plan cuesta diez minutos contra las horas de revisar diez diffs malos
 
 Qué mirar en un plan, en orden:
 
-1. **¿Las tareas están dimensionadas?** Una o dos archivos, un objetivo sin "y", criterio
-   verificable con un comando.
+1. **¿Las tareas están dimensionadas?** Primero: **cuántas cosas nuevas tiene que escribir**
+   —una a tres funciones, no ocho—, que es lo que mejor predice que cumpla la instrucción.
+   Después: uno o dos archivos, un objetivo sin "y", criterio verificable con un comando.
 2. **¿Marcó los choques de archivo?** Dos tareas que escriben el mismo archivo van en serie,
    aunque las dependencias permitan paralelizarlas.
 3. **¿Inventó APIs?** El nuestro se refirió a un método del laberinto que no existe. Es la
@@ -119,6 +120,11 @@ El detalle completo está en [`plantillas/REVISION.md`](plantillas/REVISION.md).
 
 **Lo que falla dos veces no se relanza una tercera.** O está mal especificado, o no era
 delegable.
+
+El runner ahora ayuda a distinguir cuál de las dos: compara la **huella de la falla** entre
+intentos. Si las dos veces rompió por lo mismo, lo llama **punto muerto** y corta sin gastar
+el tercer intento — eso es un problema de especificación, y reintentar no lo arregla. Si
+falló por cosas distintas, reintenta: suele ser una tarea grande de más.
 
 Medido en 15 tareas: el agente nunca falló implementando algo bien especificado, y falló
 cuatro veces escribiendo tests que probaran algo. Por eso ahora **los tests los escribimos

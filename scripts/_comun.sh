@@ -102,3 +102,20 @@ veredicto() {
   rc="$(grep -E '^=== rc=[0-9]+$' "$log" | tail -n 1 | sed 's/^=== rc=//')"
   if [ "$rc" = "0" ]; then echo VERDE; else echo ROJO; fi
 }
+
+# Huella de la falla: qué rompió, en forma comparable entre intentos. Sale del primer ✗ del
+# gate que corrió el runner, o del error de OpenCode si el agente no llegó a trabajar.
+#
+# Para qué: dos intentos que fallan por LO MISMO no son lo mismo que dos que fallan por
+# cosas distintas. Lo primero es un problema de especificación y reintentar no lo arregla;
+# lo segundo puede ser una tarea grande de más. El runner corta en el primer caso, y la
+# distinción es la que el humano necesita para decidir (HUMANO.md §4).
+huella_de_falla() {
+  local log="$1" err
+  [ -f "$log" ] || return 0
+  err="$(error_del_agente "$log")"
+  if [ -n "$err" ]; then echo "agente: $err" | cut -c1-90; return 0; fi
+  awk '{ l[NR] = $0; if ($0 == "=== gate ===") g = NR }
+       END { for (i = g + 1; i <= NR; i++) print l[i] }' "$log" \
+    | grep -m1 '✗' | sed 's/^ *//; s/[0-9]\{2,\}/N/g' | cut -c1-90
+}

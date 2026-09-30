@@ -27,6 +27,11 @@ for linea in re.findall(r"^\|\s*T\d+\s*\|.*$", texto, re.M):
     hecha = "✅" in linea
     tareas[tid] = {"deps": deps, "archivos": archivos, "hecha": hecha}
 
+if not tareas:
+    # No hay tabla de tareas que leer: es un problema del plan, y quien nos llama tiene
+    # que poder distinguirlo de "el plan está terminado".
+    sys.exit(2)
+
 pendientes = OrderedDict((k, v) for k, v in tareas.items() if not v["hecha"])
 if not pendientes:
     sys.exit(0)

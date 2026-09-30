@@ -24,12 +24,35 @@ PLAN="$BASE/PLAN.md"
 [ -f "$PLAN" ] || { echo "✗ No encuentro $PLAN (el plan es el gate G0: sin plan no se ejecuta)" >&2; exit 1; }
 
 # Etapas declaradas explícitamente, o deducidas de la tabla del plan.
-mapfile -t ETAPAS < <(grep -oE '^ *\*{0,2}ETAPA [0-9]+\*{0,2}:.*' "$PLAN" | sed 's/^[^:]*: *//' || true)
+# Sin `mapfile`: es de bash 4 y macOS trae 3.2. Este script no corría por eso.
+ETAPAS=()
+while IFS= read -r linea; do
+  [ -n "$linea" ] && ETAPAS+=("$linea")
+done < <(grep -oE '^ *\*{0,2}ETAPA [0-9]+\*{0,2}:.*' "$PLAN" | sed 's/^[^:]*: *//' || true)
 if [ "${#ETAPAS[@]}" -eq 0 ]; then
   echo "· el plan no declara etapas; deduciendo de la tabla de tareas"
-  mapfile -t ETAPAS < <(PLAN="$PLAN" python3 "$AQUI/_etapas.py")
+  SALIDA_ETAPAS="$(PLAN="$PLAN" python3 "$AQUI/_etapas.py")"; rc_etapas=$?
+  if [ "$rc_etapas" -eq 2 ]; then
+    echo "✗ $PLAN no tiene tabla de tareas: no hay nada que ejecutar." >&2
+    echo "  El plan lo escribe el arquitecto y lo aprueba una persona (gate G0)." >&2
+    exit 1
+  fi
+  while IFS= read -r linea; do
+    [ -n "$linea" ] && ETAPAS+=("$linea")
+  done <<< "$SALIDA_ETAPAS"
 fi
-[ "${#ETAPAS[@]}" -gt 0 ] || { echo "✗ No pude determinar las etapas del plan" >&2; exit 1; }
+
+# Distinto de "no pude leer el plan": el plan está bien y no queda nada pendiente.
+if [ "${#ETAPAS[@]}" -eq 0 ]; then
+  echo "✓ Todas las tareas de $PLAN están marcadas como hechas: no hay nada que lanzar."
+  exit 0
+fi
+
+if [ "${SOLO_ETAPAS:-0}" = "1" ]; then
+  echo "Plan con ${#ETAPAS[@]} etapa(s):"
+  n=0; for etapa in "${ETAPAS[@]}"; do n=$((n+1)); echo "  ETAPA $n: $etapa"; done
+  exit 0
+fi
 
 echo "Plan con ${#ETAPAS[@]} etapa(s). Empezando en la $DESDE."
 echo
@@ -44,6 +67,8 @@ for etapa in "${ETAPAS[@]}"; do
   echo "══ ETAPA $n: ${tareas[*]}"
   intento=1
   pendientes=("${tareas[@]}")
+  HUELLAS="$(mktemp -d)"    # una huella de falla por tarea (bash 3.2 no tiene arrays asociativos)
+  MUERTAS=()                # las que fallaron dos veces por lo mismo
   while [ "${#pendientes[@]}" -gt 0 ] && [ "$intento" -le "$REINTENTOS" ]; do
     [ "$intento" -gt 1 ] && echo "── reintento $intento de: ${pendientes[*]}"
     bash "$AQUI/correr-tarea.sh" "${pendientes[@]}"
@@ -53,16 +78,33 @@ for etapa in "${ETAPAS[@]}"; do
     nuevas=()
     for t in "${pendientes[@]}"; do
       log="$RAIZ/../trabajo-$t/.tarea.log"
-      [ "$(veredicto "$log" 2>/dev/null)" = "VERDE" ] || nuevas+=("$t")
+      [ "$(veredicto "$log" 2>/dev/null)" = "VERDE" ] && continue
+
+      # Reintentar a ciegas gasta tiempo en la falla que no se va a ir sola. Si la huella
+      # repite, es la misma falla y no hay nada nuevo que intentar: se detiene acá y decide
+      # un humano. Si cambió, el reintento tiene sentido.
+      h="$(huella_de_falla "$log")"
+      anterior="$(cat "$HUELLAS/$t" 2>/dev/null || true)"
+      if [ -n "$h" ] && [ "$h" = "$anterior" ]; then
+        echo "  ✗ $t: punto muerto — falló dos veces por lo mismo:"
+        echo "      $h"
+        MUERTAS+=("$t")
+      else
+        [ -n "$anterior" ] && echo "  · $t: falló por otra cosa, reintentando"
+        printf '%s' "$h" > "$HUELLAS/$t"
+        nuevas+=("$t")
+      fi
     done
     pendientes=("${nuevas[@]+"${nuevas[@]}"}")
     intento=$((intento+1))
   done
+  rm -rf "$HUELLAS"
 
-  if [ "${#pendientes[@]}" -gt 0 ]; then
+  if [ "${#pendientes[@]}" -gt 0 ] || [ "${#MUERTAS[@]}" -gt 0 ]; then
     echo
-    echo "✗ La etapa $n se detuvo con tareas en rojo: ${pendientes[*]}"
-    echo "  Agotaron $REINTENTOS intentos. Decide un humano (ver HUMANO.md §4):"
+    echo "✗ La etapa $n se detuvo con tareas en rojo: ${pendientes[*]+${pendientes[*]}} ${MUERTAS[*]+${MUERTAS[*]}}"
+    [ "${#MUERTAS[@]}" -gt 0 ] && echo "  En punto muerto (misma falla dos veces): ${MUERTAS[*]}"
+    echo "  Decide un humano (ver HUMANO.md §4):"
     echo "    · relanzar con el error pegado en la tarea,"
     echo "    · partir la tarea en dos,"
     echo "    · o hacerla a mano."
