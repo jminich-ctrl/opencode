@@ -84,10 +84,13 @@ if [ "$fallos" -gt 0 ]; then
 fi
 echo "G0: el plan está escrito, en ${duracion}s. NO está aprobado."
 echo "Lo que sigue lo hace una persona (HUMANO.md §1):"
-echo "  1. ¿Las tareas están dimensionadas? (cuántas funciones tiene que escribir, no cuántos archivos)"
-echo "  2. ¿Marcó los choques de archivo?"
-echo "  3. ¿Inventó APIs que no existen?"
-echo "  4. ¿Se dio permisos de más en «archivos que podés tocar»?"
-echo "  5. ¿Dejó decisiones abiertas, o eligió solo?"
+echo "  1. ¿Está TODO el encargo? Tachá requisito por requisito: una funcionalidad que falta"
+echo "     no se ve leyendo el plan, y es el error más caro."
+echo "  2. ¿Las tareas están dimensionadas? (cuántas funciones tiene que escribir, no archivos)"
+echo "  3. ¿Las etapas respetan la tabla de dependencias y los choques de archivo?"
+echo "  4. ¿Inventó APIs que no existen?"
+echo "  5. ¿Se dio permisos de más en «archivos que podés tocar»?"
+echo "  6. ¿Dejó decisiones abiertas, o eligió solo?"
+echo "  7. ¿Quedaron plantillas sin completar («<quién>», «<cuántos minutos>»)?"
 echo
 echo "Cerrá lo abierto y después: bash $AQUI/correr-plan.sh"

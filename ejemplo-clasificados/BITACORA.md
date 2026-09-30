@@ -55,3 +55,48 @@ migraciones reversibles) y una era su propio trabajo (el orden de las etapas). L
 La de las capas trajo algo: fijamos `app/datos → app/servicios → app/rutas` **y le pedimos
 que escriba el `scripts/_arquitectura.py` correspondiente**, así el gate de coherencia
 verifica la arquitectura que él mismo propuso.
+
+## 2026-09-30 · G0, tercer intento: escribió los archivos
+
+El arreglo era una línea del prompt. Decía **qué** producir y nunca **cómo**:
+
+> `## Lo que producís` — "Un `PLAN.md` siguiendo `plantillas/PLAN.md`, y un archivo por
+> tarea en `tareas/`."
+
+Ahora dice *"archivos en el disco, escritos con la herramienta `write`; lo que no quedó en
+un archivo no existe"*, pide verificar con `read` que estén, y define la respuesta final
+como la lista de archivos. Resultado: `PLAN.md` de 79 líneas, 8 tareas, 10 llamadas a
+`write`, y G0 verificando que el plan se puede ejecutar.
+
+**La regla:** a un modelo chico decile la herramienta, no sólo el entregable. Los modelos
+grandes infieren que "producir un archivo" implica llamar a `write`; los chicos producen
+el contenido y se quedan ahí. Es la falla que Posit midió en modelos locales — *"escribió
+los pasos correctos pero no llamó a las herramientas"* — y la vimos idéntica.
+
+## 2026-09-30 · G0 rechazado: qué se le escapa a un arquitecto de 120B
+
+El plan estaba bien **armado** —capas correctas, contratos, tabla de dependencias, decisiones
+abiertas listadas adentro— y mal **completado**. Las cinco cosas, porque son un catálogo
+útil de qué mirar en un plan:
+
+| # | Qué | Clase de error |
+|---|---|---|
+| 1 | Mezcló React con Vue: `App.vue`, `Login.vue`, y T06 titulada "Vite y React" creando `App.vue` | contradice el encargo |
+| 2 | **Faltaba un tercio del alcance**: favoritos, mensajes, editar tus avisos, filtro por categoría, sistema de diseño | omisión silenciosa |
+| 3 | `ETAPA 1: T01 T02 T03` cuando su propia tabla dice que T02 y T03 dependen de T01 | se contradice a sí mismo |
+| 4 | T04 tocaba las tres capas de una; T01 tocaba el repo entero | dimensionamiento |
+| 5 | Dejó `<quién>` y `<cuántos minutos>` sin completar, con la decisión ya tomada | la plantilla como texto a copiar, no como formulario |
+
+**El 2 es el peligroso**, y es el que justifica que G0 lo firme una persona: los otros
+cuatro se ven leyendo el plan con atención, pero una funcionalidad que **no está** no se ve
+en ningún lado. Hay que ir al encargo y tachar requisito por requisito. Diez minutos.
+
+El 3 tiene consecuencia práctica más allá del error: **si el planificador duda del corte,
+que no declare etapas.** Deducidas de la tabla salen bien y además respetan los choques de
+archivo, que es la regla que más cuesta aplicar a mano.
+
+Y una que era culpa nuestra: las tareas decían *"los tests ya están en el repo y fallan"* y
+no estaban. El método dice que **los tests los escribe el humano antes de cada etapa**, pero
+eso no estaba en el encargo ni en el prompt del arquitecto. Ahora el plan tiene que incluir
+una sección "Tests que tenemos que escribir", con archivo y clase por tarea, agrupados por
+etapa: es la lista de trabajo del humano antes de lanzar.

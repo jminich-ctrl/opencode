@@ -60,16 +60,27 @@ revisar un plan cuesta diez minutos contra las horas de revisar diez diffs malos
 
 Qué mirar en un plan, en orden:
 
-1. **¿Las tareas están dimensionadas?** Primero: **cuántas cosas nuevas tiene que escribir**
+1. **¿Está todo el encargo?** Abrí el encargo al lado del plan y **tachá requisito por
+   requisito**. Es lo primero porque es lo único que no se ve leyendo el plan: los demás
+   errores están escritos en alguna línea, pero una funcionalidad que falta no está en
+   ninguna parte. El plan de clasificados se leía bien y **le faltaba un tercio del
+   alcance** —favoritos, mensajes, editar tus avisos, filtro por categoría, el sistema de
+   diseño— sin una sola señal de que faltara.
+2. **¿Las tareas están dimensionadas?** Primero: **cuántas cosas nuevas tiene que escribir**
    —una a tres funciones, no ocho—, que es lo que mejor predice que cumpla la instrucción.
    Después: uno o dos archivos, un objetivo sin "y", criterio verificable con un comando.
-2. **¿Marcó los choques de archivo?** Dos tareas que escriben el mismo archivo van en serie,
-   aunque las dependencias permitan paralelizarlas.
-3. **¿Inventó APIs?** El nuestro se refirió a un método del laberinto que no existe. Es la
+3. **¿Las etapas respetan la tabla?** El nuestro puso `ETAPA 1: T01 T02 T03` cuando su
+   propia tabla decía que T02 y T03 dependían de T01. **Si dudás, borrá las etapas
+   declaradas**: deducidas de la tabla salen bien y además respetan los choques de archivo,
+   que es la regla que más cuesta aplicar a mano.
+4. **¿Inventó APIs?** El nuestro se refirió a un método del laberinto que no existe. Es la
    falla más común y la más fácil de pasar por alto leyendo rápido.
-4. **¿Se dio permisos de más?** Fijate en "archivos que podés tocar": el nuestro se agregó
+5. **¿Se dio permisos de más?** Fijate en "archivos que podés tocar": el nuestro se agregó
    el módulo base sin necesitarlo.
-5. **¿Dejó decisiones abiertas o eligió solo?**
+6. **¿Dejó decisiones abiertas o eligió solo?**
+7. **¿Quedaron plantillas sin completar?** `<quién>`, `<cuántos minutos>`,
+   `<pregunta propia del proyecto>`. La plantilla es un formulario; un modelo chico la copia
+   como texto.
 
 ### Juzgar lo que no se puede medir
 G3, la prueba de uso. **Es el gate que más se saltea y el que más cuesta saltear.**
