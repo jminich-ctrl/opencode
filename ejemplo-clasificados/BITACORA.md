@@ -167,3 +167,32 @@ del choque no se está aplicando. Con ese aviso, este bug se veía en la primera
 > La regla general: **cuando un verificador deja de encontrar algo, tiene que decirlo.**
 > Un chequeo que no encuentra nada y un chequeo que no se ejecutó se ven idénticos desde
 > afuera, y es la tercera vez en el día que nos muerde la misma forma.
+
+## 2026-09-30 · G0 completo: 27 tareas, 10 etapas, el encargo entero
+
+Cuatro corridas del arquitecto, cada una con **un solo pedido**:
+
+| Corrida | Pedido | Resultado |
+|---|---|---|
+| 1 | "escribí el plan" | siete preguntas, cero archivos |
+| 2 | ídem, con el prompt nombrando `write` | `PLAN.md` y 8 tareas |
+| 3 | "agregá SOLO las tareas que faltan" | +5 tareas (favoritos, mensajes, editar, filtro, diseño) |
+| 4 | "partí T09 y T10" | las dos de seis archivos pasaron a doce de uno |
+| 5 | "faltan registro y búsqueda" | +4 tareas |
+
+Y el tachado final contra el encargo da los doce requisitos cubiertos. El plan valida sin
+errores de forma y se corta en diez etapas que respetan dependencias y choques de archivo.
+
+**Lo que hicimos nosotros**, que es exactamente lo que `HUMANO.md` dice que no se delega:
+cerrar siete decisiones, rechazar el primer plan con cinco defectos, **encontrar las dos
+omisiones tachando requisito por requisito** —el registro estaba excluido de T04 y T07, así
+que se podía entrar sin poder crear la cuenta—, borrar las etapas mal declaradas, sacar las
+filas duplicadas y los archivos huérfanos, y resolver por escrito el último aviso.
+
+Tiempo humano: unos 40 minutos repartidos. Tiempo del arquitecto: casi una hora de reloj a
+1–2 tok/s. **Las cinco corridas juntas costaron menos que escribir 27 tareas a mano**, y el
+plan que salió es mejor que el que yo había escrito antes en `plan-humano-clasificados.md`
+—sobre todo en el corte por capas, que yo había hecho por funcionalidad.
+
+Lo que falta para arrancar: **escribir los tests**, que es nuestro y está listado en el plan
+por etapa, y que Jose firme la línea de G0.

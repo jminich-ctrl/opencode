@@ -63,6 +63,10 @@ Crear un sitio de clasificados funcional con backend FastAPI (MySQL sin ORM) y f
 | T11 | Editar propios avisos | T05, T08 | frontend/src/pages/EditAd.jsx, frontend/src/services/ads.ts | pendiente |
 | T12 | Filtro por categoría en listado | T08 | frontend/src/pages/AdsList.jsx, frontend/src/design/_filters.scss | pendiente |
 | T13 | Sistema de diseño propio en SCSS | T06 | frontend/src/design/_variables.scss, frontend/src/design/_mixins.scss, frontend/src/design/main.scss | pendiente |
+| T26 | Registro backend (creación de cuenta) | T03 | backend/app/rutas/register.py, backend/app/servicios/register.py, backend/app/datos/users_register.py | pendiente |
+| T27 | Registro frontend (página y servicio) | T06 | frontend/src/pages/Register.jsx, frontend/src/services/register.ts | pendiente |
+| T28 | Búsqueda backend (texto y categoría) | T05 | backend/app/rutas/search.py, backend/app/servicios/search.py, backend/app/datos/search_ads.py | pendiente |
+| T29 | Búsqueda frontend (UI y servicio) | T08 | frontend/src/components/SearchBar.jsx, frontend/src/services/search.ts | pendiente |
 
 > Las etapas **no se declaran acá**: se deducen de la tabla de arriba, que es lo que
 > respeta las dependencias y los choques de archivo sin que nadie tenga que acordarse.
@@ -95,6 +99,21 @@ Crear un sitio de clasificados funcional con backend FastAPI (MySQL sin ORM) y f
 | T11 | tests/frontend/test_edit_ad_frontend.test.ts | TestEditAdFrontend |
 | T12 | tests/frontend/test_filters_frontend.test.ts | TestFiltersFrontend |
 | T13 | tests/frontend/test_design_system_frontend.test.ts | TestDesignSystemFrontend |
+| T26 | tests/backend/test_register_backend.py | TestRegisterBackend |
+| T27 | tests/frontend/test_register_frontend.test.ts | TestRegisterFrontend |
+| T28 | tests/backend/test_search_backend.py | TestSearchBackend |
+| T29 | tests/frontend/test_search_frontend.test.ts | TestSearchFrontend |
+
+### Sobre el aviso de T06
+
+`validar-plan.py` marca T06 porque toca cuatro archivos. **Revisado y aceptado:** son
+`package.json`, `vite.config.ts`, `main.ts` y `App.jsx`, y no le hacen escribir ni una
+función — es andamiaje. La regla que manda es cuántas cosas nuevas tiene que escribir el
+agente, no cuántos archivos toca (DESCOMPOSICION.md §4), y el aviso es una heurística sobre
+el proxy, no sobre la regla.
+
+Queda anotado acá a propósito: **un aviso que nadie resuelve por escrito vuelve a aparecer
+en cada revisión y se empieza a ignorar.**
 
 ## Gates
 
