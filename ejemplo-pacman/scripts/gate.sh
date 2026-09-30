@@ -8,6 +8,25 @@ FALLOS=0
 rojo() { echo "  ✗ $1"; FALLOS=$((FALLOS+1)); }
 verde() { echo "  ✓ $1"; }
 
+# punto de partida de la rama, fijado antes de mirar nada
+BASE_REF="$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null || echo HEAD)"
+
+# ── 0. Integridad (solo en modo tarea)
+# El gate y los tests viven dentro del worktree del agente, así que son editables.
+# Esta lista NO sale del archivo de tarea: un agente que puede ampliarse el alcance
+# deja de estar limitado por él. Medido en la literatura y acá: pedirlo por prompt no
+# alcanza, el límite tiene que ser un comando que corre alguien más.
+INTOCABLES='^(tests/|scripts/)'
+if [ -n "${TAREA:-}" ]; then
+  echo "── 0. Integridad"
+  TOCADO="$(git diff --name-only --relative "$BASE_REF" 2>/dev/null | grep -E "$INTOCABLES" || true)"
+  if [ -n "$TOCADO" ]; then
+    rojo "tocó archivos intocables (tests o el propio gate):"; echo "$TOCADO" | sed 's/^/     /'
+  else
+    verde "tests y scripts intactos"
+  fi
+fi
+
 echo "── 1. Tests"
 SALIDA="$(python3 -m unittest discover -s tests -t . -q 2>&1)"
 if echo "$SALIDA" | grep -qE '^(OK|Ran 0 tests)'; then
@@ -18,8 +37,7 @@ fi
 
 echo "── 2. Alcance${TAREA:+ (tarea $TAREA)}"
 # archivos modificados respecto del punto de partida de la rama
-BASE_REF="$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null || echo HEAD)"
-CAMBIADOS="$(git diff --name-only "$BASE_REF" 2>/dev/null; git ls-files --others --exclude-standard)"
+CAMBIADOS="$(git diff --name-only --relative "$BASE_REF" 2>/dev/null; git ls-files --others --exclude-standard)"
 if [ -z "$CAMBIADOS" ] && [ -n "${TAREA:-}" ]; then
   rojo "no hay ningún cambio: la tarea no se hizo"
 elif [ -z "$CAMBIADOS" ]; then
@@ -30,13 +48,21 @@ else
   # escrita a mano queda vieja en cuanto el plan crece (nos pasó con render.py y T12).
   PERMITIDOS="$(sed -n 's/^\*\*Archivos que podés tocar:\*\* *//p' "tareas/${TAREA:-}"-*.md 2>/dev/null \
                 | tr ',' '\n' | grep -oE '[A-Za-z0-9_./-]+\.(py|txt|md)' | sort -u)"
-  if [ -z "${TAREA:-}" ] || [ -z "$PERMITIDOS" ]; then
-    verde "sin límite de alcance declarado"
+  if [ -n "${TAREA:-}" ] && [ -z "$PERMITIDOS" ]; then
+    rojo "la tarea $TAREA no declara \"Archivos que podés tocar\": sin alcance no hay gate"
+  elif [ -z "${TAREA:-}" ]; then
+    verde "sin límite de alcance declarado (modo integración)"
   else
     FUERA=""
     while read -r archivo; do
       [ -n "$archivo" ] || continue
-      echo "$PERMITIDOS" | grep -qF "$(basename "$archivo")" || FUERA="$FUERA $archivo"
+      # por ruta y no por basename: 'entidades.py' permitido no habilita 'tests/entidades.py'
+      ok=""
+      while read -r permitido; do
+        [ -n "$permitido" ] || continue
+        [ "$archivo" = "$permitido" ] || [ "$archivo" = "src/$permitido" ] && ok=1
+      done <<< "$PERMITIDOS"
+      [ -n "$ok" ] || FUERA="$FUERA $archivo"
     done <<< "$CAMBIADOS"
     if [ -n "$FUERA" ]; then
       rojo "archivos fuera del alcance de $TAREA:$FUERA"
@@ -59,13 +85,12 @@ if ! python3 -m compileall -q src/ >/dev/null 2>&1; then rojo "src/ no compila";
 # nos pasó en T13, con dos tests cuyo assert era "len(posiciones) > 0".
 if [ -n "${TAREA:-}" ]; then
   echo "── 4. ¿Los tests distinguen?"
-  ROOT="$(git rev-parse --show-toplevel)"
   IMPL="$(echo "$CAMBIADOS" | grep -E 'src/.*\.py$' || true)"   # rutas relativas a la raíz del repo
   TMP="$(mktemp -d)"; REVERTIDOS=""
   for f in $IMPL; do
     if git cat-file -e "HEAD:$f" 2>/dev/null; then
-      cp "$ROOT/$f" "$TMP/$(echo "$f" | tr / _)"
-      git -C "$ROOT" checkout HEAD -- "$f" && REVERTIDOS="$REVERTIDOS $f"
+      cp "$f" "$TMP/$(echo "$f" | tr / _)"
+      git checkout HEAD -- "$f" && REVERTIDOS="$REVERTIDOS $f"
     fi
   done
   if [ -z "$IMPL" ]; then
@@ -79,7 +104,7 @@ if [ -n "${TAREA:-}" ]; then
     else
       verde "la suite falla al revertir$REVERTIDOS"
     fi
-    for f in $REVERTIDOS; do cp "$TMP/$(echo "$f" | tr / _)" "$ROOT/$f"; done
+    for f in $REVERTIDOS; do cp "$TMP/$(echo "$f" | tr / _)" "$f"; done
   fi
   rm -rf "$TMP"
 fi

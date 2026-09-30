@@ -69,7 +69,10 @@ lanzar() {
     inicio="$(date +%s)"
     {
       echo "=== $id · $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
-      opencode run "Implementá la tarea descrita en $archivo. Leela completa antes de empezar. Respetá los archivos permitidos y prohibidos. Al terminar corré 'bash scripts/gate.sh' y mostrá su salida real." 2>&1
+      # --agent ejecutor: primario con el harness mínimo (6 herramientas en vez de 10).
+      # Medido: el cuerpo del request baja de 39.548 a 17.423 caracteres. Se puede cambiar
+      # con AGENTE=build si hace falta delegar en subagentes desde la tarea.
+      opencode run --agent "${AGENTE:-ejecutor}" "Implementá la tarea descrita en $archivo. Leela completa antes de empezar. Respetá los archivos permitidos y prohibidos. Al terminar corré 'bash scripts/gate.sh' y mostrá su salida real." 2>&1
     } > "$log" 2>&1
     # El agente ya terminó. Recién ahora corre el gate, y el veredicto es su código de
     # salida: nunca lo que el agente escribió. Pasó de verdad: el modelo afirmó

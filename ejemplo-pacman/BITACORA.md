@@ -305,6 +305,58 @@ un humano — el agente no puede ni sabe.
 
 ---
 
+## 2026-09-30 · El repo estaba commiteado en rojo
+
+Auditando el harness corrí la suite de paso y encontré **un test fallando en `main`**:
+`test_seguir_a_pacman_por_atras_no_es_cruce`. Y un `debug_cruce.py` de depuración tirado
+en la raíz.
+
+### 13. El test estaba bien escrito; la implementación nunca se arregló
+
+El test lo había escrito el método tal como manda (antes del arreglo, con el bug descrito
+en el docstring). Después nadie corrió la suite completa antes de commitear, y el ejemplo
+—el repo que le mostramos a alguien para que copie el método— quedó publicado en rojo.
+
+El arreglo era una línea. `colision()` contaba cruce si el fantasma **quedó** donde estaba
+Pacman, sin verificar que **viniera** de donde Pacman está ahora, así que un fantasma que
+lo seguía por atrás le sacaba una vida sin tocarlo:
+
+```python
+if (pos_anterior is not None
+        and fantasma.pos == pos_previa_pacman
+        and pos_anterior == pos_pacman):      # ← esta línea faltaba
+```
+
+**Lo que falta en el método:** nada verifica que el tronco esté verde. Los gates corren
+por tarea y sobre un worktree; entre el worktree verde y el `main` verde hay un paso que
+no tiene comando. Es la misma familia de agujero que el resto de esta bitácora: lo que no
+tiene comando, no pasa.
+
+### 14. El gate se podía editar a sí mismo, y los tests también
+
+`scripts/gate.sh` y `tests/` viven dentro del worktree del agente. El alcance salía del
+archivo de tarea, así que un archivo de tarea mal escrito —o generoso— alcanzaba para
+habilitar la edición de los tests que el agente tenía que hacer pasar. Nunca lo vimos
+pasar; tampoco había nada que lo impidiera.
+
+Ahora el gate tiene un **paso 0** con una lista fija de intocables (`tests/`, `scripts/`)
+que el archivo de tarea no puede ampliar. Y dos correcciones al paso 2: compara por ruta
+(permitir `entidades.py` habilitaba `tests/entidades.py`) y una tarea sin alcance declarado
+da **rojo** en vez de "sin límite de alcance declarado".
+
+**La primera versión del paso 0 daba verde con un test modificado**: `git diff --name-only`
+devuelve rutas relativas a la raíz del repo, no al proyecto, así que el patrón `^tests/`
+nunca matcheaba. Lo encontré porque probé los tres agujeros rompiéndolos a propósito.
+Leyendo el código parecía correcto. Un verificador que no probaste contra una falla real
+es una opinión.
+
+### 15. El arquitecto no existía
+
+`--agent arquitecto` venía contestando como `build` desde el principio: OpenCode **no
+registra un agente propio que no declare `mode`**, y no avisa. Eso explica por qué el
+arquitecto nunca escribió `ejemplo-clasificados/PLAN.md` — la sesión nunca fue del
+arquitecto. Está en [../OPENCODE.md](../OPENCODE.md) §3, con el comando para verificarlo.
+
 ## Plantilla para las próximas entradas
 
 ```markdown

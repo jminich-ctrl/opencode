@@ -117,8 +117,12 @@ class Juego:
         if pos_previa_pacman is not None and previas_fantasmas is not None:
             for fantasma in fantasmas:
                 pos_anterior = previas_fantasmas.get(id(fantasma))
-                if pos_anterior is not None and fantasma.pos == pos_previa_pacman:
-                    # Se ha producido un cruce
+                # Cruce de verdad: el fantasma quedó donde estaba Pacman Y vino de
+                # donde Pacman está ahora. Sin la segunda mitad, un fantasma que lo
+                # SIGUE por atrás contaba como cruce y le sacaba una vida sin tocarlo.
+                if (pos_anterior is not None
+                        and fantasma.pos == pos_previa_pacman
+                        and pos_anterior == pos_pacman):
                     if not self.asustados:
                         self.perder_vida(pos_pacman, fantasmas)
                         return "perdio"

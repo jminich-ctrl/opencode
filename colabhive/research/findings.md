@@ -82,3 +82,55 @@ título de 5 palabras):
 Qwen3-8B era el modelo más chico del equipo y el más lento en contestar: razona antes de cada respuesta.
 Por eso `explore`, `title` y `summary` pasaron a gpt-oss-20b, y el equipo quedó en tres modelos.
 **El tamaño no predice la latencia; si el modelo delibera, sí.**
+
+---
+
+## El peso del harness (2026-09-30)
+
+Ninguna documentación dice cuánto contexto gasta OpenCode antes de que empiece la tarea, así
+que lo medimos con un proxy que se pone en el medio (`scripts/proxy_medidor.py`) y anota una
+línea por request. Pedido mínimo: `"Responde solo: OK"`, 19 caracteres.
+
+| | `build` (10 herramientas) | `ejecutor` (6) |
+|---|---|---|
+| system prompt | 17.954 | 4.613 |
+| esquemas de herramientas | 21.393 | 12.533 |
+| **cuerpo del request** | **39.548** | **17.424** |
+
+**−56%**, ~5.500 tokens por paso del agente. Sacamos `webfetch`, `skill`, `task` y
+`todowrite`.
+
+Lo que no esperábamos: **el ahorro grande está en el system prompt, no en el esquema de la
+herramienta.** Bajó 13.341 caracteres al sacar cuatro herramientas, porque OpenCode inyecta
+el instructivo de cada una (`todowrite` arrastra una sección con ejemplos). Y lo que quedó
+—4.613— es casi todo nuestro: los dos `AGENTS.md` más el prompt del ejecutor.
+
+Queda pendiente el A/B que importa: si con el harness flaco sube la tasa de verde al primer
+intento. Hasta donde llegó la revisión de literatura, **nadie publicó un barrido de cantidad
+de herramientas con un modelo chico abierto fijo en un benchmark de código**, así que la
+medición es nuestra y vale publicarla.
+
+### Un experimento separado, no mezclado con este
+
+`correr-tarea.sh` le dice al agente *"al terminar corré `bash scripts/gate.sh` y mostrá su
+salida real"*. El runner igual vuelve a correr el gate y lee **sólo** su propio veredicto, así
+que esa frase no aporta al veredicto — pero convierte al gate en objetivo. Hay medición
+publicada de que fraseando la meta como "hacer pasar el gate" los intentos de saltearlo pasan
+de 38% a 86%. Contra eso: correrlo le permite autocorregirse antes de terminar.
+
+No lo cambiamos ahora **para no mover dos variables a la vez**. Primero medimos el recorte de
+herramientas, después esta frase.
+
+## El parser de razonamiento sigue roto (2026-09-30)
+
+Un POST directo a `/v1/chat/completions` contra Qwen3-8B devuelve:
+
+```json
+"message": { "content": "<think>\nOkay, the", "reasoning": null }
+```
+
+El `<think>` viaja **dentro de `content`** y `reasoning_content` viene vacío — consistente
+con lo que medimos antes en las cuatro variantes de `reasoning_effort`. Al motor le falta el
+parser de razonamiento para estos modelos. Para nosotros el costo es doble: contamina la
+respuesta que lee el runner, y el razonamiento no se puede descartar del historial.
+Anotado en `colabhive-backlog.md`.

@@ -36,3 +36,17 @@ for f in "$BASE"/tareas/T*.md; do
   fi
   printf '%-6s %-38s %-10s %s\n' "$id" "$titulo" "$estado" "$detalle"
 done
+
+# ── El tronco
+# Entre "el worktree de la tarea da verde" y "main da verde" hay un paso que no tenía
+# comando, y nos costó tener el repo de ejemplo publicado en rojo (BITACORA §13).
+# Los gates corren por tarea; esto corre sobre lo que está mergeado.
+if [ -x "$BASE/scripts/gate.sh" ]; then
+  echo
+  if ( cd "$BASE" && TAREA= bash scripts/gate.sh >/dev/null 2>&1 ); then
+    echo "tronco: ✓ verde"
+  else
+    echo "tronco: ✗ ROJO — lo mergeado no pasa su propio gate:"
+    ( cd "$BASE" && TAREA= bash scripts/gate.sh 2>&1 ) | grep '✗' | sed 's/^/  /'
+  fi
+fi

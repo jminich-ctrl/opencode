@@ -102,9 +102,25 @@ un agente nuevo.
 }
 ```
 
-- **`mode`**: `primary` (se invoca desde la CLI) o `subagent` (se invoca con `@nombre`
-  dentro de una sesión). **`opencode run --agent reviewer` NO usa reviewer**: los
-  subagentes no se invocan desde la CLI y cae silenciosamente al agente por defecto.
+- **`mode`**: `primary` (se invoca desde la CLI con `--agent`) o `subagent` (se invoca con
+  `@nombre` dentro de una sesión).
+
+  **Declaralo siempre, incluso en los primarios.** Un agente propio que no declara `mode`
+  **no se registra**: OpenCode no lo lista y `--agent ese-nombre` cae al agente por defecto
+  sin decir nada. Así vivió semanas nuestro `arquitecto`: cada vez que le pedíamos un plan
+  contestaba `build`. Se ve con:
+
+  ```bash
+  opencode agent list | grep -E '^\S+ \((primary|subagent)\)'
+  ```
+
+  Si un agente tuyo no aparece ahí, no existe. Los subagentes sí se registraban porque
+  declaran `mode` por obligación; los primarios, no, y ese es justo el caso en que el
+  silencio se confunde con que funcionó.
+
+- **`opencode run --agent reviewer` tampoco usa reviewer**, pero por otro motivo: los
+  subagentes no se invocan desde la CLI. Las dos fallas se ven igual —contesta el agente
+  por defecto— y por eso conviene chequear la lista antes de culpar al prompt.
 - **`description`** es lo que el modelo lee para decidir a qué subagente delegar. Escribila
   pensando en eso, no como documentación.
 - **`permission`** es la defensa real: al reviewer le negamos `edit`, así no puede
@@ -123,7 +139,10 @@ un agente nuevo.
 | `tester` | Qwen3-Coder-30B-A3B | 204k | mismo ejecutor |
 | `explore`, `title`, `summary` | gpt-oss-20b | 69k | el que antes contesta: un modelo que delibera tarda segundos en un título |
 
-El agente por defecto de OpenCode es `build`: es el que usan la TUI, `oc "tarea"` y el runner.
+| `ejecutor` | Qwen3-Coder-30B-A3B | 204k | igual que `build`, pero con 6 herramientas en vez de 10 |
+
+El agente por defecto de OpenCode es `build`: es el que usan la TUI y `oc "tarea"`.
+**El runner usa `ejecutor`**, que es `build` con el harness recortado (§7).
 El `model` de primer nivel (gpt-oss-20b) sólo se usa para lo que no declara un modelo propio.
 
 **El criterio no es el benchmark, es si actúa o delibera.** Ver
@@ -234,6 +253,7 @@ python3 $AGENTES/colabhive/scripts/sync_limits.py [--write]      # contexto real
 python3 $AGENTES/colabhive/scripts/check_cache.py                # ¿hay prefix caching?
 python3 $AGENTES/colabhive/scripts/concurrencia.py <id> 1,4,8,12 # techo de paralelismo
 python3 $AGENTES/colabhive/scripts/smoke_test.py <id>            # tool calling + tokens/s
+python3 $AGENTES/colabhive/scripts/proxy_medidor.py              # ¿cuánto pesa el harness?
 ```
 
 **Chequeo previo a una tanda**, tres comandos y dos minutos:
@@ -246,6 +266,41 @@ oc --status && python3 $AGENTES/colabhive/scripts/sync_limits.py \
 Vale la pena porque las tres cosas se rompen solas: los modelos se enfrían, las réplicas
 cambian de ventana al reemplazarse (vimos gpt-oss pasar de 126k a 76k sin aviso) y el
 prefix caching depende de cómo se levantó el motor.
+
+### Cuánto pesa el harness, y cómo pesarlo
+
+Ninguna documentación dice cuánto contexto gasta OpenCode **antes** de que empiece la tarea.
+`proxy_medidor.py` se pone entre OpenCode y ColabHive y anota una línea por request:
+
+```bash
+python3 colabhive/scripts/proxy_medidor.py &     # escucha en 8899
+# apuntar el baseURL del provider a http://127.0.0.1:8899/v1
+cat colabhive/research/live/harness.jsonl
+```
+
+Medido con el pedido más chico posible (`"Responde solo: OK"`, 19 caracteres):
+
+| | `build` (10 herramientas) | `ejecutor` (6) |
+|---|---|---|
+| system prompt | 17.954 | **4.613** |
+| esquemas de herramientas | 21.393 | **12.533** |
+| **cuerpo del request** | **39.548** | **17.424** |
+
+**−56%, unos 5.500 tokens por cada paso del agente.** Las herramientas que sacamos son
+`webfetch`, `skill`, `task` y `todowrite`: un ejecutor no navega, no delega y no necesita
+una lista de tareas para hacer una sola.
+
+Dos cosas que no esperábamos:
+
+1. **El ahorro grande no está en el esquema de la herramienta, está en el system prompt.**
+   Bajó 13.341 caracteres al sacar cuatro herramientas, porque OpenCode inyecta el
+   instructivo de cada una. `todowrite` sola arrastra una sección entera con ejemplos.
+2. **Lo que quedó del system prompt es casi todo nuestro**: 4.613 caracteres ≈ los dos
+   `AGENTS.md` (1.250 + 1.745) más el prompt del ejecutor (1.166). Sacando las herramientas
+   que no usa, el peso de OpenCode se vuelve marginal frente al nuestro.
+
+`build` queda intacto a propósito: es el único que puede delegar en `@reviewer`, y para eso
+necesita `task`. Si una tarea necesita delegar, se lanza con `AGENTE=build`.
 
 ---
 
@@ -261,3 +316,5 @@ prefix caching depende de cómo se levantó el motor.
 | El agente delibera y no produce | modelo pensante como ejecutor | cambiar de modelo o apagar el pensamiento |
 | Una tarea tarda 20 min sin salida | modelo frío | `oc --warm` antes |
 | `--agent reviewer` no usa reviewer | los subagentes no se invocan desde la CLI | usar `@reviewer` dentro de una sesión |
+| `--agent arquitecto` contesta como `build` | el agente propio no declaraba `mode` y no se registró | `"mode": "primary"`, y verificar con `opencode agent list` |
+| `</think>` aparece dentro de la respuesta | el motor no tiene parser de razonamiento para ese modelo | pedirlo a la plataforma; `reasoning_content` viene vacío |

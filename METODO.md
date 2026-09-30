@@ -144,11 +144,47 @@ dependencias y sus criterios. Lo escribe el arquitecto, lo aprobás vos.
 
 `ejemplo-pacman/scripts/gate.sh` corre sobre el worktree de la tarea y verifica, en este orden:
 
+0. **Integridad**: no se tocaron los tests ni los scripts del propio gate.
 1. **Tests**: la suite completa pasa.
 2. **Alcance**: no se tocaron archivos fuera de los declarados en la tarea.
 3. **Higiene**: sin dependencias nuevas, sin archivos generados, sin `TODO` sueltos.
+4. **¿Los tests distinguen?**: revierte la implementación y exige que la suite falle.
 
-Rojo en cualquiera de los tres = la tarea no está terminada. No se discute.
+Rojo en cualquiera = la tarea no está terminada. No se discute.
+
+#### Por qué el paso 0 existe, y por qué no sale del archivo de tarea
+
+El gate y los tests **viven dentro del worktree del agente**, así que son editables por el
+agente al que juzgan. El paso 0 los declara intocables con una lista **fija en el gate**,
+que el archivo de tarea no puede ampliar: un límite que el limitado puede reescribir no es
+un límite. Es el mismo razonamiento que P2 llevado un paso más: no basta que el veredicto
+lo dé un comando, ese comando tiene que ser inmodificable por quien es juzgado.
+
+Pedirlo por prompt no alcanza. `AGENTS.md` ya decía no tocar los tests; el paso 0 es la
+versión que se puede verificar.
+
+#### Un chequeo que falta tiene que dar ROJO
+
+Si la tarea no declara "Archivos que podés tocar", el gate da **rojo**, no "sin límite de
+alcance declarado". Es la tercera vez que aparece esta misma trampa:
+
+| Dónde | Qué hacía | Qué hace ahora |
+|---|---|---|
+| gate, paso 2 | sin cambios → verde | sin cambios en modo tarea → rojo |
+| pre-deploy | sin smoke de arranque → avisaba y seguía verde | falta el smoke → rojo |
+| gate, paso 2 | sin alcance declarado → "sin límite" y verde | sin alcance en modo tarea → rojo |
+
+Aparece sola cada vez que uno escribe un verificador, porque la rama "no pude chequearlo"
+se parece a la rama "chequeé y está bien" mientras la escribís. **Escribí siempre esa rama
+como rojo primero**, y recién después decidí si merece una excepción.
+
+Dos detalles que parecen menores y no lo son:
+
+- **El alcance se compara por ruta, no por nombre de archivo.** Permitir `entidades.py`
+  también habilitaba `tests/entidades.py`, que es exactamente lo que el paso 0 prohíbe.
+- **`git diff --name-only` devuelve rutas relativas a la raíz del repo**, no al proyecto.
+  Sin `--relative`, el paso 0 daba **verde con un test modificado**. Lo encontramos porque
+  lo probamos rompiéndolo a propósito; leyéndolo parecía correcto.
 
 ### G2 — Revisión del diff (humano)
 

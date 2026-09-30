@@ -72,28 +72,34 @@
       "model": "colabhive/5d21e32a-3bbb-4040-9c34-3b06c4415b84",
       "temperature": 0.3,
       "description": "Analiza, diseña y reparte el trabajo. No edita archivos.",
-      "prompt": "{file:./prompts/plan.md}"
+      "prompt": "{file:./prompts/plan.md}",
+      "mode": "primary"
     },
     "build": {
       "model": "colabhive/f5d76140-5b4d-41c0-88da-dad6d11f341a",
       "temperature": 0.2,
       "description": "Implementa los cambios ya decididos.",
       "prompt": "{file:./prompts/build.md}",
-      "steps": 80
+      "steps": 80,
+      "mode": "primary"
     },
     "explore": {
       "model": "colabhive/a9aa41f2-b238-4de1-8abf-c58b84eb0331",
       "temperature": 0.1,
-      "description": "Busca en el código y responde dónde están las cosas. No edita."
+      "description": "Busca en el código y responde dónde están las cosas. No edita.",
+      "mode": "subagent"
     },
     "title": {
-      "model": "colabhive/a9aa41f2-b238-4de1-8abf-c58b84eb0331"
+      "model": "colabhive/a9aa41f2-b238-4de1-8abf-c58b84eb0331",
+      "mode": "primary"
     },
     "summary": {
-      "model": "colabhive/a9aa41f2-b238-4de1-8abf-c58b84eb0331"
+      "model": "colabhive/a9aa41f2-b238-4de1-8abf-c58b84eb0331",
+      "mode": "primary"
     },
     "compaction": {
-      "model": "colabhive/f5d76140-5b4d-41c0-88da-dad6d11f341a"
+      "model": "colabhive/f5d76140-5b4d-41c0-88da-dad6d11f341a",
+      "mode": "primary"
     },
     "reviewer": {
       "mode": "subagent",
@@ -104,6 +110,12 @@
       "permission": {
         "edit": "deny",
         "bash": "ask"
+      },
+      "tools": {
+        "webfetch": false,
+        "skill": false,
+        "task": false,
+        "todowrite": false
       }
     },
     "tester": {
@@ -111,7 +123,13 @@
       "model": "colabhive/f5d76140-5b4d-41c0-88da-dad6d11f341a",
       "temperature": 0.2,
       "description": "Escribe y corre tests para un cambio concreto.",
-      "prompt": "{file:./prompts/tester.md}"
+      "prompt": "{file:./prompts/tester.md}",
+      "tools": {
+        "webfetch": false,
+        "skill": false,
+        "task": false,
+        "todowrite": false
+      }
     },
     "arquitecto": {
       "model": "colabhive/9a1f0c77-4b2e-4d3a-8f6b-0c2e5a7d120b",
@@ -136,7 +154,8 @@
           "git diff*": "allow",
           "*": "ask"
         }
-      }
+      },
+      "mode": "primary"
     },
     "seguridad": {
       "mode": "subagent",
@@ -147,6 +166,12 @@
       "permission": {
         "edit": "deny",
         "bash": "ask"
+      },
+      "tools": {
+        "webfetch": false,
+        "skill": false,
+        "task": false,
+        "todowrite": false
       }
     },
     "devops": {
@@ -154,14 +179,40 @@
       "model": "colabhive/f5d76140-5b4d-41c0-88da-dad6d11f341a",
       "temperature": 0.2,
       "description": "Prepara el despliegue: Dockerfiles, CI, scripts de deploy y rollback. NO despliega a producción.",
-      "prompt": "{file:./prompts/devops.md}"
+      "prompt": "{file:./prompts/devops.md}",
+      "tools": {
+        "webfetch": false,
+        "skill": false,
+        "task": false,
+        "todowrite": false
+      }
     },
     "migrador": {
       "mode": "subagent",
       "model": "colabhive/f5d76140-5b4d-41c0-88da-dad6d11f341a",
       "temperature": 0.1,
       "description": "Escribe migraciones de base, cada una con su reversa probada. NO las corre en producción.",
-      "prompt": "{file:./prompts/migrador.md}"
+      "prompt": "{file:./prompts/migrador.md}",
+      "tools": {
+        "webfetch": false,
+        "skill": false,
+        "task": false,
+        "todowrite": false
+      }
+    },
+    "ejecutor": {
+      "model": "colabhive/f5d76140-5b4d-41c0-88da-dad6d11f341a",
+      "temperature": 0.2,
+      "description": "Implementa una tarea con el harness mínimo. El que usa el runner.",
+      "prompt": "{file:./prompts/build.md}",
+      "steps": 80,
+      "tools": {
+        "webfetch": false,
+        "skill": false,
+        "task": false,
+        "todowrite": false
+      },
+      "mode": "primary"
     }
   },
   "share": "disabled",
