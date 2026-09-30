@@ -11,6 +11,33 @@ No es el método que usarías con Claude o Codex. La diferencia de fondo:
 
 ---
 
+## 0. Qué es del método y qué es nuestro
+
+Este repo es un método **más** dos proyectos de ejemplo, y conviene saber qué es cuál antes
+de copiarlo. Si te llevás lo de la izquierda sin lo de la derecha, funciona.
+
+| Del método, no lo toques | Nuestro, cambialo |
+|---|---|
+| Una tarea = una sesión = un diff que una persona lee | Que el ejemplo sea un Pacman o un sitio de clasificados |
+| El veredicto es un código de salida | Que la suite se corra con `unittest` |
+| Un chequeo que no pudo ejecutarse da **rojo** | Los chequeos de higiene (`pygame`, Tailwind) |
+| Lo intocable lo decide el gate, no el archivo de tarea | Qué es intocable en tu repo |
+| Los tests van escritos antes, y el agente no los toca | Que sean `pytest` o `vitest` |
+| El humano cierra las decisiones con trade-off y firma | Cuáles fueron nuestras decisiones |
+| Lo que no se puede verificar por comando va como gate humano | Nuestras preguntas de G3 |
+| Nadie despliega solo | Nuestro `deploy.sh` |
+
+**Lo que sí es un contrato**, porque hay scripts que lo leen: el formato de la tabla de
+tareas en `PLAN.md`, las tres líneas de cabecera de un archivo de tarea, y la sección
+`## Requisitos` del encargo. Están en `plantillas/`, y `validar-plan.py` los verifica — si
+los cambiás, cambialos ahí también.
+
+**Lo que asume, y si no te sirve hay que reemplazarlo:** git con worktrees, tronco único
+(no pull requests), y un plan en un archivo Markdown. `integrar.sh` mergea al tronco; un
+equipo que trabaja con PRs lo reemplaza por abrir el PR, y el resto sigue igual.
+
+---
+
 ## 1. Los tres principios
 
 ### P1 — La unidad de trabajo es la tarea, no la feature

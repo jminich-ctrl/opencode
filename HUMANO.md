@@ -13,7 +13,8 @@ verifica solo; nosotros manejamos. En condiciones normales eso son **tres moment
 
 | Cuándo | Qué hacemos | Cuánto lleva |
 |---|---|---|
-| **Después del plan (G0)** | leerlo, cerrar lo abierto, aprobar | 10 min |
+| **Antes de todo** | escribir el encargo, con sus requisitos | 15 min, una vez |
+| **Después del plan (G0)** | cerrar lo abierto, aprobar | 10 min |
 | **Después de la integración (G3)** | **usar la cosa** y contestar las preguntas | 10 min |
 | **Antes de producción (G5)** | contestar cuatro preguntas y escribir `desplegar` | 2 min |
 
@@ -66,7 +67,27 @@ le pedimos. Cerralas y devolvéselas cerradas.
 **G0 lo firma una persona.** Un plan que nadie revisó produce diez tareas mal cortadas, y
 revisar un plan cuesta diez minutos contra las horas de revisar diez diffs malos.
 
-Qué mirar en un plan, en orden:
+**Pero revisar no es corregir a mano.** La primera vez que corrimos este gate hicimos siete
+intervenciones, y **cuatro eran trabajo de máquina**: deduplicar filas de una tabla, borrar
+etapas mal declaradas, borrar archivos de tarea huérfanos, y cruzar los requisitos del
+encargo contra el plan. Eso ahora lo hace `planificar.sh`, que se corrige solo:
+
+```
+el arquitecto escribe → se valida forma, cobertura y etapas → lo que está mal se le
+devuelve como UN pedido → repite hasta que esté limpio, o hasta que falle dos veces igual
+```
+
+Lo que llega a tus manos ya tiene la forma verificada, el encargo cubierto requisito por
+requisito, y las etapas deducidas. **Quedan tres preguntas y una firma**, que es lo que la
+tabla de arriba promete:
+
+1. **¿Las decisiones abiertas están cerradas?** Cerralas vos: no hay respuesta correcta.
+2. **¿Las tareas están dimensionadas?** Cuántas funciones tiene que escribir, no cuántos
+   archivos toca.
+3. **¿Inventó APIs que no existen?** La falla más común y la más fácil de pasar leyendo rápido.
+4. Firmá la línea `Estado del gate G0`.
+
+Lo de abajo es lo que mira el script por vos, y queda acá por si lo corrés a mano:
 
 1. **¿Está todo el encargo?** Abrí el encargo al lado del plan y **tachá requisito por
    requisito**. Es lo primero porque es lo único que no se ve leyendo el plan: los demás

@@ -12,7 +12,15 @@ Lo que NO verifica, y por eso G0 sigue siendo humano:
   · si inventó APIs que no existen.
 
   PLAN=PLAN.md python3 scripts/validar-plan.py
-  → sale 0 si no hay errores; los avisos no hacen fallar.
+  PLAN=PLAN.md python3 scripts/validar-plan.py --arreglar   # y corrige lo mecánico
+
+Con --arreglar hace lo que no requiere criterio: saca las filas repetidas de la tabla y
+borra las líneas de etapa que no están en el formato exacto (mezclarlas es peor que no
+tenerlas: las que no matchean desaparecen y sus tareas no se ejecutan). Los archivos
+huérfanos los informa y no los borra: borrar es del humano.
+
+Nace de haber hecho esas dos cosas a mano. Un método con mínima interacción humana no
+puede pedirle a una persona que deduplique filas de una tabla.
 """
 import os
 import pathlib
@@ -25,8 +33,40 @@ if not PLAN.exists():
     print(f"✗ no existe {PLAN}")
     sys.exit(1)
 
+ARREGLAR = "--arreglar" in sys.argv
 texto = PLAN.read_text()
 errores, avisos = [], []
+
+if ARREGLAR:
+    original = texto
+    vistas, salida, quitadas = set(), [], 0
+    for linea in texto.split("\n"):
+        m = re.match(r"^\|\s*(T\d+)\s*\|.*\|\s*\S+\s*\|\s*$", linea)
+        if m and len(linea.strip("|").split("|")) >= 4:
+            if m.group(1) in vistas:
+                quitadas += 1
+                continue
+            vistas.add(m.group(1))
+        salida.append(linea)
+    texto = "\n".join(salida)
+
+    # Etapas que no están en el formato exacto: se borran todas, porque mezclar canónicas
+    # con prosa hace desaparecer en silencio las que no matchean. Deducidas salen mejor.
+    lineas_etapa = [l for l in texto.split("\n") if re.match(r"^ *\*{0,2}etapa +[0-9]", l, re.I)]
+    canonicas = [l for l in lineas_etapa
+                 if re.match(r"^ *\*{0,2}ETAPA +[0-9]+\*{0,2}:\*{0,2} *[T0-9 ]+ *$", l)]
+    borradas = 0
+    if lineas_etapa and len(canonicas) < len(lineas_etapa):
+        texto = "\n".join(l for l in texto.split("\n") if l not in lineas_etapa)
+        borradas = len(lineas_etapa)
+
+    if texto != original:
+        PLAN.write_text(texto)
+        if quitadas:
+            print(f"  · arreglado: {quitadas} fila(s) repetida(s) quitada(s) de la tabla")
+        if borradas:
+            print(f"  · arreglado: {borradas} línea(s) de etapa en formato incorrecto "
+                  f"borradas; se deducen de la tabla")
 
 # ── La tabla de tareas: la primera tabla cuyas filas tienen 5 columnas.
 filas = []

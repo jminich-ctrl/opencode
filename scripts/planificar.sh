@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
-# G0: el arquitecto convierte un OBJETIVO.md en PLAN.md y los archivos de tareas.
+# G0: de un encargo a PLAN.md y las tareas, con el arquitecto corrigiéndose solo.
 #
 #   bash $AGENTES/scripts/planificar.sh                  # lee OBJETIVO.md del proyecto
 #   bash $AGENTES/scripts/planificar.sh mi-encargo.md    # otro archivo de encargo
-#   AGENTE=plan bash $AGENTES/scripts/planificar.sh      # con otro agente
+#   INTENTOS=5 bash $AGENTES/scripts/planificar.sh        # cuántas vueltas de corrección
+#   INSTRUCCION="..." bash $AGENTES/scripts/planificar.sh # un pedido acotado, sin rehacer
 #
-# Era el único gate sin script: se corría a mano y por eso arrastramos meses un
-# `--agent arquitecto` que en realidad respondía `build` (OPENCODE.md §3).
+# El bucle: el arquitecto escribe → se valida la forma y la cobertura del encargo → lo que
+# esté mal se le devuelve como UN pedido concreto → repite. Se detiene cuando está limpio,
+# cuando se agotan los intentos, o cuando falla dos veces por lo mismo (punto muerto).
 #
-# El plan que sale NO está aprobado. G0 lo firma una persona: ver HUMANO.md §1.
+# Por qué el bucle y no una persona en el medio: la primera vez hicimos siete
+# intervenciones a mano en este gate, y cuatro eran trabajo de máquina —deduplicar filas,
+# borrar etapas mal declaradas, cruzar requisitos contra el plan. Un método con mínima
+# interacción humana no puede pedir eso.
 #
-# La instrucción es deliberadamente terminante en un punto: "tu única salida son archivos".
-# Con la versión anterior —"decime qué decisiones te quedaron abiertas"— el arquitecto
-# escribió siete preguntas muy razonables, ningún archivo, y terminó pidiendo confirmación.
-# Un modelo chico al que le ofrecés preguntar, pregunta. Las decisiones abiertas van
-# adentro del plan, donde el humano las ve al revisarlo.
+# Lo que sigue siendo humano, y no se automatiza: cerrar las decisiones con trade-off, y
+# firmar. El plan que sale de acá NO está aprobado (HUMANO.md §1).
 set -uo pipefail
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$AQUI/_comun.sh"
@@ -22,12 +24,10 @@ ubicar_proyecto   # RAIZ, PROYECTO, BASE: ver _comun.sh
 [ -f "$HOME/.config/colabhive/env" ] && . "$HOME/.config/colabhive/env"
 
 AGENTE="${AGENTE:-arquitecto}"
-# Un pedido acotado en vez de rehacer el plan entero. Sirve para lo que el método manda
-# hacer cuando algo falla dos veces igual: partirlo. El arquitecto arregló dos defectos
-# mecánicos del plan y ignoró los dos estructurales las dos veces; pedirle UNA cosa
-# funciona donde pedirle "corregí estas cinco" no.
-INSTRUCCION="${INSTRUCCION:-}"
 ENCARGO="${1:-OBJETIVO.md}"
+INTENTOS="${INTENTOS:-3}"
+INSTRUCCION="${INSTRUCCION:-}"
+
 [ -f "$BASE/$ENCARGO" ] || { echo "✗ No encuentro $BASE/$ENCARGO" >&2
   echo "  El encargo lo escribe una persona, en sus palabras (HUMANO.md §1)." >&2; exit 1; }
 
@@ -36,79 +36,88 @@ command -v opencode >/dev/null 2>&1 || { echo "✗ No hay opencode." >&2
   echo "  y seguí con 'bash scripts/correr-plan.sh'." >&2; exit 1; }
 
 # Un agente que no está registrado responde como el agente por defecto y no avisa.
-# Verificarlo cuesta un segundo y nos habría ahorrado semanas.
-if ! opencode agent list 2>/dev/null | grep -qE "^$AGENTE \((primary|subagent)\)"; then
-  echo "✗ OpenCode no reconoce el agente '$AGENTE'." >&2
-  echo "  Suele ser que le falta \"mode\": \"primary\" en opencode.json (OPENCODE.md §3)." >&2
-  echo "  Registrados: $(opencode agent list 2>/dev/null | grep -oE '^[a-z]+ \(primary\)' | cut -d' ' -f1 | tr '\n' ' ')" >&2
-  exit 1
-fi
-if opencode agent list 2>/dev/null | grep -qE "^$AGENTE \(subagent\)"; then
-  echo "✗ '$AGENTE' es un subagente: desde la CLI cae al agente por defecto sin avisar." >&2
+if ! opencode agent list 2>/dev/null | grep -qE "^$AGENTE \(primary\)"; then
+  echo "✗ OpenCode no reconoce '$AGENTE' como agente primario." >&2
+  echo "  Suele faltarle \"mode\": \"primary\" en opencode.json (OPENCODE.md §3)." >&2
+  echo "  Primarios: $(opencode agent list 2>/dev/null | grep -oE '^[a-z]+ \(primary\)' | cut -d' ' -f1 | tr '\n' ' ')" >&2
   exit 1
 fi
 
-[ -f "$BASE/PLAN.md" ] && { echo "· ya existe $BASE/PLAN.md; se respalda en PLAN.md.previo"
-                            cp "$BASE/PLAN.md" "$BASE/PLAN.md.previo"; }
+# Revisa el plan y deja en PROBLEMAS lo que el arquitecto tiene que arreglar.
+# Los arreglos mecánicos se aplican primero: no gastan una vuelta del modelo.
+revisar() {
+  PROBLEMAS=""
+  [ -s "$BASE/PLAN.md" ] || { PROBLEMAS="No escribiste PLAN.md."; return; }
+  local n_tareas
+  n_tareas="$(ls "$BASE"/tareas/T*.md 2>/dev/null | wc -l | xargs)"
+  [ "${n_tareas:-0}" -gt 0 ] || { PROBLEMAS="No escribiste ningún archivo de tarea en tareas/."; return; }
 
+  local forma cobertura etapas
+  forma="$(cd "$BASE" && PLAN=PLAN.md python3 "$AQUI/validar-plan.py" --arreglar 2>&1)"
+  cobertura="$(cd "$BASE" && ENCARGO="$ENCARGO" PLAN=PLAN.md python3 "$AQUI/cobertura.py" 2>&1)"
+  etapas="$(SOLO_ETAPAS=1 bash "$AQUI/correr-plan.sh" 2>&1 >/dev/null)"
+
+  echo "$forma" | sed 's/^/  /'
+  echo "$cobertura" | sed 's/^/  /'
+  [ -n "$etapas" ] && echo "$etapas" | sed 's/^/  /'
+
+  # Sólo los ✗ son problemas: los avisos los resuelve quien revisa, no el arquitecto.
+  PROBLEMAS="$( { echo "$forma"; echo "$cobertura"; echo "$etapas"; } | grep '✗' | sed 's/^ *✗ *//' || true)"
+}
+
+[ -f "$BASE/PLAN.md" ] && cp "$BASE/PLAN.md" "$BASE/PLAN.md.previo"
 log="$BASE/.plan.log"
-echo "▶ $AGENTE sobre $ENCARGO  (log: $log)"
 inicio=$(date +%s)
-(
-  cd "$BASE" || exit 1
-  if [ -n "$INSTRUCCION" ]; then
-    opencode run --agent "$AGENTE" \
-      "Leé $ENCARGO y el PLAN.md que ya existe. $INSTRUCCION No rehagas el resto del plan ni toques las tareas que ya están. Escribí los archivos con la herramienta write; lo que no quedó en un archivo no existe." 2>&1
-    exit $?
+huella=""
+vuelta=0
+
+while [ "$vuelta" -lt "$INTENTOS" ]; do
+  vuelta=$((vuelta+1))
+  if [ "$vuelta" -eq 1 ] && [ -n "$INSTRUCCION" ]; then
+    pedido="Leé $ENCARGO y el PLAN.md que ya existe. $INSTRUCCION No rehagas el resto del plan ni toques las tareas que ya están."
+  elif [ "$vuelta" -eq 1 ]; then
+    pedido="Leé $ENCARGO. Es el encargo. Escribí PLAN.md y un archivo por tarea en tareas/, siguiendo el método del repo ($AQUI/../METODO.md, $AQUI/../DESCOMPOSICION.md, plantillas en $AQUI/../plantillas/). Escribilos aunque te falte información: las decisiones que queden abiertas van en una sección 'Decisiones abiertas' DENTRO de PLAN.md."
+  else
+    # Un pedido por vuelta: con cinco correcciones juntas arregla las mecánicas y deja las
+    # estructurales. Se le devuelve la lista, pero se le dice que arregle eso y nada más.
+    pedido="Leé $ENCARGO y el PLAN.md que ya existe. Arreglá EXACTAMENTE esto y nada más:
+$PROBLEMAS
+No rehagas el resto del plan. No toques las tareas que ya están bien."
   fi
-  opencode run --agent "$AGENTE" \
-    "Leé $ENCARGO. Es el encargo. Tu única salida son archivos: PLAN.md y un archivo por tarea en tareas/, siguiendo el método del repo ($AQUI/../METODO.md, $AQUI/../DESCOMPOSICION.md, plantillas en $AQUI/../plantillas/). Escribilos aunque te falte información: las decisiones que queden abiertas van en una sección 'Decisiones abiertas' DENTRO de PLAN.md. No pares a preguntar y no propongas próximos pasos: un plan incompleto es más útil que ninguno." 2>&1
-) > "$log" 2>&1
+
+  echo "── vuelta $vuelta/$INTENTOS · $AGENTE"
+  ( cd "$BASE" || exit 1
+    opencode run --agent "$AGENTE" \
+      "$pedido Tu única salida son archivos, escritos con la herramienta write: lo que no quedó en un archivo no existe. Antes de terminar verificá con read que cada archivo que dijiste escribir esté ahí. Tu respuesta final es la lista de archivos que escribiste." 2>&1
+  ) >> "$log" 2>&1
+
+  err="$(error_del_agente "$log")"
+  [ -n "$err" ] && { echo "  ✗ el agente cortó por un error: $err"; break; }
+
+  revisar
+  [ -z "$PROBLEMAS" ] && break
+
+  if [ "$PROBLEMAS" = "$huella" ]; then
+    echo "  ✗ punto muerto: falló dos veces por lo mismo. Decide un humano (HUMANO.md §4)."
+    break
+  fi
+  huella="$PROBLEMAS"
+done
+
 duracion=$(( $(date +%s) - inicio ))
-
-# El veredicto de G0 no es lo que el agente diga: es si el plan existe y es ejecutable.
-# El mismo principio que P2, aplicado al planificador.
 echo
-fallos=0
-if [ -s "$BASE/PLAN.md" ]; then echo "  ✓ PLAN.md escrito ($(wc -l < "$BASE/PLAN.md" | xargs) líneas)"
-else echo "  ✗ no escribió PLAN.md"; fallos=$((fallos+1)); fi
-
-n_tareas="$(ls "$BASE"/tareas/T*.md 2>/dev/null | wc -l | xargs)"
-if [ "${n_tareas:-0}" -gt 0 ]; then echo "  ✓ $n_tareas archivo(s) de tarea"
-else echo "  ✗ no escribió ninguna tarea en tareas/"; fallos=$((fallos+1)); fi
-
-if [ "$fallos" -eq 0 ] && SOLO_ETAPAS=1 bash "$AQUI/correr-plan.sh" >/dev/null 2>&1; then
-  echo "  ✓ el plan se puede ejecutar:"
-  SOLO_ETAPAS=1 bash "$AQUI/correr-plan.sh" 2>/dev/null | sed 's/^/     /'
-elif [ "$fallos" -eq 0 ]; then
-  echo "  ✗ el plan existe pero no se le pueden deducir las etapas"; fallos=$((fallos+1))
-fi
-
-# La forma del plan se verifica con un comando; el juicio queda para la persona.
-if [ "$fallos" -eq 0 ]; then
-  echo
-  echo "── forma del plan"
-  PLAN="$BASE/PLAN.md" python3 "$AQUI/validar-plan.py" || fallos=$((fallos+1))
-fi
-
-err="$(error_del_agente "$log")"
-[ -n "$err" ] && { echo "  ✗ el agente cortó por un error: $err"; fallos=$((fallos+1)); }
-
-echo
-if [ "$fallos" -gt 0 ]; then
-  echo "G0 ROJO en ${duracion}s — revisá $log"
+if [ -n "${PROBLEMAS:-}" ]; then
+  echo "G0 ROJO en ${duracion}s, después de $vuelta vuelta(s) — revisá $log"
   exit 1
 fi
-echo "G0: el plan está escrito, en ${duracion}s. NO está aprobado."
-echo "Lo que sigue lo hace una persona (HUMANO.md §1):"
-echo "  1. ¿Está TODO el encargo? Tachá requisito por requisito: una funcionalidad que falta"
-echo "     no se ve leyendo el plan, y es el error más caro."
-echo "  2. ¿Las tareas están dimensionadas? (cuántas funciones tiene que escribir, no archivos)"
-echo "  3. ¿Las etapas respetan la tabla de dependencias y los choques de archivo?"
-echo "  4. ¿Inventó APIs que no existen?"
-echo "  5. ¿Se dio permisos de más en «archivos que podés tocar»?"
-echo "  6. ¿Dejó decisiones abiertas, o eligió solo?"
-echo "  7. ¿Quedaron plantillas sin completar («<quién>», «<cuántos minutos>»)?"
+
+echo "G0: el plan está escrito y valida, en ${duracion}s y $vuelta vuelta(s). NO está aprobado."
 echo
-echo "Cerrá lo abierto, firmá la línea «Estado del gate G0» y después:"
-echo "  bash $AQUI/correr-plan.sh"
+echo "Lo que queda es lo único que no se automatiza (HUMANO.md §1):"
+echo "  · ¿Las decisiones abiertas del plan están cerradas? Cerralas vos: no hay respuesta correcta."
+echo "  · ¿Las tareas están dimensionadas? (cuántas funciones tiene que escribir, no archivos)"
+echo "  · ¿Inventó APIs que no existen?"
+echo "  · Firmá la línea «Estado del gate G0»."
+echo
+echo "La forma del plan, la cobertura del encargo y el corte en etapas ya se verificaron."
+echo "Después:  bash $AQUI/correr-plan.sh"

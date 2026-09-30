@@ -10,6 +10,24 @@ publica y el que pregunta.
 No queremos: pagos, moderación, mails, subir archivos (las fotos van por URL), ni búsqueda
 inteligente. Un idioma, un país.
 
+## Requisitos
+
+Uno por línea, con su clave. La clave es para que `scripts/cobertura.py` pueda verificar
+que cada uno tenga al menos una tarea: es el único chequeo de G0 que se puede mecanizar.
+
+- `registro` — crear una cuenta
+- `login` — entrar con cookie de sesión httpOnly
+- `publicar|crud` — crear un aviso
+- `editar` — editar tus propios avisos
+- `listado` — la lista de avisos
+- `busqueda` — buscar por texto
+- `categoria` — filtrar por categoría
+- `detalle` — la ficha de un aviso
+- `favorito` — marcar avisos como favoritos
+- `mensaje` — mensajes entre el que publica y el que pregunta
+- `diseno` — sistema de diseño propio en SCSS, sin Tailwind
+- `migracion` — migraciones que se pueden revertir
+
 ## Cómo lo queremos hecho
 
 - **Backend en FastAPI con MySQL y SQL escrito a mano**, como el resto de nuestros
