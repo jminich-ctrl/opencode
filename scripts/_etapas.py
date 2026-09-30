@@ -25,10 +25,14 @@ for linea in re.findall(r"^\|\s*T\d+\s*\|.*$", texto, re.M):
     # las tareas quedaban sin dependencias: ocho tareas en una sola etapa, en paralelo.
     if tid in tareas or len(celdas) < 4:
         continue
-    resto = " ".join(celdas[2:])          # dependencias y archivos, sin el título
-    deps = set(re.findall(r"T\d+", resto))
+    # Por posición, no por texto suelto: | # | Tarea | Depende de | Archivos | Estado |
+    deps = set(re.findall(r"T\d+", celdas[2]))
     deps.discard(tid)
-    archivos = {a for a in re.findall(r"`([^`]+)`", resto) if "." in a or "/" in a}
+    # Con o sin backticks: el plan de Pacman los usaba y el de clasificados no, y por eso
+    # los choques de archivo no se detectaban — dos tareas que escriben el mismo archivo
+    # quedaban en la misma etapa, que es justo lo que este script existe para evitar.
+    archivos = {a.strip(" `") for a in re.split(r"[,\s]+", celdas[3]) if "." in a or "/" in a}
+    archivos = {a for a in archivos if a}
     hecha = "✅" in linea
     tareas[tid] = {"deps": deps, "archivos": archivos, "hecha": hecha}
 

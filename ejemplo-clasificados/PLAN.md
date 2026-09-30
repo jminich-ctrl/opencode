@@ -48,6 +48,11 @@ Crear un sitio de clasificados funcional con backend FastAPI (MySQL sin ORM) y f
 | T06 | Scaffolding frontend (Vite, React) | T01 | frontend/package.json, frontend/vite.config.ts, frontend/src/main.ts, frontend/src/App.jsx | pendiente |
 | T07 | Login page y servicio auth frontend | T06 | frontend/src/pages/Login.jsx, frontend/src/services/auth.ts | pendiente |
 | T08 | Listado y detalle de avisos frontend | T07 | frontend/src/pages/AdsList.jsx, frontend/src/pages/AdDetail.jsx, frontend/src/services/ads.ts | pendiente |
+| T09 | Favoritos | T05, T08 | backend/app/rutas/favorites.py, backend/app/servicios/favorites.py, backend/app/datos/favorites.py, frontend/src/services/favorites.ts, frontend/src/pages/AdsList.jsx, frontend/src/design/_favorites.scss | pendiente |
+| T10 | Mensajes entre usuarios | T04, T05 | backend/app/rutas/messages.py, backend/app/servicios/messages.py, backend/app/datos/messages.py, frontend/src/pages/Messages.jsx, frontend/src/pages/MessageDetail.jsx, frontend/src/services/messages.ts | pendiente |
+| T11 | Editar propios avisos | T05, T08 | frontend/src/pages/EditAd.jsx, frontend/src/services/ads.ts | pendiente |
+| T12 | Filtro por categoría en listado | T08 | frontend/src/pages/AdsList.jsx, frontend/src/design/_filters.scss | pendiente |
+| T13 | Sistema de diseño propio en SCSS | T06 | frontend/src/design/_variables.scss, frontend/src/design/_mixins.scss, frontend/src/design/main.scss | pendiente |
 
 > Las etapas **no se declaran acá**: se deducen de la tabla de arriba, que es lo que
 > respeta las dependencias y los choques de archivo sin que nadie tenga que acordarse.
@@ -65,6 +70,11 @@ Crear un sitio de clasificados funcional con backend FastAPI (MySQL sin ORM) y f
 | T06 | tests/frontend/test_scaffolding_frontend.test.ts | TestScaffoldingFrontend |
 | T07 | tests/frontend/test_login_frontend.test.ts | TestLoginFrontend |
 | T08 | tests/frontend/test_ads_frontend.test.ts | TestAdsFrontend |
+| T09 | tests/frontend/test_favorites_frontend.test.ts | TestFavoritesFrontend |
+| T10 | tests/frontend/test_messages_frontend.test.ts | TestMessagesFrontend |
+| T11 | tests/frontend/test_edit_ad_frontend.test.ts | TestEditAdFrontend |
+| T12 | tests/frontend/test_filters_frontend.test.ts | TestFiltersFrontend |
+| T13 | tests/frontend/test_design_system_frontend.test.ts | TestDesignSystemFrontend |
 
 ## Gates
 
