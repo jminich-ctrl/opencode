@@ -142,6 +142,19 @@ cuatro veces escribiendo tests que probaran algo. Por eso ahora **los tests los 
 nosotros, antes**, y el agente los hace pasar. Cuesta más al planificar y elimina la clase
 de falla más difícil de detectar.
 
+**Partirla suele funcionar mejor que reespecificarla.** Le devolvimos al arquitecto un plan
+con cinco correcciones; arregló las dos mecánicas —cambiar `.vue` por `.jsx`, agregar una
+tabla— e ignoró las dos estructurales las dos veces. Cuando en vez de cinco correcciones le
+pedimos **una sola cosa**, la hizo:
+
+```bash
+INSTRUCCION="Agregá SOLO las tareas que faltan: favoritos, mensajes, …" \
+  bash $AGENTES/scripts/planificar.sh
+```
+
+No es que no entienda la lista: es que con cinco pedidos elige los baratos y da por
+terminado. **Un pedido por corrida.**
+
 Cuando decidimos hacerla a mano, anotamos por qué. Esa anotación es la que después nos dice
 qué conviene delegar y qué no.
 

@@ -100,3 +100,39 @@ no estaban. El método dice que **los tests los escribe el humano antes de cada 
 eso no estaba en el encargo ni en el prompt del arquitecto. Ahora el plan tiene que incluir
 una sección "Tests que tenemos que escribir", con archivo y clase por tarea, agrupados por
 etapa: es la lista de trabajo del humano antes de lanzar.
+
+## 2026-09-30 · G0, segunda revisión: arregla lo mecánico, ignora lo estructural
+
+Le devolvimos el plan con cinco correcciones. Arregló dos:
+
+- `.vue` → `.jsx` en las cinco referencias.
+- Agregó la tabla "Tests que tenemos que escribir", y completó `G3 (responsable: Jose,
+  15 min)`.
+
+E ignoró las dos que importaban, **las dos veces**:
+
+- Seguía faltando el mismo tercio del alcance: favoritos, mensajes, editar tus avisos,
+  filtro por categoría, sistema de diseño.
+- Seguía con `ETAPA 1: T01 T02 T03` contra su propia tabla, que dice que T02 y T03
+  dependen de T01.
+
+El patrón es nítido y vale como regla: **arregla lo que es buscar y reemplazar; no
+reestructura.** Y con cinco pedidos en una corrida, elige los baratos y da por terminado.
+
+**Qué hicimos, que es lo que manda HUMANO.md §4:** dejar de reespecificar y **partir**.
+Las etapas las borramos nosotros —tres líneas, y deducidas salen mejor porque respetan los
+choques de archivo— y al arquitecto le dimos **un solo trabajo**: agregar las tareas que
+faltaban. `planificar.sh` ganó un modo `INSTRUCCION=` para eso.
+
+### 16. Dos tablas indexadas por tarea rompieron la deducción de etapas
+
+Al borrar las etapas declaradas, la deducción devolvió **las ocho tareas en una sola etapa,
+en paralelo**. La causa era la tabla de tests que nosotros habíamos pedido: `_etapas.py`
+leía toda fila que empezara con `| TNN |`, así que la segunda tabla pisaba a la primera y
+todas las tareas quedaban sin dependencias.
+
+Lo atrapó `SOLO_ETAPAS=1`, que existe exactamente para eso: **mirar el corte antes de lanzar
+nada**. Sin ese comando, ocho tareas se habrían lanzado juntas, pisándose los archivos.
+
+Y hay una lección sobre nosotros, no sobre el agente: **la corrección que le pedimos
+introdujo el bug.** Pedir una tabla nueva parecía gratis.
