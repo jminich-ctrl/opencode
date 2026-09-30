@@ -312,7 +312,7 @@ La prueba humana tiene que estar **escrita en el plan, con preguntas concretas y
 responsable**, o no se hace:
 
 ```markdown
-## G3 — prueba de uso (responsable: Jose, 5 min)
+## G3 — prueba de uso (responsable: <quién>, 5 min)
 - [ ] ¿Responde al instante al apretar una tecla, o se siente trabado?
 - [ ] ¿El fantasma persigue de forma creíble, o se queda oscilando?
 - [ ] ¿Se puede perder? ¿Se puede ganar?
