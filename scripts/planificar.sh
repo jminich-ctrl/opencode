@@ -22,6 +22,11 @@ ubicar_proyecto   # RAIZ, PROYECTO, BASE: ver _comun.sh
 [ -f "$HOME/.config/colabhive/env" ] && . "$HOME/.config/colabhive/env"
 
 AGENTE="${AGENTE:-arquitecto}"
+# Un pedido acotado en vez de rehacer el plan entero. Sirve para lo que el método manda
+# hacer cuando algo falla dos veces igual: partirlo. El arquitecto arregló dos defectos
+# mecánicos del plan y ignoró los dos estructurales las dos veces; pedirle UNA cosa
+# funciona donde pedirle "corregí estas cinco" no.
+INSTRUCCION="${INSTRUCCION:-}"
 ENCARGO="${1:-OBJETIVO.md}"
 [ -f "$BASE/$ENCARGO" ] || { echo "✗ No encuentro $BASE/$ENCARGO" >&2
   echo "  El encargo lo escribe una persona, en sus palabras (HUMANO.md §1)." >&2; exit 1; }
@@ -51,6 +56,11 @@ echo "▶ $AGENTE sobre $ENCARGO  (log: $log)"
 inicio=$(date +%s)
 (
   cd "$BASE" || exit 1
+  if [ -n "$INSTRUCCION" ]; then
+    opencode run --agent "$AGENTE" \
+      "Leé $ENCARGO y el PLAN.md que ya existe. $INSTRUCCION No rehagas el resto del plan ni toques las tareas que ya están. Escribí los archivos con la herramienta write; lo que no quedó en un archivo no existe." 2>&1
+    exit $?
+  fi
   opencode run --agent "$AGENTE" \
     "Leé $ENCARGO. Es el encargo. Tu única salida son archivos: PLAN.md y un archivo por tarea en tareas/, siguiendo el método del repo ($AQUI/../METODO.md, $AQUI/../DESCOMPOSICION.md, plantillas en $AQUI/../plantillas/). Escribilos aunque te falte información: las decisiones que queden abiertas van en una sección 'Decisiones abiertas' DENTRO de PLAN.md. No pares a preguntar y no propongas próximos pasos: un plan incompleto es más útil que ninguno." 2>&1
 ) > "$log" 2>&1

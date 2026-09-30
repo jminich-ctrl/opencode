@@ -2,7 +2,7 @@
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
 **Depende de:** ninguna
-**Archivos que podés tocar:** backend/, frontend/, scripts/, requirements.txt, package.json
+**Archivos que podés tocar:** backend/, frontend/, scripts/, backend/requirements.txt, frontend/package.json
 **Prohibido tocar:** 
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`, que usa el runner, no puede elegir un subagente
 
@@ -26,7 +26,7 @@ N/A
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea **ya están en el repo y fallan**. El trabajo del agente es hacerlos pasar sin modificarlos. Archivo: `tests/test_scaffolding.py`, clase `TestScaffolding`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `tests/test_scaffolding.py`, clase `TestScaffolding`.
 
 ## Criterio de terminado
 

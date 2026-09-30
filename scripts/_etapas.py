@@ -20,6 +20,11 @@ tareas = OrderedDict()
 for linea in re.findall(r"^\|\s*T\d+\s*\|.*$", texto, re.M):
     celdas = [c.strip() for c in linea.strip("|").split("|")]
     tid = celdas[0]
+    # Un plan puede tener más de una tabla indexada por tarea (la de tareas y, por ejemplo,
+    # la de tests que hay que escribir). Sin esto la segunda pisaba a la primera y todas
+    # las tareas quedaban sin dependencias: ocho tareas en una sola etapa, en paralelo.
+    if tid in tareas or len(celdas) < 4:
+        continue
     resto = " ".join(celdas[2:])          # dependencias y archivos, sin el título
     deps = set(re.findall(r"T\d+", resto))
     deps.discard(tid)
