@@ -26,9 +26,27 @@ PLAN="$BASE/PLAN.md"
 # Etapas declaradas explícitamente, o deducidas de la tabla del plan.
 # Sin `mapfile`: es de bash 4 y macOS trae 3.2. Este script no corría por eso.
 ETAPAS=()
-while IFS= read -r linea; do
-  [ -n "$linea" ] && ETAPAS+=("$linea")
-done < <(grep -oE '^ *\*{0,2}ETAPA [0-9]+\*{0,2}:.*' "$PLAN" | sed 's/^[^:]*: *//' || true)
+# Formato canónico: `**ETAPA 1:** T02 T03`, sólo identificadores. El cierre de negrita de
+# markdown va después de los dos puntos, y se acepta con o sin asteriscos.
+CANONICAS="$(grep -cE '^ *\*{0,2}ETAPA +[0-9]+\*{0,2}:\*{0,2} *[T0-9 ]+ *$' "$PLAN" || true)"
+PARECIDAS="$(grep -icE '^ *\*{0,2}etapa +[0-9]' "$PLAN" || true)"
+
+if [ "${PARECIDAS:-0}" -gt "${CANONICAS:-0}" ]; then
+  # Mezclar líneas canónicas con líneas en prosa es peor que no leer ninguna: las que no
+  # matchean DESAPARECEN, y sus tareas no se ejecutan sin que nadie se entere. Descartamos
+  # todas y deducimos, que además respeta los choques de archivo.
+  echo "⚠ $PLAN declara etapas en un formato que el runner no lee entero:" >&2
+  grep -inE '^ *\*{0,2}etapa +[0-9]' "$PLAN" \
+    | grep -vE ':\*{0,2} *ETAPA +[0-9]+\*{0,2}:\*{0,2} *[T0-9 ]+ *$' | head -4 | sed 's/^/    /' >&2
+  echo "    El formato exacto es: **ETAPA 1:** T02 T03   (sólo identificadores, sin prosa)" >&2
+  echo "    Se ignoran TODAS las etapas declaradas y se deducen de la tabla." >&2
+elif [ "${CANONICAS:-0}" -gt 0 ]; then
+  while IFS= read -r linea; do
+    [ -n "$linea" ] && ETAPAS+=("$linea")
+  done < <(grep -oE '^ *\*{0,2}ETAPA +[0-9]+\*{0,2}:\*{0,2} *[T0-9 ]+ *$' "$PLAN" \
+           | sed 's/^[^:]*://; s/^\*\*//; s/^ *//; s/ *$//')
+fi
+
 if [ "${#ETAPAS[@]}" -eq 0 ]; then
   echo "· el plan no declara etapas; deduciendo de la tabla de tareas"
   SALIDA_ETAPAS="$(PLAN="$PLAN" python3 "$AQUI/_etapas.py")"; rc_etapas=$?

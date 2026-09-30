@@ -343,9 +343,25 @@ bash $AGENTES/scripts/correr-plan.sh                 # de la primera etapa a la 
 bash $AGENTES/scripts/correr-plan.sh 3               # retomar desde la etapa 3
 ```
 
-Las etapas salen de `PLAN.md`: o declaradas a mano (`ETAPA 1: T02 T03`) o deducidas de la
-tabla de tareas, con dos reglas —una tarea espera a sus dependencias, y **dos tareas que
-escriben el mismo archivo no van juntas** aunque las dependencias lo permitan.
+Las etapas salen de `PLAN.md`: declaradas a mano en formato exacto —`**ETAPA 1:** T02 T03`,
+sólo identificadores— o **deducidas de la tabla de tareas**, con dos reglas: una tarea espera
+a sus dependencias, y **dos tareas que escriben el mismo archivo no van juntas** aunque las
+dependencias lo permitan.
+
+**Deducirlas suele ser mejor que declararlas**, porque la regla del choque de archivo se
+aplica sola. El plan de Pacman las declaraba así:
+
+```
+**Etapa 3:** T05, luego T06 — las dos tocan `juego.py`, van en serie
+```
+
+Eso decía "en serie" en prosa y el runner —si lo hubiera leído— las habría lanzado **juntas**,
+porque todo lo que está en una línea va en paralelo. En realidad no lo leía: el formato no
+coincidía y se deducían las etapas en silencio. Dos formas de fallar en la misma línea.
+
+Ahora: si alguna línea de etapa no está en el formato exacto, **se descartan todas** y se
+deduce, con un aviso ruidoso. Mezclar es peor que ignorar, porque las líneas que no matchean
+desaparecen y sus tareas nunca se ejecutan sin que nadie se entere.
 
 **Cuando una tarea falla, el runner compara la huella de la falla con la del intento
 anterior.** Si es la misma, no reintenta: la llama punto muerto y corta, porque una falla

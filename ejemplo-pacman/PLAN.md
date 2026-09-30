@@ -83,10 +83,17 @@ pantalla falsa). El análisis está en [BITACORA.md](BITACORA.md).
 
 ### Etapas de la primera vuelta
 
-**Etapa 1 (en paralelo):** T02, T03 — las dos dependen solo de T01 y tocan archivos distintos
-**Etapa 2:** T04 (necesita T02)
-**Etapa 3:** T05, luego T06 — las dos tocan `juego.py`, van en serie
-**Etapa 4:** T07, T08 — la capa visual, al final
+**ETAPA 1:** T02 T03
+**ETAPA 2:** T04
+**ETAPA 3:** T05
+**ETAPA 4:** T06
+**ETAPA 5:** T07 T08
+
+- T02 y T03 dependen solo de T01 y tocan archivos distintos: van juntas.
+- T04 necesita T02.
+- T05 y T06 tocan las dos `juego.py`, así que van en etapas separadas aunque las
+  dependencias permitirían juntarlas. **El choque de archivo manda sobre la dependencia.**
+- T07 y T08 son la capa visual, al final.
 
 > Ojo con T03 y T05: tocan el mismo archivo. Nunca lanzar en paralelo dos tareas que
 > escriben el mismo archivo, aunque sus dependencias lo permitan.
