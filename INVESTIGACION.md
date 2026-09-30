@@ -42,19 +42,20 @@ Ese último es el que justifica todo el aparato de verificación de este repo.
 
 ## 2. Lo que conviene robar, por orden de evidencia
 
-### 2.1 Lo que ya hicimos por nuestra cuenta
+### 2.1 Lo que ya estaba, o se cerró al leer esto
 
-El paso 0 del gate (tests y scripts intocables, lista fija que la tarea no puede ampliar)
-resulta ser **la medida con mejor relación costo/beneficio** según ImpossibleBench, y la
-literatura es tajante en que **pedirlo por prompt no funciona**. Lo agregamos el 2026-09-30
-sin conocer ese trabajo; coincide.
+| Qué | Estado |
+|---|---|
+| **Tests y scripts intocables**, lista fija que la tarea no puede ampliar | ya estaba (paso 0). Resulta ser **la medida con mejor relación costo/beneficio** según ImpossibleBench, y la literatura es tajante en que pedirlo por prompt no funciona |
+| **Fijar la base del diff antes de arrancar** | cerrado: el runner escribe `.base-ref` al crear el worktree. Era el defecto más común de los gates publicados — si el agente commitea, todo chequeo de diff se vuelve ciego |
+| **Prohibir enmascarar salida** y tratar "0 tests" como falla | cerrado: `Ran 0 tests` da rojo, y `# noqa`, `# type: ignore`, `except: pass`, `@unittest.skip` y `\|\| true` en `src/` también |
+| **Una función de aptitud arquitectónica sobre el tronco** | cerrado: `_arquitectura.py`, paso 5 del gate en modo integración (§2.3) |
+| **No reintentar la misma falla** | cerrado: el runner compara la huella entre intentos y corta en punto muerto |
 
-### 2.2 Lo que falta y es barato
+### 2.2 Lo que sigue faltando
 
 | Qué | Por qué | Dónde iría |
 |---|---|---|
-| **Fijar la base del diff antes de arrancar** (`BASE=$(git rev-parse HEAD)`) | el defecto más común: si el agente commitea, todo chequeo de diff se vuelve ciego | `gate.sh`, paso 2 |
-| **Prohibir enmascarar salida** (`\|\| true`, `\| tail`, `--passWithNoTests`) y tratar "0 tests" como falla | el gate se saltea sin tocar el gate | `gate.sh`, paso 1 |
 | **Re-evaluar sobre un checkout limpio** | SWE-Bench Pro V2 atrapó contenidos de archivo falsificados así | G4 |
 | **Gate de obsolescencia**: comparar la marca de tiempo del último cambio contra la de la última corrida verde | de 35 afirmaciones falsas medidas, **34 eran por corrida vieja**, no por mentira | runner |
 | **Mutation testing acotado al diff** | el único detector confiable de un test tautológico; nuestro paso 4 es la versión pobre | G2 |
@@ -62,8 +63,8 @@ sin conocer ese trabajo; coincide.
 
 ### 2.3 Lo que falta y es estructural
 
-**Nada en el método mira a través de las tareas.** El gate es por tarea y por diseño, así
-que es **estructuralmente ciego a la deriva arquitectónica** — que es justo donde todos los
+**Casi nada en el método mira a través de las tareas.** El gate es por tarea y por diseño,
+así que es **estructuralmente ciego a la deriva arquitectónica** — que es justo donde todos los
 estudios dicen que se acumula el daño. La formulación más citada, de Mo Bitar:
 
 > *"Los agentes escriben unidades de cambio que se ven bien en aislamiento. Son consistentes
