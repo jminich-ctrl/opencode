@@ -4,13 +4,15 @@ Orquesta el `tick` y decide qué pasa cuando Pacman y un fantasma se encuentran.
 No imprime nada: `render` se encarga de mostrar lo que acá se decide.
 """
 
-from .laberinto import PODER, PUNTO
+from .laberinto import PODER, PUNTO, VACIO
 
 PUNTOS_POR_PUNTO = 10
 PUNTOS_POR_PASTILLA = 50
 PUNTOS_PRIMER_FANTASMA = 200
 TICKS_ASUSTADO = 20
 VIDAS_INICIALES = 3
+UMBRAL_FRUTA = 300
+TURNOS_FRUTA = 50
 
 
 class Juego:
@@ -24,6 +26,9 @@ class Juego:
         self.asustado_restante = 0
         self.vidas = VIDAS_INICIALES
         self._comidos_en_este_modo = 0
+        self.fruta = None
+        self.turnos_fruta_restantes = 0
+        self.fruta_generada = False
 
     def comer_en(self, pos: tuple[int, int]) -> str:
         """Come lo que haya en `pos`, suma el puntaje y devuelve qué comió.
@@ -32,6 +37,13 @@ class Juego:
         Deja en `ultima_pastilla` si lo comido fue una pastilla, que es lo que
         dispara el modo asustado (T05).
         """
+        # Si se come la fruta, se suma 100 puntos y se elimina
+        if self.fruta is not None and pos == self.fruta:
+            self.puntaje += 100
+            self.fruta = None
+            self.turnos_fruta_restantes = 0
+            return "fruta"
+        
         comido = self.laberinto.comer(pos)
         if comido == PUNTO:
             self.puntaje += PUNTOS_POR_PUNTO
@@ -47,6 +59,25 @@ class Juego:
         """Avanza un turno: descuenta el modo asustado si está activo."""
         if self.asustado_restante > 0:
             self.asustado_restante -= 1
+        
+        # Manejar la fruta
+        if self.fruta is not None:
+            self.turnos_fruta_restantes -= 1
+            if self.turnos_fruta_restantes <= 0:
+                self.fruta = None
+        # Crear fruta si es necesario
+        elif self.fruta is None and not self.fruta_generada and self.puntaje >= UMBRAL_FRUTA:
+            # Buscar una posición libre para la fruta
+            # Recorrer todas las posiciones del laberinto
+            for fila in range(len(self.laberinto.celdas)):
+                for col in range(len(self.laberinto.celdas[fila])):
+                    # Solo colocar si es una celda vacía y no tiene punto
+                    if (self.laberinto.celdas[fila][col] == VACIO and 
+                        not self.laberinto.es_pared((fila, col))):
+                        self.fruta = (fila, col)
+                        self.turnos_fruta_restantes = TURNOS_FRUTA
+                        self.fruta_generada = True
+                        break
 
     @property
     def asustados(self) -> bool:
