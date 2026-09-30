@@ -41,6 +41,16 @@ if not tareas:
     # que poder distinguirlo de "el plan está terminado".
     sys.exit(2)
 
+# Una tarea sin archivos detectados es invisible para la regla del choque: puede salir
+# en paralelo con otra que escribe lo mismo. No es un error del plan necesariamente —una
+# tarea puede no declarar archivos— pero es la única forma de enterarse de que la regla
+# no se está aplicando. Nos pasó: el plan listaba los archivos sin backticks, este script
+# no los veía, y dos tareas sobre el mismo archivo quedaron en la misma etapa.
+sin_archivos = [k for k, v in tareas.items() if not v["archivos"]]
+if sin_archivos:
+    print(f"⚠ sin archivos declarados, no se les puede aplicar la regla del choque: "
+          f"{' '.join(sin_archivos)}", file=sys.stderr)
+
 pendientes = OrderedDict((k, v) for k, v in tareas.items() if not v["hecha"])
 if not pendientes:
     sys.exit(0)

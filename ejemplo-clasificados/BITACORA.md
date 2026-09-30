@@ -136,3 +136,34 @@ nada**. Sin ese comando, ocho tareas se habrían lanzado juntas, pisándose los 
 
 Y hay una lección sobre nosotros, no sobre el agente: **la corrección que le pedimos
 introdujo el bug.** Pedir una tabla nueva parecía gratis.
+
+## 2026-09-30 · Un pedido por corrida sí funcionó
+
+Con una sola instrucción —*"agregá SOLO las tareas que faltan"*— el arquitecto escribió
+T09 a T13: favoritos, mensajes, editar tus avisos, filtro por categoría y el sistema de
+diseño SCSS. Trece tareas, y el plan sigue siendo ejecutable.
+
+Le quedó un defecto mecánico —las cinco filas nuevas duplicadas en la tabla— que sacamos
+nosotros. Es el patrón de siempre: **hace el trabajo, no revisa el resultado.**
+
+### 17. Los choques de archivo no se detectaban si el plan no usaba backticks
+
+Al deducir las etapas, **T09 y T12 quedaron juntas, y las dos escriben `AdsList.jsx`.** Es
+exactamente la falla que el método más advierte y que `_etapas.py` existe para evitar.
+
+La causa: el script sacaba los archivos sólo de texto **entre backticks**. El plan de Pacman
+los escribía así y el de clasificados no, así que las tareas del segundo quedaban sin
+archivos y la regla del choque no se aplicaba a ninguna. No fallaba: **dejaba de mirar.**
+
+Los dos bugs de etapas de hoy —el formato `ETAPA` y este— tienen la misma raíz: **el plan es
+un artefacto que lee una máquina, y sólo estaba especificado en prosa.** La plantilla mostraba
+una forma, el parser esperaba otra, y nada verificaba el contrato.
+
+**Qué cambió en el método:** además de leer las columnas por posición y aceptar los archivos
+con o sin backticks, `_etapas.py` ahora **avisa cuando una tarea no tiene archivos
+detectados**. No es necesariamente un error del plan, pero es la única señal de que la regla
+del choque no se está aplicando. Con ese aviso, este bug se veía en la primera corrida.
+
+> La regla general: **cuando un verificador deja de encontrar algo, tiene que decirlo.**
+> Un chequeo que no encuentra nada y un chequeo que no se ejecutó se ven idénticos desde
+> afuera, y es la tercera vez en el día que nos muerde la misma forma.
