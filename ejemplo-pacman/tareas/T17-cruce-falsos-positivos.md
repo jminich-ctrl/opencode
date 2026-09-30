@@ -1,5 +1,6 @@
 # T17 — El cruce mal detectado le cuesta vidas a Pacman
 
+**Estado:** ✅ hecha
 **Depende de:** T09 (hecha)
 **Archivos que podés tocar:** `src/pacman/juego.py`
 **Prohibido tocar:** `tests/` (los tests ya están escritos), `entidades.py`, `laberinto.py`, `render.py`, `__main__.py`

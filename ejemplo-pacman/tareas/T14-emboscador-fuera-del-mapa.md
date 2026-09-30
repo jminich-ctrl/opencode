@@ -3,7 +3,7 @@
 **Estado:** ✅ hecha — implementación del agente, tests a mano
 
 **Depende de:** T10 (ya hecha), T13
-**Archivos que podés tocar:** `src/pacman/entidades.py`, `tests/test_entidades.py`
+**Archivos que podés tocar:** `src/pacman/entidades.py`
 **Prohibido tocar:** `laberinto.py`, `juego.py`, `render.py`, `__main__.py`
 
 ## El problema

@@ -48,8 +48,18 @@ Crear un sitio de clasificados funcional con backend FastAPI (MySQL sin ORM) y f
 | T06 | Scaffolding frontend (Vite, React) | T01 | frontend/package.json, frontend/vite.config.ts, frontend/src/main.ts, frontend/src/App.jsx | pendiente |
 | T07 | Login page y servicio auth frontend | T06 | frontend/src/pages/Login.jsx, frontend/src/services/auth.ts | pendiente |
 | T08 | Listado y detalle de avisos frontend | T07 | frontend/src/pages/AdsList.jsx, frontend/src/pages/AdDetail.jsx, frontend/src/services/ads.ts | pendiente |
-| T09 | Favoritos | T05, T08 | backend/app/rutas/favorites.py, backend/app/servicios/favorites.py, backend/app/datos/favorites.py, frontend/src/services/favorites.ts, frontend/src/pages/AdsList.jsx, frontend/src/design/_favorites.scss | pendiente |
-| T10 | Mensajes entre usuarios | T04, T05 | backend/app/rutas/messages.py, backend/app/servicios/messages.py, backend/app/datos/messages.py, frontend/src/pages/Messages.jsx, frontend/src/pages/MessageDetail.jsx, frontend/src/services/messages.ts | pendiente |
+| T14 | Favoritos datos | T05 | backend/app/datos/favorites.py | pendiente |
+| T15 | Favoritos servicio | T14 | backend/app/servicios/favorites.py | pendiente |
+| T16 | Favoritos rutas | T15 | backend/app/rutas/favorites.py | pendiente |
+| T17 | Favoritos servicio frontend | T16, T08 | frontend/src/services/favorites.ts | pendiente |
+| T18 | Favoritos UI lista | T17 | frontend/src/pages/AdsList.jsx | pendiente |
+| T19 | Favoritos SCSS | T18 | frontend/src/design/_favorites.scss | pendiente |
+| T20 | Mensajes datos | T05 | backend/app/datos/messages.py | pendiente |
+| T21 | Mensajes servicio | T20 | backend/app/servicios/messages.py | pendiente |
+| T22 | Mensajes rutas | T21 | backend/app/rutas/messages.py | pendiente |
+| T23 | Mensajes servicio frontend | T22 | frontend/src/services/messages.ts | pendiente |
+| T24 | Mensajes UI lista | T23 | frontend/src/pages/Messages.jsx | pendiente |
+| T25 | Mensajes UI detalle | T23 | frontend/src/pages/MessageDetail.jsx | pendiente |
 | T11 | Editar propios avisos | T05, T08 | frontend/src/pages/EditAd.jsx, frontend/src/services/ads.ts | pendiente |
 | T12 | Filtro por categoría en listado | T08 | frontend/src/pages/AdsList.jsx, frontend/src/design/_filters.scss | pendiente |
 | T13 | Sistema de diseño propio en SCSS | T06 | frontend/src/design/_variables.scss, frontend/src/design/_mixins.scss, frontend/src/design/main.scss | pendiente |
@@ -70,8 +80,18 @@ Crear un sitio de clasificados funcional con backend FastAPI (MySQL sin ORM) y f
 | T06 | tests/frontend/test_scaffolding_frontend.test.ts | TestScaffoldingFrontend |
 | T07 | tests/frontend/test_login_frontend.test.ts | TestLoginFrontend |
 | T08 | tests/frontend/test_ads_frontend.test.ts | TestAdsFrontend |
-| T09 | tests/frontend/test_favorites_frontend.test.ts | TestFavoritesFrontend |
-| T10 | tests/frontend/test_messages_frontend.test.ts | TestMessagesFrontend |
+| T14 | tests/backend/test_favorites_datos.py | TestFavoritesDatos |
+| T15 | tests/backend/test_favorites_servicio.py | TestFavoritesServicio |
+| T16 | tests/backend/test_favorites_rutas.py | TestFavoritesRutas |
+| T17 | tests/frontend/test_favorites_servicio.test.ts | TestFavoritesServicioFrontend |
+| T18 | tests/frontend/test_favorites_ui.test.ts | TestFavoritesUILista |
+| T19 | tests/frontend/test_favorites_scss.test.ts | TestFavoritesSCSS |
+| T20 | tests/backend/test_messages_datos.py | TestMessagesDatos |
+| T21 | tests/backend/test_messages_servicio.py | TestMessagesServicio |
+| T22 | tests/backend/test_messages_rutas.py | TestMessagesRutas |
+| T23 | tests/frontend/test_messages_servicio.test.ts | TestMessagesServicioFrontend |
+| T24 | tests/frontend/test_messages_ui_lista.test.ts | TestMessagesUILista |
+| T25 | tests/frontend/test_messages_ui_detalle.test.ts | TestMessagesUIDetalle |
 | T11 | tests/frontend/test_edit_ad_frontend.test.ts | TestEditAdFrontend |
 | T12 | tests/frontend/test_filters_frontend.test.ts | TestFiltersFrontend |
 | T13 | tests/frontend/test_design_system_frontend.test.ts | TestDesignSystemFrontend |
@@ -91,7 +111,8 @@ Crear un sitio de clasificados funcional con backend FastAPI (MySQL sin ORM) y f
 - [ ] ¿Qué pasa cuando el usuario se equivoca?
 - [ ] ¿Cubre los casos reales, o solo el mínimo?
 - [ ] ¿Lo entiende alguien que no lo programó?
-- [ ] <pregunta propia del proyecto>
+- [ ] ¿Se puede publicar un aviso, encontrarlo desde otra cuenta, marcarlo favorito y
+      escribirle al que publica, sin leer documentación ni tocar la base a mano?
 
 ## Riesgos
 

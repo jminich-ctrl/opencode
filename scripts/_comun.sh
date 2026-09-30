@@ -119,3 +119,27 @@ huella_de_falla() {
        END { for (i = g + 1; i <= NR; i++) print l[i] }' "$log" \
     | grep -m1 '✗' | sed 's/^ *//; s/[0-9]\{2,\}/N/g' | cut -c1-90
 }
+
+# Cierra una tarea integrada: la marca hecha en su archivo (es lo que lee estado.sh),
+# saca el worktree y borra la rama. Sin esto la tarea figura "verde" para siempre y nadie
+# se entera de que está mergeada — o peor, de que no lo está.
+marcar_hecha_y_limpiar() {
+  local id="$1" rama="$2" archivo
+  archivo="$(ls "$BASE/tareas/${id}"-*.md 2>/dev/null | head -1)"
+  if [ -n "$archivo" ]; then
+    if grep -q '^\*\*Estado:\*\*' "$archivo"; then
+      sed -i '' 's/^\*\*Estado:\*\*.*/**Estado:** ✅ hecha/' "$archivo" 2>/dev/null \
+        || sed -i 's/^\*\*Estado:\*\*.*/**Estado:** ✅ hecha/' "$archivo"
+    else
+      # estado.sh lee esta línea; si falta, la tarea figura pendiente para siempre.
+      sed -i '' '2i\
+\
+**Estado:** ✅ hecha
+' "$archivo" 2>/dev/null || true
+    fi
+    git -C "$RAIZ" add "$archivo" >/dev/null 2>&1
+    git -C "$RAIZ" commit -q -m "$id: hecha" >/dev/null 2>&1 || true
+  fi
+  git -C "$RAIZ" worktree remove --force "$RAIZ/../trabajo-$id" 2>/dev/null
+  git -C "$RAIZ" branch -D "$rama" >/dev/null 2>&1
+}

@@ -1,5 +1,6 @@
 # T16 — La fruta
 
+**Estado:** ✅ hecha
 **Depende de:** T03, T05, T06 (hechas)
 **Archivos que podés tocar:** `src/pacman/juego.py`
 **Prohibido tocar:** `tests/` (los tests ya están escritos), `laberinto.py`, `entidades.py`, `render.py`, `__main__.py`
