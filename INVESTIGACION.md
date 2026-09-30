@@ -53,16 +53,17 @@ Ese último es el que justifica todo el aparato de verificación de este repo.
 | **No reintentar la misma falla** | cerrado: el runner compara la huella entre intentos y corta en punto muerto |
 | **Re-evaluar sobre un checkout limpio** | cerrado: paso 7 de G4 clona `HEAD` y corre la suite ahí. Probado con un test commiteado que dependía de un archivo sin commitear: árbol de trabajo verde, checkout limpio rojo |
 | **Gate de obsolescencia** (34 de 35 afirmaciones falsas eran corridas viejas) | no hace falta: el runner **corre el gate él mismo** después de que el agente termina, así que el veredicto nunca es de una corrida anterior. Lo teníamos cubierto por arquitectura sin saber que era el modo de falla dominante |
+| **Mutation testing acotado al diff** | cerrado: `scripts/mutar.py`, sin dependencias externas. Muta sólo las líneas nuevas o modificadas y exige que la suite lo note. En su primera corrida encontró que el paso 4 del gate estaba **apagado** por un bug de rutas |
 
 ### 2.2 Lo que sigue faltando
 
 | Qué | Por qué | Dónde iría | Por qué todavía no |
 |---|---|---|---|
-| **Mutation testing acotado al diff** | el único detector confiable de un test tautológico; nuestro paso 4 es la versión pobre | G2 | las herramientas maduras son dependencias externas, y el ejemplo es sólo biblioteca estándar. Un mutador propio sería frágil y daría falsos rojos |
-| **Ablación no-op por pieza**: stubear cada cosa que el agente dice haber implementado y ver si la suite se entera | generaliza el paso 4 de "todo el cambio" a "cada afirmación" | G2 | requiere leer qué afirma haber hecho, que es prosa del agente. Habría que pedirle la lista en formato fijo, y eso es un cambio de contrato con el agente que conviene medir aparte |
+| **Ablación no-op por pieza**: stubear cada cosa que el agente dice haber implementado y ver si la suite se entera | generaliza el paso 4 de "todo el cambio" a "cada afirmación" | G2 | `mutar.py` cubre la misma pregunta de forma más fina y **sin depender de la prosa del agente**. Esta versión exige leer qué afirma haber hecho, o pedirle la lista en formato fijo, que es un cambio de contrato con el agente y conviene medirlo aparte |
+| **Barrido de cantidad de herramientas** con un modelo abierto chico fijo | hueco del registro publicado; el instrumento ya está | medición | la plataforma está a 0,4–2,2 tok/s contra 178 de línea base. Medir ahí no da un número comparable con nada |
 
-Los dos son trabajo real, no olvidos: están acá con el motivo por el que no se hicieron, que
-es la única forma de que un backlog no se convierta en una norma obsoleta.
+Está acá con el motivo por el que no se hizo, que es la única forma de que un backlog no se
+convierta en una norma obsoleta.
 
 ### 2.3 Lo que falta y es estructural
 
@@ -241,8 +242,9 @@ Lo que sacamos en limpio, y es incómodo:
 Los huecos del registro publicado que están al alcance de este repo:
 
 1. **Barrido de cantidad de herramientas** con un modelo abierto chico fijo en una tarea de
-   código. Ya tenemos el instrumento (`proxy_medidor.py`) y el par de agentes
-   (`build` 10 herramientas vs `ejecutor` 6). Falta correr las tareas y contar verdes.
+   código. Ya tenemos el instrumento (`proxy_medidor.py`), el par de agentes (`build` con 10
+   herramientas contra `ejecutor` con 6) y el comando:
+   `bash scripts/comparar-modelos.sh T05 @build @ejecutor`. Falta que la plataforma vuelva.
 2. **Tool calling con gramática dentro de un harness real.** Está probado que la decodificación
    restringida elimina las fallas **estructurales** (100% de validez de esquema en modelos de
    0,6B a 4B), y también que **los motores de gramática fallan en esquemas complejos** — uno
