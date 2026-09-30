@@ -18,7 +18,15 @@ verifica solo; nosotros manejamos. En condiciones normales eso son **tres moment
 | **Antes de producción (G5)** | contestar cuatro preguntas y escribir `desplegar` | 2 min |
 
 Todo lo del medio —lanzar tareas, correr gates, relanzar lo que falló, commitear las ramas
-verdes— lo hace el runner, con un comando: `bash $AGENTES/scripts/correr-plan.sh`. Si nos encontramos lanzando tareas a mano, falta automatización,
+verdes y **mergearlas al tronco**— lo hace el runner:
+
+```bash
+bash $AGENTES/scripts/correr-plan.sh     # las tareas
+bash $AGENTES/scripts/integrar.sh        # al tronco, con el gate por merge
+```
+
+Ese segundo comando faltaba, y su ausencia no se notaba: las tareas daban verde, el tronco
+quedaba en rojo, y las dos cosas eran ciertas a la vez. Si nos encontramos lanzando tareas a mano, falta automatización,
 no disciplina.
 
 Y un cuarto momento, que no es de rutina: **cuando una tarea falla dos veces.** Ahí el

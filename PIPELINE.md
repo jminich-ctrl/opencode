@@ -6,8 +6,9 @@ y el rol que faltaba al principio: quién escribe el plan.
 
 ```
 OBJETIVO ─▶ G0 plan ─▶ G1 tarea ─▶ G2 diff ─▶ G3 integración ─▶ G4 pre-deploy ─▶ G5 deploy
-           arquitecto   ejecutor   reviewer    + prueba humana   seguridad        devops
-                                                                 migrador         + rollback
+           arquitecto   ejecutor   reviewer    integrar.sh       seguridad        devops
+           planificar   correr-    + @reviewer + prueba humana   migrador         + rollback
+           .sh          plan.sh                                  pre-deploy.sh    deploy.sh
 ```
 
 ---

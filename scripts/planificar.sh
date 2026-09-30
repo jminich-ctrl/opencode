@@ -84,6 +84,13 @@ elif [ "$fallos" -eq 0 ]; then
   echo "  ✗ el plan existe pero no se le pueden deducir las etapas"; fallos=$((fallos+1))
 fi
 
+# La forma del plan se verifica con un comando; el juicio queda para la persona.
+if [ "$fallos" -eq 0 ]; then
+  echo
+  echo "── forma del plan"
+  PLAN="$BASE/PLAN.md" python3 "$AQUI/validar-plan.py" || fallos=$((fallos+1))
+fi
+
 err="$(error_del_agente "$log")"
 [ -n "$err" ] && { echo "  ✗ el agente cortó por un error: $err"; fallos=$((fallos+1)); }
 
@@ -103,4 +110,5 @@ echo "  5. ¿Se dio permisos de más en «archivos que podés tocar»?"
 echo "  6. ¿Dejó decisiones abiertas, o eligió solo?"
 echo "  7. ¿Quedaron plantillas sin completar («<quién>», «<cuántos minutos>»)?"
 echo
-echo "Cerrá lo abierto y después: bash $AQUI/correr-plan.sh"
+echo "Cerrá lo abierto, firmá la línea «Estado del gate G0» y después:"
+echo "  bash $AQUI/correr-plan.sh"

@@ -311,11 +311,22 @@ Auditando el harness corrí la suite de paso y encontré **un test fallando en `
 `test_seguir_a_pacman_por_atras_no_es_cruce`. Y un `debug_cruce.py` de depuración tirado
 en la raíz.
 
-### 13. El test estaba bien escrito; la implementación nunca se arregló
+### 13. El agente lo arregló bien, el gate dio verde, y nadie mergeó
 
-El test lo había escrito el método tal como manda (antes del arreglo, con el bug descrito
-en el docstring). Después nadie corrió la suite completa antes de commitear, y el ejemplo
-—el repo que le mostramos a alguien para que copie el método— quedó publicado en rojo.
+**Corrección de lo que escribimos primero acá.** Habíamos anotado que "la implementación
+nunca se arregló". Falso, y la diferencia importa: al revisar las ramas apareció el commit
+`27434f9 T17: gate verde` en `tarea/T17`, con **el mismo condicional** que terminamos
+escribiendo a mano, idéntico salvo formato y comentarios.
+
+O sea: el test estaba bien escrito, el agente lo hizo pasar, el gate lo confirmó, y el
+trabajo **se quedó en la rama**. El ejemplo —el repo que le mostramos a alguien para que
+copie el método— quedó publicado en rojo con la tarea marcada VERDE y su arreglo a un
+`git merge` de distancia.
+
+**El hueco no era del agente ni del gate: era del pipeline.** Entre G2 y G3 no había
+ningún paso que mergeara. `cerrar-tarea.sh` commitea la rama y termina; su propio comentario
+dice *"para que la rama sea mergeable"* — y ahí se cortaba. `HUMANO.md` prometía que el
+runner hacía "todo lo del medio", y lo del medio le faltaba el último eslabón.
 
 El arreglo era una línea. `colision()` contaba cruce si el fantasma **quedó** donde estaba
 Pacman, sin verificar que **viniera** de donde Pacman está ahora, así que un fantasma que
@@ -327,10 +338,17 @@ if (pos_anterior is not None
         and pos_anterior == pos_pacman):      # ← esta línea faltaba
 ```
 
-**Lo que falta en el método:** nada verifica que el tronco esté verde. Los gates corren
-por tarea y sobre un worktree; entre el worktree verde y el `main` verde hay un paso que
-no tiene comando. Es la misma familia de agujero que el resto de esta bitácora: lo que no
-tiene comando, no pasa.
+**Qué cambió en el método**, dos cosas:
+
+- `estado.sh` corre el gate sobre el tronco, así que "worktree verde" y "tronco verde"
+  dejan de confundirse.
+- **`integrar.sh`**, el eslabón que faltaba: mergea las tareas verdes **de a una** y corre
+  el gate del tronco después de cada merge. Si el tronco se pone rojo, deshace ese merge y
+  para, porque diez merges juntos y un tronco rojo no dicen cuál lo rompió. Después marca
+  la tarea hecha, saca el worktree y borra la rama.
+
+Y la lección general, que es la misma de toda esta bitácora: **lo que no tiene comando, no
+pasa.** Acá ni siquiera hacía falta que fallara nada — bastó con que un paso no existiera.
 
 ### 14. El gate se podía editar a sí mismo, y los tests también
 

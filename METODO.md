@@ -324,9 +324,27 @@ bash $AGENTES/scripts/correr-tarea.sh T03 T04 T05
 bash $AGENTES/scripts/correr-tarea.sh T03 T04 T05 T06 T07 T08 ...
 PARALELAS=4 bash $AGENTES/scripts/correr-tarea.sh T03 T04 T05   # bajar el tope
 
+# integrar al tronco lo que dio verde (de a una, con el gate de por medio)
+SOLO_VER=1 bash $AGENTES/scripts/integrar.sh    # qué haría, sin tocar nada
+bash $AGENTES/scripts/integrar.sh
+
 # estado de todo, incluido si el tronco está verde
 bash $AGENTES/scripts/estado.sh
 ```
+
+### El paso que faltaba: integrar
+
+`correr-tarea.sh` deja la rama **commiteada y mergeable**, y durante semanas ahí se
+terminaba todo. El ejemplo de Pacman quedó publicado con el tronco en rojo mientras T17
+figuraba **VERDE**: el agente la había arreglado bien, el gate lo confirmó, y el commit se
+quedó en la rama. No falló nada — **faltaba un paso**.
+
+`integrar.sh` mergea **de a una** y corre el gate del tronco después de cada merge. Si el
+tronco se pone rojo, deshace ese merge y para: diez merges juntos y un tronco rojo no dicen
+cuál lo rompió. Después marca la tarea hecha, saca el worktree y borra la rama.
+
+Y no mergea nada cuyo veredicto no sea VERDE, leído del gate que corrió el runner — nunca
+del log del agente.
 
 Cada tarea corre en su propio worktree de git (`../trabajo-T03`, rama `tarea/T03`),
 así no se pisan y podés descartar una sin tocar el resto.
