@@ -1,8 +1,8 @@
 # De planificar a desplegar
 
-El método base (`METODO.md`) cubre de G0 a G3: plan, tarea, revisión, integración.
-Esto agrega la otra mitad — lo que hace falta para que el trabajo llegue a producción —
-y el rol que faltaba al principio: quién escribe el plan.
+El método base (`METODO.md`) cubre del plan a la integración, y los seis chequeos del gate.
+Esto agrega la otra mitad — lo que hace falta para que el trabajo llegue a producción — y el
+rol que faltaba al principio: quién escribe el plan.
 
 ```
 OBJETIVO ─▶ G0 plan ─▶ G1 tarea ─▶ G2 diff ─▶ G3 integración ─▶ G4 pre-deploy ─▶ G5 deploy

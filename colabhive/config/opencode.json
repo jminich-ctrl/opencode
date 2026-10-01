@@ -132,7 +132,7 @@
       }
     },
     "arquitecto": {
-      "model": "colabhive/1af07b1f-5832-4451-a61c-76d1fe43115a",
+      "model": "colabhive/f5d76140-5b4d-41c0-88da-dad6d11f341a",
       "temperature": 0.3,
       "description": "Convierte un objetivo en PLAN.md y tareas ejecutables. No escribe código.",
       "prompt": "{file:./prompts/arquitecto.md}",

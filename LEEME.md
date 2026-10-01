@@ -29,7 +29,7 @@ La idea en tres líneas:
 | Archivo | Qué contesta |
 |---|---|
 | **[EMPEZAR.md](EMPEZAR.md)** | De cero a la primera tarea ejecutada. Empezá por acá |
-| **[METODO.md](METODO.md)** | Principios, roles, gates G0–G3, cómo se ejecuta y qué medir |
+| **[METODO.md](METODO.md)** | Principios, roles, los seis pasos del gate, integrar, cómo se ejecuta y qué medir |
 | **[DESCOMPOSICION.md](DESCOMPOSICION.md)** | Cómo bajar un proyecto enorme a tareas ejecutables |
 | **[HUMANO.md](HUMANO.md)** | El rol humano: qué decidimos, aprobamos y juzgamos, y cómo intervenir poco |
 | **[PIPELINE.md](PIPELINE.md)** | La otra mitad: arquitecto, pre-deploy (G4) y deploy (G5) |
