@@ -173,11 +173,41 @@ buscar-y-reemplazar y deja las estructurales; con una sola cosa por vez, las hac
 3. **Higiene**: sin dependencias nuevas, sin archivos generados, sin `TODO`, y **sin señales
    suprimidas** (`# noqa`, `except: pass`, `|| true`): apagar una señal es más barato que
    arreglar la causa y no deja rastro en los tests.
-4. **¿Los tests distinguen?**: revierte la implementación y exige que la suite falle.
+4. **¿Los tests distinguen?**: revierte la implementación y exige que fallen **los tests que
+   la tarea nombra**, no que "algo" falle — la tasa agregada casi no se mueve ante una
+   regresión mientras las métricas por porción caen 25 a 91 puntos.
 5. **Coherencia**, sólo sobre el tronco: las dependencias entre módulos van en una sola
    dirección.
+6. **Suite reservada**, sólo sobre el tronco: tests escritos por una persona que ningún
+   agente vio.
 
 Rojo en cualquiera = la tarea no está terminada. No se discute.
+
+#### El canal de escalada: dejalo decir que no se puede
+
+Si la tarea es imposible o se contradice, el agente escribe `IMPOSIBLE: <motivo>` y para. El
+runner lo registra como veredicto propio, **no lo reintenta**, y lo decide una persona.
+
+No es cortesía: es la intervención con mejor relación efecto/costo que encontramos. Dos
+mediciones independientes — el reward hacking baja de **54% a 9%** en una y de **23,6% a
+5,3%** en la otra (OR 9,2, p < 10⁻¹²), sin costo de rendimiento. Escalada y trampa son casi
+mutuamente excluyentes. **Sin esa salida, un modelo al que se le pide lo imposible hace
+pasar el test de alguna forma**, y reintentar es exactamente la presión que lo produce — por
+eso no se reintenta.
+
+El orden es P2: si el gate dio verde, manda el gate. `IMPOSIBLE` sólo decide cuando el
+comando no pudo.
+
+#### El paso 6: lo único que mide lo que el agente no pudo optimizar
+
+Los pasos 1 a 4 verifican lo que los tests de la tarea cubren, y el agente optimiza contra
+eso. El paso 6 corre una suite que **ningún agente vio**: vive **fuera del repo**, así que no
+viaja en los worktrees y OpenCode la rechaza por `external_directory`. Afuera y no sólo sin
+documentar, porque está medido que **leer los tests reservados es el hack más común**.
+
+Plantilla y qué poner adentro: [`plantillas/test_reservado.py`](plantillas/test_reservado.py).
+Van invariantes que cruzan módulos, no casos particulares, y no se repiten los tests de las
+tareas.
 
 #### La regla que más veces nos mordió: un chequeo que falta da ROJO
 
@@ -252,6 +282,22 @@ también en `estado.sh`. Probado rompiéndolo en las dos direcciones.
 cada merge; si el tronco se pone rojo, deshace **ese** merge y para. Diez merges juntos y un
 tronco rojo no dicen cuál lo rompió. No mergea nada cuyo veredicto no sea VERDE, leído del
 gate del runner y nunca del log del agente.
+
+Dos cosas que parecen detalles y son correcciones de fondo:
+
+- **Exige que el tronco esté verde antes de empezar.** Sin línea base, cada rama se valida
+  contra su propia suite y el merge contra la del tronco, y esa asimetría le atribuye al
+  merge cualquier falla que ya estaba. Está medido: con esa asimetría, *"casi toda la
+  interferencia aparente desaparece"* al corregirla. Con línea base, "el tronco está rojo"
+  pasa a ser "**este** merge lo puso rojo".
+- **Ante un rojo, repite el gate una vez.** No para darle otra chance: para distinguir una
+  falla real de un test inestable — medido en Google, **el 84% de las transiciones
+  pasa→falla son flaky**. Si las dos corridas no coinciden, no acepta ni descarta: declara
+  el test inestable y para. Aceptar el verde del segundo intento es cómo la inestabilidad
+  tapa fallas.
+
+**Y la interferencia semántica entre tareas independientes es rara**: 1 en 834 corridas sobre
+pares de PRs reales. Antes de construir maquinaria para detectarla, medí tu propia tasa.
 
 **Y acá va la prueba humana de punta a punta**: usar la cosa como la va a usar alguien. Es
 el único gate que mide lo que ningún comando puede medir, y el que más cuesta saltear. Nos

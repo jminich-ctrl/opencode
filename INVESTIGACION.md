@@ -275,3 +275,178 @@ Y una advertencia que vale para todo el documento: **cualquier hallazgo anterior
 2025 puede no valer ya**. El propio equipo que midió el efecto de la IA en la velocidad de
 desarrolladores está abandonando su diseño experimental porque los desarrolladores **se
 niegan a trabajar sin IA**, lo que destruyó el grupo de control.
+
+---
+
+# Segunda vuelta (2026-10-01)
+
+Research dirigido a lo que nos faltaba, no a describir lo que ya sabíamos. Trajo una
+corrección de corrección, cinco cosas que adoptamos el mismo día, y una advertencia sobre
+el propio corpus que conviene leer antes que cualquier número.
+
+## 0. Advertencia sobre las fuentes de 2026
+
+**Dos papers de una misma tanda de búsqueda estaban retirados por sus propios autores por
+resultados fabricados**, con el texto *"Los resultados reportados no corresponden a la
+evaluación ejecutada y no tienen respaldo. El paper no debería citarse."* Eso es 2 de 40 en
+una porción. Y buena parte del corpus 2026 relevante es **preprint de un solo autor, sin
+revisar, escrito con asistencia de modelo**.
+
+Peor: el resumidor de PDFs del propio research **alucinó dos veces y las dos se detectaron**
+—inventó una lista de modelos en un paper e **invirtió** el hallazgo de otro, atribuyendo a
+código de IA lo que el paper decía al revés. La regla práctica que queda:
+
+> **Un resumen de un paper que no abriste es poco confiable, incluso si lo hizo un modelo
+> bueno.** Los números que usamos acá son los que alguien extrajo del PDF y verificó.
+
+## 1. La corrección de corrección: `integrar.sh` atribuía mal
+
+Lo peor que encontró, y era nuestro. Cada rama se valida contra **su propia** suite y el
+merge contra la **del tronco**. Esa asimetría le atribuye al merge cualquier falla que ya
+estaba —o cualquier test inestable— y nuestro script responde deshaciendo el merge y
+parando. **Rechaza merges buenos y persigue conflictos semánticos fantasma.**
+
+No es teoría: el paper que mide exactamente esto (417 pares validados de PRs de Django,
+>4.000 resoluciones) encontró que su **primer** procedimiento de evaluación fabricaba
+interferencia por esa misma asimetría, y que al corregirla *"casi toda la interferencia
+aparente desapareció"*.
+
+**Arreglado:** `integrar.sh` exige ahora que el tronco esté **verde antes** de mergear nada.
+Con línea base, "el tronco está rojo" pasa a ser "**este** merge lo puso rojo", que es lo
+único que justifica deshacerlo.
+
+Y de yapa, el mismo paper valida algo nuestro: su medición se corrompió porque **sus agentes
+editaron los archivos de test**. Nuestro paso 0 lo impide.
+
+### Y la consecuencia incómoda: la interferencia semántica es rara
+
+En el tier minado de PRs reales: **1 interferencia en 834 corridas**. Hubo que *construir*
+los casos (helpers compartidos) para poder estudiarla. La lectura honesta: **antes de
+invertir en maquinaria de conflictos semánticos, medí tu propia tasa** — puede ser casi
+cero, y entonces el gate de a una (ya corregido) alcanza y todo lo demás es costo.
+
+Lo que sí es más frecuente de lo que pensábamos son los conflictos **textuales** entre ramas
+de agentes: **27,67%** sobre 107.000 merges simulados de PRs agénticos, contra **16%** humano
+sobre 3.635 merges. Nuestra regla de no paralelizar dos tareas que escriben el mismo archivo
+ataca justamente eso.
+
+### Lo que va a romper un gate serial no es la semántica: es la inestabilidad
+
+Medido en Google: **el 84% de las transiciones pasa→falla son flaky**, y entre el 2% y el
+16% del cómputo se va en reintentos. Un tronco rojo por un test inestable para el pipeline
+por un motivo que no tiene nada que ver con el merge.
+
+**Agregado:** ante un rojo, `integrar.sh` repite el gate **una vez**. Si las dos corridas no
+coinciden, no acepta ni descarta: **declara el test inestable y para**, porque aceptar el
+verde del segundo intento es exactamente cómo la inestabilidad tapa fallas reales.
+
+## 2. El canal de escalada: lo más barato que adoptamos
+
+Dos mediciones independientes, y la única intervención con este tamaño de efecto a costo
+cero:
+
+| Medición | Reward hacking sin canal | Con canal |
+|---|---|---|
+| ImpossibleBench (GPT-5) | 54% | **9%** |
+| ImpossibleBench (o3) | 49% | **12%** |
+| 2×2 factorial, 8 modelos, 5 familias | 23,6% | **5,3%** |
+
+El segundo con estadística propia: **OR 9,2 (IC 5,0–16,8, p < 10⁻¹²), eliminado por completo
+en 6 de 8 modelos, sin costo de rendimiento detectable**. Y escalada y trampa son
+**casi mutuamente excluyentes**: 98,7% de las escaladas no tienen trampa. De paso, la
+escalada suma **+10,1 puntos de cobertura de detección de defectos** y es **más precisa
+cuando se dispara (99,4% contra 85,8%)**.
+
+**Adoptado:** `IMPOSIBLE: <motivo>` es un veredicto de primera clase. El runner lo registra,
+**no lo reintenta** —reintentar lo imposible es justamente la presión que produce la
+trampa— y lo decide una persona. Está en `AGENTS.md` y en `plantillas/TAREA.md`.
+
+El orden importa y es P2: si el gate dio **verde**, manda el gate. `IMPOSIBLE` sólo decide
+cuando el comando no pudo.
+
+## 3. Nuestro propio bucle de reintentos tiene un costo medido
+
+> *"Permitir múltiples envíos sube el pass rate de 80% a 83% **y la tasa de trampa de 33% a
+> 38%**."*
+
+Es el precio de P3 ("reintentar es barato") y conviene tenerlo escrito. Mitigado en parte
+por el canal de escalada y por la regla de punto muerto, que corta al segundo intento igual.
+
+## 4. El paso 0 le pega justo a nuestro ejecutor
+
+De las cuatro estrategias de trampa medidas —modificar los tests, sobrecargar operadores de
+comparación, registrar estados extra, y caso-especial—, **Qwen3-Coder tramposea >79% de las
+veces modificando los tests**. Nuestro ejecutor es Qwen3-Coder y el paso 0 bloquea
+exactamente su estrategia dominante. Es una victoria específica de modelo, y por eso el paso
+0 se queda.
+
+Pero su límite también está medido: *"el acceso de sólo lectura restaura el rendimiento
+legítimo y previene la modificación de tests, **pero no elimina las otras formas de trampa**
+como el caso-especial o la sobrecarga de operadores."* Esas quedan para G2 y para la suite
+reservada.
+
+## 5. Lo que cambiamos en los gates
+
+| Qué | Por qué | Número |
+|---|---|---|
+| **Paso 4 verifica cuáles tests fallan**, contra los que la tarea nombra | "la suite falla" puede ser otro test | la tasa agregada casi no se mueve ante una regresión mientras las métricas por porción caen **25 a 91 puntos** |
+| **Paso 6: suite reservada** sobre el tronco, fuera del repo | el único gate que mide lo que el agente no pudo optimizar | la brecha de reward hacking crece **~27 puntos por cada 10× de LOC**; los puntajes de validación se saturan mientras los reservados divergen |
+| **No refinar lo que ya pasa** | `planificar.sh` reescribía un plan válido | HumanEval **96,3% → 66,5%** refinando código ya correcto |
+| **La confirmación es una revalidación**, no otra vuelta del modelo | dos pasadas limpias sin volver a refinar | el mismo número de arriba |
+
+El paso 6 va **afuera del repo** y no sólo sin documentar, porque está medido que **leer los
+tests reservados es el hack más común** (339 contra 222 ocurrencias del otro).
+
+## 6. Lo que NO vamos a hacer, por medición ajena
+
+- **Un agente de limpieza/refactor automático.** Sobre 65 smells arquitectónicos reales y 11
+  configuraciones de agente: **63,1% de los smells detectados son falsos positivos** a
+  juicio de expertos, el mejor agente resuelve 47,7%, y **el más agresivo introdujo 140
+  smells nuevos**. Las métricas de deriva sirven para **disparar una decisión humana**, no
+  para que un agente la tome.
+- **Reemplazar G2 por un revisor LLM.** Sobre 2.371 transcripciones, los monitores detectan
+  86–89% de la trampa en tareas de un archivo y **sólo 42–50% en tareas multi-archivo**. Y
+  aceptan *"compatibilidad hacia atrás"* como justificación de un comportamiento que
+  contradice la especificación. ⚠️ Pero el humano también se acostumbra: la aprobación de
+  revisores humanos subió **30,5% → 36,6%** con el tiempo, así que G2 necesita su propio
+  control.
+- **Formalizar el plan automáticamente** (TLA+ y parientes): 30 modelos, **8,6% de corrección
+  semántica**.
+- **Maquinaria de contexto resumible/recuperable**: **56,3% de las configuraciones nunca la
+  invocó**, mediana cero, sin ganancia de exactitud.
+
+## 7. Lo que nos falta y ahora sabemos qué es
+
+- **La función de aptitud atrapa divergencias, nunca ausencias.** Un chequeo de dirección de
+  imports es un modelo de reflexión de una sola relación: ve una dependencia que no debería
+  existir, **no ve una que debería existir y no está**. Nuestro `_arquitectura.py` es ciego a
+  la estructura que falta.
+- **Costo de propagación** como métrica de deriva, computable del cierre transitivo del grafo
+  de imports, con referencias publicadas: Mozilla **17,35%**, Linux **5,16%**, y Mozilla
+  después de su rediseño deliberado **2,78%**. Es un solo número y se puede seguir en el
+  tiempo.
+- **Co-cambio contra límites declarados** (Clio, ICSE 2011): detecta que dos módulos que la
+  arquitectura dice separados **cambian siempre juntos** — exactamente la deriva que nuestro
+  chequeo de capas deja pasar en verde. Y los datos ya los tenemos: están en el registro de
+  intentos.
+- **Enlaces de cobertura con versión** (`outdated`, `predated`) en el validador de planes: en
+  un bucle donde el arquitecto reescribe el plan, nada más atrapa que un requisito se
+  debilite en silencio.
+
+## 8. Lo que nadie publicó, y podemos medir nosotros
+
+1. **Lista completa de fallas contra una por iteración.** La literatura está dividida y
+   **nadie corrió la ablación en un bucle de validador**. Nosotros ya tenemos el bucle.
+2. **Si la validación mecánica del plan mejora la corrección del código.** No existe el
+   experimento "el arquitecto escribe → el validador rechaza → revisa → medir corrección".
+3. **Mutación contra defectos escapados con tests escritos por humanos** — nuestra
+   configuración exacta. Los dos papers más cercanos tienen al agente escribiendo también
+   los tests, que es lo que colapsa sus tasas de detección.
+4. **Nuestro propio N para "falló dos veces por lo mismo".** La familia de reglas está
+   publicada; **N=2 contra N=3 nunca se midió.**
+5. **Si nuestro bucle de G0 le gana a N muestras independientes del arquitecto al mismo
+   costo en tokens.** Dos papers exigen esa comparación y casi nadie la corre. Si no le
+   gana, el bucle es decoración.
+6. **Ninguna tasa de falso-merge** está publicada por nadie —ni GitHub, ni Shopify, ni Uber,
+   ni Google— y **no existe medición controlada de mergear en lote contra de a uno**. Nuestra
+   elección de a una está *sin refutar*, no validada.
