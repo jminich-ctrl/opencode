@@ -9,13 +9,12 @@ set -uo pipefail
 BASE="${COLABHIVE_BASE_URL:-https://api.colabhive.com/v1}"
 BUILDER="${COLABHIVE_BUILDER_URL:-https://api.colabhive.com/api/builder/v1}"
 
-# id de endpoint : nombre legible  (los 4 del equipo, ver config/opencode.json)
+# id de endpoint : nombre legible — los 3 del equipo, ver config/opencode.json.
+# Calentar uno que no se usa no es gratis: tarda, y despertar un modelo desaloja a otro.
 MODELS=(
-  "9a1f0c77-4b2e-4d3a-8f6b-0c2e5a7d120b:gpt-oss-120b (arquitecto)"
-  "5d21e32a-3bbb-4040-9c34-3b06c4415b84:gpt-oss-20b (orquestador)"
-  "1af07b1f-5832-4451-a61c-76d1fe43115a:Qwen3.8-27B FP8 (coder)"
-  "a9aa41f2-b238-4de1-8abf-c58b84eb0331:Qwen3-8B (worker)"
-  "f5d76140-5b4d-41c0-88da-dad6d11f341a:Qwen3-Coder-30B (tester)"
+  "1af07b1f-5832-4451-a61c-76d1fe43115a:Qwen3.8-27B (arquitecto, plan, reviewer, seguridad)"
+  "f5d76140-5b4d-41c0-88da-dad6d11f341a:Qwen3-Coder-30B (ejecutor y los suyos)"
+  "5d21e32a-3bbb-4040-9c34-3b06c4415b84:gpt-oss-20b (title, summary, explore)"
 )
 
 auth() { printf 'X-API-Key: %s\n' "$COLABHIVE_API_KEY"; }
