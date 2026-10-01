@@ -1,0 +1,921 @@
+# ColabHive Builder API — Complete Reference
+
+> This document contains the complete ColabHive Builder API reference in a single file, optimized for LLM consumption. For the machine-readable spec, see [openapi.json](https://docs.colabhive.com/openapi.json).
+
+---
+
+## Base URL
+
+```
+https://api.colabhive.com/api/builder/v1
+```
+
+## Authentication
+
+Authenticated requests require an API key. The account is derived from that key. Public discovery
+routes such as health, capabilities and the public model catalogs do not require authentication.
+
+| Header | Required | Description |
+|---|---|---|
+| `X-API-Key` | Yes* | API key (`hive_...`) or use `Authorization: Bearer hive_...` |
+| `X-Account-ID` | No | With an API key, must match the key's account or the request returns HTTP 403 |
+| `X-Request-ID` | Optional | UUID for distributed tracing (auto-generated if omitted) |
+| `Idempotency-Key` | Optional | Safe retries for dataset creation, training runs and merges |
+
+`*` Except the public discovery routes listed above.
+
+An API key cannot switch accounts through `X-Account-ID`. An authenticated Console session can
+select another account only after the gateway validates that user's membership.
+
+```bash
+curl https://api.colabhive.com/api/builder/v1/endpoints \
+  -H "X-API-Key: hive_sk_abc123" \
+  -H "X-Account-ID: 550e8400-e29b-41d4-a716-446655440000"
+```
+
+---
+
+## Account Preferences
+
+Share Hive spare-capacity lending is an account-level, explicit opt-in. It is `false` for every new
+and existing account until an account owner enables it.
+
+```bash
+curl https://api.colabhive.com/api/builder/v1/account/preferences \
+  -H "X-API-Key: hive_sk_abc123"
+
+curl -X PATCH https://api.colabhive.com/api/builder/v1/account/preferences \
+  -H "X-API-Key: hive_sk_abc123" \
+  -H "Content-Type: application/json" \
+  -d '{"share_hive_opt_in": true}'
+```
+
+`GET` is available to authenticated account members. `PATCH` requires the `owner` role. The account
+is derived from the authenticated key or validated Console session; clients cannot select a lender
+account in the request body. Disabling the preference is the rollback and prevents new Share Hive
+marketplace or settlement money movement for nodes owned by that account.
+
+The hosted MCP service (https://mcp.colabhive.com) exposes `get_account_preferences` and
+`set_share_hive_opt_in`. Which published Python SDK and `colabhive-mcp` releases include these
+operations is stated at https://docs.colabhive.com/api/account-preferences; until one does, use the
+REST calls above.
+
+---
+
+## Data Protection and Placement
+
+Node eligibility is an ordered policy: `own_hardware_only` is most restrictive, followed by
+`own_account_only`, then `any_node`. The most restrictive declared account, workload, or task value
+wins. `own_hardware_only` excludes all rented public-cloud capacity and fails closed when a node's
+rental status is unknown.
+
+Read the effective policy and complete resolution trace:
+
+```http
+GET /api/v1/data-protection/effective
+```
+
+Pass either `task_exec_id`, `workload_type` + `workload_id`, or no subject for the authenticated
+account. The response includes `binding_level`, `resolution`, `ceiling`, `can_relax_to`, and
+`can_restrict_to`. Clients must use this response and must not resolve the hierarchy locally.
+
+Policy writers:
+
+```http
+PATCH /api/v1/accounts/{account_id}/data-protection
+PATCH /api/v1/endpoints/{endpoint_id}/data-protection
+PATCH /api/v1/training/jobs/{job_id}/data-protection
+
+{"node_eligibility":"own_hardware_only"}
+```
+
+Account writes require owner/admin; workload writes require operator. A workload may send `null` to
+inherit. A task may only restrict: inference sends `X-Node-Eligibility`; training creation sends
+`node_eligibility` in its JSON body.
+
+Preflight without changing stored policy:
+
+```http
+POST /api/v1/data-protection/placement-preflight
+
+{
+  "workload_type":"inference_endpoint",
+  "workload_id":"<uuid>",
+  "node_eligibility":"own_hardware_only",
+  "explain":true
+}
+```
+
+No eligible node returns HTTP 422 with `blocking_code=policy_no_eligible_node` and a structured
+`relaxation_hint` when a legal relaxation has capacity. Callers must never relax automatically.
+
+Past placement evidence:
+
+```http
+GET /api/v1/compliance/placement-attestation?from=<RFC3339>&to=<RFC3339>
+```
+
+The report records stamped policies, conformance and observed destination labels over the past
+window, plus a deterministic `evidence_digest`. Destination labels document what happened; they do
+not select future placement.
+
+Stable codes: `policy_exceeds_account_ceiling`, `policy_no_eligible_node`, `policy_unresolvable`,
+`node_is_rented_capacity`, `node_rented_status_unknown`, `node_owned_by_other_account`, and
+`node_offline_or_draining`.
+
+Python SDK and MCP coverage (a data-protection namespace, per-task `node_eligibility` arguments,
+and the read-only MCP tools `get_effective_data_protection` and `preflight_data_protection`; there is
+no account-policy mutation tool) is stated per published release at https://docs.colabhive.com/sdk
+and https://docs.colabhive.com/mcp/tools-reference; until a release includes it, use the REST calls
+above.
+
+---
+
+## Error Format
+
+All errors return:
+```json
+{
+  "error": {
+    "code": "invalid_request",
+    "message": "Human-readable description",
+    "details": {},
+    "request_id": "uuid"
+  }
+}
+```
+
+Common HTTP status codes: 400 (bad request), 401 (unauthenticated), 403 (forbidden), 404 (not found), 429 (rate limited), 500 (internal error).
+
+---
+
+## Optional Outbound Webhooks
+
+The Builder API serves the following webhook management routes, and the published OpenAPI includes
+them:
+
+- `POST/GET /webhook-endpoints`
+- `GET/PATCH/DELETE /webhook-endpoints/{endpoint_id}`
+- `POST /webhook-endpoints/{endpoint_id}/rotate-secret`
+- `POST /webhook-endpoints/{endpoint_id}/test`
+- `GET /webhook-deliveries`
+- `GET /webhook-deliveries/{delivery_id}`
+- `POST /webhook-deliveries/{delivery_id}/redeliver`
+
+The Builder REST API is the authoritative management contract. Reads require `viewer`; test delivery and
+redelivery require `operator`; create, update, delete, and secret rotation require `admin`. Create, rotate, and test support `Idempotency-Key`;
+updates and deletes require the current `ETag` in `If-Match`. Create/rotate reveal a `whsec_…`
+signing secret once. Generic Actions exposure remains `none`. Python SDK 0.7.0 and MCP 0.3.0
+adapters mirror the same rules. All MCP webhook tools require
+`COLABHIVE_MCP_WEBHOOK_TOOLS_ENABLED=true`; create and rotate additionally require
+`COLABHIVE_ALLOW_WEBHOOK_SECRET_TOOLS=true`. Both gates default to false.
+
+Registering a destination is optional. Polling `/tasks/{id}`, `/invocations/{id}`, and
+`/training/runs/{id}` remains a supported production contract and is not deprecated.
+
+Delivery history is read-only and never returns the destination URL, the signing secret, the event
+payload, or any remote response body: attempts expose only an outcome, a sanitized error code, an
+HTTP status class, and timing. `GET /webhook-deliveries` paginates newest-first with an opaque
+cursor and accepts `endpoint_id`, `status`, and `event_type` filters; the detail route adds the
+append-only attempt history.
+
+Redelivery re-sends an existing event. It keeps the same event ID and the same frozen payload,
+creates the next `delivery_generation`, and pins the destination's currently active and verified
+version and secrets — it never resurrects a retired URL or key. It is idempotent by structure: while
+a redelivery of the same delivery is still non-terminal, repeating the request returns that one
+instead of creating another generation. It answers 409 when the destination is not active and
+verified, and 410 once the event is past its retention window. Redelivery never reopens, retries, or
+modifies the inference, invocation, training, or merge workload that produced the event: a
+dead-lettered delivery is terminal for that delivery only.
+
+Subscribed terminal events are:
+
+- inference: `inference.task.succeeded`, `inference.task.failed`
+- Actions/MCP invocation: `invocation.completed`, `invocation.failed`
+- training run: `training.run.completed`, `training.run.failed`, `training.run.cancelled`
+- training merge: `training.merge.completed`, `training.merge.failed`, `training.merge.cancelled`
+
+Lifecycle-only events are `webhook.endpoint_verification` and `webhook.test`. Notifications contain
+a resource projection and `data.resource_url`, not a complete snapshot. Fetch current state using
+normal API credentials.
+
+Verify `ColabHive-Signature: t=<unix>,v1=<hex>` with HMAC-SHA256 over
+`ASCII(timestamp) + b"." + exact_raw_request_body` using the full returned `whsec_…` value. Verify
+before parsing JSON, enforce a replay window, and deduplicate atomically by the stable
+`ColabHive-Event-Id`. Delivery is at least once. The extension allows up to eight attempts inside 48
+hours; HTTP 410 disables the endpoint and redirects are rejected. Delivery history and manual
+redelivery are available under `/webhook-deliveries`. Events and deliveries are retained 30 days and
+per-attempt history 14 days; a redelivery past the window returns 410. The windows are fixed and
+there is no per-account retention-configuration or quota API. Polling `/tasks/{id}`, `/invocations/{id}`, and `/training/runs/{id}` remains the
+universal fallback.
+
+Full contract: https://docs.colabhive.com/api/webhooks
+
+---
+
+## 1. Health & Capabilities
+
+### GET /health
+
+No auth required. Returns service status.
+
+```json
+{"status": "healthy", "service": "builder-gateway", "version": "1.0.0", "timestamp": "2026-04-02T00:00:00Z"}
+```
+
+### GET /capabilities
+
+No auth required. Lists supported inference capabilities.
+
+```json
+{
+  "capabilities": ["chat.completions", "text.completions", "text.embeddings", "tabular.predict", "tabular.classify", "image.generate", "audio.transcribe", "audio.generate", "rerank", "forecasting"],
+  "count": 10
+}
+```
+
+---
+
+## 2. Datasets
+
+### POST /datasets
+
+Create a dataset record.
+
+**Request:**
+```json
+{
+  "account_id": "uuid",
+  "dataset_name": "my-dataset",
+  "description": "Training data for fraud detection",
+  "storage_format": "csv",
+  "visibility": "private"
+}
+```
+
+`storage_format`: `csv`, `jsonl`, `parquet`, `hf_dataset`
+
+**Response (201):**
+```json
+{
+  "dataset_id": "uuid",
+  "account_id": "uuid",
+  "dataset_name": "my-dataset",
+  "status": "pending",
+  "storage_format": "csv",
+  "visibility": "private",
+  "created_at": "2026-04-02T00:00:00Z"
+}
+```
+
+### POST /datasets/upload
+
+Upload a file directly. Use multipart/form-data.
+
+**Headers:**
+- `X-Dataset-Name`: Dataset name
+- `X-Domain`: `text` | `tabular` | `image` | `audio` (default: `text`)
+- `X-Description`: Optional description
+
+```bash
+curl -X POST https://api.colabhive.com/api/builder/v1/datasets/upload \
+  -H "X-API-Key: $KEY" -H "X-Account-ID: $ACCT" \
+  -H "X-Dataset-Name: my-data" -H "X-Domain: tabular" \
+  -F "file=@train.csv"
+```
+
+### GET /datasets?account_id={uuid}&limit=20&cursor={cursor}
+
+List datasets for an account. Paginated.
+
+### GET /datasets/{dataset_id}
+
+Get dataset details.
+
+### DELETE /datasets/{dataset_id}
+
+Delete a dataset.
+
+### POST /datasets/{dataset_id}/uploads/init
+
+Initialize chunked upload. Returns `upload_url` and `upload_id`.
+
+### POST /datasets/{dataset_id}/uploads/{upload_id}/commit
+
+Commit a chunked upload. Optionally verify with `actual_checksum`.
+
+---
+
+## 3. Training
+
+### GET /training/model-configs?category={cat}&framework={fw}&active_only=true
+
+List available model architectures. No auth required.
+
+**Response:**
+```json
+[
+  {
+    "model_name": "xgboost-regression",
+    "model_category": "ml_classical",
+    "framework": "xgboost",
+    "description": "XGBoost gradient boosting for regression",
+    "is_trainable": true,
+    "user_configurable_params": {
+      "n_estimators": {"type": "int", "min": 10, "max": 10000, "default": 100},
+      "learning_rate": {"type": "float", "min": 0.001, "max": 1.0, "default": 0.1}
+    }
+  }
+]
+```
+
+**Filter options:**
+- `category`: `ml_classical`, `nlp`, `time_series`, `computer_vision`
+- `framework`: `xgboost`, `lightgbm`, `sklearn`, `transformers`, `pytorch`, `neuralforecast`, `prophet`
+
+### GET /training/model-configs/{model_id}
+
+Get detail for a specific model config.
+
+### GET /training/model-configs/{model_id}/schema
+
+Get JSON Schema for the model's hyperparameters (useful for form generation).
+
+### POST /training/runs
+
+Create a training job.
+
+**Request:**
+```json
+{
+  "job_name": "fraud-detection-v2",
+  "model_config_id": "uuid-of-model-config",
+  "dataset_id": "uuid-of-dataset",
+  "hyperparameters": {
+    "n_estimators": 500,
+    "learning_rate": 0.05
+  },
+  "job_type": "training",
+  "operating_mode": "balanced",
+  "priority": 0,
+  "hardware_preference": "auto"
+}
+```
+
+`operating_mode`: `fast` (less accurate), `balanced` (default), `thorough` (slower, better)
+`hardware_preference`: `auto`, `gpu`, `cpu`
+
+**Response (201):** Training run object with `run_id` and `status: "pending"`.
+
+### GET /training/runs?account_id={uuid}&limit=20&cursor={cursor}
+
+List training runs.
+
+### GET /training/runs/{run_id}
+
+Get training run details including progress and metrics.
+
+**Response:**
+```json
+{
+  "run_id": "uuid",
+  "status": "running",
+  "progress_percent": 65,
+  "metrics_summary": {"train_loss": 0.023, "eval_mse": 0.031},
+  "duration_seconds": 120,
+  "created_at": "2026-04-02T00:00:00Z"
+}
+```
+
+`status`: `pending`, `analyzing`, `scheduling`, `running`, `completed`, `failed`, `cancelled`
+
+### GET /training/runs/{run_id}/logs?follow=false
+
+Get training logs by polling. The `follow=true` compatibility parameter currently returns HTTP 501;
+training log streaming is not part of the stable contract.
+
+### GET /training/runs/{run_id}/metrics
+
+Get detailed training metrics history.
+
+### GET /training/runs/{run_id}/artifacts
+
+List output artifacts (model files).
+
+```json
+{"artifacts": [{"filename": "model.pt", "size": 436995}, {"filename": "config.json", "size": 306}]}
+```
+
+### GET /training/runs/{run_id}/artifacts/download-urls?files=model.pt,config.json&expiration=3600
+
+Get pre-signed download URLs for artifacts. `expiration` range: 300-86400 seconds.
+
+### GET /training/runs/{run_id}/events
+
+Get training lifecycle events.
+
+### POST /training/runs/{run_id}/cancel
+
+Cancel a running training job.
+
+### DELETE /training/runs/{run_id}?force=false
+
+Delete a training run. Use `force=true` to delete running jobs.
+
+### POST /training/runs/{run_id}/register-for-inference
+
+Promote a completed training run to an inference endpoint.
+
+**Request:**
+```json
+{
+  "name": "my-fraud-model",
+  "display_name": "Fraud Detection v2",
+  "description": "XGBoost model trained on transaction data",
+  "visibility": "account",
+  "task_type": "binary_classification",
+  "tags": ["fraud", "production"],
+  "input_schema": {"type": "object", "properties": {"features": {"type": "array"}}},
+  "output_schema": {"type": "object", "properties": {"prediction": {"type": "number"}}},
+  "example_input": {"features": [1.0, 2.0, 3.0]},
+  "example_output": {"prediction": 0.95}
+}
+```
+
+`visibility`: `private` (only you), `account` (your team), `public` (marketplace, requires review)
+
+**Response (201):**
+```json
+{
+  "endpoint_id": "uuid",
+  "name": "my-fraud-model",
+  "status": "active",
+  "review_status": "active",
+  "inference_url": "https://api.colabhive.com/api/builder/v1/endpoints/uuid/infer"
+}
+```
+
+---
+
+## 4. Inference Endpoints
+
+### GET /endpoints?visibility={v}&task_type={t}&search={q}&limit=20&offset=0
+
+List inference endpoints. Supports filtering and free-text search.
+
+`task_type` values: `chat`, `embeddings`, `rerank`, `tool`, `classification`, `regression`, `forecasting`, `text-to-image`, `text-to-audio`, `text-to-speech`, `text-to-video`, `image-to-3d`, etc.
+
+### GET /endpoints/{endpoint_id}
+
+Get endpoint details including schemas.
+
+### DELETE /endpoints/{endpoint_id}?force=false
+
+Delete an endpoint.
+
+### PATCH /endpoints/{endpoint_id}/scaling
+
+Set the endpoint's explicit scale-to-zero or minimum-residency policy.
+
+```json
+{
+  "scaling_mode": "minimum",
+  "min_replicas": 2,
+  "max_replicas": 4,
+  "required_node_ids": ["node-a-uuid", "node-b-uuid"]
+}
+```
+
+`on_demand` requires `min_replicas=0`. `minimum` requires a positive floor.
+`required_node_ids` is optional, contains unique physical node UUIDs, and cannot
+contain more entries than `min_replicas`. A requested node is a hard placement
+constraint, never a scheduling hint.
+
+The response echoes the policy plus `current_replicas`: READY replicas measured now. When the count
+is unknown the key is left out of the response (never a fabricated `0`), so read it as optional:
+`body.get("current_replicas")` in Python, `body.current_replicas == null` in JavaScript.
+`GET /endpoints` and `GET /endpoints/{endpoint_id}` carry the same field.
+
+### POST /endpoints/{endpoint_id}/infer
+
+Run synchronous inference.
+
+An optional `Idempotency-Key` request header accepts one UUID per logical call.
+Reuse that UUID only when retrying the same endpoint and payload. A replay returns
+the original `task_id`; reusing it for a different request returns HTTP 409.
+
+**Request:**
+```json
+{
+  "input": {
+    "messages": [{"role": "user", "content": "Hello, how are you?"}]
+  },
+  "max_tokens": 512,
+  "temperature": 0.7,
+  "sync": true,
+  "sync_timeout_s": 30.0
+}
+```
+
+The `input` schema varies by model type:
+
+**LLMs (chat):**
+```json
+{"input": {"messages": [{"role": "user", "content": "..."}], "max_tokens": 512, "temperature": 0.7}}
+```
+
+**Embeddings:**
+```json
+{"input": {"text": "Sentence to embed"}}
+```
+
+**Rerank:**
+```json
+{"input": {"query": "search query", "documents": ["doc1", "doc2", "doc3"]}}
+```
+
+**Tabular (regression/classification):**
+```json
+{"input": {"features": {"col1": 1.0, "col2": "value"}}}
+```
+
+**Time series forecasting:**
+```json
+{"input": {"values": [1.2, 3.4, 5.6], "horizon": 10}}
+```
+
+**Tools (web-fetch):**
+```json
+{"input": {"url": "https://example.com"}}
+```
+
+**Image generation:**
+```json
+{"input": {"prompt": "A sunset over mountains", "width": 1024, "height": 1024}}
+```
+
+**Response:**
+```json
+{
+  "task_id": "uuid",
+  "status": "completed",
+  "model_state": "resident",
+  "result": { ... },
+  "inference_time_ms": 245.3,
+  "sync_latency_ms": 245.3,
+  "credits_charged": 0.001,
+  "message": "Inference completed"
+}
+```
+
+### Streaming
+
+Token-by-token SSE is served by `POST /v1/chat/completions` with `"stream": true`. There is no
+`infer:stream` route: `/endpoints/{id}/infer` is the typed path for every model family and most
+families have nothing to stream.
+
+On `/v1/chat/completions`, current node runtimes forward incremental token deltas. Older nodes fall
+back to one complete SSE chunk; both modes end with `[DONE]` and advertise the mode through the
+`colabhive-stream-mode` SSE comment.
+
+### POST /endpoints/{endpoint_id}/infer:async
+
+Async inference — returns HTTP 202 with `task_id`; poll with `GET /tasks/{task_id}`.
+It accepts the same optional UUID `Idempotency-Key` contract as `/infer`.
+
+### POST /endpoints/{endpoint_id}/upload-input
+
+Upload file input (e.g., audio for STT, image for OCR). Multipart form.
+
+Returns: `{"input_url": "presigned-url", "expires_in": 3600, "size_bytes": 12345}`
+
+### GET /tasks/{task_id}
+
+Poll async task status. Returns task object with `status` and `result` when complete.
+
+- `state`: stable lifecycle, one of `queued`, `running`, `succeeded`, `failed`. Branch on it, not on
+  `status`, which keeps internal values (`ready` while queued).
+- `reason_code`: while queued, why the task waits (`no_warm_replica`, `resident_capacity_full`,
+  `no_runtime_compatible_replica`, `protected_input_no_capable_node`, `required_node_unavailable`,
+  `unattributed`, `misclassified`); on failure, the cause code, never null.
+- `deferred_since`: ISO 8601 time the current wait reason was recorded; only while queued.
+- `failure_origin`: on failure, `platform` (the model never ran; do not record it as a model
+  result), `model` (a node ran it and execution failed) or `unattributed`. Never parse `error`.
+- `platform_refusal`: `true` exactly when `failure_origin` is `platform` (never executed);
+  `false` otherwise.
+- The same fields ride on `POST /endpoints/{endpoint_id}/infer` answers (replays, sync failures
+  and sync timeouts included), `POST /actions/{slug}:invoke` and `GET /invocations/{invocation_id}`.
+  A sync answer reads the task when it answers: a task that ended during the wait is that outcome.
+- Waiting for capacity never fails a task: it stays queued and its result stays readable after
+  your own client deadline. Poll the same `task_id` again instead of resubmitting.
+
+### GET /queue/stats
+
+Get inference queue statistics (queue depth, workers, processing rate). Authentication required.
+
+---
+
+## 5. Inference Models (Discovery)
+
+### GET /inference/models?category={cat}&task_type={type}&active_only=true&include_readiness=true
+
+List ALL models available for inference — base models (LLMs, specialists, tools) and user-trained models.
+
+When `include_readiness=true`, each model includes real-time readiness status:
+
+```json
+{
+  "model_name": "qwen-2.5-7b-instruct",
+  "readiness": "warm",
+  "warm_nodes": 2,
+  "cached_nodes": 1,
+  "estimated_latency_ms": 300
+}
+```
+
+### Model Readiness States
+
+Models have 3 readiness states affecting inference latency:
+
+| State | `model_state` in response | Description | Latency |
+|-------|--------------------------|-------------|---------|
+| **warm** | `resident` | Loaded in GPU VRAM | Workload-dependent; no model-load step |
+| **cached** | `cached` | On disk, needs loading | Workload-dependent |
+| **cold** | `cold` | Not on node, needs download | Workload-dependent |
+
+Measure latency on the target model, runtime and hardware; these states describe readiness, not a
+universal latency promise.
+
+**How it works:**
+- The orchestrator tracks which models are loaded (warm) on which nodes via heartbeat
+- When you request inference, it routes to the best node automatically: warm > cached > cold
+- Popular models stay warm via automatic warm profiles
+- `include_readiness=true` on `GET /endpoints` also works
+
+**For agents:** Query readiness before inference to choose the fastest model. Prefer warm models for sync mode; use async for cold models.
+
+---
+
+## 6. HuggingFace Models
+
+### POST /models/hf/search
+
+Search HuggingFace Hub for compatible models.
+
+**Request:**
+```json
+{
+  "query": "text-classification",
+  "task_type": "classification",
+  "max_size_gb": 10,
+  "license": ["mit", "apache-2.0"],
+  "min_downloads": 1000,
+  "limit": 20,
+  "only_supported": true
+}
+```
+
+### GET /models/hf/{repo_id}/info
+
+Get model card, config, files, compatibility assessment, and resource estimates for a HuggingFace model.
+
+### POST /models/hf/register
+
+Register a HuggingFace model for inference on ColabHive.
+
+**Request:**
+```json
+{
+  "repo_id": "microsoft/phi-2",
+  "hf_revision": "main",
+  "task_type": "chat",
+  "visibility": "account"
+}
+```
+
+**Response:**
+```json
+{
+  "model_config_id": "uuid",
+  "endpoint_id": "uuid",
+  "inference_url": "https://api.colabhive.com/api/builder/v1/endpoints/uuid/infer",
+  "test_request": {"input": {"messages": [{"role": "user", "content": "Hello"}]}}
+}
+```
+
+### GET /models/registry?source={src}&lifecycle_status={status}&task_type={type}&limit=50
+
+List registered models with metrics.
+
+### PATCH /models/registry/{model_config_id}/lifecycle
+
+Update a model's lifecycle status.
+
+**Request:**
+```json
+{"lifecycle_status": "ready", "reason": "Passed all tests"}
+```
+
+---
+
+## 7. Models (Registry)
+
+### POST /models
+
+Create a model in the registry.
+
+### GET /models?account_id={uuid}&limit=20
+
+List models.
+
+### GET /models/{model_id}
+
+Get model details.
+
+### GET /models/{model_id}/versions?limit=20
+
+List model versions.
+
+---
+
+## Available Models (40 active)
+
+> **Readiness is dynamic.** Use `GET /inference/models?include_readiness=true` for current warm/cached/cold status. Specialists and popular LLMs are typically warm; less-used models may be cold.
+
+### LLMs (Text Generation) — engine: vllm/transformers
+
+| Model | Parameters | Context | Description |
+|---|---|---|---|
+| `phi-3.5-mini` | 3.8B | 128k | Microsoft Phi-3.5 — fast, efficient, multilingual |
+| `mistral-7b-instruct` | 7B | 32k | Mistral Instruct v0.3 — general-purpose |
+| `qwen-2.5-7b-instruct` | 7B | 128k | Qwen 2.5 — strong reasoning, multilingual |
+| `qwen-2.5-coder-7b` | 7B | 128k | Qwen 2.5 Coder — code generation |
+| `llama-3.2-8b-instruct` | 8B | 128k | Meta Llama 3.2 — instruction-following |
+| `hf-google-gemma-2-9b-it` | 9B | 8k | Google Gemma 2 IT |
+| `jamba-hybrid-finetune` | 52B (MoE) | 256k | AI21 Jamba (Mamba+Transformer hybrid) |
+| `mamba-ssm-finetune` | 2.8B | 64k | Mamba (state-space, linear-time) |
+| `llm-qlora-finetune` | varies | varies | QLoRA fine-tuning on any base LLM |
+
+### Specialists — engine: generic
+
+| Model | Task Type | Description |
+|---|---|---|
+| `specialist-embeddings` | embeddings | all-MiniLM-L6-v2, 384-dim vectors |
+| `specialist-rerank` | rerank | Cross-encoder reranking |
+| `specialist-translate` | translation | 200+ languages (NLLB) |
+| `specialist-ocr` | ocr | Tesseract OCR |
+| `specialist-stt` | stt | OpenAI Whisper |
+| `specialist-moderate` | moderation | Content safety classifier |
+
+### Tools — engine: generic
+
+| Model | Task Type | Description |
+|---|---|---|
+| `tool-web-fetch` | tool | Fetch and extract URL content |
+| `tool-web-search` | tool | Web search with extraction |
+| `tool-web-scrape` | tool | Web scraping with CSS selectors |
+| `tool-geo-geocode` | tool | Geocoding / reverse geocoding |
+
+### Classical ML (Trainable) — engine: generic, specialist: tabular
+
+| Model | Task Type |
+|---|---|
+| `xgboost-regression` | regression |
+| `xgboost-classification` | classification |
+| `lightgbm-regression-gpu` | regression |
+| `lightgbm-classification` | classification |
+| `random-forest-regression` | regression |
+| `random-forest-classification` | classification |
+| `catboost-regression` | regression |
+| `catboost-classification` | classification |
+| `linear-regression` | regression |
+| `logistic-regression` | classification |
+| `svm-classification` | classification |
+| `svr-regression` | regression |
+
+### Time Series (Trainable) — engine: generic, specialist: forecasting
+
+| Model | Framework | Description |
+|---|---|---|
+| `prophet-forecasting` | prophet | Trend + seasonality decomposition |
+| `arima-forecasting` | pmdarima | Auto ARIMA |
+| `patchtst-forecasting` | transformers | Patch-based Transformer for multivariate |
+| `bitcn-forecasting` | neuralforecast | Bidirectional Temporal Convolutional Network |
+| `aceformer-forecasting` | pytorch | Transformer + EMD for stock prices |
+
+---
+
+## Common Workflows
+
+### 1. Train and deploy a model
+
+```bash
+# 1. Upload dataset
+curl -X POST .../datasets/upload \
+  -H "X-Dataset-Name: my-data" -F "file=@train.csv"
+
+# 2. Create training job
+curl -X POST .../training/runs \
+  -d '{"job_name":"v1","model_config_id":"MODEL_UUID","dataset_id":"DATASET_UUID","hyperparameters":{}}'
+
+# 3. Poll until completed
+curl .../training/runs/RUN_ID
+
+# 4. Register for inference
+curl -X POST .../training/runs/RUN_ID/register-for-inference \
+  -d '{"name":"my-model","description":"...","visibility":"account"}'
+
+# 5. Run inference
+curl -X POST .../endpoints/ENDPOINT_ID/infer \
+  -d '{"input":{"features":{"col1":1.0,"col2":2.0}}}'
+```
+
+### 2. Use a pre-deployed LLM
+
+```bash
+# List public LLM endpoints
+curl ".../endpoints?visibility=public&task_type=chat"
+
+# Chat with an LLM
+curl -X POST .../endpoints/ENDPOINT_ID/infer \
+  -d '{"input":{"messages":[{"role":"user","content":"Explain quantum computing in simple terms"}],"max_tokens":256}}'
+```
+
+### 3. Use a specialist
+
+```bash
+# Embeddings
+curl -X POST .../endpoints/EMBEDDINGS_ENDPOINT_ID/infer \
+  -d '{"input":{"text":"The quick brown fox"}}'
+
+# Rerank
+curl -X POST .../endpoints/RERANK_ENDPOINT_ID/infer \
+  -d '{"input":{"query":"best restaurants","documents":["Pizza place","Sushi bar","Burger joint"]}}'
+```
+
+### 4. Readiness-aware inference (for agents)
+
+```bash
+# 1. Check which models are warm
+curl ".../inference/models?include_readiness=true&task_type=chat" \
+  -H "X-API-Key: $KEY" -H "X-Account-ID: $ACCT"
+
+# 2. Pick a warm model and find its endpoint
+curl ".../endpoints?include_readiness=true&task_type=chat" \
+  -H "X-API-Key: $KEY" -H "X-Account-ID: $ACCT"
+# Look for endpoints with "readiness": "warm"
+
+# 3. Infer on the warm endpoint (fast sync)
+curl -X POST ".../endpoints/WARM_ENDPOINT_ID/infer" \
+  -H "X-API-Key: $KEY" -H "X-Account-ID: $ACCT" \
+  -H "Content-Type: application/json" \
+  -d '{"input":{"messages":[{"role":"user","content":"Hello"}]},"sync":true,"sync_timeout_s":10}'
+# model_state: "resident" in response → served from GPU VRAM
+```
+
+**Decision logic:** warm → sync (timeout 10s) | cached → sync (timeout 30s) | cold → async (poll /tasks/{id})
+
+---
+
+## Pagination
+
+Pagination is defined per endpoint. Dataset lists use opaque cursors; endpoint/model lists use
+`limit` + `offset`. Do not translate one style into the other—follow the parameters and response
+schema published for that operation.
+
+---
+
+## Rate Limits
+
+Rate limiting is enforced at the infrastructure layer and excess requests return HTTP 429.
+Published per-plan tiers and `X-RateLimit-*` response headers are not available yet.
+
+---
+
+## Machine-Readable Resources
+
+## Cohort Latent Fabric
+
+Cohort is an explicit, endpoint-scoped execution mode for causal/autoregressive text-generation
+LLMs. Classic remains authoritative whenever `execution` is absent. The production lane excludes
+BERT-style encoders, embedding and reranking models, diffusion models, and other media runtimes.
+
+The public flow is: endpoint-scoped capabilities, optional read-only plan, run with an idempotency
+key, then summary/events/explanation and optional cancel. Capability is the intersection of account,
+scope, endpoint opt-in, live fabric health, residency, and validated compatibility. Public traces
+contain only logical identifiers, lifecycle state, aggregate member/revision/timing/cost, and an
+explicit fallback reason. Intermediate tensor content and physical topology remain private.
+
+Python SDK 0.7.1 provides `client.cohorts`; MCP 0.3.0 provides capability-gated Cohort operations.
+See https://docs.colabhive.com/cohort/concepts/latent-fabric.
+
+Research studies remain separate. R4-CEM v6 is a sealed textual sender-to-reader study over the
+Classic path (600 items, 11 conditions, two backbones). R4-M is an outcome-blind query-blind
+textual-memory study over all 78 LongMemEval knowledge-update items (3,120 scheduled item-runs,
+including 624 PM/PM-shuffled runs). Installing the SDK or selecting Cohort does not enable that
+memory policy. The studies are not a memory-by-multi-agent factorial and do not validate
+hidden-state, KV-cache, BERT, diffusion, arbitrary-graph, or universal-memory efficacy.
+
+- **OpenAPI 3.1 Spec:** [https://docs.colabhive.com/openapi.json](https://docs.colabhive.com/openapi.json)
+- **LLM Summary:** [https://docs.colabhive.com/llm.txt](https://docs.colabhive.com/llm.txt)
+- **This Document:** [https://docs.colabhive.com/llms-full.txt](https://docs.colabhive.com/llms-full.txt)

@@ -1,46 +1,60 @@
-# Hallazgos — pruebas reales contra ColabHive
+# Hallazgos — pruebas reales contra ColabHive (2026-09-17)
 
-Mediciones hechas desde afuera, como cliente: un Mac M2 contra `https://api.colabhive.com/v1`,
-con streaming. **Cada número tiene fecha y la plataforma cambió desde entonces**: antes de
-decidir algo con estos datos, volvé a medir con los scripts de `../scripts/`
-(`smoke_test.py`, `check_cache.py`, `concurrencia.py`). Los datos crudos que genera
-`smoke_test.py` quedan en `research/live/`, que no se versiona.
+Cliente: Mac M2 → `https://api.colabhive.com/v1`, streaming, `scripts/smoke_test.py`.
+Datos crudos: `research/live/smoke-*.json` / `*.log`.
 
-## 2026-09-17 · Primer contacto
-
-`scripts/smoke_test.py`, dos modelos que arrancaron en estado `cached`.
+## Resultados
 
 | | gpt-oss-20b | Qwen3-Coder-30B-A3B (AWQ) |
 |---|---|---|
-| **De `cached` al primer token** | **197 s** | **444 s** |
+| Estado inicial | cached (5 nodos) | cached (3 nodos) |
+| **Warmup cached → primer token** | **197 s** | **444 s** |
 | Tool calling (streaming) | ✅ `read_file({"path","start_line"})`, `finish=tool_calls` | ✅ idem |
-| TTFT con el modelo caliente (mediana de 5) | 3.5 s | 3.6 s |
-| Velocidad de generación | ~179 tok/s | ~141 tok/s |
-| Razonamiento separado | sí (`reasoning_content`) | no aplica |
+| Stream mode | `live` | `live` |
+| TTFT warm (5 requests chicas, mediana) | 3.5 s | 3.6 s |
+| Velocidad de generación warm | ~179 tok/s | ~141 tok/s |
+| Reasoning separado | sí (`reasoning_content`) | no aplica |
 
-Red: TCP ~0.22 s, TLS ~0.45 s, `/v1/models` ~0.78 s.
+Baseline de red: TCP connect ~0.22 s, TLS ~0.45 s, `/health` TTFB ~0.67 s, `/v1/models` ~0.78 s.
 
-Lo que sacamos:
+## Conclusiones
 
-1. **El tool calling anda** en los dos modelos por la API compatible con OpenAI, con
-   streaming. Eso es lo que OpenCode necesita.
-2. **Un modelo frío tarda minutos en despertar**, incluso desde `cached`. Antes de una tanda
-   hay que calentarlo (`oc --warm`), o la primera tarea se come la espera.
-3. **Cada paso del agente paga un costo fijo** además de la generación: ese día, ~3.5 s por
-   request con el modelo caliente. OpenCode hace una request por cada paso del loop de
-   herramientas, así que en una tarea de 30 pasos eso pesa más que la velocidad del modelo.
-4. La generación en sí es rápida (140–180 tok/s): los MoE chicos van bien como ejecutores.
+1. **Tool calling OK** en ambos modelos vía la API OpenAI-compatible con streaming → compatible con OpenCode.
+2. **Warmup de 3–7 min incluso desde cached.** Obligatorio fijar los modelos del equipo
+   (`scaling_mode: minimum`, `min_replicas >= 1`, `required_node_ids`).
+3. **Overhead fijo de ~3.5 s por request con el modelo warm**, independiente del modelo y del tamaño del prompt
+   (prompt de ~10 tokens, 40 max_tokens). Red + TLS explican ~0.7 s; **~2.8 s son dispatch
+   gateway → orchestrator → node (WebSocket) → container**.
+   - OpenCode hace una request por cada paso del loop de herramientas: una tarea de 30 pasos
+     suma ~1:45 min solo de overhead, más la generación.
+   - Es el principal cuello de botella para la experiencia de agente, más que la velocidad de los modelos.
+4. La generación en sí es rápida (140–180 tok/s): los modelos MoE chicos van bien como coder/worker.
 
-## 2026-09-18 · El costo fijo por paso bajó
+## Acciones sugeridas para la plataforma (equipo ColabHive)
 
-Con la misma medición (prompt de 1 token, streaming, modelos calientes), después de una
-actualización de la plataforma: **TTFT mediana 1.2–2.2 s**, y 1.8 s en Qwen3-Coder-30B
-reutilizando la conexión (`scripts/keepalive_burst.py`).
+- Fast path para LLMs warm: ruteo directo/sticky del gateway al replica residente sin pasar por la cola de tasks.
+- Medir dónde se van los ~2.8 s (auth, scheduling, WebSocket round-trip, container proxy).
+- Exponer parámetros de serving por modelo (tool/reasoning parser, max_model_len, TP) en la API pública.
+- Reportar tiempos de carga medidos en `/inference/models?include_readiness=true` (hoy `estimated_latency_ms` es fijo por estado: 300/8000/60000).
+- Documentar/exponer la ruta de nodos (UUIDs para `required_node_ids`) y el token HF en la Builder API.
 
-## 2026-09-20 · Prefix caching, verificado
+## Re-medición 20:29 (misma sesión, ~7 h después)
 
-Qwen3.8-27B FP8, prompt de 55k tokens con un prefijo único por corrida
-(`scripts/check_cache.py`):
+Ambos modelos siguen `warm` (1 nodo cada uno). Cola vacía.
+
+| | mediana TTFT | rango |
+|---|---|---|
+| gpt-oss-20b | 3.3 s | 2.8 – 7.4 s |
+| Qwen3-Coder-30B | 4.3 s (10 requests) | 3.6 – 8.6 s |
+
+- Gateway solo (`/v1/models`, sin nodo): 0.76–0.95 s, con TLS nuevo cada vez (~0.45 s).
+- El overhead de dispatch no bajó y ahora además **es inestable**: ~1 de cada 3 requests salta a 7–8.5 s.
+- Churn de residencia: a las 13:00 había 41 modelos `cached`; a las 20:29 quedan 13, con 71 `cold`.
+  Los modelos se desalojan solos → otra razón para fijar los del equipo con `scaling_mode: minimum`.
+
+## Prefix caching — activado y verificado (2026-09-20, 22:15 UTC)
+
+Qwen3.8-27B FP8 (1af07b1f), prompt de 55k tokens, prefijo único por corrida:
 
 | caso | TTFT | cached_tokens |
 |---|---|---|
@@ -49,108 +63,14 @@ Qwen3.8-27B FP8, prompt de 55k tokens con un prefijo único por corrida
 | **mismo prefijo, final distinto** | **2.6 s** | 100% |
 | **prefijo + 500 palabras nuevas** | **3.1 s** | 99% |
 
-16× más rápido, y vale para el caso real de un agente: un historial que crece.
-`usage.prompt_tokens_details.cached_tokens` lo reporta en cada respuesta.
-Una tarea de 30 pasos con 55k de contexto pasa de ~21 min de prefill a ~2 min.
+16× más rápido, y sirve para el caso real de un agente (historial que crece).
+`usage.prompt_tokens_details.cached_tokens` ya se reporta.
+Impacto: una tarea de 30 pasos con 55k de contexto pasa de ~21 min de prefill a ~2 min.
 
-Otras cosas de ese día:
-
-- `/v1/models` trae `max_model_len` y `max_model_len_source` (`resident` = la réplica que
-  está corriendo, `configured` = lo que declara el catálogo). `scripts/sync_limits.py` lo usa.
-- **La ventana de un modelo puede cambiar cuando se reemplaza su réplica**: la del 27B pasó
-  de 36.736 a 127.552; la de gpt-oss-20b, de 126.357 ese día a 75.904 el 21. Por eso `sync_limits.py`
-  va en el chequeo previo a cada tanda.
-- Prefill sin caché: gpt-oss-20b ~21.000 tok/s, el 27B ~1.280 tok/s. Con caching importa
-  mucho menos.
-
-## Septiembre 2026 · Concurrencia
-
-La tabla está en [../../INFRAESTRUCTURA.md](../../INFRAESTRUCTURA.md). Una primera medición
-(Qwen3-8B) daba cola recién pasadas las 16 requests; la del 2026-09-21 (gpt-oss-20b) muestra que una
-réplica admite 8 a la vez y el resto espera turno. Por eso el runner lanza 8 por defecto.
-
-## 2026-09-21 · Quién contesta primero
-
-El mismo pedido 4 veces por modelo, mediana (pedido que pide una búsqueda con una herramienta, y un
-título de 5 palabras):
-
-| | tool call | título |
-|---|---|---|
-| gpt-oss-20b | 4/4 · **1.1 s** | **1.8 s** |
-| Qwen3-8B | 4/4 · 12.8 s | 18.2 s |
-
-Qwen3-8B era el modelo más chico del equipo y el más lento en contestar: razona antes de cada respuesta.
-Por eso `explore`, `title` y `summary` pasaron a gpt-oss-20b, y el equipo quedó en tres modelos.
-**El tamaño no predice la latencia; si el modelo delibera, sí.**
-
----
-
-## El peso del harness (2026-09-30)
-
-Ninguna documentación dice cuánto contexto gasta OpenCode antes de que empiece la tarea, así
-que lo medimos con un proxy que se pone en el medio (`scripts/proxy_medidor.py`) y anota una
-línea por request. Pedido mínimo: `"Responde solo: OK"`, 19 caracteres.
-
-| | `build` (10 herramientas) | `ejecutor` (6) |
-|---|---|---|
-| system prompt | 17.954 | 4.613 |
-| esquemas de herramientas | 21.393 | 12.533 |
-| **cuerpo del request** | **39.548** | **17.424** |
-
-**−56%**, ~5.500 tokens por paso del agente. Sacamos `webfetch`, `skill`, `task` y
-`todowrite`.
-
-Lo que no esperábamos: **el ahorro grande está en el system prompt, no en el esquema de la
-herramienta.** Bajó 13.341 caracteres al sacar cuatro herramientas, porque OpenCode inyecta
-el instructivo de cada una (`todowrite` arrastra una sección con ejemplos). Y lo que quedó
-—4.613— es casi todo nuestro: los dos `AGENTS.md` más el prompt del ejecutor.
-
-Queda pendiente el A/B que importa: si con el harness flaco sube la tasa de verde al primer
-intento. Hasta donde llegó la revisión de literatura, **nadie publicó un barrido de cantidad
-de herramientas con un modelo chico abierto fijo en un benchmark de código**, así que la
-medición es nuestra y vale publicarla.
-
-### Un experimento separado, no mezclado con este
-
-`correr-tarea.sh` le dice al agente *"al terminar corré `bash scripts/gate.sh` y mostrá su
-salida real"*. El runner igual vuelve a correr el gate y lee **sólo** su propio veredicto, así
-que esa frase no aporta al veredicto — pero convierte al gate en objetivo. Hay medición
-publicada de que fraseando la meta como "hacer pasar el gate" los intentos de saltearlo pasan
-de 38% a 86%. Contra eso: correrlo le permite autocorregirse antes de terminar.
-
-No lo cambiamos ahora **para no mover dos variables a la vez**. Primero medimos el recorte de
-herramientas, después esta frase.
-
-## El parser de razonamiento sigue roto (2026-09-30)
-
-Un POST directo a `/v1/chat/completions` contra Qwen3-8B devuelve:
-
-```json
-"message": { "content": "<think>\nOkay, the", "reasoning": null }
-```
-
-El `<think>` viaja **dentro de `content`** y `reasoning_content` viene vacío — consistente
-con lo que medimos antes en las cuatro variantes de `reasoning_effort`. Al motor le falta el
-parser de razonamiento para estos modelos. Para nosotros el costo es doble: contamina la
-respuesta que lee el runner, y el razonamiento no se puede descartar del historial.
-Anotado en `colabhive-backlog.md`.
-
-## La regresión de velocidad empeoró (2026-09-30, 13:40 UTC)
-
-Tres modelos, tres endpoints distintos, con una request trivial de 40 tokens:
-
-| Modelo | tok/s hoy | línea base |
-|---|---|---|
-| Qwen3-8B | 2,2 | 178 |
-| Qwen3-Coder-30B | 0,9 | — |
-| Qwen3-8B (180 tokens) | 1,1 | 178 |
-
-**Entre 80× y 200× más lento**, y bastante peor que los 5,3–15,9 tok/s que habíamos medido
-el día anterior. No es contención nuestra: son endpoints separados y la degradación es
-uniforme. Con esto no se puede correr nada: el arquitecto sobre el objetivo de clasificados
-se abandonó después de ~40 minutos sin haber escrito la primera línea del plan.
-
-**Lo que esto le cuesta al método:** nada de lo que depende de un modelo se puede medir hoy.
-Vale como recordatorio de una regla que ya teníamos escrita: **si la plataforma está en
-cambios, las mediciones no sirven, hay que esperar.** Lo que sí se puede hacer mientras tanto
-es todo lo que es comando: gates, scripts, documentación.
+Notas de la jornada:
+- Ventana del 27B: 36.736 → 127.552 (el reemplazo cuesta un warm de ~20 min).
+- Qwen3-Coder-30B declara 223.680; gpt-oss-20b 126.357.
+- Tope de payload del gateway: 1 MB → 3.9 MB.
+- `/v1/models` ahora trae `max_model_len` + `max_model_len_source` (resident/configured).
+- gpt-oss-20b hace prefill a ~21.000 tok/s; el 27B, a ~1.280 tok/s (17×). Con caching
+  importa menos, pero sigue abierto en qué nodo corre cada uno.
