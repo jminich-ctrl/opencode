@@ -48,9 +48,12 @@ file (your previous one is kept as `.bak`). More on choosing roles:
 > No task is done because the agent says so: a command decides.
 > Retrying is cheap: launch several in parallel and discard the ones that went wrong.
 
-Each task runs in its own git worktree with a clean context, and the project's `ejemplo-pacman/scripts/gate.sh` —
-tests, scope and hygiene; the example's is [`ejemplo-pacman/scripts/gate.sh`](ejemplo-pacman/scripts/gate.sh)
-— gives the verdict. The runner runs the gate after the agent has finished and decides on its exit
+Each task runs in its own git worktree with a clean context, and the project's `scripts/gate.sh`
+gives the verdict. It checks six things: that the tests and the gate itself were not touched, that the
+suite passes *and ran at least one test*, that only the declared files changed, hygiene including
+suppressed signals, that **reverting the implementation makes the task's own tests fail**, and — on the
+trunk only — architectural fitness plus a held-out suite no agent has seen. Template:
+[`plantillas/gate.sh`](plantillas/gate.sh), four lines to adapt. The runner runs the gate after the agent has finished and decides on its exit
 code, never on what the agent wrote: in our logs, an agent reported "GATE VERDE" (green) after seeing
 the gate fail three times. The method, in English:
 [The agent task method](https://docs.colabhive.com/concepts/agent-task-method).
@@ -86,7 +89,7 @@ the tasks pass on the first attempt, the problem is the plan, not the model.
 | [OPENCODE.md](OPENCODE.md) | The OpenCode configuration, field by field, and cold starts |
 | [colabhive/](colabhive/) | Config, prompts, setup and measurement scripts, dated measurements |
 | [plantillas/](plantillas/) | Templates: brief, plan, task, review checklist, gate, architecture check, pre-deploy, deploy |
-| [scripts/](scripts/) | `planificar.sh` (G0, self-correcting), `validar-plan.py`, `cobertura.py`, `correr-plan.sh` (the whole plan), `integrar.sh` (merge into the trunk, gate per merge), , , `estado.sh`, `comparar-modelos.sh` |
+| [scripts/](scripts/) | `planificar.sh` (G0, self-correcting), `validar-plan.py`, `cobertura.py`, `correr-plan.sh` (the whole plan), `integrar.sh` (merge into the trunk, gate per merge), `mutar.py` (diff-scoped mutation), `cocambio.py` (co-change vs declared structure), `estado.sh`, `comparar-modelos.sh` |
 | [AGENTS.md](AGENTS.md) | Rules the agent reads on its own |
 
 ## Without ColabHive
