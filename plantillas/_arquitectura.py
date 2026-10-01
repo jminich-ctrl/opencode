@@ -100,6 +100,13 @@ def main():
     nivel = {n: i for i, n in enumerate(CAPAS)}
     problemas = []
 
+    # Cobertura del mapeo. Una ausencia es ambigua por construcción: puede ser que falte la
+    # dependencia, o que falte declarar el módulo. En los dos únicos estudios longitudinales
+    # publicados, el 100% de las ausencias resultaron artefactos del mapeo. Por eso nunca se
+    # reporta una ausencia sin esto en la misma salida.
+    sin_mapear = sorted(m for m in grafo if m not in nivel)
+    cobertura = 100.0 * (len(grafo) - len(sin_mapear)) / len(grafo)
+
     # 1. Divergencias
     for modulo, destinos in grafo.items():
         if modulo not in nivel:
@@ -122,9 +129,22 @@ def main():
     # 3. Costo de propagación: fracción de la matriz de visibilidad que está en 1.
     #    Informativo, no gate: no hay umbral universal y crece con la centralización.
     n = len(grafo)
-    visibles = sum(len(alcanzables(grafo, m)) for m in grafo)
+    visibilidad = {m: alcanzables(grafo, m) for m in grafo}
+    visibles = sum(len(v) for v in visibilidad.values())
     costo = 100.0 * visibles / (n * n) if n else 0.0
 
+    # El componente fuertemente conexo más grande: módulos que se alcanzan mutuamente, o sea
+    # un ciclo. Es la cantidad estable e interpretable, y la que explica el costo: medido,
+    # agregar UNA arista de vuelta movió el costo de 53% a 90% y el SCC de 36 a 180 módulos.
+    # El costo de propagación es casi un detector de ciclos disfrazado de gradiente.
+    mayor_ciclo = max((len({o for o in grafo if m in visibilidad[o]} & visibilidad[m])
+                       for m in grafo), default=0)
+
+    if sin_mapear:
+        print(f"  · cobertura del mapeo: {cobertura:.0f}% — sin declarar en CAPAS: "
+              f"{' '.join(sin_mapear)}")
+        if any("ausencia" in p for p in problemas):
+            print("    Con cobertura incompleta, una ausencia puede ser del mapeo y no del código.")
     for p in problemas:
         print(f"  ✗ {p}")
     if not problemas:
@@ -136,8 +156,13 @@ def main():
     # —Linux 5%, Mozilla 17%, Mozilla 3% después de su rediseño— son sobre miles de
     # archivos. Lo que se lee es la SERIE: si sube mientras el proyecto crece, hay deriva.
     print(f"  · costo de propagación: {costo:.1f}% sobre {n} módulos"
-          + (" — con tan pocos módulos el número no se compara con nada;"
-             " sirve la serie en .metricas/arquitectura.csv" if n < 20 else ""))
+          + (" — con tan pocos módulos no se compara con nada; sirve la serie"
+             if n < 20 else ""))
+    if mayor_ciclo > 1:
+        print(f"  · ciclo más grande: {mayor_ciclo} módulos que se alcanzan mutuamente"
+              f" — es lo que explica el costo, y lo que conviene mirar")
+    else:
+        print("  · sin ciclos entre módulos")
 
     # El número solo no dice nada; la serie sí. Por eso se registra.
     try:
@@ -146,9 +171,10 @@ def main():
         with REGISTRO.open("a", newline="") as f:
             w = csv.writer(f)
             if nuevo:
-                w.writerow(["fecha", "modulos", "costo_propagacion", "divergencias_y_ausencias"])
+                w.writerow(["fecha", "modulos", "costo_propagacion", "mayor_ciclo",
+                            "cobertura_mapeo", "divergencias_y_ausencias"])
             w.writerow([datetime.datetime.now(datetime.timezone.utc).strftime("%FT%TZ"),
-                        n, f"{costo:.1f}", len(problemas)])
+                        n, f"{costo:.1f}", mayor_ciclo, f"{cobertura:.0f}", len(problemas)])
     except OSError:
         pass
 
