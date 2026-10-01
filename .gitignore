@@ -1,12 +1,16 @@
 __pycache__/
 *.pyc
-.opencode-data/
-.tarea.log
 *.log
 .env
 *.env
-colabhive/research/live/
 .DS_Store
+
+# lo que escribe el runner en cada worktree
+.opencode-data/
+.tarea.log
+.base-ref
 .metricas/
 PLAN.md.previo
-.metricas/
+
+# mediciones en vivo contra la plataforma
+colabhive/research/live/

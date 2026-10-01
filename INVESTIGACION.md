@@ -1,12 +1,41 @@
 # Qué dice el trabajo publicado, y qué nos cambia
 
-Revisión de literatura y de prácticas publicadas hasta septiembre de 2026, hecha contra
-este método: qué confirma, qué habría que robar, y dónde estamos expuestos.
+Revisión de literatura y de prácticas publicadas contra este método: qué confirma, qué
+robamos, y dónde seguimos expuestos. Tres vueltas, de septiembre y octubre de 2026.
 
-**Cómo leer esto.** Separo tres cosas que se suelen mezclar: lo que alguien **midió**, lo
-que alguien **practica y publica**, y lo que **circula sin fuente**. Marco cada una. Varias
-cifras muy citadas en blogs resultaron ser marketing autoinformado o directamente inventadas
-por un resumidor; las dejo anotadas para no volver a caer.
+## Antes de creer cualquier número de acá
+
+Es la lección más transferible de todo el documento, y se pagó tres veces:
+
+- **Dos papers de una misma tanda de búsqueda estaban retirados por sus propios autores por
+  resultados fabricados** — *"Los resultados reportados no corresponden a la evaluación
+  ejecutada y no tienen respaldo."* Eso es 2 de 40 en una porción.
+- **Un resumidor de PDFs inventó una lista de modelos e invirtió el hallazgo de un paper**,
+  atribuyendo a código de IA lo contrario de lo que decía. Las dos veces se detectó
+  cruzando con el PDF.
+- **Un esquema de registro que nos habían pasado como publicado estaba fabricado entero**, y
+  un número que citamos ("mediana de 7 mutantes sobrevivientes") eran 7 mutantes
+  **generados**, no sobrevivientes.
+- Y el propio paper del costo de propagación **se contradice entre su tabla y su texto**
+  (5,82% contra 5,16% para Linux).
+
+> **Un resumen de un paper que no abriste es poco confiable, incluso si lo hizo un modelo
+> bueno.** Los números de acá son los que alguien extrajo del PDF primario.
+
+## Cómo usar este documento
+
+| Si querés saber… | Sección |
+|---|---|
+| qué partes del método están respaldadas | §1 |
+| qué adoptamos y con qué número detrás | §2, y la tercera vuelta |
+| qué decidimos **no** hacer, por medición ajena | §7 y segunda vuelta §6 |
+| qué críticas publicadas nos apuntan | §3 |
+| qué funciona con modelos chicos | §4 |
+| si vale la pena escribir más reglas en `AGENTS.md` | §5 |
+| qué podríamos medir nosotros, porque nadie lo hizo | §6 y segunda vuelta §8 |
+| de dónde salen los tres instrumentos de coherencia | tercera vuelta |
+
+---
 
 ---
 
@@ -284,20 +313,11 @@ Research dirigido a lo que nos faltaba, no a describir lo que ya sabíamos. Traj
 corrección de corrección, cinco cosas que adoptamos el mismo día, y una advertencia sobre
 el propio corpus que conviene leer antes que cualquier número.
 
-## 0. Advertencia sobre las fuentes de 2026
+## 0. Sobre las fuentes
 
-**Dos papers de una misma tanda de búsqueda estaban retirados por sus propios autores por
-resultados fabricados**, con el texto *"Los resultados reportados no corresponden a la
-evaluación ejecutada y no tienen respaldo. El paper no debería citarse."* Eso es 2 de 40 en
-una porción. Y buena parte del corpus 2026 relevante es **preprint de un solo autor, sin
-revisar, escrito con asistencia de modelo**.
-
-Peor: el resumidor de PDFs del propio research **alucinó dos veces y las dos se detectaron**
-—inventó una lista de modelos en un paper e **invirtió** el hallazgo de otro, atribuyendo a
-código de IA lo que el paper decía al revés. La regla práctica que queda:
-
-> **Un resumen de un paper que no abriste es poco confiable, incluso si lo hizo un modelo
-> bueno.** Los números que usamos acá son los que alguien extrajo del PDF y verificó.
+Está arriba, en "Antes de creer cualquier número de acá". Lo que agrega esta vuelta: buena
+parte del corpus 2026 relevante es **preprint de un solo autor, sin revisar, escrito con
+asistencia de modelo**.
 
 ## 1. La corrección de corrección: `integrar.sh` atribuía mal
 
@@ -450,3 +470,183 @@ tests reservados es el hack más común** (339 contra 222 ocurrencias del otro).
 6. **Ninguna tasa de falso-merge** está publicada por nadie —ni GitHub, ni Shopify, ni Uber,
    ni Google— y **no existe medición controlada de mergear en lote contra de a uno**. Nuestra
    elección de a una está *sin refutar*, no validada.
+
+---
+
+# Tercera vuelta (2026-10-01): los instrumentos, con su definición
+
+Research de grado-implementación para construir bien los tres instrumentos de coherencia,
+en vez de adivinar la fórmula. Todo lo de acá terminó en código el mismo día.
+
+## 1. Costo de propagación: la definición, y por qué no es lo que parece
+
+Del paper original (matriz de dependencias → potencias sucesivas → matriz de visibilidad):
+
+> *"Elegimos incluir la matriz para n=0 (camino de largo cero) al calcular la matriz de
+> visibilidad, lo que implica que un cambio en un elemento siempre se afecta a sí mismo."*
+> … *"A la métrica resultante la llamamos 'Costo de Propagación'. Intuitivamente, mide la
+> proporción de elementos que podrían verse afectados, en promedio, cuando se cambia un
+> elemento del sistema."*
+
+**Numerador: la cantidad de unos en la matriz de visibilidad. Denominador: n². Diagonal
+incluida.** Binaria, todos los largos de camino, y —esto importa— la **unidad de análisis es
+el archivo fuente**, con dependencias extraídas de **llamadas a funciones**, no de imports.
+Nuestros imports son un proxy, y en Python un proxy pobre: `importlib` y los imports dentro
+de funciones no aparecen.
+
+**Es insensible a cómo cortás los módulos**: se computa sobre la matriz archivo×archivo.
+
+### Y no hay valor bueno publicado
+
+Se buscó `threshold|benchmark|target value|acceptable|rule of thumb` en los dos papers: **no
+hay guía de ningún tipo**. La métrica es defendible sólo para comparación longitudinal dentro
+de un mismo código, o entre códigos de tamaño y lenguaje parecidos. Los valores de referencia
+(Mozilla 17,35% → 2,78% tras rediseñarse, Linux 5,82%) son sobre ~1.500 archivos de C.
+
+### El modo de falla que cambia cómo lo usamos
+
+Los propios autores: *"en todo código que analizamos, el costo de propagación tiende a
+mantenerse constante o bajar a medida que el sistema crece"*. Y en mediciones hechas sobre
+grafos aleatorios: a densidad constante **satura al 100% para n≈400**, y a grado de salida
+constante está dominado por **el grado, no por la arquitectura** — un grafo *aleatorio* con
+grado 2 ya da ~80%.
+
+Peor: **es casi binario sobre la estructura de ciclos.** En un sistema en capas de 200
+archivos, **agregar UNA arista de vuelta movió la métrica de 53,16% a 90,31%** y el ciclo
+mayor de 36 a 180 archivos. Y un módulo de utilidades con mucho fan-in es **gratis**
+(−0,02 puntos) mientras que el mismo módulo *llamando de vuelta* al sistema cuesta **+41
+puntos**.
+
+> **Lo que se policía no es el fan-in alto: es un nodo de fan-in alto que llama de vuelta.**
+
+Por eso `_arquitectura.py` informa el **ciclo más grande** al lado del costo: es la cantidad
+estable e interpretable, y la que explica el número.
+
+## 2. Ausencias: una arista declarada es un permiso, no una obligación
+
+La clasificación original es de tres vías —convergencia, divergencia, **ausencia**— y una
+ausencia es una diferencia de conjuntos: lo que el modelo declara menos lo que el código
+tiene.
+
+**El problema conceptual, publicado textual:**
+
+> *"esta ausencia no es una violación arquitectónica en sí, porque la relación de `domain` a
+> `util` en el modelo de alto nivel sólo representa el hecho de que `domain` **puede**
+> depender de `util`, no que **deba** hacerlo."*
+
+O sea: **la formulación clásica deja la polaridad de cada arista sin definir**, y toda
+ausencia hereda esa ambigüedad antes de llegar siquiera al problema de la cobertura del
+mapeo. Las herramientas vivas se parten justo en esa línea: una trae requeridas por defecto
+con un atributo para relajarlas; otras computan la ausencia y **nunca la reportan como
+hallazgo**.
+
+**Nuestra decisión:** dos listas separadas. `CAPAS` da los permisos (el orden), `REQUERIDAS`
+da las obligaciones, una por una. Así la polaridad es explícita por arista.
+
+**Y la advertencia empírica, que no cambió:** en los dos únicos estudios longitudinales
+publicados, **el 100% de las ausencias resultaron artefactos del mapeo**, y el único hallazgo
+real de su caso de estudio industrial fue una divergencia. Los autores: *"el ingeniero, y no
+la herramienta, es quien está en mejor posición para hacer esa distinción."* De ahí la regla
+que copiamos: **nunca una ausencia sin la cobertura del mapeo en la misma salida.**
+
+## 3. Co-cambio: los umbrales son los publicados
+
+Nuestro diseño —pares que cambian juntos por encima de X%, filtrado a los que la arquitectura
+pone en módulos distintos— resultó ser **casi exactamente el estado del arte**, y es la regla
+que embarca la herramienta comercial del área.
+
+**Confianza asimétrica más piso de soporte absoluto.** La confianza sola es catastrófica con
+poco soporte: un archivo que cambió una vez junto a B tiene confianza 1,0. Medido: confianza
+0,1 con soporte 1 dio **precisión 26%, recall 15%**; confianza 0,9 con soporte 3 dio
+*"precisión por encima del 50%"* y **recall ~4%**. La conclusión del autor: *"o tenés
+sugerencias precisas, o tenés muchas sugerencias, pero no las dos."*
+
+**Se descartan los commits grandes**: el trabajo original quitó los de más de 30 archivos, y
+es también el mecanismo publicado para los merges (*"el merge se vuelve una transacción
+grande que incluye todos los cambios de la rama"*). Nadie publica `--no-merges` como el
+arreglo; el tope de tamaño es el mecanismo.
+
+**El número que calibra todo:** en una inspección manual de 408 cambios conjuntos, sólo el
+**16,2%** correspondía a dependencias estructurales. El **40,4%** eran concerns transversales
+—*"aplicar una licencia, cambiar la cabecera de archivos Java"*—, 19,6% refactors, 14,7%
+revisiones sobrecargadas, 5,1% operaciones del repositorio. Por eso **informa y no corta**.
+
+Y el tamaño de commit **no es portable**: 13,78 archivos por revisión en un repo contra 5,38
+en otro. Si los resultados son ruidosos, se calibra `MAX_ARCHIVOS` por repo.
+
+## 4. Mutación: el operador que nos faltaba era el principal
+
+Google se quedó con **cinco** operadores y borró uno a propósito (*"se reportó que no era
+útil, porque actuaba sobre expresiones de tiempo y conteo que son positivas y no tienen
+sentido negadas"*). El reparto, sobre **16.935.148 mutantes en 10 lenguajes**:
+
+| Operador | Volumen | Productividad |
+|---|---|---|
+| **SBR** borrar la sentencia | **68,0%** | 82,7% |
+| UOI inserción unaria | 18,5% | 74,5% — el peor |
+| LCR conectores lógicos | 7,7% | 83,2% |
+| ROR relacionales | 4,0% | **84,1%** — el mejor |
+| AOR aritméticos | 1,8% | 75,4% |
+
+**Las tres librerías de mutación de Python más usadas no tienen SBR**, o lo marcan
+*experimental*. Es la prioridad exactamente al revés, y el estudio de acoplamiento a fallas
+reales es tajante: borrar sentencias está entre los tres más acoplados y *"deberían usarse
+siempre"*.
+
+**Nodos áridos**, con la regla recursiva: *"Un nodo compuesto es árido si y sólo si todos sus
+hijos son áridos."* Las etiquetas son **reglas a mano**, no un modelo aprendido: *"hemos
+acumulado más de cien reglas"*, y las tres que más rindieron fueron **logging, operaciones de
+tiempo y flags de configuración**. Su postura sobre el rigor vale copiarla: *"las heurísticas
+sólidas son demostrablemente correctas, pero las mejoras más importantes vinieron de
+heurísticas **no** sólidas."*
+
+El efecto: mediana de **820 mutantes** sin filtrar → **77** con uno por línea → **7** con uno
+por línea más nodos áridos. Y el reparto del presupuesto queda claro: **~85% de los mutantes
+sin filtrar son improductivos contra ~3% que son equivalentes.** No hace falta un oráculo de
+equivalencia; hace falta el filtro.
+
+**Y por qué no imprimimos un puntaje**, en sus palabras: se niegan a calcularlo. Lo que sirve
+es **qué** mutante sobrevivió.
+
+## 5. La fuga por historia de git: un worktree no es un sandbox
+
+Verificado de todas las formas: el `.git` de un worktree es un archivo que apunta al padre,
+comparte su object store, y `git log --all`, `git show <sha>:<archivo>` y `git log -S` todos
+funcionan. **`git stash list` cruza el límite**: lo que guardes en tu propio checkout lo lee
+cualquier agente. Un repo padre *bare* no protege nada.
+
+**La trampa que importa, reproducida:**
+
+```
+$ git clone --depth 1 /ruta/local destino
+warning: --depth is ignored in local clones; use file:// instead.
+$ git -C destino log --all | wc -l        # 3 commits: historia completa
+```
+
+**`--depth 1` contra una ruta local se ignora en silencio** —avisa por stderr— así que un
+script que mire sólo el código de salida cree que clonó superficial. Y conservar `origin` no
+es un límite: `fetch --unshallow` restaura todo. `--filter=blob:none` es **peor**: deja el
+grafo de commits completo y trae cualquier blob a demanda.
+
+**No hay permiso de archivo que resuelva esto:** `status` y `log` leen los mismos objetos por
+el mismo camino. Un wrapper de `git` en el PATH se rompió de tres formas en un minuto,
+incluida descomprimir un objeto suelto con siete líneas de `zlib` y sin binario de git.
+
+La opción medida, si hace falta: **hub saneado** (commit huérfano aplastado, empujado a un
+repo aparte) y worktrees **del hub** — se conserva la ergonomía, y el viaje de vuelta es
+`cherry-pick`, nunca `merge`, porque una base huérfana da conflicto en todos los archivos.
+
+**No lo cambiamos**: nuestras tareas son trabajo nuevo, así que la historia rara vez contiene
+la respuesta, y re-arquitecturar el flujo por un riesgo estrecho arriesga un pipeline que
+funciona. Queda escrito para cuando el riesgo deje de ser estrecho.
+
+## 6. Lo que esta vuelta confirmó que nadie publicó
+
+- Ninguna variante del costo de propagación para lenguajes dinámicos.
+- Ningún estudio que mida **cuántas ausencias son defectos reales** contra artefactos del
+  mapeo, más allá de los dos casos con 100% de artefactos.
+- Nada sobre efectividad de operadores de mutación **en Python desde 2014**.
+- Ninguna tasa de falso-merge, de nadie, y **ninguna medición controlada de mergear en lote
+  contra de a uno**.
+- Y el esquema de registro de corridas de agentes que nos habían pasado como publicado: no
+  existe.
