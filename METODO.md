@@ -265,16 +265,68 @@ leyendo el código de punta a punta, cuando ya es cara. Es la crítica mejor doc
 desarrollo con agentes ([INVESTIGACION.md §2.3](INVESTIGACION.md)).
 
 La respuesta publicada son *funciones de aptitud arquitectónica*: reglas sobre la forma del
-sistema, verificables por comando, corriendo **sobre el tronco**.
-`plantillas/_arquitectura.py` es la versión mínima: declarás las capas en orden y verifica
-que cada una sólo importe las anteriores.
+sistema, verificables por comando, corriendo **sobre el tronco**. Hay tres instrumentos, y
+cada uno ve algo que los otros no.
+
+#### `_arquitectura.py` — divergencias, ausencias y deriva
 
 ```python
-CAPAS = ["datos", "servicios", "rutas"]
+CAPAS      = ["datos", "servicios", "rutas"]          # qué está PERMITIDO
+REQUERIDAS = [("servicios", "datos"), ("rutas", "servicios")]   # qué es OBLIGATORIO
 ```
 
-Treinta líneas y una regla. Corre en el paso 5 del gate en modo integración, y por lo tanto
-también en `estado.sh`. Probado rompiéndolo en las dos direcciones.
+**Las dos listas son distintas a propósito, y es la decisión de diseño más importante del
+archivo.** Una arista declarada en un modelo de arquitectura es un **permiso**, no una
+obligación: está publicado que la formulación clásica deja esa polaridad sin definir, y que
+por eso *"esta ausencia no es una violación arquitectónica en sí, porque la relación en el
+modelo sólo representa que `domain` **puede** depender de `util`, no que **deba**"*. Acá el
+orden de `CAPAS` da los permisos y `REQUERIDAS` da las obligaciones, una por una.
+
+- **Divergencia**: una capa importa una capa posterior. Es el hallazgo confiable.
+- **Ausencia**: una dependencia de `REQUERIDAS` que no existe — alguien se salteó una capa,
+  o la capa sobra. ⚠️ **Tratala con cuidado**: en los dos únicos estudios longitudinales
+  publicados, **el 100% de las ausencias resultaron artefactos del mapeo**, no defectos. Por
+  eso el script nunca informa una ausencia sin la **cobertura del mapeo** al lado, que es
+  literalmente lo que los autores del método agregaron a su herramienta cuando las ausencias
+  empezaron a confundir a la gente.
+- **Costo de propagación** y **ciclo más grande**: qué fracción del sistema alcanza a cada
+  módulo. **No es un gate y el absoluto no se compara con nada** (la métrica crece con pocos
+  módulos; las referencias publicadas son sobre miles de archivos). Se registra en
+  `.metricas/arquitectura.csv` para leer la **serie**. Y se informa el ciclo al lado porque
+  está medido que **una sola arista de vuelta mueve el costo 37 puntos**: es casi un detector
+  de ciclos disfrazado de gradiente, y el ciclo es la cantidad estable.
+
+#### `cocambio.py` — lo que la estructura declara separado y la historia dice junto
+
+```bash
+python3 $AGENTES/scripts/cocambio.py
+```
+
+Dos archivos de módulos distintos que **cambian siempre juntos** no se pueden tocar por
+separado, y eso no se ve en ningún diff: cada diff es correcto. Se ve en la historia.
+
+Los umbrales son los publicados, no inventados: **confianza asimétrica** ("de las veces que
+cambió A, en qué fracción cambió B") **más un piso de soporte absoluto**, porque la confianza
+sola es catastrófica con poco soporte — un archivo que cambió una vez junto a B tiene
+confianza 1,0. Defaults: soporte 5, confianza 30%. Y **se descartan los commits de más de 30
+archivos**, que es el mecanismo publicado para licencias, formato y merges.
+
+**Informa, no corta**, y el número que explica por qué: en una inspección manual de 408
+cambios conjuntos, sólo el **16,2%** correspondía a dependencias estructurales; el **40,4%**
+eran concerns transversales como aplicar una licencia o cambiar cabeceras. La mayoría de lo
+que salga no es un problema de diseño.
+
+Corrido sobre este repo encontró un par real: la plantilla `_arquitectura.py` y la copia del
+ejemplo cambian juntas el 67% de las veces. Es duplicación deliberada en un repo de
+referencia — o sea, exactamente el caso que la herramienta advierte.
+
+#### Lo que ninguno de los tres ve
+
+Un chequeo de imports **no ve el acoplamiento dinámico**: en Python, `importlib` y los
+imports dentro de una función no aparecen. Y en los tres instrumentos el límite es el mismo:
+dicen dónde mirar, no qué hacer. Por eso **ninguno de los tres dispara un agente de
+limpieza**: sobre 65 smells arquitectónicos reales, el **63,1% de los detectados eran falsos
+positivos** a juicio de expertos y **el agente más agresivo introdujo 140 smells nuevos**.
 
 ### Integrar, y G3
 
@@ -402,6 +454,29 @@ arregla. Si cambió, reintenta. Esa distinción es la que necesita el humano par
   antes de lanzar**, y nunca edites un script de bash mientras corre.
 - **El agente no commitea.** Deja los archivos sin trackear, así que `git merge` no trae
   nada. El runner commitea la rama cuando el gate da verde; `integrar.sh` cuenta con eso.
+- **El worktree le da al agente la historia completa del repo, y eso es una fuga real.**
+  Un worktree es un multiplexor de directorio de trabajo, **no un sandbox**: comparte el
+  object store del padre, así que `git log --all`, `git show <sha>:<archivo>` y
+  `git log -S <secreto>` funcionan — **y `git stash list` cruza el límite**, o sea que lo que
+  guardes en tu propio checkout lo lee cualquier agente. Si la historia contiene la solución
+  de una tarea (un arreglo revertido, una implementación de referencia), el agente la puede
+  encontrar. Está documentado como superficie de exploit, con un benchmark donde la historia
+  sin aplastar permitió recuperar la solución e infló el puntaje de cinco modelos.
+
+  **La trampa peligrosa, verificada:** `git clone --depth 1 /ruta/local` **ignora `--depth`
+  en silencio** —avisa por stderr y te entrega la historia completa—, así que un script que
+  mira sólo el código de salida cree que clonó superficial y no lo hizo. Y un clon superficial
+  que conserva `origin` no es un límite: un `fetch --unshallow` lo restaura. `--filter=blob:none`
+  es peor: deja el grafo de commits completo y trae cualquier blob a demanda.
+
+  **No lo cambiamos todavía**, y conviene decir por qué: nuestras tareas son trabajo nuevo,
+  no reproducciones, así que la historia rara vez contiene la respuesta. La opción medida, si
+  hace falta, es armar un **hub saneado** una vez (commit huérfano aplastado, empujado a un
+  repo aparte) y darle a cada agente un worktree **del hub** — se conserva la ergonomía, y el
+  viaje de vuelta es `cherry-pick`, nunca `merge`, porque una base huérfana da conflicto en
+  todos los archivos. No hay permiso de archivo que permita `status` y niegue `log`: leen los
+  mismos objetos por el mismo camino.
+
 - **`XDG_DATA_HOME` por tarea, nunca `XDG_CONFIG_HOME`.** OpenCode guarda todo en una sola
   SQLite y dos `opencode run` simultáneos mueren con `database is locked`. La config tiene
   que seguir siendo compartida o las tareas se quedan sin provider.

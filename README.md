@@ -86,7 +86,7 @@ the tasks pass on the first attempt, the problem is the plan, not the model.
 | [OPENCODE.md](OPENCODE.md) | The OpenCode configuration, field by field, and cold starts |
 | [colabhive/](colabhive/) | Config, prompts, setup and measurement scripts, dated measurements |
 | [plantillas/](plantillas/) | Templates: brief, plan, task, review checklist, gate, architecture check, pre-deploy, deploy |
-| [scripts/](scripts/) | `planificar.sh` (G0, self-correcting), `validar-plan.py`, `cobertura.py`, `correr-plan.sh` (the whole plan), `integrar.sh` (merge into the trunk, gate per merge), `estado.sh`, `comparar-modelos.sh` |
+| [scripts/](scripts/) | `planificar.sh` (G0, self-correcting), `validar-plan.py`, `cobertura.py`, `correr-plan.sh` (the whole plan), `integrar.sh` (merge into the trunk, gate per merge), , , `estado.sh`, `comparar-modelos.sh` |
 | [AGENTS.md](AGENTS.md) | Rules the agent reads on its own |
 
 ## Without ColabHive
