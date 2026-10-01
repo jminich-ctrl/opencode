@@ -73,7 +73,12 @@
       "temperature": 0.3,
       "description": "Analiza, diseña y reparte el trabajo. No edita archivos.",
       "prompt": "{file:./prompts/plan.md}",
-      "mode": "primary"
+      "mode": "primary",
+      "options": {
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        }
+      }
     },
     "build": {
       "model": "colabhive/f5d76140-5b4d-41c0-88da-dad6d11f341a",
@@ -143,6 +148,11 @@
         "webfetch": false,
         "skill": false,
         "todowrite": false
+      },
+      "options": {
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        }
       }
     },
     "seguridad": {

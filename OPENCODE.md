@@ -123,6 +123,19 @@ un agente nuevo.
   por defecto— y por eso conviene chequear la lista antes de culpar al prompt.
 - **`description`** es lo que el modelo lee para decidir a qué subagente delegar. Escribila
   pensando en eso, no como documentación.
+- **`options`** se pasa al cuerpo del request. Es el único rodeo del lado del cliente al bug
+  del parser de razonamiento: si el modelo esconde su tool call dentro de `<think>`, apagar
+  el pensamiento elimina el escondite.
+
+  ```json
+  "arquitecto": { "options": { "chat_template_kwargs": { "enable_thinking": false } } }
+  ```
+
+  No va en `reviewer` ni en `seguridad`: ahí la deliberación es el valor y casi no usan
+  herramientas. ⚠️ **No pudimos verificar que OpenCode lo reenvíe de verdad** — la
+  plataforma estaba a 1,2 tok/s y ni un request mínimo llegó a completarse. Queda puesto y
+  sin confirmar.
+
 - **`permission`** es la defensa real: al reviewer le negamos `edit`, así no puede
   "arreglar" lo que debería solo reportar.
 
@@ -347,5 +360,5 @@ necesita `task`. Si una tarea necesita delegar, se lanza con `AGENTE=build`.
 | `--agent arquitecto` contesta como `build` | el agente propio no declaraba `mode` y no se registró | `"mode": "primary"`, y verificar con `opencode agent list` |
 | `reasoning_content` viene vacío | **el campo se llama `reasoning`**: vLLM lo renombró, y un cliente que lee el viejo ve vacío aunque el nuevo esté lleno | leer `message.reasoning`, y mandar `include_reasoning: true` en el request |
 | `</think>` aparece dentro de `content` | el servidor tiene `--tool-call-parser` **sin** `--reasoning-parser`: el parser de herramientas se come el `</think>` y funde el razonamiento en el contenido | pedir a la plataforma que agregue `--reasoning-parser qwen3` (o el del modelo) |
-| el modelo "escribe prosa" en vez de llamar a la herramienta | puede ser que **emita el tool call dentro de `<think>`**: el parser de herramientas sólo busca en `content`, nunca en el razonamiento | el `--reasoning-parser` correcto, y forzar la llamada con `tool_choice` por nombre |
+| el modelo "escribe prosa" en vez de llamar a la herramienta | **emite el tool call dentro de `<think>`**: el parser de herramientas sólo busca en `content`, nunca en el razonamiento | `--reasoning-parser` del lado del servidor; del lado del cliente, apagar el pensamiento con `options.chat_template_kwargs.enable_thinking = false` en el agente |
 | `auto-rejecting` y el agente abandona | un `permission.bash` por comando que OpenCode descartó en silencio; en modo no interactivo todo `ask` se auto-rechaza | no dar la herramienta (`"bash": false`) en vez de intentar restringirla |

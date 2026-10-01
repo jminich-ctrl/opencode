@@ -50,6 +50,12 @@ class Proxy(http.server.BaseHTTPRequestHandler):
                 "herramientas": len(herramientas),
                 "chars_herramientas": len(json.dumps(herramientas)),
                 "nombres_herramientas": [h.get("function", {}).get("name") for h in herramientas],
+                # Todas las claves del cuerpo: sirve para saber si una opción que pusimos en
+                # el config realmente viaja al servidor, o se queda en OpenCode.
+                "claves": sorted(k for k in d if k not in ("messages", "tools")),
+                "extras": {k: v for k, v in d.items()
+                           if k not in ("messages", "tools", "model", "stream",
+                                        "temperature", "max_tokens", "tool_choice")},
             }
             with REGISTRO.open("a") as f:
                 f.write(json.dumps(entrada, ensure_ascii=False) + "\n")
