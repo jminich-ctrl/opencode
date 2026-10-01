@@ -66,6 +66,11 @@ revisar() {
 }
 
 [ -f "$BASE/PLAN.md" ] && cp "$BASE/PLAN.md" "$BASE/PLAN.md.previo"
+# Huella del estado antes de empezar. En modo INSTRUCCION hace falta: el plan ya validaba,
+# así que los validadores dan verde igual si el arquitecto no hizo nada. Nos pasó: una
+# corrida de 761s que razonó la tarea entera, no escribió un archivo, y G0 dijo VERDE.
+ANTES="$( (cat "$BASE/PLAN.md" 2>/dev/null; ls "$BASE"/tareas/ 2>/dev/null; \
+           cat "$BASE"/tareas/*.md 2>/dev/null) | cksum)"
 log="$BASE/.plan.log"
 inicio=$(date +%s)
 huella=""
@@ -124,6 +129,20 @@ No rehagas el resto del plan. No toques las tareas que ya están bien."
 done
 
 duracion=$(( $(date +%s) - inicio ))
+
+# Sin cambios no hay trabajo hecho, y los validadores no lo ven porque miran la forma del
+# plan y no si se hizo lo que se pidió.
+DESPUES="$( (cat "$BASE/PLAN.md" 2>/dev/null; ls "$BASE"/tareas/ 2>/dev/null; \
+             cat "$BASE"/tareas/*.md 2>/dev/null) | cksum)"
+if [ "$ANTES" = "$DESPUES" ] && [ "$YA_VALIDA" -eq 0 ]; then
+  echo
+  echo "✗ G0 ROJO en ${duracion}s: el arquitecto no cambió ni el plan ni las tareas."
+  echo "  Los validadores dan verde porque el plan ya estaba bien, pero no se hizo lo pedido."
+  echo "  Mirá $log: si el razonamiento está correcto y no hay llamadas a write, el problema"
+  echo "  es del servidor y no del modelo (ver OPENCODE.md §8)."
+  exit 1
+fi
+
 echo
 if [ -n "${PROBLEMAS:-}" ]; then
   echo "G0 ROJO en ${duracion}s, después de $vuelta vuelta(s) — revisá $log"

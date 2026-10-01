@@ -104,6 +104,16 @@ Crear un sitio de clasificados funcional con backend FastAPI (MySQL sin ORM) y f
 | T28 | tests/backend/test_search_backend.py | TestSearchBackend |
 | T29 | tests/frontend/test_search_frontend.test.ts | TestSearchFrontend |
 
+### Un choque que encontró el arquitecto
+
+T01 y T06 escriben los dos `frontend/package.json`. **No es un problema de paralelismo**
+—T06 depende de T01, así que van en serie— pero sí hay que saberlo: T01 crea el archivo
+básico y T06 lo **modifica**, no lo crea. Lo anotamos acá porque el deductor de etapas no
+puede saber cuál de los dos lo crea y cuál lo edita, y el agente de T06 necesita esperarlo.
+
+Salió de una corrida del arquitecto que no escribió ningún archivo pero razonó bien: revisó
+las 27 tareas buscando choques sobre `main.tsx` y `App.jsx` y encontró este otro de paso.
+
 ### Sobre el aviso de T06
 
 `validar-plan.py` marca T06 porque toca cuatro archivos. **Revisado y aceptado:** son

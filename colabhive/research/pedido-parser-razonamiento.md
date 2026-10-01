@@ -60,6 +60,36 @@ atribuimos al modelo; puede haber sido configuración del servidor.
    0.26.0 y varias banderas que querríamos usar (`--tool-strict-level`, por ejemplo) están
    documentadas sólo en `main`.
 
+## La prueba que lo cierra: cambiamos de modelo y la falla es idéntica
+
+Después de escribir lo de arriba cambiamos el arquitecto de **gpt-oss-120b** a
+**Qwen3.8-27B** (`1af07b1f`), que usa una plantilla de tool call completamente distinta
+—XML con el cuerpo en texto crudo, en vez del blob JSON de gpt-oss—. Le dimos una tarea
+chica y concreta: partir una tarea del plan en dos y escribir los archivos.
+
+**Resultado: 761 segundos, cero llamadas a `write`, ningún archivo escrito.** Y lo que
+devolvió no es basura — es razonamiento correcto y detallado:
+
+```
+But wait — is there a file conflict? T06 (new) touches frontend/package.json ...
+But wait — T01 also touches frontend/package.json! ... That's an existing conflict
+(T06 depends on T01, so they run in series — no problem, no parallel conflict).
+... are there other tasks that touch frontend/src/main.tsx or App.jsx? Let me check
+the table... T07: Login.jsx, auth.ts. T08: AdsList.jsx ... None touch main.tsx. Good.
+```
+
+**Encontró un choque de archivo real que nosotros no habíamos visto** (T01 y T06 escriben
+los dos `frontend/package.json`) y revisó las 27 tareas una por una. El modelo entiende la
+tarea perfectamente.
+
+**Dos modelos, dos plantillas de tool call distintas, la misma falla exacta: todo el trabajo
+sale como texto y la llamada nunca se materializa.** Eso descarta el modelo y descarta la
+plantilla. Lo que queda es la configuración del servidor: el razonamiento no se está
+separando, y el parser de herramientas **sólo busca llamadas en `content`**.
+
+Esto convierte el pedido de "algo pasa con el razonamiento" en un bloqueante concreto:
+**sin esto, un agente pensante no puede usar herramientas en esta plataforma.**
+
 ## Y un dato aparte, de rendimiento
 
 Sigue la regresión: ese request de 12 tokens tardó **178 segundos**. Medimos entre **0,4 y
