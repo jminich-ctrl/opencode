@@ -7,14 +7,19 @@ No es el método que usarías con Claude o Codex. La diferencia de fondo:
 
 > Un modelo grande sostiene un objetivo y se las arregla.
 > Un modelo chico ejecuta una tarea acotada y verificable.
-> **La descomposición la hacés vos. La ejecución la hace él. El juez es un comando.**
+> **La descomposición se verifica. La ejecución se delega. El juez es un comando.**
+
+Las anécdotas de dónde salió cada regla no están acá: están en
+[`ejemplo-pacman/BITACORA.md`](ejemplo-pacman/BITACORA.md) y
+[`ejemplo-clasificados/BITACORA.md`](ejemplo-clasificados/BITACORA.md). Este documento dice
+qué hacer; las bitácoras dicen qué nos pasó para llegar ahí.
 
 ---
 
 ## 0. Qué es del método y qué es nuestro
 
-Este repo es un método **más** dos proyectos de ejemplo, y conviene saber qué es cuál antes
-de copiarlo. Si te llevás lo de la izquierda sin lo de la derecha, funciona.
+Este repo es un método **más** dos proyectos de ejemplo. Si te llevás lo de la izquierda sin
+lo de la derecha, funciona.
 
 | Del método, no lo toques | Nuestro, cambialo |
 |---|---|
@@ -24,7 +29,7 @@ de copiarlo. Si te llevás lo de la izquierda sin lo de la derecha, funciona.
 | Lo intocable lo decide el gate, no el archivo de tarea | Qué es intocable en tu repo |
 | Los tests van escritos antes, y el agente no los toca | Que sean `pytest` o `vitest` |
 | El humano cierra las decisiones con trade-off y firma | Cuáles fueron nuestras decisiones |
-| Lo que no se puede verificar por comando va como gate humano | Nuestras preguntas de G3 |
+| Lo que no se verifica por comando va como gate humano | Nuestras preguntas de G3 |
 | Nadie despliega solo | Nuestro `deploy.sh` |
 
 **Lo que sí es un contrato**, porque hay scripts que lo leen: el formato de la tabla de
@@ -32,9 +37,9 @@ tareas en `PLAN.md`, las tres líneas de cabecera de un archivo de tarea, y la s
 `## Requisitos` del encargo. Están en `plantillas/`, y `validar-plan.py` los verifica — si
 los cambiás, cambialos ahí también.
 
-**Lo que asume, y si no te sirve hay que reemplazarlo:** git con worktrees, tronco único
-(no pull requests), y un plan en un archivo Markdown. `integrar.sh` mergea al tronco; un
-equipo que trabaja con PRs lo reemplaza por abrir el PR, y el resto sigue igual.
+**Lo que asume:** git con worktrees, tronco único (no pull requests), y un plan en un
+archivo Markdown. `integrar.sh` mergea al tronco; un equipo con PRs lo reemplaza por abrir
+el PR y el resto sigue igual.
 
 ---
 
@@ -42,78 +47,63 @@ equipo que trabaja con PRs lo reemplaza por abrir el PR, y el resto sigue igual.
 
 ### P1 — La unidad de trabajo es la tarea, no la feature
 
-Una tarea bien dimensionada para un modelo de 27B:
+Una tarea sana para un modelo de 27B:
 
-- le hace escribir **1 a 3 funciones**, no ocho (es lo que mejor predice que cumpla:
-  ver [DESCOMPOSICION.md §4](DESCOMPOSICION.md));
-- toca **1 o 2 archivos**, nunca diez;
-- tiene **un solo objetivo**, enunciado en una frase;
+- le hace escribir **1 a 3 funciones**, no ocho — es lo que mejor predice que cumpla la
+  instrucción ([DESCOMPOSICION.md §4](DESCOMPOSICION.md));
+- toca **1 o 2 archivos**;
+- tiene **un objetivo**, en una frase sin "y";
 - se verifica con **un comando que devuelve pasa o falla**;
 - le llevaría a una persona del equipo entre 30 y 90 minutos.
 
-Si no podés escribir su criterio de terminado en una línea, la tarea es demasiado grande.
-Partila.
+Si no podés escribir su criterio de terminado en una línea, partila.
 
 ### P2 — El juez es un comando, no el modelo
 
-Un modelo chico dice "listo" con la misma seguridad cuando funciona y cuando no.
-Por eso ninguna tarea se da por terminada porque el agente lo diga: se da por terminada
-cuando **el gate pasa**. Si una tarea no tiene comando que la verifique, está mal definida.
+Un modelo chico dice "listo" con la misma seguridad cuando funciona y cuando no. Una tarea
+se da por terminada cuando **el gate pasa**, no cuando el agente lo dice. Si una tarea no
+tiene comando que la verifique, está mal definida.
 
-Y hay un corolario que cuesta caro aprender: **la lectura del veredicto también tiene que
-estar fuera del alcance del agente.** Nos pasó: el modelo corrió el gate, lo vio fallar
-tres veces, y escribió en su resumen *"El gate.sh indica GATE VERDE"*. El runner buscaba
-ese texto en el log y le creyó. Ahora lee **solo** la salida del gate que corre él mismo.
-`AGENTS.md` pide no mentir; el modelo lo hizo igual. Lo único que sostiene es la
-arquitectura de verificación, no las reglas de conducta.
+Tres corolarios, y los tres se pagaron caros:
 
-**Y lo que no es verificable por comando no desaparece del proyecto: desaparece del plan.**
-Este es el riesgo grande del método, y es el precio de P2. Como cada criterio tiene que
-ser verificable, el plan se llena de lo que se puede testear y deja caer en silencio todo
-lo cualitativo: que se sienta fluido, que el resultado sea usable, que tenga sentido para
-quien lo use. Nadie lo escribe, entonces nadie lo construye, y el gate verde te da la
-sensación de terminado sin serlo.
+1. **La lectura del veredicto también tiene que estar fuera del alcance del agente.** El
+   modelo vio fallar el gate tres veces y escribió *"El gate.sh indica GATE VERDE"*; el
+   runner buscaba ese texto y le creyó. Ahora lee sólo la salida del gate que corre él mismo.
+2. **El comando tiene que ser inmodificable por quien es juzgado.** El gate y los tests
+   viven dentro del worktree del agente. El paso 0 los declara intocables con una lista
+   **fija en el gate**, que el archivo de tarea no puede ampliar.
+3. **Las reglas de conducta no sostienen nada.** `AGENTS.md` ya pedía no mentir y no tocar
+   los tests. Lo único que funcionó fue hacer cada cosa verificable.
 
-**La defensa:** cuando una cualidad importa y no se puede testear, no la omitas —
-convertila en un **gate humano explícito**, con preguntas concretas, un responsable y un
-tiempo. Es verificable aunque no sea automatizable. Ver G3 más abajo.
+**Y el precio de P2: lo que no es verificable por comando no desaparece del proyecto,
+desaparece del plan.** Como todo criterio tiene que ser verificable, el plan se llena de lo
+testeable y deja caer en silencio lo cualitativo —que se sienta fluido, que sea usable—, y
+el gate verde te da la sensación de terminado sin serlo. **La defensa:** cuando una cualidad
+importa y no se puede testear, convertila en un **gate humano explícito** con preguntas
+concretas, responsable y tiempo (G3).
 
-**Y exigir los nombres de los tests garantiza que existan, no que verifiquen algo.**
-Medido en cuatro tareas seguidas (T13 dos veces, T14, y antes T02): el agente escribe los
-tests con los nombres pedidos y **asserts que pasan igual con el código viejo**
-(`self.assertTrue(len(posiciones) > 0)`, "se movió y no es pared"). Uno de ellos incluso
-llevaba un comentario admitiendo *"esto es más difícil de probar directamente"*.
+#### El agente implementa bien y testea mal
 
-**Esto sí se puede automatizar**, y es el único de estos problemas que se pudo:
-`gate.sh` paso 4 **revierte la implementación y exige que la suite falle**. Si sigue verde,
-los tests no distinguen nada. Es mutation testing en su versión más simple.
+Medido en 14 tareas: nunca falló implementando algo especificado, y falló **cuatro veces**
+escribiendo tests que probaran algo — asserts como `assertTrue(len(posiciones) > 0)` que
+pasan igual con el código viejo. Tiene sentido: **escribir un test que distinga exige
+imaginar el caso donde dos algoritmos difieren**, y eso es razonamiento contrafáctico.
 
-**Y el patrón que dejó al descubierto vale más que el arreglo: el agente implementa bien
-y testea mal.** En 14 tareas nunca falló implementando algo especificado; falló cuatro
-veces escribiendo tests que probaran algo. Tiene sentido: el código lo verifica la suite,
-pero **escribir un test que distinga requiere imaginar el caso donde dos algoritmos
-difieren**, y eso es razonamiento contrafáctico. Un 30B no lo hace.
+→ **Por eso los tests van escritos de antemano.** La tarea llega con los tests ya escritos,
+fallando, y el trabajo del agente es hacerlos pasar sin tocarlos. Los escribe quien
+planifica. Invierte el modo de falla más difícil de detectar.
 
-→ **Consecuencia para el formato de tarea: los tests van escritos de antemano.** En vez de
-pedirle "implementá y testeá", la tarea llega con los tests ya escritos —fallando— y el
-trabajo del agente es hacerlos pasar. Los escribe quien planifica (vos, o el modelo
-grande). Invierte el modo de falla y hace innecesario el paso 4.
-
-**Un gate verde tampoco garantiza que la tarea esté completa.** El gate verifica lo que
-los tests cubren; si el mismo agente escribe el código *y* los tests, puede omitir un
-requisito entero sin que nada lo delate. Nos pasó con el túnel de T02. Defensas: que el
-criterio de terminado **nombre los tests que tienen que existir**, o separar "escribir
-los tests" y "hacerlos pasar" en dos tareas. Si no, queda en manos de G2.
+> Hay una medición publicada que va en contra de pedirle TDD a un agente (3 a 8,5× más
+> tokens, sin mejora en calidad de suite). **No es lo mismo**: eso mide *instruirle* TDD;
+> esto es un artefacto de especificación producido aguas arriba. Ver
+> [INVESTIGACION.md §3.1](INVESTIGACION.md).
 
 ### P3 — Ancho, no profundidad
 
-Cada tarea se paga por tiempo de GPU (o es tu propio hardware), no por token. Entonces:
-
-- lanzá varias tareas **en paralelo**, cada una en su propio worktree;
-- si una sale mal, **tirala y relanzala** con mejor prompt;
-- **no negocies con el modelo** para rescatar una respuesta mala: sale más caro en
-  tiempo tuyo que relanzar;
-- lo que falla dos veces, lo hacés con un modelo grande o a mano.
+Se paga por tiempo de GPU, no por token. Entonces: lanzá varias tareas **en paralelo**, cada
+una en su worktree; si una sale mal **tirala y relanzala**; **no negocies con el modelo**
+para rescatar una respuesta mala; y lo que falla dos veces lo hacés con un modelo grande o
+a mano.
 
 ---
 
@@ -121,456 +111,313 @@ Cada tarea se paga por tiempo de GPU (o es tu propio hardware), no por token. En
 
 | Rol | Quién | Qué hace |
 |---|---|---|
-| **Arquitecto** | Vos + un modelo grande (Claude/Codex) | Descompone el proyecto en tareas, define gates y criterios |
-| **Ejecutor** | Agente `build`, modelo **no pensante** | Implementa **una** tarea, nada más |
-| **Explorador** | Subagente `explore` (el modelo más rápido) | Busca en el código y responde dónde está qué |
-| **Revisor** | Subagente `reviewer` (27B) | Busca bugs en el diff. Solo lectura |
-| **Juez** | `ejemplo-pacman/scripts/gate.sh` | Decide si la tarea está terminada. No opina, ejecuta |
-| **Integrador** | Vos | Revisa diffs, mergea, decide qué se relanza |
+| **Arquitecto** | Agente `arquitecto` vía `planificar.sh`, o vos con un modelo grande | Encargo → `PLAN.md` + tareas |
+| **Ejecutor** | Agente `ejecutor`, modelo **no pensante** | Implementa **una** tarea |
+| **Explorador** | Subagente `explore` | Busca en el código |
+| **Revisor** | Subagente `reviewer` | Busca bugs en el diff. Solo lectura |
+| **Juez** | `scripts/gate.sh` del proyecto | Decide si la tarea está terminada |
+| **Integrador** | `scripts/integrar.sh` | Mergea lo verde, de a una, con el gate del tronco |
+| **Quien decide** | Vos | Cierra decisiones, firma G0, hace G3, aprieta G5 |
 
-La regla que más importa: **el arquitecto nunca es el modelo chico.** Un 27B planificando
-produce planes que suenan bien y no cierran.
+Dos reglas que cuestan plata:
 
-Y la segunda: **razonador y ejecutor son perfiles distintos.** Un modelo "pensante" como
-ejecutor delibera en vez de actuar — el nuestro escribió 325 y 345 líneas de razonamiento
-sin tocar un archivo, dos veces seguidas. Cambiado por un modelo instruct afinado para
-código, produjo en el primer intento. **El mejor modelo del equipo no es necesariamente
-el que tiene que implementar**: mandalo a revisar, que es donde su deliberación suma.
+- **El arquitecto no es el modelo chico.** Un 27B planificando produce planes que suenan
+  bien y no cierran.
+- **Razonador y ejecutor son perfiles distintos.** Un modelo pensante como ejecutor delibera
+  en vez de actuar: el nuestro escribió 325 y 345 líneas de razonamiento sin tocar un
+  archivo, dos veces. Con un instruct de código produjo en el primer intento. **El mejor
+  modelo del equipo no es el que tiene que implementar** — mandalo a revisar.
 
 ---
 
 ## 3. El ciclo
 
 ```
-   ┌──────────────────────────────────────────────────────────┐
-   │  G0  PLAN.md aprobado (humano)                           │
-   └──────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┼───────────────┐
-              ▼               ▼               ▼
-         [tarea T03]     [tarea T04]     [tarea T05]     ← en paralelo, un worktree c/u
-              │               │               │
-   ┌──────────────────────────────────────────────────────────┐
-   │  G1  gate.sh verde: tests + alcance + estilo             │   ← automático
-   └──────────────────────────────────────────────────────────┘
-              │               │               │
-   ┌──────────────────────────────────────────────────────────┐
-   │  G2  revisión del diff (humano, ayudado por @reviewer)   │
-   └──────────────────────────────────────────────────────────┘
-                              │
-   ┌──────────────────────────────────────────────────────────┐
-   │  G3  integración: todas las tareas juntas, gate completo │
-   └──────────────────────────────────────────────────────────┘
+encargo ─▶ G0 plan ─▶ G1 tarea ─▶ G2 diff ─▶ integrar ─▶ G3 uso ─▶ G4 pre-deploy ─▶ G5 deploy
+          planificar  correr-     revisión   integrar    humano    pre-deploy       deploy
+          .sh         plan.sh     + @reviewer .sh                  .sh              .sh
+          ↑humano                                        ↑humano                    ↑humano
 ```
+
+Tres momentos humanos, y ninguno es trabajo mecánico: firmar el plan, usar la cosa, y
+desplegar. El resto son comandos. Ver [HUMANO.md](HUMANO.md).
 
 ### G0 — Plan aprobado
 
-Antes de lanzar un solo agente existe `PLAN.md` con las tareas numeradas, sus
-dependencias y sus criterios. Lo escribe el arquitecto, lo aprobás vos.
-**Ningún agente arranca sin G0.** Es el gate que más tiempo ahorra.
+Ningún agente arranca sin `PLAN.md`. Es el gate que más tiempo ahorra: revisar un plan
+cuesta diez minutos contra las horas de revisar diez diffs malos.
+
+`planificar.sh` es un **bucle que se corrige solo**: el arquitecto escribe → se valida la
+forma (`validar-plan.py`), la cobertura del encargo (`cobertura.py`) y el corte en etapas →
+lo que está mal se le devuelve como **un** pedido → repite hasta que esté limpio o hasta que
+falle dos veces por lo mismo. Los arreglos mecánicos se aplican antes de la vuelta, así no
+gastan una llamada al modelo.
+
+Lo que queda para la persona son tres preguntas y una firma:
+
+1. **¿Las decisiones abiertas están cerradas?** No hay respuesta correcta: las cierra ella.
+2. **¿Las tareas están dimensionadas?** Cuántas funciones tiene que escribir, no archivos.
+3. **¿Inventó APIs que no existen?** La falla más común y la más fácil de pasar por alto.
+
+**Un pedido por vuelta.** Con cinco correcciones juntas el arquitecto arregla las que son
+buscar-y-reemplazar y deja las estructurales; con una sola cosa por vez, las hace.
 
 ### G1 — Gate de tarea (automático)
 
-`ejemplo-pacman/scripts/gate.sh` corre sobre el worktree de la tarea y verifica, en este orden:
+`scripts/gate.sh` corre sobre el worktree y verifica, en orden:
 
 0. **Integridad**: no se tocaron los tests ni los scripts del propio gate.
 1. **Tests**: la suite completa pasa, y **corrió al menos uno**.
-2. **Alcance**: no se tocaron archivos fuera de los declarados en la tarea.
-3. **Higiene**: sin dependencias nuevas, sin archivos generados, sin `TODO` sueltos, y
-   **sin señales suprimidas** (`# noqa`, `# type: ignore`, `except: pass`,
-   `@unittest.skip`, `|| true`): apagar una señal es más barato que arreglar la causa, y
-   no deja rastro en los tests.
+2. **Alcance**: sólo los archivos que la tarea declara, **comparados por ruta y no por
+   nombre** (permitir `cosa.py` no habilita `tests/cosa.py`).
+3. **Higiene**: sin dependencias nuevas, sin archivos generados, sin `TODO`, y **sin señales
+   suprimidas** (`# noqa`, `except: pass`, `|| true`): apagar una señal es más barato que
+   arreglar la causa y no deja rastro en los tests.
 4. **¿Los tests distinguen?**: revierte la implementación y exige que la suite falle.
-5. **Coherencia**, sólo en modo integración: las dependencias entre módulos van en una
-   sola dirección (§G3).
+5. **Coherencia**, sólo sobre el tronco: las dependencias entre módulos van en una sola
+   dirección.
 
 Rojo en cualquiera = la tarea no está terminada. No se discute.
 
-#### Por qué el paso 0 existe, y por qué no sale del archivo de tarea
-
-El gate y los tests **viven dentro del worktree del agente**, así que son editables por el
-agente al que juzgan. El paso 0 los declara intocables con una lista **fija en el gate**,
-que el archivo de tarea no puede ampliar: un límite que el limitado puede reescribir no es
-un límite. Es el mismo razonamiento que P2 llevado un paso más: no basta que el veredicto
-lo dé un comando, ese comando tiene que ser inmodificable por quien es juzgado.
-
-Pedirlo por prompt no alcanza. `AGENTS.md` ya decía no tocar los tests; el paso 0 es la
-versión que se puede verificar.
-
-#### Un chequeo que falta tiene que dar ROJO
-
-Si la tarea no declara "Archivos que podés tocar", el gate da **rojo**, no "sin límite de
-alcance declarado". Es la tercera vez que aparece esta misma trampa:
+#### La regla que más veces nos mordió: un chequeo que falta da ROJO
 
 | Dónde | Qué hacía | Qué hace ahora |
 |---|---|---|
 | gate, paso 2 | sin cambios → verde | sin cambios en modo tarea → rojo |
-| pre-deploy | sin smoke de arranque → avisaba y seguía verde | falta el smoke → rojo |
-| gate, paso 2 | sin alcance declarado → "sin límite" y verde | sin alcance en modo tarea → rojo |
-| gate, paso 1 | `Ran 0 tests` contaba como verde | una suite que no corrió ningún test → rojo |
+| gate, paso 2 | sin alcance declarado → "sin límite" y verde | → rojo |
+| gate, paso 1 | `Ran 0 tests` contaba como verde | → rojo |
+| pre-deploy | sin smoke de arranque → avisaba y seguía | → rojo |
 
-Aparece sola cada vez que uno escribe un verificador, porque la rama "no pude chequearlo"
-se parece a la rama "chequeé y está bien" mientras la escribís. **Escribí siempre esa rama
-como rojo primero**, y recién después decidí si merece una excepción.
+Aparece sola cada vez que uno escribe un verificador, porque la rama *"no pude chequearlo"*
+se parece a la rama *"chequeé y está bien"* mientras la escribís. **Escribí siempre esa rama
+como rojo primero.**
+
+Su variante silenciosa son los **falsos verdes por rutas**, y aparecieron cuatro:
+`git diff` informa rutas desde la raíz del repo (sin `--relative`, el paso 0 daba verde con
+un test modificado), `git cat-file` también (el paso 4 veía todo archivo como nuevo y no
+revertía nada), `.base-ref` —el archivo que escribe el runner— contaba como fuera de alcance
+y ponía en rojo toda tarea, y la base del diff deducida dentro del gate se movía con el
+primer commit del agente. **Los cuatro se encontraron rompiendo el gate a propósito, no
+leyéndolo.** Un verificador que no probaste contra una falla real es una opinión.
 
 #### El paso 4 es grueso; mutar es fino
 
-El paso 4 revierte **todo** el cambio y exige que la suite falle. Atrapa el test vacuo
-grosero y **deja pasar el caso fino**: una implementación con cinco condiciones donde los
-tests verifican una. Para eso está `scripts/mutar.py`, que pregunta por pieza:
+El paso 4 revierte **todo** el cambio: atrapa el test vacuo grosero y deja pasar el fino
+—una implementación con cinco condiciones donde los tests verifican una.
 
 ```bash
 BASE=HEAD~1 python3 $AGENTES/scripts/mutar.py
 ```
 
 Por cada línea nueva o modificada genera variantes con un cambio mínimo —invertir una
-comparación, mover un límite en uno, negar un booleano— y corre la suite. **Un mutante que
-sobrevive es una línea que ningún test verifica.** Está acotado al diff a propósito: mutar
-el repo entero cuesta horas y no dice nada del código que nadie tocó.
+comparación, mover un límite, negar un booleano— y corre la suite. **Un mutante que
+sobrevive es una línea que ningún test verifica.** Acotado al diff a propósito: mutar el
+repo entero cuesta horas y no dice nada del código que nadie tocó.
 
-Lo probamos con un tope de puntaje que ningún test ejercita. El paso 4 dio **verde**; la
-mutación lo encontró:
-
-```
-✗ 1 sobrevivieron: la suite no nota estos cambios
-   src/pacman/juego.py:93  → >   if self.puntaje >= 999999:
-```
-
-Es el único detector confiable de un test tautológico que encontró la revisión de
-literatura, y va en G2 —donde hay una persona mirando— porque cuesta una corrida de la
-suite por mutante.
-
-Dos detalles que parecen menores y no lo son:
-
-- **El alcance se compara por ruta, no por nombre de archivo.** Permitir `entidades.py`
-  también habilitaba `tests/entidades.py`, que es exactamente lo que el paso 0 prohíbe.
-- **`git diff --name-only` devuelve rutas relativas a la raíz del repo**, no al proyecto.
-  Sin `--relative`, el paso 0 daba **verde con un test modificado**. Lo encontramos porque
-  lo probamos rompiéndolo a propósito; leyéndolo parecía correcto.
-- **`git cat-file` resuelve rutas desde la raíz del repo, no desde el proyecto.** Sin el
-  prefijo, el paso 4 veía todo archivo del proyecto como "nuevo" y daba **verde sin revertir
-  nada** — el chequeo más importante del gate, apagado en silencio, sólo cuando el proyecto
-  vive en un subdirectorio. Lo encontramos porque la mutación contradijo al paso 4.
-- **La base del diff la fija el runner**, en `.base-ref`, al crear el worktree y antes de
-  que el agente toque nada. Si la dedujera el gate, el primer commit del agente movería la
-  base y los pasos 0 y 2 dejarían de ver sus propios cambios. Es el defecto más común de
-  los gates publicados, y el más silencioso: no falla, deja de mirar.
+Va en G2 y no en el gate porque cuesta una corrida de la suite por mutante. Es el único
+detector confiable de un test tautológico que encontró la revisión de literatura, y en su
+primera corrida encontró que el paso 4 estaba apagado por un bug de rutas.
 
 ### G2 — Revisión del diff (humano)
 
-Lo mirás como mirarías el PR de alguien que recién entró:
+Como mirarías el PR de alguien que recién entró: ¿el arreglo es la causa o el síntoma?
+¿los tests fallan de verdad contra el código viejo? ¿se metió donde no debía? ¿inventó
+abstracciones que nadie pidió? ¿dijo que corrió algo que no corrió?
 
-- ¿el arreglo es el correcto o es un parche que hace pasar el test?
-- ¿los tests fallan de verdad contra el código viejo? (verificalo, no lo supongas)
-- ¿se metió donde no debía?
-- ¿inventó abstracciones que nadie pidió?
-
-El subagente `@reviewer` te da una primera pasada, pero **la decisión es tuya**.
+`@reviewer` da una primera pasada; la decisión es tuya. Checklist completo en
+[`plantillas/REVISION.md`](plantillas/REVISION.md).
 
 ### El gate de coherencia: lo único que mira a través de las tareas
 
-Los pasos 0 a 4 miran **una** tarea. Por construcción, ninguno puede ver que diez diffs
-correctos por separado dejaron la arquitectura peor. Es la crítica mejor documentada al
-desarrollo con agentes, y la formulación que más duele es esta:
+Los pasos 0 a 4 miran **una** tarea. Por construcción ninguno ve que diez diffs correctos
+por separado dejaron la arquitectura peor — y la degradación no se ve en los diffs, aparece
+leyendo el código de punta a punta, cuando ya es cara. Es la crítica mejor documentada al
+desarrollo con agentes ([INVESTIGACION.md §2.3](INVESTIGACION.md)).
 
-> *"Los agentes escriben unidades de cambio que se ven bien en aislamiento. Son consistentes
-> consigo mismas y con tu prompt. Pero respeto por el conjunto, no hay."*
-
-La degradación **no se ve en los PRs**: aparece leyendo el código de punta a punta, cuando
-ya es cara. La respuesta que se publicó son *funciones de aptitud arquitectónica*: reglas
-sobre la forma del sistema, verificables por comando, corriendo **sobre el tronco**.
-
-`ejemplo-pacman/scripts/_arquitectura.py` es la versión mínima y sirve de plantilla: declara
-las capas en orden y verifica que **cada una sólo importe capas anteriores**.
+La respuesta publicada son *funciones de aptitud arquitectónica*: reglas sobre la forma del
+sistema, verificables por comando, corriendo **sobre el tronco**.
+`plantillas/_arquitectura.py` es la versión mínima: declarás las capas en orden y verifica
+que cada una sólo importe las anteriores.
 
 ```python
-CAPAS = ["laberinto", "entidades", "juego", "render", "__main__"]
+CAPAS = ["datos", "servicios", "rutas"]
 ```
 
-Una regla, treinta líneas, y atrapa el 90% de la deriva. Corre en el paso 5 del gate en modo
-integración, y por lo tanto también en `estado.sh`, que es donde miramos el tronco.
+Treinta líneas y una regla. Corre en el paso 5 del gate en modo integración, y por lo tanto
+también en `estado.sh`. Probado rompiéndolo en las dos direcciones.
 
-**Lo probamos rompiéndolo en las dos direcciones** —`laberinto` importando `juego`, y
-`render` importando `__main__`— y detecta ambas. Un verificador que no probaste contra una
-falla real es una opinión.
+### Integrar, y G3
 
-### G3 — Integración
+`integrar.sh` mergea las tareas verdes **de a una** y corre el gate del tronco después de
+cada merge; si el tronco se pone rojo, deshace **ese** merge y para. Diez merges juntos y un
+tronco rojo no dicen cuál lo rompió. No mergea nada cuyo veredicto no sea VERDE, leído del
+gate del runner y nunca del log del agente.
 
-Con todas las tareas de una etapa mergeadas, corre el gate completo sobre el tronco.
-Acá aparecen los choques entre tareas que individualmente estaban bien.
+**Y acá va la prueba humana de punta a punta**: usar la cosa como la va a usar alguien. Es
+el único gate que mide lo que ningún comando puede medir, y el que más cuesta saltear. Nos
+lo salteamos en el Pacman: gate verde, 54 tests, y al jugarlo aparecieron cinco problemas en
+el primer minuto —**ninguno roto según los tests, porque ninguno era testeable.**
 
-**Y acá va la prueba humana de punta a punta**, que no es opcional: usar la cosa como la
-va a usar alguien. Es el único gate que mide lo que ningún comando puede medir.
-
-Nos lo saltamos en el Pacman: el gate estaba verde, los 54 tests pasaban, corrí
-simulaciones automáticas y di el juego por terminado. Cuando lo jugamos, aparecieron en
-el primer minuto cinco problemas —teclas que se pierden, el juego se traba, un solo
-fantasma, los personajes se atraviesan sin chocar, el fantasma se queda oscilando—
-**y ninguno estaba roto según los tests, porque ninguno era testeable.**
-
-La prueba humana tiene que estar **escrita en el plan, con preguntas concretas y un
-responsable**, o no se hace:
+Tiene que estar **escrita en el plan**, con preguntas concretas y un responsable, o no se
+hace:
 
 ```markdown
 ## G3 — prueba de uso (responsable: <quién>, 5 min)
-- [ ] ¿Responde al instante al apretar una tecla, o se siente trabado?
-- [ ] ¿El fantasma persigue de forma creíble, o se queda oscilando?
+- [ ] ¿Responde al instante, o se siente trabado?
 - [ ] ¿Se puede perder? ¿Se puede ganar?
-- [ ] ¿Alguien que no lo programó entiende qué hacer sin explicación?
+- [ ] ¿Lo entiende alguien que no lo programó, sin explicación?
 ```
+
+G4 (pre-deploy) y G5 (deploy) están en [PIPELINE.md](PIPELINE.md).
 
 ---
 
 ## 4. Formato de tarea
 
-Una tarea es un archivo en `tareas/TNN-nombre.md`. Ver `plantillas/TAREA.md`.
-Lo que no puede faltar:
+Un archivo por tarea en `tareas/TNN-nombre.md`, según
+[`plantillas/TAREA.md`](plantillas/TAREA.md). Las tres cabeceras que los scripts leen de
+verdad —y que `validar-plan.py` verifica— son `**Estado:**`, `**Depende de:**` y
+`**Archivos que podés tocar:**`.
 
-```markdown
-# T03 — Movimiento de Pacman
+**`tests/` nunca va en "archivos que podés tocar".** Los tests llegan escritos y el paso 0
+del gate lo verifica.
 
-**Depende de:** T01, T02
-**Archivos que podés tocar:** src/pacman/entidades.py, tests/test_entidades.py
-**Prohibido tocar:** src/pacman/laberinto.py
-
-## Objetivo
-Una frase. Qué tiene que poder hacer el código cuando esto esté listo.
-
-## Alcance
-- Lo que SÍ entra (3-6 puntos concretos)
-- Lo que NO entra (igual de importante)
-
-## Criterio de terminado
-- [ ] Condición verificable 1
-- [ ] Condición verificable 2
-- [ ] `ejemplo-pacman/scripts/gate.sh` en verde
-
-## Verificación
-    python3 -m unittest discover -s tests -t . -q
-
-## Si algo no cierra
-Si encontrás un bug fuera del alcance: reportalo en la respuesta, NO lo arregles.
-Si el plan está mal: pará y decilo. No improvises un rediseño.
-```
-
-**Los dos límites explícitos** —qué archivos podés tocar y qué hacer si aparece algo
-raro— son los que evitan el 90% de los desastres. Un modelo chico sin límites se pone
-a refactorizar lo que nadie le pidió.
+**Los dos límites explícitos** —qué archivos podés tocar, y qué hacer si aparece algo raro—
+evitan el 90% de los desastres. Un modelo chico sin límites se pone a refactorizar lo que
+nadie le pidió. Y el criterio de terminado nombra **los tests que tienen que existir**: sin
+eso, un requisito omitido no deja rastro y el gate lo aprueba igual.
 
 ---
 
 ## 5. Cómo se ejecuta
 
-Una tarea, una sesión, contexto limpio. Nada de sesiones largas: cuando el contexto
-crece, la calidad de un modelo chico se desploma y la compactación pierde justo lo
-que importaba.
+Una tarea, una sesión, contexto limpio. Nada de sesiones largas: cuando el contexto crece,
+la calidad de un modelo chico se desploma y la compactación pierde justo lo que importaba.
 
 Los scripts se corren desde adentro del repo de tu proyecto; `$AGENTES` es donde clonaste
-este repo (ver [EMPEZAR.md](EMPEZAR.md)).
+este repo ([EMPEZAR.md](EMPEZAR.md)).
 
 ```bash
-# el plan, desde el encargo (G0: lo escribe el arquitecto, lo aprobás vos)
+# G0 — del encargo al plan, con el arquitecto corrigiéndose solo
 bash $AGENTES/scripts/planificar.sh
 
-# una tarea suelta: es el modo de depuración
-bash $AGENTES/scripts/correr-tarea.sh T03
+# el plan entero: etapas deducidas, paralelo donde se puede
+SOLO_ETAPAS=1 bash $AGENTES/scripts/correr-plan.sh   # ver el corte sin lanzar nada
+bash $AGENTES/scripts/correr-plan.sh
+bash $AGENTES/scripts/correr-plan.sh 3               # retomar desde la etapa 3
 
-# varias en paralelo (solo las que no dependen entre sí)
-bash $AGENTES/scripts/correr-tarea.sh T03 T04 T05
+# una tarea suelta: modo de depuración
+bash $AGENTES/scripts/correr-tarea.sh T03 T04 T05    # de a 8 como máximo; PARALELAS=4 lo baja
 
-# más de 8 tareas: el runner las va soltando de a 8
-bash $AGENTES/scripts/correr-tarea.sh T03 T04 T05 T06 T07 T08 ...
-PARALELAS=4 bash $AGENTES/scripts/correr-tarea.sh T03 T04 T05   # bajar el tope
-
-# integrar al tronco lo que dio verde (de a una, con el gate de por medio)
-SOLO_VER=1 bash $AGENTES/scripts/integrar.sh    # qué haría, sin tocar nada
+# integrar al tronco lo verde, de a una, con el gate de por medio
+SOLO_VER=1 bash $AGENTES/scripts/integrar.sh
 bash $AGENTES/scripts/integrar.sh
 
 # estado de todo, incluido si el tronco está verde
 bash $AGENTES/scripts/estado.sh
 ```
 
-### El paso que faltaba: integrar
+Cada tarea corre en su propio worktree (`../trabajo-T03`, rama `tarea/T03`), así no se pisan
+y podés descartar una sin tocar el resto.
 
-`correr-tarea.sh` deja la rama **commiteada y mergeable**, y durante semanas ahí se
-terminaba todo. El ejemplo de Pacman quedó publicado con el tronco en rojo mientras T17
-figuraba **VERDE**: el agente la había arreglado bien, el gate lo confirmó, y el commit se
-quedó en la rama. No falló nada — **faltaba un paso**.
+### Las etapas
 
-`integrar.sh` mergea **de a una** y corre el gate del tronco después de cada merge. Si el
-tronco se pone rojo, deshace ese merge y para: diez merges juntos y un tronco rojo no dicen
-cuál lo rompió. Después marca la tarea hecha, saca el worktree y borra la rama.
-
-Y no mergea nada cuyo veredicto no sea VERDE, leído del gate que corrió el runner — nunca
-del log del agente.
-
-Cada tarea corre en su propio worktree de git (`../trabajo-T03`, rama `tarea/T03`),
-así no se pisan y podés descartar una sin tocar el resto.
-
-### El plan entero, de una
-
-Lanzar tareas a mano es el modo de depuración. Lo normal es correr el plan completo: el
-runner deduce las etapas, lanza en paralelo lo que se puede, y se detiene donde hace falta
-una persona.
-
-```bash
-SOLO_ETAPAS=1 bash $AGENTES/scripts/correr-plan.sh   # ver el corte sin lanzar nada
-bash $AGENTES/scripts/correr-plan.sh                 # de la primera etapa a la última
-bash $AGENTES/scripts/correr-plan.sh 3               # retomar desde la etapa 3
-```
-
-Las etapas salen de `PLAN.md`: declaradas a mano en formato exacto —`**ETAPA 1:** T02 T03`,
-sólo identificadores— o **deducidas de la tabla de tareas**, con dos reglas: una tarea espera
-a sus dependencias, y **dos tareas que escriben el mismo archivo no van juntas** aunque las
+Salen de `PLAN.md`: declaradas en formato exacto —`**ETAPA 1:** T02 T03`, sólo
+identificadores— o **deducidas de la tabla**, con dos reglas: una tarea espera a sus
+dependencias, y **dos tareas que escriben el mismo archivo no van juntas** aunque las
 dependencias lo permitan.
 
-**Deducirlas suele ser mejor que declararlas**, porque la regla del choque de archivo se
-aplica sola. El plan de Pacman las declaraba así:
+**Deducirlas suele ser mejor que declararlas**, porque la regla del choque se aplica sola.
+Si alguna línea de etapa no está en el formato exacto se descartan **todas** y se deduce,
+con un aviso: mezclar es peor que ignorar, porque las que no matchean desaparecen y sus
+tareas no se ejecutan sin que nadie se entere.
 
-```
-**Etapa 3:** T05, luego T06 — las dos tocan `juego.py`, van en serie
-```
-
-Eso decía "en serie" en prosa y el runner —si lo hubiera leído— las habría lanzado **juntas**,
-porque todo lo que está en una línea va en paralelo. En realidad no lo leía: el formato no
-coincidía y se deducían las etapas en silencio. Dos formas de fallar en la misma línea.
-
-Ahora: si alguna línea de etapa no está en el formato exacto, **se descartan todas** y se
-deduce, con un aviso ruidoso. Mezclar es peor que ignorar, porque las líneas que no matchean
-desaparecen y sus tareas nunca se ejecutan sin que nadie se entere.
-
-**Cuando una tarea falla, el runner compara la huella de la falla con la del intento
-anterior.** Si es la misma, no reintenta: la llama punto muerto y corta, porque una falla
-que se repite igual es de especificación y el tercer intento no la arregla. Si cambió,
-reintenta. Esa distinción es la que necesita el humano para decidir (ver
-[HUMANO.md §4](HUMANO.md)).
-
-> **Esto no había corrido nunca.** `correr-plan.sh` usaba `mapfile`, que es de bash 4;
-> macOS trae 3.2. Fallaba con *"No pude determinar las etapas del plan"* —un mensaje que
-> culpa al plan— así que siempre lanzábamos tareas a mano y nadie sospechó del script. El
-> método completo tenía un agujero en el medio durante semanas. **Un script que nadie
-> ejecutó no está escrito, está propuesto.**
-
-### Dos detalles que muerden
-
-**El worktree congela el código al crearse.** Se arma desde `HEAD`: si arreglaste el
-gate o el runner y no commiteaste, la tarea corre con la versión vieja. **Commiteá las
-herramientas antes de lanzar.** (Y nunca edites un script de bash mientras corre: bash
-lo lee por partes y se rompe a mitad de camino.)
-
-**El agente no commitea.** Deja los archivos sin trackear en el worktree, así que
-`git merge tarea/T03` no trae nada. Al integrar, copiá los archivos a mano o hacé que el
-runner commitee cuando el gate da verde.
-
-### El método no depende de la IA
-
-Todo lo que decide es un comando: `gate.sh`, `pre-deploy.sh`, `deploy.sh`. **Una persona
-puede ejecutar el método completo sin ningún modelo disponible**, y el veredicto es el mismo.
-
-```bash
-MANUAL=1 bash scripts/correr-tarea.sh T03   # prepara el worktree y te muestra la tarea
-# ... la hacés vos, en ../trabajo-T03/ ...
-bash scripts/cerrar-tarea.sh T03            # el gate juzga igual, y commitea si da verde
-```
-
-El runner entra en modo manual solo si `opencode` no está instalado, así que en una máquina
-sin nada el método sigue funcionando. Los intentos manuales quedan en el registro con
-`modelo=humano`, y las métricas los separan de los del agente.
-
-Probado: T16 (la fruta) se hizo a mano y pasó los cuatro pasos del gate, incluido el de
-revertir la implementación para ver si los tests distinguen.
-
-**Por qué importa más de lo que parece:** si el método sólo funciona con un modelo
-determinado, no es un método, es una dependencia. Los agentes aceleran la ejecución; lo que
-hace que el trabajo sea confiable son las tareas bien cortadas y los gates, y eso no
-necesita IA.
-
-### Por qué hace falta aislar el estado de OpenCode
-
-OpenCode guarda sesiones y snapshots en **una sola SQLite**: `~/.local/share/opencode/opencode.db`.
-Dos `opencode run` simultáneos se pelean por el lock y el segundo muere con
-`Error: database is locked`. Por eso el runner le da a cada tarea su propio directorio de datos:
-
-    export XDG_DATA_HOME="$worktree/.opencode-data"
-
-**Solo se aísla `XDG_DATA_HOME`, nunca `XDG_CONFIG_HOME`**: la config
-(`~/.config/opencode/opencode.json`) tiene que seguir siendo la misma para todas,
-o las tareas se quedan sin provider ni modelos.
-
-Verificado con 3 `opencode run` simultáneos: las tres terminan bien y cada una crea su base.
-
-El límite de cuántas tareas lanzar en paralelo no lo pone OpenCode sino el backend:
-cuántas requests concurrentes aguantan tus modelos antes de que la latencia se dispare.
-
-**Medido en ColabHive el 2026-09-21: una réplica admite 8 a la vez**, y es el valor por
-defecto del runner. Hasta ahí el costo de sumar tareas es casi cero (vLLM las mete en el
-mismo lote); pasado 8 el throughput deja de subir y la mitad de los pedidos espera turno.
-Y todas las tareas que usan la misma key comparten su tope de pedidos por minuto.
-Tabla completa en [INFRAESTRUCTURA.md](INFRAESTRUCTURA.md). Con otro backend, medilo:
-`$AGENTES/colabhive/scripts/concurrencia.py` (lee `COLABHIVE_BASE_URL`).
-
----
-
-## 6. Cuando una tarea falla
+### Cuando una tarea falla
 
 | Qué pasó | Qué hacés |
 |---|---|
 | Gate rojo por tests | Relanzá con el error pegado en la tarea |
 | Tocó archivos prohibidos | Relanzá endureciendo el "prohibido tocar" |
-| Hizo un parche para que pase el test | Relanzá agregando "no toques el test para hacerlo pasar" |
-| Se fue de alcance | La tarea era muy grande: partila en dos |
-| Falló dos veces | Dejá de insistir: modelo grande o a mano |
+| Hizo un parche para que pase el test | Relanzá pidiendo que no toque el test |
+| Se fue de alcance | La tarea era muy grande: partila |
+| Falló dos veces **por lo mismo** | Dejá de insistir: modelo grande o a mano |
 
-**Reintentar es barato. Tu tiempo no.** Si te ves escribiendo el tercer mensaje para
-explicarle al modelo lo mismo, cerrá la sesión.
+El runner compara la **huella de la falla** entre intentos: si repite, la llama punto muerto
+y corta, porque una falla que se repite igual es de especificación y el tercer intento no la
+arregla. Si cambió, reintenta. Esa distinción es la que necesita el humano para decidir
+([HUMANO.md §4](HUMANO.md)).
 
----
+**Reintentar es barato. Tu tiempo no.**
 
-## 6b. Las herramientas de medición
+### Tres cosas que muerden
 
-El método pedía medir y no daba con qué. Ahora el runner **registra cada intento**
-(`.metricas/intentos.csv`: fecha, tarea, veredicto, segundos, modelo) y
+- **El worktree congela el código al crearse**, desde `HEAD`: si arreglaste el gate o el
+  runner y no commiteaste, la tarea corre con la versión vieja. **Commiteá las herramientas
+  antes de lanzar**, y nunca edites un script de bash mientras corre.
+- **El agente no commitea.** Deja los archivos sin trackear, así que `git merge` no trae
+  nada. El runner commitea la rama cuando el gate da verde; `integrar.sh` cuenta con eso.
+- **`XDG_DATA_HOME` por tarea, nunca `XDG_CONFIG_HOME`.** OpenCode guarda todo en una sola
+  SQLite y dos `opencode run` simultáneos mueren con `database is locked`. La config tiene
+  que seguir siendo compartida o las tareas se quedan sin provider.
+
+El techo de paralelismo no lo pone OpenCode sino el backend: **medido en ColabHive, una
+réplica admite 8 a la vez**, y es el valor por defecto. Pasado ahí el throughput deja de
+subir. Tabla en [INFRAESTRUCTURA.md](INFRAESTRUCTURA.md); con otro backend, medilo con
+`colabhive/scripts/concurrencia.py`.
+
+### El método no depende de la IA
+
+Todo lo que decide es un comando, así que **una persona puede ejecutar el método completo
+sin ningún modelo disponible** y el veredicto es el mismo:
 
 ```bash
-PROYECTO=ejemplo-pacman bash scripts/metricas.sh
+MANUAL=1 bash $AGENTES/scripts/correr-tarea.sh T03   # prepara el worktree
+# ... la hacés vos ...
+bash $AGENTES/scripts/cerrar-tarea.sh T03            # el gate juzga igual
 ```
 
-lo resume. Dos decisiones de diseño que costaron un rato entender:
+El runner entra en modo manual solo si `opencode` no está instalado. Los intentos manuales
+quedan en el registro con `modelo=humano` y las métricas los separan.
 
-- **El registro lo escribe el runner, no se deduce del texto de las tareas.** La primera
-  versión contaba las secciones "Intento anterior" de los archivos y daba **80%** donde la
-  realidad era 44%. Adivinar del texto da números lindos y falsos.
-- **El denominador son todas las tareas intentadas, no las que llegaron a verde.** Contar
-  solo las exitosas es sesgo de supervivencia: las cuatro que nunca pasaron el gate y
-  terminó haciendo un humano son justamente las que hay que ver.
-- **Los errores de plataforma se cuentan aparte.** Un intento perdido porque el modelo
-  estaba frío o el stream se cortó no dice nada del modelo ni del plan.
-
-El runner además **commitea la rama cuando el gate da verde**: el agente nunca commitea, y
-sin eso `git merge tarea/TNN` no trae nada y hay que copiar archivos a mano.
-
-## 7. Qué medir
-
-Para saber si el método funciona, y para dimensionar mejor las próximas tareas:
-
-- **Tasa de gate verde al primer intento.** Menos del 50% = las tareas están
-  demasiado grandes o mal especificadas.
-- **Cuántas tareas necesitan modelo grande.** Si es mucho, revisá la descomposición.
-- **Tiempo de revisión humana por tarea.** Si revisar toma más que hacerlo a mano,
-  la tarea no valía la pena delegarla.
-
-Ese último punto es el que decide qué delegás y qué no.
+**Por qué importa más de lo que parece:** si el método sólo funciona con un modelo
+determinado, no es un método, es una dependencia. Los agentes aceleran la ejecución; lo que
+hace el trabajo confiable son las tareas bien cortadas y los gates.
 
 ---
 
-## 8. Qué delegar y qué no
+## 6. Qué medir
+
+El runner **registra cada intento** en `.metricas/intentos.csv` (fecha, tarea, veredicto,
+segundos, modelo) y `bash $AGENTES/scripts/metricas.sh` lo resume.
+
+- **Tasa de verde al primer intento.** Menos del 50% = tareas demasiado grandes o mal
+  especificadas. Es el número que dice si la descomposición sirve.
+- **Cuántas tareas necesitan modelo grande o humano.**
+- **Tiempo de revisión humana por tarea.** Si revisar toma más que hacerlo a mano, la tarea
+  no valía la pena delegarla. **Este es el que decide qué delegás.**
+
+Tres decisiones de diseño del registro, cada una por un error que cometimos:
+
+- **Lo escribe el runner, no se deduce del texto de las tareas.** La primera versión contaba
+  secciones "Intento anterior" y daba **80%** donde la realidad era **44%**.
+- **El denominador son todas las tareas intentadas**, no las que llegaron a verde. Contar
+  sólo las exitosas es sesgo de supervivencia, y las que nunca pasaron son las que hay que ver.
+- **Los errores de plataforma se cuentan aparte.** Un intento perdido porque el modelo
+  estaba frío no dice nada del modelo ni del plan.
+
+---
+
+## 7. Qué delegar y qué no
 
 **Sí:** tests de módulos existentes, implementaciones con contrato claro, migraciones
 mecánicas, docstrings, adaptadores, parsers, funciones puras con casos borde definidos.
 
-**No:** decisiones de arquitectura, refactors que cruzan muchos archivos, debugging
-sutil de concurrencia o estado compartido, cualquier cosa donde el criterio importe
-más que el código.
+**No:** decisiones de arquitectura, refactors que cruzan muchos archivos, debugging sutil de
+concurrencia o estado compartido, y cualquier cosa donde el criterio importe más que el
+código.
 
-Un patrón que funciona: **el modelo chico prepara el terreno y escribe el borrador;
-el modelo grande (o vos) resuelve lo difícil.**
+Un patrón que funciona: **el modelo chico prepara el terreno y escribe el borrador; el
+modelo grande, o vos, resuelve lo difícil.**
+
+Y lo que nunca se delega está en [HUMANO.md §7](HUMANO.md): las decisiones con trade-off,
+aprobar un plan, la prueba de uso, el deploy a producción, y escribir los tests.
