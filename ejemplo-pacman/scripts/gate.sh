@@ -153,5 +153,37 @@ if [ -z "${TAREA:-}" ] && [ -f scripts/_arquitectura.py ]; then
   else echo "$OUT"; FALLOS=$((FALLOS+1)); fi
 fi
 
+# ── 6. La suite reservada (sólo en modo integración)
+# Tests escritos por una persona que NINGÚN agente ve: viven fuera del directorio del
+# proyecto, así que OpenCode los rechaza por `external_directory` desde cualquier worktree.
+# No se nombran en el plan ni en las tareas.
+#
+# Por qué: los gates de tarea verifican lo que los tests de la tarea cubren, y el agente
+# optimiza contra eso. Medido, la brecha de reward hacking crece ~27 puntos por cada 10× de
+# tamaño de código, y los puntajes de validación se saturan mientras los reservados
+# divergen — peor en modelos chicos. Es el único gate que mide lo que el agente no pudo
+# haber optimizado.
+#
+# Y medido también: "leer los tests reservados" es el hack MÁS común. Por eso van afuera y
+# no sólo sin documentar.
+if [ -z "${TAREA:-}" ]; then
+  # Fuera del repo, no sólo fuera del proyecto: así no viaja en los worktrees ni se
+  # commitea por accidente, y OpenCode la rechaza por external_directory.
+  RESERVADOS="${RESERVADOS:-$(cd "$(git rev-parse --show-toplevel)/.." && pwd)/reservados-$(basename "$PWD")}"
+  echo "── 6. Suite reservada"
+  if [ -d "$RESERVADOS" ] && ls "$RESERVADOS"/test_*.py >/dev/null 2>&1; then
+    if OUT="$(PYTHONPATH="$PWD" python3 -m unittest discover -s "$RESERVADOS" -t "$RESERVADOS" -q 2>&1)"; then
+      verde "$(echo "$OUT" | grep -E '^Ran ' | head -1) de composición"
+    else
+      rojo "la suite reservada falla: pasa los tests de las tareas y no hace lo que tiene que hacer"
+      echo "$OUT" | tail -15 | sed 's/^/     /'
+    fi
+  else
+    echo "  · no hay suite reservada en $RESERVADOS"
+    echo "    Es el gate que mide lo que el agente no pudo optimizar. Escribila: tests de"
+    echo "    composición, invariantes de punta a punta, fuera del repo para que no la vea."
+  fi
+fi
+
 echo
 if [ "$FALLOS" -eq 0 ]; then echo "GATE VERDE"; exit 0; else echo "GATE ROJO ($FALLOS fallo/s)"; exit 1; fi
