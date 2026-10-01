@@ -18,6 +18,11 @@ Si el archivo de tarea no está en tu contexto, pedilo antes de empezar.
 5. **Si encontrás un bug fuera del alcance**, reportalo al final de tu respuesta.
    No lo arregles.
 6. **Si el plan está mal**, pará y decilo. No improvises un rediseño.
+7. **Si la tarea es imposible o se contradice** —los tests piden algo que el objetivo
+   prohíbe, falta algo sin lo cual no se puede hacer, el contrato no cierra— escribí
+   `IMPOSIBLE: <motivo en una línea>` y **pará ahí**. No es una falla y no te lo vamos a
+   contar como error: es la información más útil que podés darnos. Lo que sí es una falla
+   es hacer pasar el test de una forma que no resuelve el problema.
 
 ## Estilo
 

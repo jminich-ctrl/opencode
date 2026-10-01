@@ -87,6 +87,7 @@ for etapa in "${ETAPAS[@]}"; do
   pendientes=("${tareas[@]}")
   HUELLAS="$(mktemp -d)"    # una huella de falla por tarea (bash 3.2 no tiene arrays asociativos)
   MUERTAS=()                # las que fallaron dos veces por lo mismo
+  IMPOSIBLES=()             # las que el agente declaró imposibles
   while [ "${#pendientes[@]}" -gt 0 ] && [ "$intento" -le "$REINTENTOS" ]; do
     [ "$intento" -gt 1 ] && echo "── reintento $intento de: ${pendientes[*]}"
     bash "$AQUI/correr-tarea.sh" "${pendientes[@]}"
@@ -96,7 +97,17 @@ for etapa in "${ETAPAS[@]}"; do
     nuevas=()
     for t in "${pendientes[@]}"; do
       log="$RAIZ/../trabajo-$t/.tarea.log"
-      [ "$(veredicto "$log" 2>/dev/null)" = "VERDE" ] && continue
+      v="$(veredicto "$log" 2>/dev/null)"
+      [ "$v" = "VERDE" ] && continue
+
+      # Reintentar una tarea que el agente declaró imposible es la presión que produce la
+      # trampa. Se corta acá y decide una persona.
+      if [ "$v" = "IMPOSIBLE" ]; then
+        echo "  ⃠ $t: el agente la declaró imposible"
+        echo "      $(motivo_imposible "$log")"
+        IMPOSIBLES+=("$t")
+        continue
+      fi
 
       # Reintentar a ciegas gasta tiempo en la falla que no se va a ir sola. Si la huella
       # repite, es la misma falla y no hay nada nuevo que intentar: se detiene acá y decide
@@ -118,10 +129,11 @@ for etapa in "${ETAPAS[@]}"; do
   done
   rm -rf "$HUELLAS"
 
-  if [ "${#pendientes[@]}" -gt 0 ] || [ "${#MUERTAS[@]}" -gt 0 ]; then
+  if [ "${#pendientes[@]}" -gt 0 ] || [ "${#MUERTAS[@]}" -gt 0 ] || [ "${#IMPOSIBLES[@]}" -gt 0 ]; then
     echo
-    echo "✗ La etapa $n se detuvo con tareas en rojo: ${pendientes[*]+${pendientes[*]}} ${MUERTAS[*]+${MUERTAS[*]}}"
+    echo "✗ La etapa $n se detuvo: ${pendientes[*]+${pendientes[*]}} ${MUERTAS[*]+${MUERTAS[*]}} ${IMPOSIBLES[*]+${IMPOSIBLES[*]}}"
     [ "${#MUERTAS[@]}" -gt 0 ] && echo "  En punto muerto (misma falla dos veces): ${MUERTAS[*]}"
+    [ "${#IMPOSIBLES[@]}" -gt 0 ] && echo "  Declaradas imposibles por el agente: ${IMPOSIBLES[*]} — leé el motivo, suele ser cierto"
     echo "  Decide un humano (ver HUMANO.md §4):"
     echo "    · relanzar con el error pegado en la tarea,"
     echo "    · partir la tarea en dos,"

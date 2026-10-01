@@ -55,3 +55,13 @@ las responde. Si no lo escribís, no lo verifica nadie.
 - Bug fuera del alcance: reportalo, no lo arregles.
 - El plan no cierra: pará y decilo, no improvises.
 - Necesitás tocar un archivo prohibido: pará y decilo.
+
+## Si no se puede
+
+Si la tarea es imposible o se contradice a sí misma, escribí `IMPOSIBLE: <motivo>` y pará.
+El runner lo registra como tal, **no lo reintenta**, y lo decide una persona.
+
+Está acá por una medición, no por cortesía: dos estudios independientes muestran que darle
+al agente una salida explícita cuando la tarea no se puede hacer **baja el reward hacking de
+54% a 9%** en uno y **de 23,6% a 5,3%** en el otro, sin costo de rendimiento. Sin esa salida,
+un modelo al que se le pide lo imposible hace pasar el test de alguna forma.

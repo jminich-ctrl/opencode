@@ -120,10 +120,26 @@ if [ -n "${TAREA:-}" ]; then
   if [ -z "$IMPL" ]; then verde "no hay implementación nueva que revertir"
   elif [ -z "$REVERTIDOS" ]; then verde "archivos nuevos (no existían en HEAD): nada que revertir"
   else
+    # Qué tests tienen que fallar, no sólo que "algo" falle. La tarea nombra su archivo y
+    # su clase; medido, la tasa agregada casi no se mueve ante una regresión mientras las
+    # métricas por porción caen 25 a 91 puntos. "La suite falla" puede ser otro test.
+    ESPERADO="$(sed -n 's/.*`\(tests\/[A-Za-z0-9_.]*\)`.*clase `\([A-Za-z0-9_]*\)`.*/\1 \2/p' \
+                 "tareas/${TAREA}"-*.md 2>/dev/null | head -1)"
     if $TESTS >/dev/null 2>&1; then
       rojo "los tests PASAN con la implementación vieja: no verifican el cambio"
       echo "     revertí:$REVERTIDOS y la suite siguió verde"
-    else verde "la suite falla al revertir$REVERTIDOS"; fi
+    elif [ -n "$ESPERADO" ]; then
+      MOD="$(echo "$ESPERADO" | cut -d' ' -f1 | sed 's|/|.|g; s|\.py$||')"
+      CLASE="$(echo "$ESPERADO" | cut -d' ' -f2)"
+      if python3 -m unittest "$MOD.$CLASE" >/dev/null 2>&1; then
+        rojo "la suite falla, pero NO por los tests de esta tarea ($CLASE pasa con el código viejo)"
+        echo "     o los tests de $TAREA no verifican el cambio, o rompiste otra cosa"
+      else
+        verde "fallan los tests de la tarea ($CLASE) al revertir$REVERTIDOS"
+      fi
+    else
+      verde "la suite falla al revertir$REVERTIDOS (la tarea no nombra sus tests)"
+    fi
     for f in $REVERTIDOS; do cp "$TMP/$(echo "$f" | tr / _)" "$f"; done
   fi
   rm -rf "$TMP"

@@ -26,6 +26,23 @@ if [ -n "$(git -C "$RAIZ" status --porcelain)" ] && [ "$SOLO_VER" != "1" ]; then
   exit 1
 fi
 
+# Línea base. Es una corrección de corrección, no una comodidad: sin ella, cada rama se
+# valida contra su propia suite y el merge contra la del tronco, así que cualquier falla que
+# ya estaba —o un test flaky— se le atribuye al merge. Está medido: con esa asimetría, "casi
+# toda la interferencia aparente desaparece" al corregirla. Lo que antes era "el tronco está
+# rojo" ahora es "ESTE merge lo puso rojo", que es lo único que justifica deshacerlo.
+if [ "$SOLO_VER" != "1" ]; then
+  echo "── línea base del tronco"
+  if ( cd "$BASE" && TAREA= bash scripts/gate.sh >/dev/null 2>&1 ); then
+    verde_base=1; echo "  ✓ el tronco está verde: lo que rompa de acá en más es del merge"
+  else
+    echo "  ✗ el tronco YA está rojo antes de mergear nada. No se integra encima de eso:" >&2
+    ( cd "$BASE" && TAREA= bash scripts/gate.sh 2>&1 ) | grep '✗' | sed 's/^/     /' >&2
+    echo "  Arreglá el tronco primero. Si no, el próximo merge se va a llevar la culpa." >&2
+    exit 1
+  fi
+fi
+
 # Qué tareas: las pedidas, o todas las que tengan rama y veredicto VERDE.
 CANDIDATAS=()
 if [ $# -gt 0 ]; then CANDIDATAS=("$@")
@@ -74,8 +91,18 @@ for id in "${CANDIDATAS[@]}"; do
     marcar_hecha_y_limpiar "$id" "$rama"
     integradas+=("$id")
   else
+    # Una sola repetición, y no para "darle otra chance": para distinguir una falla real de
+    # un test inestable. Medido en Google: el 84% de las transiciones pasa→falla son flaky.
+    # Si las dos corridas no coinciden, el problema es el test y lo decide una persona:
+    # aceptar el verde del segundo intento es exactamente cómo la inestabilidad tapa fallas.
+    if ( cd "$BASE" && TAREA= bash scripts/gate.sh >/dev/null 2>&1 ); then
+      echo "  ⚠ $id: el tronco dio rojo y después verde con el mismo código. Hay un test inestable."
+      echo "     No se acepta ni se descarta: arreglá el test. El merge queda hecho y se para acá."
+      echo "     Para deshacerlo: git -C $RAIZ reset --hard HEAD~1"
+      exit 1
+    fi
     git -C "$RAIZ" reset --hard HEAD~1 >/dev/null 2>&1
-    echo "  ✗ $id puso el tronco en ROJO. Merge deshecho; el tronco queda como estaba."
+    echo "  ✗ $id puso el tronco en ROJO dos veces seguidas. Merge deshecho."
     ( cd "$BASE" && TAREA= bash scripts/gate.sh 2>&1 ) | grep '✗' | sed 's/^/     /'
     exit 1
   fi

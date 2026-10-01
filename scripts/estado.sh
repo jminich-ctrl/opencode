@@ -28,6 +28,8 @@ for f in "$BASE"/tareas/T*.md; do
       estado="… corriendo"; detalle="$(wc -l < "$log" 2>/dev/null | xargs) líneas de log"
     elif [ -n "$error" ]; then
       estado="✗ error"; detalle="$(echo "$error" | cut -c1-50)"
+    elif [ "$v" = "IMPOSIBLE" ]; then
+      estado="⃠ imposible"; detalle="$(motivo_imposible "$log" | cut -c1-50)"
     elif [ "$v" = "VERDE" ]; then
       estado="✓ verde"; detalle="$(git -C "$wt" status --short -- "$PROYECTO" 2>/dev/null | grep -vc '\.tarea\.log\|\.opencode-data' | xargs) archivos cambiados"
     else

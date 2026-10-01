@@ -70,8 +70,20 @@ log="$BASE/.plan.log"
 inicio=$(date +%s)
 huella=""
 vuelta=0
+limpias=0
 
-while [ "$vuelta" -lt "$INTENTOS" ]; do
+# Nunca mandar a refinar algo que ya pasa: medido, HumanEval cae de 96,3% a 66,5% cuando se
+# refina código que ya era correcto. Si el plan existe y ya valida, no se toca.
+YA_VALIDA=0
+if [ -z "$INSTRUCCION" ] && [ -s "$BASE/PLAN.md" ]; then
+  revisar
+  if [ -z "$PROBLEMAS" ]; then
+    echo "· el plan que ya existe valida: no se toca — refinar lo que pasa lo empeora"
+    YA_VALIDA=1
+  fi
+fi
+
+while [ "$YA_VALIDA" -eq 0 ] && [ "$vuelta" -lt "$INTENTOS" ]; do
   vuelta=$((vuelta+1))
   if [ "$vuelta" -eq 1 ] && [ -n "$INSTRUCCION" ]; then
     pedido="Leé $ENCARGO y el PLAN.md que ya existe. $INSTRUCCION No rehagas el resto del plan ni toques las tareas que ya están."
@@ -95,7 +107,14 @@ No rehagas el resto del plan. No toques las tareas que ya están bien."
   [ -n "$err" ] && { echo "  ✗ el agente cortó por un error: $err"; break; }
 
   revisar
-  [ -z "$PROBLEMAS" ] && break
+  if [ -z "$PROBLEMAS" ]; then
+    # Dos pasadas limpias, no una. Pero la segunda es una REVALIDACIÓN, no otra vuelta del
+    # arquitecto: volver a refinar algo que ya pasa lo empeora (medido: 96,3% → 66,5%).
+    # Lo que se confirma es que el veredicto del validador es estable, no el plan.
+    revisar >/dev/null
+    if [ -z "$PROBLEMAS" ]; then break; fi
+    echo "  · la primera pasada dio limpio y la segunda no: el validador no es estable"
+  fi
 
   if [ "$PROBLEMAS" = "$huella" ]; then
     echo "  ✗ punto muerto: falló dos veces por lo mismo. Decide un humano (HUMANO.md §4)."

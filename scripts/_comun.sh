@@ -94,13 +94,29 @@ anotar_intento() {
   echo "$(date -u +%FT%TZ),${PROYECTO:-.},$id,$ver,$segs,$modelo" >> "$reg"
 }
 
-# VERDE / ROJO si el runner ya cerró el log; vacío si la tarea sigue corriendo.
+# VERDE / ROJO / IMPOSIBLE si el runner ya cerró el log; vacío si la tarea sigue corriendo.
+#
+# IMPOSIBLE es un veredicto de primera clase, no un rojo: el agente declaró que la tarea no
+# se puede hacer. Medido en dos estudios independientes: darle esa salida baja el reward
+# hacking de 54% a 9% y de 23,6% a 5,3%. Sin ella, un modelo al que se le pide lo imposible
+# hace pasar el test de alguna forma. Y NO se reintenta: reintentar lo imposible es
+# exactamente la presión que produce la trampa.
 veredicto() {
   local log="$1" rc
   [ -f "$log" ] || return 0
   tail -n 1 "$log" | grep -q '^=== fin ' || return 0
+  # El orden importa y es P2: si el gate pudo decidir, decide el gate. IMPOSIBLE sólo
+  # manda cuando el comando no dio verde — un agente que declara imposible y además deja
+  # la suite en verde hizo el trabajo, y el trabajo verificado gana.
   rc="$(grep -E '^=== rc=[0-9]+$' "$log" | tail -n 1 | sed 's/^=== rc=//')"
-  if [ "$rc" = "0" ]; then echo VERDE; else echo ROJO; fi
+  if [ "$rc" = "0" ]; then echo VERDE; return 0; fi
+  if parte_del_agente "$log" | grep -qE '^ *IMPOSIBLE:'; then echo IMPOSIBLE; return 0; fi
+  echo ROJO
+}
+
+# El motivo que declaró el agente, para que el humano lo lea sin abrir el log.
+motivo_imposible() {
+  parte_del_agente "$1" | grep -m1 -oE 'IMPOSIBLE:.*' | cut -c1-120
 }
 
 # Huella de la falla: qué rompió, en forma comparable entre intentos. Sale del primer ✗ del
