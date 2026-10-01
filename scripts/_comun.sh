@@ -87,11 +87,14 @@ error_del_agente() {
 # Registro de intentos: una línea por corrida, para que las métricas lean datos y no
 # adivinen del texto de las tareas. Vive fuera del árbol versionado del proyecto.
 anotar_intento() {
-  local id="$1" ver="$2" segs="$3" modelo="${4:-}"
-  local reg="$RAIZ/.metricas/intentos.csv"
+  local id="$1" ver="$2" segs="$3" modelo="${4:-}" log="${5:-}"
+  local reg="$RAIZ/.metricas/intentos.csv" motivo=""
+  # El motivo va al registro porque "falló" no se puede analizar y "falló por esto" sí. Es
+  # la misma huella que usa el runner para decidir si reintentar: una sola fuente.
+  [ -n "$log" ] && motivo="$(huella_de_falla "$log" 2>/dev/null | tr ',;"' '   ' | cut -c1-80)"
   mkdir -p "$(dirname "$reg")"
-  [ -f "$reg" ] || echo "fecha,proyecto,tarea,veredicto,segundos,modelo" > "$reg"
-  echo "$(date -u +%FT%TZ),${PROYECTO:-.},$id,$ver,$segs,$modelo" >> "$reg"
+  [ -f "$reg" ] || echo "fecha,proyecto,tarea,veredicto,segundos,modelo,motivo" > "$reg"
+  echo "$(date -u +%FT%TZ),${PROYECTO:-.},$id,$ver,$segs,$modelo,$motivo" >> "$reg"
 }
 
 # VERDE / ROJO / IMPOSIBLE si el runner ya cerró el log; vacío si la tarea sigue corriendo.

@@ -72,6 +72,16 @@ if por_tarea:
 if errores:
     print(f"Intentos perdidos por errores de plataforma: {errores} "
           f"({errores * 100 // total_int}%) — no cuentan contra el modelo")
+# Los motivos repetidos son la señal más útil del registro: si tres tareas fallan por lo
+# mismo, el problema es del plan o del gate, no de las tareas.
+motivos = collections.Counter(f.get("motivo", "") for f in filas
+                              if f["veredicto"] == "ROJO" and f.get("motivo"))
+repetidos = [(m, n) for m, n in motivos.most_common(3) if n > 1]
+if repetidos:
+    print("Motivos de rojo que se repiten:")
+    for m, n in repetidos:
+        print(f"  {n}×  {m[:70]}")
+
 if imposibles:
     # No son fallas del agente: son tareas mal especificadas que el agente detectó. Contarlas
     # como rojo escondería la señal más útil que da el canal de escalada, y además mezclaría

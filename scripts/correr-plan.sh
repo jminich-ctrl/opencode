@@ -90,7 +90,19 @@ for etapa in "${ETAPAS[@]}"; do
   IMPOSIBLES=()             # las que el agente declaró imposibles
   while [ "${#pendientes[@]}" -gt 0 ] && [ "$intento" -le "$REINTENTOS" ]; do
     [ "$intento" -gt 1 ] && echo "── reintento $intento de: ${pendientes[*]}"
-    bash "$AQUI/correr-tarea.sh" "${pendientes[@]}"
+    # El reintento lleva una DESCRIPCIÓN de lo que falló, no la salida cruda. Medido: tener
+    # la forma literal de una llamada fallida en el contexto sube la probabilidad de
+    # repetirla de 0,06 a 0,54, y el 83% de ese daño es la forma; una descripción quita el
+    # 76%. Y el 79% de las fallas tras refinar eran por falta de información, no por el
+    # modelo. Se pasa de a una tarea para que cada una reciba su propio motivo.
+    if [ "$intento" -gt 1 ]; then
+      for t in "${pendientes[@]}"; do
+        MOTIVO="$(cat "$HUELLAS/$t" 2>/dev/null || true)" \
+          bash "$AQUI/correr-tarea.sh" "$t"
+      done
+    else
+      bash "$AQUI/correr-tarea.sh" "${pendientes[@]}"
+    fi
 
     # Quedan pendientes las que no dieron verde. El veredicto sale del gate, nunca del log
     # del agente (ver METODO.md P2).

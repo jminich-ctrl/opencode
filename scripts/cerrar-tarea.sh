@@ -22,7 +22,7 @@ cd "$WT/$PROYECTO" || exit 1
 export TAREA="$ID"
 cerrar_con_gate "$LOG" "$ID"
 rc=$?
-anotar_intento "$ID" "$(veredicto "$LOG")" 0 humano
+anotar_intento "$ID" "$(veredicto "$LOG")" 0 humano "$LOG"
 
 if [ "$rc" -eq 0 ]; then
   echo "✓ $ID gate VERDE — commiteada en la rama tarea/$ID"

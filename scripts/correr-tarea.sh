@@ -77,7 +77,7 @@ lanzar() {
       # --agent ejecutor: primario con el harness mínimo (6 herramientas en vez de 10).
       # Medido: el cuerpo del request baja de 39.548 a 17.423 caracteres. Se puede cambiar
       # con AGENTE=build si hace falta delegar en subagentes desde la tarea.
-      opencode run --agent "${AGENTE:-ejecutor}" "Implementá la tarea descrita en $archivo. Leela completa antes de empezar. Respetá los archivos permitidos y prohibidos. Al terminar corré 'bash scripts/gate.sh' y mostrá su salida real." 2>&1
+      opencode run --agent "${AGENTE:-ejecutor}" "${MOTIVO:+Un intento anterior falló así: $MOTIVO. No repitas ese camino. }Implementá la tarea descrita en $archivo. Leela completa antes de empezar. Respetá los archivos permitidos y prohibidos. Al terminar corré 'bash scripts/gate.sh' y mostrá su salida real." 2>&1
     } > "$log" 2>&1
     # El agente ya terminó. Recién ahora corre el gate, y el veredicto es su código de
     # salida: nunca lo que el agente escribió. Pasó de verdad: el modelo afirmó
@@ -89,7 +89,8 @@ lanzar() {
     # Una línea por intento en el registro: las métricas leen datos, no adivinan del texto.
     anotar_intento "$id" "$([ -n "$error" ] && echo ERROR || veredicto "$log")" \
                    "$(( $(date +%s) - inicio ))" \
-                   "$(grep -m1 -oE '^\[0m> [a-z]+ · [0-9a-f]{8}' "$log" | awk '{print $NF}')"
+                   "$(grep -m1 -oE '^\[0m> [a-z]+ · [0-9a-f]{8}' "$log" | awk '{print $NF}')" \
+                   "$log"
     if [ -n "$error" ]; then echo "✗ $id ERROR del agente: $error"
     elif [ "$rc" -eq 0 ]; then echo "✓ $id gate VERDE"
     else echo "✗ $id gate ROJO"; fi
