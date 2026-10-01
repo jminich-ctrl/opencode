@@ -51,14 +51,19 @@ print()
 total_int = len(filas)
 nunca_verde = len(por_tarea) - cerradas
 errores = sum(1 for f in filas if f["veredicto"] == "ERROR")
+imposibles = sorted({f["tarea"] for f in filas if f["veredicto"] == "IMPOSIBLE"})
 segs = [int(f["segundos"]) for f in filas if f["segundos"].isdigit()]
 print(f"Intentos: {total_int}   ·   tareas intentadas: {len(por_tarea)}")
 if por_tarea:
     # El denominador son TODAS las tareas intentadas, no solo las que llegaron a verde:
     # contar solo las exitosas es sesgo de supervivencia y da números lindos y falsos.
-    pct = primera_verde * 100 // len(por_tarea)
-    print(f"Verde al PRIMER intento: {primera_verde}/{len(por_tarea)} ({pct}%)")
-    if nunca_verde:
+    # Las imposibles salen del denominador: miden la calidad del plan, no la del ejecutor.
+    delegables = len(por_tarea) - len(imposibles)
+    pct = primera_verde * 100 // delegables if delegables else 0
+    print(f"Verde al PRIMER intento: {primera_verde}/{delegables} ({pct}%)"
+          + (f"  [{len(imposibles)} imposible/s fuera del denominador]" if imposibles else ""))
+    nunca_verde -= len(imposibles)
+    if nunca_verde > 0:
         print(f"Nunca llegaron a verde: {nunca_verde}/{len(por_tarea)} "
               f"— las cerró un humano (regla: lo que falla dos veces no se insiste)")
     if pct >= 60:   print("→ ≥60%: la descomposición funciona.")
@@ -67,6 +72,12 @@ if por_tarea:
 if errores:
     print(f"Intentos perdidos por errores de plataforma: {errores} "
           f"({errores * 100 // total_int}%) — no cuentan contra el modelo")
+if imposibles:
+    # No son fallas del agente: son tareas mal especificadas que el agente detectó. Contarlas
+    # como rojo escondería la señal más útil que da el canal de escalada, y además mezclaría
+    # un problema del plan con un problema del modelo.
+    print(f"Declaradas IMPOSIBLES por el agente: {len(imposibles)} "
+          f"({', '.join(imposibles)}) — son problemas del plan, no del modelo. Leé el motivo.")
 if segs:
     print(f"Tiempo por intento: mediana {statistics.median(segs):.0f}s, "
           f"máximo {max(segs)}s, total {sum(segs) // 60} min")

@@ -158,6 +158,23 @@ El detalle completo está en [`plantillas/REVISION.md`](plantillas/REVISION.md).
 
 ## 4. Cuándo dejamos de insistir
 
+### Cuando el agente dice que no se puede
+
+Hay un cuarto resultado además de verde, rojo y error: **`IMPOSIBLE`**. El agente lo escribe
+cuando la tarea se contradice —los tests piden algo que el objetivo prohíbe, falta algo sin lo
+cual no se puede hacer— y el runner **no lo reintenta**.
+
+**Creele y leé el motivo.** No es una excusa: le dimos esa salida porque está medido que sin
+ella un modelo al que se le pide lo imposible **hace pasar el test de alguna forma** — el
+reward hacking baja de 54% a 9% en una medición y de 23,6% a 5,3% en otra con sólo abrir el
+canal. Y escalada y trampa son casi mutuamente excluyentes: 98,7% de las escaladas no tienen
+trampa, y cuando se dispara acierta el 99,4% de las veces.
+
+Una tarea imposible es un problema **del plan**, no del modelo, y por eso las métricas la
+sacan del denominador de "verde al primer intento": mezclarlas esconde la señal.
+
+### Cuando falla dos veces
+
 **Lo que falla dos veces no se relanza una tercera.** O está mal especificado, o no era
 delegable.
 
