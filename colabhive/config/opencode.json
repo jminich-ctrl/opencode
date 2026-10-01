@@ -69,7 +69,7 @@
   "small_model": "colabhive/a9aa41f2-b238-4de1-8abf-c58b84eb0331",
   "agent": {
     "plan": {
-      "model": "colabhive/5d21e32a-3bbb-4040-9c34-3b06c4415b84",
+      "model": "colabhive/1af07b1f-5832-4451-a61c-76d1fe43115a",
       "temperature": 0.3,
       "description": "Analiza, diseña y reparte el trabajo. No edita archivos.",
       "prompt": "{file:./prompts/plan.md}",
@@ -84,17 +84,17 @@
       "mode": "primary"
     },
     "explore": {
-      "model": "colabhive/a9aa41f2-b238-4de1-8abf-c58b84eb0331",
+      "model": "colabhive/5d21e32a-3bbb-4040-9c34-3b06c4415b84",
       "temperature": 0.1,
       "description": "Busca en el código y responde dónde están las cosas. No edita.",
       "mode": "subagent"
     },
     "title": {
-      "model": "colabhive/a9aa41f2-b238-4de1-8abf-c58b84eb0331",
+      "model": "colabhive/5d21e32a-3bbb-4040-9c34-3b06c4415b84",
       "mode": "primary"
     },
     "summary": {
-      "model": "colabhive/a9aa41f2-b238-4de1-8abf-c58b84eb0331",
+      "model": "colabhive/5d21e32a-3bbb-4040-9c34-3b06c4415b84",
       "mode": "primary"
     },
     "compaction": {
@@ -132,7 +132,7 @@
       }
     },
     "arquitecto": {
-      "model": "colabhive/9a1f0c77-4b2e-4d3a-8f6b-0c2e5a7d120b",
+      "model": "colabhive/1af07b1f-5832-4451-a61c-76d1fe43115a",
       "temperature": 0.3,
       "description": "Convierte un objetivo en PLAN.md y tareas ejecutables. No escribe código.",
       "prompt": "{file:./prompts/arquitecto.md}",

@@ -138,19 +138,40 @@ un agente nuevo.
 
 ### El equipo actual
 
-| Rol | Modelo | Contexto | Por qué |
-|---|---|---|---|
-| `plan` | gpt-oss-20b | 69k | razona antes de repartir, y es el más rápido |
-| `build` | Qwen3-Coder-30B-A3B | 204k | instruct, actúa en vez de deliberar |
-| `reviewer` | Qwen3.8-27B FP8 | 117k | pensante: acá su deliberación suma |
-| `tester` | Qwen3-Coder-30B-A3B | 204k | mismo ejecutor |
-| `explore`, `title`, `summary` | gpt-oss-20b | 69k | el que antes contesta: un modelo que delibera tarda segundos en un título |
+| Rol | Modelo | Por qué |
+|---|---|---|
+| `arquitecto`, `plan`, `reviewer`, `seguridad` | **Qwen3.8-27B** | pensante: acá la deliberación suma, y es el que lidera seguimiento de instrucciones (IFBench 79,5) y ejecución de horizonte largo (Terminal-Bench 2.1 73,0) entre los open-weight de su tamaño |
+| `ejecutor`, `build`, `tester`, `devops`, `migrador` | **Qwen3-Coder-30B-A3B** | instruct de código: actúa en vez de deliberar |
+| `title`, `summary`, `explore` | **gpt-oss-20b** | el único criterio es la velocidad: medido 1,1s contra 12,8s de Qwen3-8B para un título |
 
-| `ejecutor` | Qwen3-Coder-30B-A3B | 204k | igual que `build`, pero con 6 herramientas en vez de 10 |
+**Tres modelos, no cinco**, y eso importa más que la elección de cada uno: con cinco
+anclados, despertar uno desalojaba a otro.
 
 El agente por defecto de OpenCode es `build`: es el que usan la TUI y `oc "tarea"`.
 **El runner usa `ejecutor`**, que es `build` con el harness recortado (§7).
-El `model` de primer nivel (gpt-oss-20b) sólo se usa para lo que no declara un modelo propio.
+
+### Lo que salió del equipo, y por qué
+
+**gpt-oss-120b** era el arquitecto y quedó sin rol el 2026-10-01. Tres razones, la primera
+mecánica y por eso la más fuerte:
+
+1. **Su formato de tool call manda los argumentos como un único blob JSON.** Para llamar a
+   `write`, el modelo tiene que emitir un archivo entero como string JSON escapado —cada
+   salto de línea como `\n`, cada comilla escapada, en una sola tirada—. Es la forma más
+   difícil posible justo para la única operación que el planificador necesita. El formato de
+   Qwen es XML con el cuerpo **en texto crudo entre etiquetas**, sin escapar nada y con
+   multilínea explícitamente soportada. Eso explica por qué el nuestro escribía prosa.
+2. **La medición en su rango de tamaño dice que no paga.** Planificar le da a un 30B +11,6
+   puntos en SWE-Bench Verified y a un 120B **ninguna ganancia consistente**.
+3. **En Intel sólo corre en MXFP4.** No se puede cambiar precisión por caché KV como con
+   Qwen3.8-27B, que tiene FP16, FP8 e INT4.
+
+Se queda instalado por una razón: es el **único** modelo con receta publicada para Arc Pro
+B70 (4×32 GB, TP=4, MXFP4), así que sirve como configuración conocida-buena para aislar un
+problema de infraestructura.
+
+**Qwen3-8B** salió porque para títulos y resúmenes razonaba antes de contestar: 12,8s contra
+1,1s. El tamaño no predice la latencia; si el modelo delibera, sí.
 
 **El criterio no es el benchmark, es si actúa o delibera.** Ver
 [INFRAESTRUCTURA.md](INFRAESTRUCTURA.md#cómo-elegir-el-modelo-de-cada-rol).
@@ -324,5 +345,7 @@ necesita `task`. Si una tarea necesita delegar, se lanza con `AGENTE=build`.
 | Una tarea tarda 20 min sin salida | modelo frío | `oc --warm` antes |
 | `--agent reviewer` no usa reviewer | los subagentes no se invocan desde la CLI | usar `@reviewer` dentro de una sesión |
 | `--agent arquitecto` contesta como `build` | el agente propio no declaraba `mode` y no se registró | `"mode": "primary"`, y verificar con `opencode agent list` |
-| `</think>` aparece dentro de la respuesta | el motor no tiene parser de razonamiento para ese modelo | pedirlo a la plataforma; `reasoning_content` viene vacío |
+| `reasoning_content` viene vacío | **el campo se llama `reasoning`**: vLLM lo renombró, y un cliente que lee el viejo ve vacío aunque el nuevo esté lleno | leer `message.reasoning`, y mandar `include_reasoning: true` en el request |
+| `</think>` aparece dentro de `content` | el servidor tiene `--tool-call-parser` **sin** `--reasoning-parser`: el parser de herramientas se come el `</think>` y funde el razonamiento en el contenido | pedir a la plataforma que agregue `--reasoning-parser qwen3` (o el del modelo) |
+| el modelo "escribe prosa" en vez de llamar a la herramienta | puede ser que **emita el tool call dentro de `<think>`**: el parser de herramientas sólo busca en `content`, nunca en el razonamiento | el `--reasoning-parser` correcto, y forzar la llamada con `tool_choice` por nombre |
 | `auto-rejecting` y el agente abandona | un `permission.bash` por comando que OpenCode descartó en silencio; en modo no interactivo todo `ask` se auto-rechaza | no dar la herramienta (`"bash": false`) en vez de intentar restringirla |

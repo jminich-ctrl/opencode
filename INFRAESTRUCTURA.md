@@ -240,3 +240,46 @@ para speculative decoding · correr un GGUF de 200B+ y pretender programar contr
 Además llm-scaler reporta **escalado casi lineal con data parallel (3,58× en 4 GPUs)**.
 Para un equipo de agentes —muchas tareas en paralelo, no una sola gigante— **DP rinde más
 que TP**: varias réplicas en TP=2 antes que un solo modelo en TP=4.
+
+---
+
+## Dos correcciones de infraestructura (2026-10-01)
+
+Las dos salieron de leer el código de vLLM y la documentación de Intel, no de probar.
+
+### La regla de tensor parallelism que usábamos estaba mal
+
+Veníamos diciendo "TP tiene que dividir la cantidad de cabezas KV". **La regla real tiene
+dos ramas**, y la que corta primero es otra:
+
+1. **Siempre**: `cabezas_de_atención % TP == 0`. Es el chequeo duro, en tiempo de
+   configuración, y el que falla en la práctica.
+2. Después, sobre las KV: si `TP >= cabezas_KV`, hace falta `TP % cabezas_KV == 0`; si
+   `TP < cabezas_KV`, hace falta `cabezas_KV % TP == 0`.
+
+La diferencia importa: **KV=2 no bloquea TP=8** — las cabezas KV se replican cuando son
+menos que TP, por diseño. Lo que bloquea casi siempre es la cantidad de cabezas de
+**consulta**.
+
+**Y TP=6 sigue siendo inservible**, pero por el otro motivo: 16, 20, 32, 64 y 80 no son
+divisibles por 6, y los dos conteos que sí lo son (24 y 48) después fallan la segunda rama.
+De ocho candidatos revisados, **ninguno admite TP=6**.
+
+### El nodo de 6×B70 no son 192 GB: son tres réplicas de 64 GB
+
+La documentación de Intel para llm-scaler **sólo usa `-tp=1` y `-tp=2`**; no hay un solo
+ejemplo con TP=4 ni TP=8. TP=4 es legal para vLLM en siete de los ocho candidatos, pero está
+fuera de lo documentado por Intel: es experimental.
+
+> **Topología recomendada: TP=2 × DP=3.** Tres réplicas independientes de 64 GB, que además
+> calzan con el equipo de tres modelos: arquitecto, ejecutor y rápidos, uno por réplica.
+
+Y dos trampas de cuantización en este hardware, verificadas contra la tabla de llm-scaler:
+
+- **NVFP4 no nos sirve**: es sólo Blackwell. Varios de los repos **más descargados** de los
+  modelos que nos interesan son NVFP4 — el contador de descargas no elige el repo.
+- **AutoRound no está soportado**, confirmado: la tabla lista MXFP4, FP8 online, `sym_int4`
+  online, y AWQ o GPTQ pre-cuantizados. AutoRound no aparece.
+- **AWQ y GPTQ pre-cuantizados sí andan, y se autodetectan** del `config.json`: no hace falta
+  pasar `--quantization`. En las 3090, preferilos sobre FP8: Ampere no tiene cómputo FP8, así
+  que un FP8 corre por dequantización y no gana nada.

@@ -16,12 +16,16 @@ set -uo pipefail
 BUILDER="${COLABHIVE_BUILDER_URL:-https://api.colabhive.com/api/builder/v1}"
 ACCION="${1:-anclar}"
 
+# Tres modelos, no cinco. gpt-oss-120b y Qwen3-8B quedaron sin rol el 2026-10-01:
+# el primero porque la medición en su rango de tamaño encontró cero ganancia de exactitud
+# por planificar a 120B, y porque su formato de tool call manda los argumentos como un
+# único blob JSON — un archivo entero escapado en una sola tirada, que es la forma más
+# difícil justo para lo que el planificador tiene que hacer. El segundo porque para títulos
+# y resúmenes medimos 12,8s contra 1,1s de gpt-oss-20b.
 MODELOS=(
-  "9a1f0c77-4b2e-4d3a-8f6b-0c2e5a7d120b:arquitecto  gpt-oss-120b"
-  "f5d76140-5b4d-41c0-88da-dad6d11f341a:ejecutor    Qwen3-Coder-30B"
-  "1af07b1f-5832-4451-a61c-76d1fe43115a:reviewer    Qwen3.8-27B"
-  "5d21e32a-3bbb-4040-9c34-3b06c4415b84:orquestador gpt-oss-20b"
-  "a9aa41f2-b238-4de1-8abf-c58b84eb0331:worker      Qwen3-8B"
+  "1af07b1f-5832-4451-a61c-76d1fe43115a:arquitecto y reviewer  Qwen3.8-27B"
+  "f5d76140-5b4d-41c0-88da-dad6d11f341a:ejecutor               Qwen3-Coder-30B"
+  "5d21e32a-3bbb-4040-9c34-3b06c4415b84:rápidos (title/summary) gpt-oss-20b"
 )
 
 auth() { printf 'X-API-Key: %s\n' "$COLABHIVE_API_KEY"; }
