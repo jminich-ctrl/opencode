@@ -270,10 +270,8 @@ Lo que sacamos en limpio, y es incómodo:
 
 Los huecos del registro publicado que están al alcance de este repo:
 
-1. **Barrido de cantidad de herramientas** con un modelo abierto chico fijo en una tarea de
-   código. Ya tenemos el instrumento (`proxy_medidor.py`), el par de agentes (`build` con 10
-   herramientas contra `ejecutor` con 6) y el comando:
-   `bash scripts/comparar-modelos.sh T05 @build @ejecutor`. Falta que la plataforma vuelva.
+1. **Barrido de cantidad de herramientas** con un modelo abierto chico fijo. **Lo corrimos,
+   y el resultado es nulo** — ver más abajo.
 2. **Tool calling con gramática dentro de un harness real.** Está probado que la decodificación
    restringida elimina las fallas **estructurales** (100% de validez de esquema en modelos de
    0,6B a 4B), y también que **los motores de gramática fallan en esquemas complejos** — uno
@@ -650,3 +648,45 @@ funciona. Queda escrito para cuando el riesgo deje de ser estrecho.
   contra de a uno**.
 - Y el esquema de registro de corridas de agentes que nos habían pasado como publicado: no
   existe.
+
+---
+
+# El A/B de herramientas, corrido (2026-10-03)
+
+El hueco que la revisión de literatura marcaba como no publicado: **nadie midió cantidad de
+herramientas con un modelo chico abierto fijo en una tarea de código.** Lo corrimos.
+
+**Diseño:** T40 (pausar la partida), un archivo, tres cosas que escribir, cuatro tests
+escritos antes. Mismo modelo (Qwen3-Coder-30B-A3B), mismo prompt, mismo worktree limpio. La
+única variable es el harness: `build` con 10 herramientas contra `ejecutor` con 6, que son
+**39.548 contra 17.424 caracteres** de cuerpo de request.
+
+| | gate | segundos | llamadas a herramientas | líneas de deliberación | archivos |
+|---|---|---|---|---|---|
+| `build` (10) | ✓ verde | 51 | 5 | 139 | 1 |
+| `ejecutor` (6) | ✓ verde | 51 | 6 | 154 | 1 |
+
+**Resultado: ninguna diferencia medible.** Las dos en verde, el mismo tiempo al segundo, y
+las dos escribieron prácticamente el mismo código.
+
+**Lo que se puede concluir, y lo que no.** Se puede: **el recorte del 56% del payload es
+gratis** — no cuesta éxito ni tiempo en una tarea de este tamaño. No se puede: que *mejore*
+algo. Con **una tarea y una corrida por brazo** no hay forma de detectar una diferencia;
+51 contra 51 segundos y 5 contra 6 llamadas están dentro de cualquier ruido. Para medir una
+diferencia real haría falta repetir sobre muchas tareas, y el piso de ruido de este tipo de
+números ronda los 3 puntos.
+
+**Por qué lo publicamos igual:** un resultado nulo honesto sobre un hueco del registro vale
+más que no medir. Y la lectura práctica es útil: si recortar el harness a la mitad no empeora
+nada, **recortalo** — el contexto ahorrado se usa en otra cosa.
+
+### Y lo que la primera corrida sí midió
+
+El primer intento del A/B dio **las dos en rojo**, 151 y 137 segundos. No era el harness:
+**el test estaba mal.** Usaba una coordenada que en el mapa era el arranque de un fantasma y
+no la pastilla de poder, así que el estado que verificaba nunca se activaba.
+
+Dos agentes implementaron bien, los dos quedaron en rojo, y el gate dijo exactamente qué
+pasaba —el paso 4 confirmó que la implementación era real— **pero sólo si uno lee más allá
+de `GATE ROJO`**. De ahí salió la regla de validar el test contra una implementación de
+referencia antes de lanzar ([METODO.md](METODO.md) P2).

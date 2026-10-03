@@ -74,3 +74,20 @@ Notas de la jornada:
 - `/v1/models` ahora trae `max_model_len` + `max_model_len_source` (resident/configured).
 - gpt-oss-20b hace prefill a ~21.000 tok/s; el 27B, a ~1.280 tok/s (17×). Con caching
   importa menos, pero sigue abierto en qué nodo corre cada uno.
+
+## El A/B de cantidad de herramientas (2026-10-03)
+
+Mismo modelo (Qwen3-Coder-30B-A3B), misma tarea, mismo prompt; la única variable es el
+harness. `build` manda 39.548 caracteres de cuerpo de request con 10 herramientas;
+`ejecutor` manda 17.424 con 6.
+
+| | gate | segundos | tool calls | deliberación | archivos |
+|---|---|---|---|---|---|
+| `build` (10) | ✓ verde | 51 | 5 | 139 | 1 |
+| `ejecutor` (6) | ✓ verde | 51 | 6 | 154 | 1 |
+
+**Ninguna diferencia medible.** El recorte del 56% del payload es **gratis**: no cuesta éxito
+ni tiempo. Que *mejore* algo no se puede afirmar con una tarea y una corrida por brazo.
+
+Y los dos tiempos de 51 s son con los modelos calientes. Las mediciones anteriores de
+"0,4–2,2 tok/s" eran arranques en frío: 253 s de carga contra 3,6 s en caliente.
