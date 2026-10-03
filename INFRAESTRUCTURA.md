@@ -283,3 +283,49 @@ Y dos trampas de cuantización en este hardware, verificadas contra la tabla de 
 - **AWQ y GPTQ pre-cuantizados sí andan, y se autodetectan** del `config.json`: no hace falta
   pasar `--quantization`. En las 3090, preferilos sobre FP8: Ampere no tiene cómputo FP8, así
   que un FP8 corre por dequantización y no gana nada.
+
+---
+
+## La "regresión de velocidad" no era el motor: eran arranques en frío (2026-10-03)
+
+Medimos durante días entre **0,4 y 2,2 tok/s** contra una línea base de 178, lo reportamos
+tres veces como regresión del motor, y **estaba mal medido**. Lo que medíamos era el arranque.
+
+En el mismo endpoint, separando las dos cosas:
+
+| | |
+|---|---|
+| arranque en frío | **253 s** |
+| en caliente | 3,62 s para 74 tokens = **20,4 tok/s** |
+
+Con `min_replicas = 0` cada pedido levanta una réplica de cero: pesos, init del motor, y si
+la imagen no está en el nodo, 19 GB de pull. Nuestros "178 s para 12 tokens" eran eso: un
+arranque, no generación.
+
+### Y la parte que sí es un problema, con evidencia
+
+Nuestros endpoints **están configurados para no hacer eso** y lo hacen igual. Leído directo
+de la API:
+
+```
+scaling_mode     = "minimum"
+min_replicas     = 1
+current_replicas = 0        ← ninguna réplica corriendo
+warm_nodes       = null
+status           = "active"
+```
+
+Los tres modelos del equipo, igual. O sea: el anclaje está puesto —`anclar.sh` lo configuró—
+y la plataforma no lo mantiene. **Eso es lo que hay que pedir**, y es distinto de lo que
+veníamos pidiendo.
+
+### La lección sobre cómo medimos
+
+Teníamos la regla escrita —*"no medir durante cambios"*— y nos faltaba la otra:
+
+> **Medir latencia sin separar el arranque de la generación no mide nada.** Un número de
+> tok/s sobre un pedido único contra un endpoint que escala a cero es, en el mejor de los
+> casos, el tiempo de carga dividido por los tokens.
+
+Lo correcto es dos pedidos: el primero se descarta, el segundo mide. Es lo que `warm.sh`
+hacía para calentar y nunca usamos para medir.

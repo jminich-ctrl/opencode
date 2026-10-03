@@ -308,6 +308,45 @@ Vale la pena porque las tres cosas se rompen solas: los modelos se enfrían, las
 cambian de ventana al reemplazarse (vimos gpt-oss pasar de 126k a 76k sin aviso) y el
 prefix caching depende de cómo se levantó el motor.
 
+### El parser de razonamiento se declara POR MODELO, nunca "para todos"
+
+Pedimos a la plataforma *"`--reasoning-parser` en todo endpoint que tenga
+`--tool-call-parser`"*. **Era una recomendación equivocada y lo probaron rompiéndolo**:
+aplicado a Qwen3-VL-8B, que **no es un modelo pensante**, el resultado fue
+
+```
+content   = ''                                      ← VACÍO
+reasoning = 'El cielo es azul porque la atmósfera…'  ← la respuesta COMPLETA
+```
+
+El parser asume que la salida arranca en razonamiento hasta un `</think>` que nunca llega,
+así que **se come todo el contenido**. Es el fallo inverso y es peor: sin el parser el
+razonamiento se filtra al contenido; con el parser el contenido desaparece. De 30 modelos del
+catálogo, **8 habrían quedado así** — la familia Mistral entera (ninguno razona; el parser
+`mistral` es para Magistral) y las variantes VL, Reranker y Embedding de Qwen3.
+
+**La regla correcta:** se declara por modelo, y se verifica con un pedido real — **`content`
+no puede volver vacío**. Si un modelo razona y no separa el razonamiento, se pide el parser
+*para ese modelo*.
+
+> La lección que nos deja, y es sobre nosotros: generalizamos un arreglo correcto para un
+> modelo a todo un catálogo que no habíamos mirado. **Un arreglo verificado en un caso no es
+> una regla.**
+
+### Cómo leer el razonamiento, en el orden correcto
+
+```python
+reasoning = m.get("reasoning") or m.get("reasoning_content") or ""
+```
+
+**En ese orden.** El camino directo de vLLM puebla `reasoning` y deja `reasoning_content`
+vacío; el camino agregado —cuando la respuesta se reconstruye de un stream— puebla los dos.
+Al revés, en el camino directo leés vacío y concluís que el modelo no razona. Es exactamente
+el error que cometimos.
+
+Y mandá **`include_reasoning: true`** explícito en el request: está verificado que se
+respeta, y un build que siempre devuelve el trazo lo ignora, así que es seguro igual.
+
 ### Cuánto pesa el harness, y cómo pesarlo
 
 Ninguna documentación dice cuánto contexto gasta OpenCode **antes** de que empiece la tarea.
@@ -359,6 +398,7 @@ necesita `task`. Si una tarea necesita delegar, se lanza con `AGENTE=build`.
 | `--agent reviewer` no usa reviewer | los subagentes no se invocan desde la CLI | usar `@reviewer` dentro de una sesión |
 | `--agent arquitecto` contesta como `build` | el agente propio no declaraba `mode` y no se registró | `"mode": "primary"`, y verificar con `opencode agent list` |
 | `reasoning_content` viene vacío | **el campo se llama `reasoning`**: vLLM lo renombró, y un cliente que lee el viejo ve vacío aunque el nuevo esté lleno | leer `message.reasoning`, y mandar `include_reasoning: true` en el request |
-| `</think>` aparece dentro de `content` | el servidor tiene `--tool-call-parser` **sin** `--reasoning-parser`: el parser de herramientas se come el `</think>` y funde el razonamiento en el contenido | pedir a la plataforma que agregue `--reasoning-parser qwen3` (o el del modelo) |
+| `</think>` aparece dentro de `content` | el servidor tiene `--tool-call-parser` **sin** `--reasoning-parser`: el parser de herramientas se come el `</think>` y funde el razonamiento en el contenido | pedir el parser **para ese modelo**, nunca "para todos" (ver abajo) |
+| `content` vuelve **vacío** y la respuesta entera está en `reasoning` | al revés: le pusieron un parser de razonamiento a un modelo que **no razona**. El parser asume que la salida arranca en razonamiento hasta un `</think>` que nunca llega, y se come todo | sacar el parser de ese modelo |
 | el modelo "escribe prosa" en vez de llamar a la herramienta | **emite el tool call dentro de `<think>`**: el parser de herramientas sólo busca en `content`, nunca en el razonamiento | `--reasoning-parser` del lado del servidor; del lado del cliente, apagar el pensamiento con `options.chat_template_kwargs.enable_thinking = false` en el agente |
 | `auto-rejecting` y el agente abandona | un `permission.bash` por comando que OpenCode descartó en silencio; en modo no interactivo todo `ask` se auto-rechaza | no dar la herramienta (`"bash": false`) en vez de intentar restringirla |

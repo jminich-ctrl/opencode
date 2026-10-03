@@ -25,7 +25,7 @@ auth | curl -sS -m 60 -H @- "$BUILDER/inference/models?include_readiness=true" \
 import json,sys
 for m in json.load(sys.stdin)["models"]:
     if m["readiness"] != "cold":
-        print(f"   {m[\"model_name\"][:48]:48} {m[\"readiness\"]:7} warm={m[\"warm_nodes\"]}")' || true
+        print("   %-48s %-7s warm=%s" % (m["model_name"][:48], m["readiness"], m["warm_nodes"]))' || true
 
 for entry in "${MODELS[@]}"; do
   id="${entry%%:*}"; nombre="${entry#*:}"

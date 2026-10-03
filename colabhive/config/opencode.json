@@ -77,7 +77,8 @@
       "options": {
         "chat_template_kwargs": {
           "enable_thinking": false
-        }
+        },
+        "include_reasoning": true
       }
     },
     "build": {
@@ -152,7 +153,8 @@
       "options": {
         "chat_template_kwargs": {
           "enable_thinking": false
-        }
+        },
+        "include_reasoning": true
       }
     },
     "seguridad": {
