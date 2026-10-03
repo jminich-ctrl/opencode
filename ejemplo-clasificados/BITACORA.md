@@ -196,3 +196,56 @@ plan que salió es mejor que el que yo había escrito antes en `plan-humano-clas
 
 Lo que falta para arrancar: **escribir los tests**, que es nuestro y está listado en el plan
 por etapa, y que Jose firme la línea de G0.
+
+## 2026-10-03 · El arquitecto escribe archivos — y se va de alcance
+
+Con el arquitecto en **Qwen3-Coder-30B-A3B-Instruct**, que **no genera bloques de
+razonamiento**, por primera vez llamó a `write`. Tres puntos de datos:
+
+| Arquitecto | ¿Pensante? | ¿Llamó a `write`? |
+|---|---|---|
+| gpt-oss-120b | sí | **no** — escribió 676 líneas de plan en la respuesta |
+| Qwen3.8-27B | sí | **no** — razonó bien 761 s, cero archivos |
+| Qwen3-Coder-30B | **no** | **sí** |
+
+**No era el modelo ni la plantilla de tool call: era pensante contra no-pensante**, con el
+servidor sin separar el razonamiento. Un modelo que piensa emite su llamada dentro del
+razonamiento, y el parser de herramientas sólo busca en `content`.
+
+**Hizo el trabajo bien:** partió T06 en T30 (proyecto Vite) y T31 (punto de entrada), con las
+dependencias correctas y los archivos dentro del alcance de cada una.
+
+### 21. Y se fue de alcance: 51 archivos de tarea donde había 27
+
+Le pedimos partir una tarea en dos. Además **duplicó casi todas las demás** con el nombre
+cambiado (`_` por `-`) y dejó las dos versiones, más dos huérfanos. El validador lo atrapó
+entero:
+
+```
+✗ archivos en tareas/ que la tabla no menciona: T30 T31
+✗ T06 tiene más de un archivo: T06-scaffolding-frontend.md, T06-scaffolding-vite.md
+✗ T07 tiene más de un archivo: ...
+```
+
+Los 22 duplicados eran archivos sin versionar, así que `git clean` sobre `tareas/` los sacó y
+el resto volvió con un `git checkout`. **Las herramientas de alcance del método no aplican a
+G0**: el gate limita al ejecutor por tarea, y el arquitecto escribe donde quiere. El
+validador es lo único que hay, y alcanzó.
+
+### 22. Un error de proceso nuestro: `git add -A` con un agente corriendo
+
+El commit que dice "Bitácora: T40, el A/B nulo" **arrastró los cambios del arquitecto sin
+revisarlos**, porque hice `git add -A` mientras todavía estaba escribiendo. Después hubo que
+desenredar qué era de quién leyendo `git log -S`.
+
+> **No commitees con un agente corriendo.** Y menos con `-A`.
+
+### 23. El validador no cruzaba la cabecera del archivo con la fila de la tabla
+
+Al arreglar las dependencias que quedaron apuntando a T06 —tres tareas— **creamos una
+inconsistencia**: la tabla decía que T13 dependía de T31 y su archivo decía T30. Son dos
+declaraciones de lo mismo y nada las comparaba, y cada una la lee alguien distinto: el runner
+ordena las etapas por la tabla y el agente lee el archivo.
+
+Ahora `validar-plan.py` las cruza, y lo primero que hizo fue atrapar la que acabábamos de
+crear.

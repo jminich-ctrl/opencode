@@ -123,6 +123,18 @@ for tid in sorted(set(tareas) & set(en_disco)):
     for c in CABECERAS:
         if c not in cuerpo:
             errores.append(f"{f.name} no tiene la línea {c}")
+    # La cabecera del archivo contra la fila de la tabla. Son dos declaraciones de lo mismo
+    # y nada las cruzaba: si el plan dice que T13 depende de T31 y su archivo dice T30, el
+    # runner usa la tabla para ordenar las etapas y el agente lee el archivo. Lo creamos
+    # nosotros editando a mano, que es cómo pasa siempre.
+    m_dep = re.search(r"^\*\*Depende de:\*\* *(.*)$", cuerpo, re.M)
+    if m_dep:
+        del_archivo = set(re.findall(r"T\d+", m_dep.group(1)))
+        if del_archivo != tareas[tid]["deps"]:
+            errores.append(
+                f"{f.name} declara «Depende de: {' '.join(sorted(del_archivo)) or '—'}» y la "
+                f"tabla dice «{' '.join(sorted(tareas[tid]['deps'])) or '—'}»")
+
     m = re.search(r"^\*\*Archivos que podés tocar:\*\* *(.*)$", cuerpo, re.M)
     if m and not m.group(1).strip():
         # Sin alcance el gate da rojo, así que la tarea es inejecutable desde el principio.

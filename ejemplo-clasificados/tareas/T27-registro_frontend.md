@@ -1,7 +1,7 @@
 # T27 — Registro frontend (página y servicio)
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
-**Depende de:** T06
+**Depende de:** T31
 **Archivos que podés tocar:** frontend/src/pages/Register.jsx, frontend/src/services/register.ts
 **Prohibido tocar:** Ninguno
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`

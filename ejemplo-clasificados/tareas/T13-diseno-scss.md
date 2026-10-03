@@ -1,7 +1,7 @@
 # T13 — Sistema de diseño propio en SCSS
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
-**Depende de:** T06
+**Depende de:** T30
 **Archivos que podés tocar:** frontend/src/design/_variables.scss, frontend/src/design/_mixins.scss, frontend/src/design/main.scss
 **Prohibido tocar:** 
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`, que usa el runner, no puede elegir un subagente

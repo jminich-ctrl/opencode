@@ -1,7 +1,7 @@
 # T07 — Login page y servicio auth frontend
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
-**Depende de:** T06
+**Depende de:** T31
 **Archivos que podés tocar:** frontend/src/pages/Login.vue, frontend/src/services/auth.ts
 **Prohibido tocar:** 
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`, que usa el runner, no puede elegir un subagente

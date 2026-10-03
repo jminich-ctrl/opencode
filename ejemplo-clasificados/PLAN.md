@@ -63,7 +63,7 @@ Crear un sitio de clasificados funcional con backend FastAPI (MySQL sin ORM) y f
 | T25 | Mensajes UI detalle | T23 | frontend/src/pages/MessageDetail.jsx | pendiente |
 | T11 | Editar propios avisos | T05, T08 | frontend/src/pages/EditAd.jsx, frontend/src/services/ads.ts | pendiente |
 | T12 | Filtro por categoría en listado | T08 | frontend/src/pages/AdsList.jsx, frontend/src/design/_filters.scss | pendiente |
-| T13 | Sistema de diseño propio en SCSS | T31 | frontend/src/design/_variables.scss, frontend/src/design/_mixins.scss, frontend/src/design/main.scss | pendiente |
+| T13 | Sistema de diseño propio en SCSS | T30 | frontend/src/design/_variables.scss, frontend/src/design/_mixins.scss, frontend/src/design/main.scss | pendiente |
 | T26 | Registro backend (creación de cuenta) | T03 | backend/app/rutas/register.py, backend/app/servicios/register.py, backend/app/datos/users_register.py | pendiente |
 | T27 | Registro frontend (página y servicio) | T31 | frontend/src/pages/Register.jsx, frontend/src/services/register.ts | pendiente |
 | T28 | Búsqueda backend (texto y categoría) | T05 | backend/app/rutas/search.py, backend/app/servicios/search.py, backend/app/datos/search_ads.py | pendiente |
