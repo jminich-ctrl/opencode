@@ -23,6 +23,7 @@ class Juego:
         """Arranca una partida sobre `laberinto`, con el puntaje en cero."""
         self.laberinto = laberinto
         self.puntaje = 0
+        self.record = 0
         self.ultima_pastilla = False
         self.asustado_restante = 0
         self.vidas = VIDAS_INICIALES
@@ -54,6 +55,11 @@ class Juego:
         if self.ultima_pastilla:
             self.asustado_restante = TICKS_ASUSTADO
             self._comidos_en_este_modo = 0
+        
+        # Actualizar el récord si el puntaje actual supera al récord
+        if self.puntaje > self.record:
+            self.record = self.puntaje
+            
         return comido
 
     def tick(self) -> None:
