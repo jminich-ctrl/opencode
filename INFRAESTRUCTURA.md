@@ -316,8 +316,18 @@ status           = "active"
 ```
 
 Los tres modelos del equipo, igual. O sea: el anclaje está puesto —`anclar.sh` lo configuró—
-y la plataforma no lo mantiene. **Eso es lo que hay que pedir**, y es distinto de lo que
-veníamos pidiendo.
+y la plataforma no lo mantiene.
+
+**Y después del warmup: `actuales=1` en los tres.** Entonces el comportamiento exacto es
+este, y es la regla operativa que importa:
+
+> **`min_replicas: 1` no se auto-repone.** Una vez que la réplica está arriba, se mantiene;
+> pero si se cayó o nunca arrancó, la plataforma **no la levanta sola**. Hay que mandar un
+> pedido que la despierte.
+
+Por eso `oc --warm` antes de cada tanda **no es una comodidad, es un requisito**: sin él, la
+primera tarea de la tanda paga 253 segundos y todas las mediciones de esa tanda quedan
+contaminadas. El propio `warm.sh` lo dice al terminar; le faltaba estar acá.
 
 ### La lección sobre cómo medimos
 

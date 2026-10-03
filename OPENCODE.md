@@ -271,8 +271,12 @@ oc --status     # ● warm  ◐ cached  ○ cold
 oc --warm       # manda un ping con streaming a cada modelo y espera la carga
 ```
 
-**Antes de cada tanda de tareas, `oc --warm`.** Tarda lo que tarde la carga, pero se paga
-una vez y no en medio de una tarea. Después de un deploy de la plataforma, obligatorio.
+**Antes de cada tanda de tareas, `oc --warm`. No es comodidad: es requisito.** Medido:
+`min_replicas: 1` **no se auto-repone** — una réplica arriba se mantiene, pero una caída no
+se levanta sola. Con cero réplicas, el primer pedido paga **253 segundos** de arranque
+(pesos, init del motor, y si la imagen no está en el nodo, 19 GB de pull) contra **3,6
+segundos** en caliente. Sin warmup, la primera tarea de la tanda tarda cuatro minutos y
+cualquier medición de esa tanda mide el arranque, no el modelo.
 
 ### Vigilar progreso, no `/health`
 
