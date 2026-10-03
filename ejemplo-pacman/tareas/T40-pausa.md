@@ -1,6 +1,6 @@
 # T40 — Pausar la partida
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T06 (hecha)
 **Archivos que podés tocar:** src/pacman/juego.py
 **Prohibido tocar:** `tests/` (los tests ya están escritos), `laberinto.py`, `entidades.py`, `render.py`, `__main__.py`
