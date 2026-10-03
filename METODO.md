@@ -93,6 +93,25 @@ imaginar el caso donde dos algoritmos difieren**, y eso es razonamiento contraf�
 fallando, y el trabajo del agente es hacerlos pasar sin tocarlos. Los escribe quien
 planifica. Invierte el modo de falla más difícil de detectar.
 
+#### Y el test se valida contra una implementación de referencia, antes de lanzar
+
+Escribir el test primero mueve el modo de falla, no lo elimina: **ahora el que puede estar
+mal es el test**, y un test mal escrito bloquea una implementación correcta. El agente queda
+en rojo por tu error y vos concluís que el agente no pudo.
+
+La validación cuesta cinco minutos y es obligatoria:
+
+1. Escribís el test. Tiene que **fallar** (si pasa, no prueba nada).
+2. Escribís una implementación mínima de referencia, a mano, aunque sea fea.
+3. El test tiene que **pasar**. Si no pasa, el test está mal, no la implementación.
+4. **Tirás la implementación de referencia** y lanzás la tarea.
+
+Nos pasó con T40: el test usaba una coordenada que en el mapa era el arranque de un
+fantasma y no la pastilla de poder, así que el estado que verificaba nunca se activaba. Dos
+agentes implementaron bien, los dos quedaron en rojo, y el gate dijo exactamente qué pasaba
+—el paso 4 confirmó que la implementación era real— pero sólo si uno lee más allá de
+`GATE ROJO`.
+
 > Hay una medición publicada que va en contra de pedirle TDD a un agente (3 a 8,5× más
 > tokens, sin mejora en calidad de suite). **No es lo mismo**: eso mide *instruirle* TDD;
 > esto es un artefacto de especificación producido aguas arriba. Ver

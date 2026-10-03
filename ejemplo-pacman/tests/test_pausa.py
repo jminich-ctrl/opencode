@@ -8,13 +8,17 @@ import unittest
 from src.pacman.juego import Juego
 from src.pacman.laberinto import Laberinto
 
+# La `o` es la pastilla de poder (laberinto.PODER). La primera versión de este archivo no
+# tenía ninguna y apuntaba a (1,5), que es el arranque de un fantasma: `comer_en` no activaba
+# el modo asustado y el test fallaba contra una implementación correcta.
 MAPA = [
     "#######",
-    "#P...G#",
+    "#Po..G#",
     "#.###.#",
     "#.....#",
     "#######",
 ]
+PASTILLA = (1, 2)
 
 
 class TestPausa(unittest.TestCase):
@@ -30,7 +34,7 @@ class TestPausa(unittest.TestCase):
 
     def test_en_pausa_el_tick_no_avanza_el_modo_asustado(self):
         juego = Juego(Laberinto(MAPA))
-        juego.comer_en((1, 5))          # la pastilla de poder activa el modo
+        juego.comer_en(PASTILLA)        # la pastilla de poder activa el modo
         antes = juego.asustado_restante
         juego.alternar_pausa()
         juego.tick()
@@ -39,7 +43,7 @@ class TestPausa(unittest.TestCase):
 
     def test_sin_pausa_el_tick_si_avanza(self):
         juego = Juego(Laberinto(MAPA))
-        juego.comer_en((1, 5))
+        juego.comer_en(PASTILLA)
         antes = juego.asustado_restante
         juego.tick()
         self.assertLess(juego.asustado_restante, antes)
