@@ -30,6 +30,7 @@ class Juego:
         self.fruta = None
         self._turnos_fruta = 0
         self._fruta_usada = False
+        self.pausado = False
 
     def comer_en(self, pos: tuple[int, int]) -> str:
         """Come lo que haya en `pos`, suma el puntaje y devuelve qué comió.
@@ -57,6 +58,9 @@ class Juego:
 
     def tick(self) -> None:
         """Avanza un turno: descuenta el modo asustado y la vida de la fruta."""
+        if self.pausado:
+            return
+            
         if self.asustado_restante > 0:
             self.asustado_restante -= 1
 
@@ -153,6 +157,10 @@ class Juego:
         if self.nivel_limpio():
             return "ganó"
         return None
+
+    def alternar_pausa(self) -> None:
+        """Alterna el estado de pausa."""
+        self.pausado = not self.pausado
 
     def nivel_limpio(self) -> bool:
         """¿Ya no quedan puntos ni pastillas para comer?"""
