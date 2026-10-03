@@ -1,6 +1,6 @@
 # T41 — Récord de puntaje
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T03 (hecha)
 **Archivos que podés tocar:** src/pacman/juego.py
 **Prohibido tocar:** `tests/`, `laberinto.py`, `entidades.py`, `render.py`, `__main__.py`
