@@ -77,10 +77,12 @@ que ya existía. El mapa pasó a tener 4 fantasmas.
 | T11 | Control fluido y ritmo del juego | T08 | `__main__.py` | ✅ agente, verde al 1er intento (el loop se corrigió al jugarlo) |
 | T12 | Presentación: colores y marcador | T07 | `render.py` | ✅ agente, rojo al 1er intento por una regla vieja del gate |
 | T13 | Los fantasmas persiguen de verdad | T10 | `entidades.py` | ✅ agente, segunda vuelta |
-| T14 | El emboscador no apunta fuera del mapa | T13 | `entidades.py` | ✅ agente, segunda vuelta |
-| T15 | El errante alterna fases de verdad | T14 | `entidades.py` | ✅ agente, tests escritos antes |
-| T16 | La fruta | T05 | `juego.py` | ✅ agente, tests escritos antes |
+| T14 | El emboscador no apunta fuera del mapa | T10, T13 | `entidades.py` | ✅ agente, segunda vuelta |
+| T15 | El errante alterna fases de verdad | T10, T13, T14 | `entidades.py` | ✅ agente, tests escritos antes |
+| T16 | La fruta | T03, T05, T06 | `juego.py` | ✅ agente, tests escritos antes |
 | T17 | El cruce mal detectado le cuesta vidas | T09 | `juego.py` | ✅ lo encontró @reviewer; el arreglo se completó el 2026-09-30 |
+| T40 | Pausar la partida | T06 | `juego.py` | ✅ agente, verde al 1er intento (tests escritos antes) |
+| T41 | Récord de puntaje | T03 | `juego.py` | ✅ agente; sus tests los escribió otro agente y los validó el gate |
 
 Las cuatro tocan archivos distintos y se lanzaron juntas. **3 de 4 verdes al primer
 intento**, y 73 tests al final (con `tests/test_loop.py`, que prueba el loop con una
