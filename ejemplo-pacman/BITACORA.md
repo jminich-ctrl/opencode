@@ -375,6 +375,64 @@ registra un agente propio que no declare `mode`**, y no avisa. Eso explica por q
 arquitecto nunca escribió `ejemplo-clasificados/PLAN.md` — la sesión nunca fue del
 arquitecto. Está en [../OPENCODE.md](../OPENCODE.md) §3, con el comando para verificarlo.
 
+## 2026-10-03 · T40 y el A/B de herramientas
+
+Primera tarea nueva del ejemplo en semanas, escrita para poder medir: **T40, pausar la
+partida.** Un archivo, tres cosas que escribir, cuatro tests escritos antes.
+
+### 18. El test estaba mal, y los dos agentes pagaron por eso
+
+El A/B salió **con las dos corridas en rojo**, 151 y 137 segundos. No era el harness: mi
+mapa de prueba **no tenía ninguna pastilla de poder** y la coordenada que usaba era el
+arranque de un fantasma, así que `comer_en` no activaba el modo asustado y
+`assertLess(0, 0)` fallaba contra cualquier implementación correcta.
+
+Dos agentes implementaron bien y los dos quedaron en rojo. **288 segundos de GPU para
+descubrir un error mío.**
+
+Lo que salva: el gate decía exactamente qué pasaba. El paso 4 informó *"fallan los tests de
+la tarea (TestPausa) al revertir"* — o sea, la implementación era real y distinguible— y el
+único rojo era la suite. **Pero eso sólo se ve leyendo más allá de `GATE ROJO`.** Si me
+quedaba en el veredicto, la conclusión era "los dos agentes no pudieron".
+
+**Qué cambió en el método:** escribir el test primero mueve el modo de falla, no lo elimina.
+Ahora el que puede estar mal es el test. La validación es obligatoria y cuesta cinco minutos:
+escribís el test, verificás que **falla**, escribís una implementación mínima de referencia a
+mano, verificás que **pasa**, **tirás la referencia**, y recién ahí lanzás.
+
+### 19. El A/B de cantidad de herramientas: resultado nulo
+
+Con el test arreglado y los modelos calientes:
+
+| | gate | segundos | tool calls | deliberación |
+|---|---|---|---|---|
+| `build` (10 herramientas, 39.548 ch) | ✓ verde | 51 | 5 | 139 |
+| `ejecutor` (6 herramientas, 17.424 ch) | ✓ verde | 51 | 6 | 154 |
+
+**Ninguna diferencia medible.** El recorte del 56% del payload es **gratis** —no cuesta
+éxito ni tiempo— pero con **una tarea y una corrida por brazo** no se puede afirmar que
+mejore nada. Lo dejamos publicado con el "no se puede concluir" explícito, porque era un
+hueco del registro y un nulo honesto vale más que no medir.
+
+### 20. Con tests-first, el tronco está rojo por diseño — y eso rompía integrar
+
+Al commitear los tests de T40 antes de la implementación, el tronco quedó rojo. Y
+`integrar.sh` exigía tronco verde antes de mergear, así que **el método se bloqueaba a sí
+mismo**: no dejaba integrar las tareas que sí habían aterrizado porque los tests de otra
+todavía fallaban.
+
+Arreglado como correspondía: la línea base es el **conjunto de fallas presentes** antes de
+empezar, y sólo se culpa al merge por fallas **nuevas**. Verificado integrando T40 con el
+tronco rojo: tomó sus propios tests como preexistentes, mergeó, y el tronco quedó verde.
+
+### Y el dato de infraestructura que cambia cómo medimos
+
+Las mediciones de "0,4 a 2,2 tok/s" de los días anteriores eran **arranques en frío**: 253
+segundos de carga contra 3,6 en caliente. Con los modelos calientes, T40 se hizo en **51
+segundos**. La regla que faltaba: **medir latencia sin separar el arranque de la generación
+no mide nada**, y `min_replicas: 1` **no se auto-repone**, así que el warmup antes de cada
+tanda es requisito y no comodidad.
+
 ## Plantilla para las próximas entradas
 
 ```markdown

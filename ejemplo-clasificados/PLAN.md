@@ -45,8 +45,9 @@ Crear un sitio de clasificados funcional con backend FastAPI (MySQL sin ORM) y f
 | T03 | Primera migración (usuarios y anuncios) | T01 | backend/migraciones/001_initial.sql | pendiente |
 | T04 | Auth backend (login, sesión) | T03 | backend/app/rutas/auth.py, backend/app/servicios/auth.py, backend/app/datos/users.py | pendiente |
 | T05 | CRUD de avisos backend | T04 | backend/app/rutas/ads.py, backend/app/servicios/ads.py, backend/app/datos/ads.py | pendiente |
-| T06 | Scaffolding frontend (Vite, React) | T01 | frontend/package.json, frontend/vite.config.ts, frontend/src/main.ts, frontend/src/App.jsx | pendiente |
-| T07 | Login page y servicio auth frontend | T06 | frontend/src/pages/Login.jsx, frontend/src/services/auth.ts | pendiente |
+| T30 | Scaffolding Vite | T01 | frontend/package.json, frontend/vite.config.ts | pendiente |
+| T31 | Punto de entrada frontend | T30 | frontend/src/main.tsx, frontend/src/App.jsx | pendiente |
+| T07 | Login page y servicio auth frontend | T31 | frontend/src/pages/Login.jsx, frontend/src/services/auth.ts | pendiente |
 | T08 | Listado y detalle de avisos frontend | T07 | frontend/src/pages/AdsList.jsx, frontend/src/pages/AdDetail.jsx, frontend/src/services/ads.ts | pendiente |
 | T14 | Favoritos datos | T05 | backend/app/datos/favorites.py | pendiente |
 | T15 | Favoritos servicio | T14 | backend/app/servicios/favorites.py | pendiente |
@@ -62,9 +63,9 @@ Crear un sitio de clasificados funcional con backend FastAPI (MySQL sin ORM) y f
 | T25 | Mensajes UI detalle | T23 | frontend/src/pages/MessageDetail.jsx | pendiente |
 | T11 | Editar propios avisos | T05, T08 | frontend/src/pages/EditAd.jsx, frontend/src/services/ads.ts | pendiente |
 | T12 | Filtro por categoría en listado | T08 | frontend/src/pages/AdsList.jsx, frontend/src/design/_filters.scss | pendiente |
-| T13 | Sistema de diseño propio en SCSS | T06 | frontend/src/design/_variables.scss, frontend/src/design/_mixins.scss, frontend/src/design/main.scss | pendiente |
+| T13 | Sistema de diseño propio en SCSS | T31 | frontend/src/design/_variables.scss, frontend/src/design/_mixins.scss, frontend/src/design/main.scss | pendiente |
 | T26 | Registro backend (creación de cuenta) | T03 | backend/app/rutas/register.py, backend/app/servicios/register.py, backend/app/datos/users_register.py | pendiente |
-| T27 | Registro frontend (página y servicio) | T06 | frontend/src/pages/Register.jsx, frontend/src/services/register.ts | pendiente |
+| T27 | Registro frontend (página y servicio) | T31 | frontend/src/pages/Register.jsx, frontend/src/services/register.ts | pendiente |
 | T28 | Búsqueda backend (texto y categoría) | T05 | backend/app/rutas/search.py, backend/app/servicios/search.py, backend/app/datos/search_ads.py | pendiente |
 | T29 | Búsqueda frontend (UI y servicio) | T08 | frontend/src/components/SearchBar.jsx, frontend/src/services/search.ts | pendiente |
 
