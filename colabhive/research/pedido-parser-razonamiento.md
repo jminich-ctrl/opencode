@@ -90,8 +90,31 @@ separando, y el parser de herramientas **sólo busca llamadas en `content`**.
 Esto convierte el pedido de "algo pasa con el razonamiento" en un bloqueante concreto:
 **sin esto, un agente pensante no puede usar herramientas en esta plataforma.**
 
-## Y un dato aparte, de rendimiento
+## Y un dato aparte, de rendimiento — **corregido por nosotros**
 
-Sigue la regresión: ese request de 12 tokens tardó **178 segundos**. Medimos entre **0,4 y
-2,2 tok/s** en tres endpoints distintos contra una línea base de 178 tok/s. Es independiente
-de lo anterior, pero mientras siga así no podemos medir nada.
+Lo que les reportamos antes como "0,4 a 2,2 tok/s contra una línea base de 178" **estaba mal
+medido**: eran arranques en frío. Con el protocolo correcto —mediana de 5 pedidos, en
+caliente, el mismo con que se midió la línea base— el 2026-10-03:
+
+| | hoy | línea base | |
+|---|---|---|---|
+| gpt-oss-20b (`5d21e32a`) | **18,1** tok/s | 179 | 10× más lento |
+| Qwen3-Coder-30B (`f5d76140`) | **28,9** tok/s | 141 | 5× más lento |
+
+**Hay regresión real, de 5 a 10×.** Perdón por el número anterior.
+
+**Y lo que más nos preocupa no es la media, es la varianza.** Las cinco corridas de cada
+modelo, consecutivas y en caliente:
+
+```
+gpt-oss-20b       21  12  18  24  12   tok/s
+Qwen3-Coder-30B   11  32  29  14  36   tok/s
+```
+
+Un factor de **3× entre pedidos consecutivos del mismo modelo caliente**. Eso no se parece a
+un motor más lento; se parece a contención o a planificación. Si hay varias réplicas
+compartiendo GPU, o un scheduler que reparte de a tandas, ahí estaría.
+
+Dato relacionado, y que ya les pasamos: `min_replicas: 1` **no se auto-repone** —tres
+endpoints con `min_replicas=1` y `current_replicas=0`— así que cada tanda arranca pagando
+253 s si nadie corrió un warmup antes.

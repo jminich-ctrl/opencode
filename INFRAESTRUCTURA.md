@@ -329,13 +329,39 @@ Por eso `oc --warm` antes de cada tanda **no es una comodidad, es un requisito**
 primera tarea de la tanda paga 253 segundos y todas las mediciones de esa tanda quedan
 contaminadas. El propio `warm.sh` lo dice al terminar; le faltaba estar acá.
 
-### La lección sobre cómo medimos
+### Cuánto es la regresión de verdad, medida bien
 
-Teníamos la regla escrita —*"no medir durante cambios"*— y nos faltaba la otra:
+Con el protocolo de la línea base —**mediana de 5 pedidos, en caliente**— el 2026-10-03:
 
-> **Medir latencia sin separar el arranque de la generación no mide nada.** Un número de
-> tok/s sobre un pedido único contra un endpoint que escala a cero es, en el mejor de los
-> casos, el tiempo de carga dividido por los tokens.
+| | hoy | línea base | |
+|---|---|---|---|
+| gpt-oss-20b | **18,1** tok/s | 179 | **10× más lento** |
+| Qwen3-Coder-30B | **28,9** tok/s | 141 | **5× más lento** |
 
-Lo correcto es dos pedidos: el primero se descarta, el segundo mide. Es lo que `warm.sh`
-hacía para calentar y nunca usamos para medir.
+**Hay regresión real, de 5 a 10×** — no de 100×, como reportamos durante días. Y la línea
+base estaba bien medida: era en caliente y con mediana de 5. El error fue todo nuestro.
+
+### Y lo peor no es la media: es la varianza
+
+Las cinco corridas de cada modelo, en caliente y consecutivas:
+
+```
+gpt-oss-20b       21  12  18  24  12   tok/s
+Qwen3-Coder-30B   11  32  29  14  36   tok/s
+```
+
+**Un factor de 3× entre pedidos consecutivos del mismo modelo.** Eso no se parece a un motor
+más lento: se parece a contención o a planificación. Y tiene una consecuencia inmediata:
+**un pedido único no mide nada.** Nuestros "56–59 tok/s" de más temprano ese mismo día eran
+una tirada afortunada de esa misma distribución.
+
+### Las tres reglas de medición que nos faltaban
+
+Teníamos escrita *"no medir durante cambios"*. Faltaban estas:
+
+> 1. **Separá el arranque de la generación.** Un tok/s sobre un pedido único contra un
+>    endpoint que escala a cero es el tiempo de carga dividido por los tokens.
+> 2. **Mediana de cinco, nunca uno.** Con 3× de varianza, un pedido te da el número que
+>    quieras.
+> 3. **Compará con el mismo protocolo con que se midió la línea base**, o no estás
+>    comparando. Nuestra "regresión de 100×" eran dos protocolos distintos.
