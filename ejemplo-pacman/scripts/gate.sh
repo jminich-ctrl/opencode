@@ -5,8 +5,13 @@
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 FALLOS=0
+VACIOS=0
 rojo() { echo "  ✗ $1"; FALLOS=$((FALLOS+1)); }
 verde() { echo "  ✓ $1"; }
+# Un chequeo que no pudo correr NO es un chequeo que pasó. Marcarlo distinto es la defensa
+# publicada contra la clase de falla que más veces nos mordió: un pase vacío se ve igual que
+# un pase, y por eso cuatro bugs de rutas vivieron semanas detrás de un ✓.
+vacuo() { echo "  ⊘ $1 — no pudo verificarse"; VACIOS=$((VACIOS+1)); }
 
 # Punto de partida del diff. Lo escribe el runner al crear el worktree, ANTES de que el
 # agente toque nada: si lo dedujéramos acá, el primer commit del agente movería la base y
@@ -66,7 +71,7 @@ else
   if [ -n "${TAREA:-}" ] && [ -z "$PERMITIDOS" ]; then
     rojo "la tarea $TAREA no declara \"Archivos que podés tocar\": sin alcance no hay gate"
   elif [ -z "${TAREA:-}" ]; then
-    verde "sin límite de alcance declarado (modo integración)"
+    vacuo "sin límite de alcance declarado (modo integración)"
   else
     FUERA=""
     while read -r archivo; do
@@ -115,9 +120,9 @@ if [ -n "${TAREA:-}" ]; then
     fi
   done
   if [ -z "$IMPL" ]; then
-    verde "no hay implementación nueva que revertir"
+    vacuo "no hay implementación que revertir"
   elif [ -z "$REVERTIDOS" ]; then
-    verde "archivos nuevos (no existían en HEAD): nada que revertir"
+    vacuo "archivos nuevos (no existían en HEAD): nada que revertir"
   else
     # Qué tests tienen que fallar, no sólo que "algo" falle: medido, la tasa agregada casi
     # no se mueve ante una regresión mientras las métricas por porción caen 25 a 91 puntos.
@@ -186,4 +191,12 @@ if [ -z "${TAREA:-}" ]; then
 fi
 
 echo
-if [ "$FALLOS" -eq 0 ]; then echo "GATE VERDE"; exit 0; else echo "GATE ROJO ($FALLOS fallo/s)"; exit 1; fi
+if [ "$FALLOS" -gt 0 ]; then
+  echo "GATE ROJO ($FALLOS fallo/s)"; exit 1
+elif [ "$VACIOS" -gt 0 ]; then
+  # Verde, pero con constancia de qué no se pudo verificar. El código sigue siendo 0 porque
+  # hay vacíos legítimos (un archivo nuevo no se puede revertir), pero quedan a la vista.
+  echo "GATE VERDE — con $VACIOS chequeo/s que no pudieron correr (⊘)"; exit 0
+else
+  echo "GATE VERDE"; exit 0
+fi

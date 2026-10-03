@@ -29,6 +29,7 @@ La idea en tres líneas:
 | Archivo | Qué contesta |
 |---|---|
 | **[EMPEZAR.md](EMPEZAR.md)** | De cero a la primera tarea ejecutada. Empezá por acá |
+| **[PRUEBAS.md](PRUEBAS.md)** | Quién verifica a los verificadores: la clase de falla que más nos mordió, y la suite del método |
 | **[METODO.md](METODO.md)** | Principios, roles, los seis pasos del gate, integrar, cómo se ejecuta y qué medir |
 | **[DESCOMPOSICION.md](DESCOMPOSICION.md)** | Cómo bajar un proyecto enorme a tareas ejecutables |
 | **[HUMANO.md](HUMANO.md)** | El rol humano: qué decidimos, aprobamos y juzgamos, y cómo intervenir poco |

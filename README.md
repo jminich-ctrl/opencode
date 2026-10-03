@@ -80,6 +80,7 @@ the tasks pass on the first attempt, the problem is the plan, not the model.
 | File | What it answers |
 |---|---|
 | [EMPEZAR.md](EMPEZAR.md) | From zero to the first task run by an agent |
+| [PRUEBAS.md](PRUEBAS.md) | Who verifies the verifiers: the failure class that bit us ten times, and the method's own test suite |
 | [METODO.md](METODO.md) | Principles, roles, the gate's six checks, integration, how to run and what to measure |
 | [DESCOMPOSICION.md](DESCOMPOSICION.md) | How to break a big project into tasks a 30B model can execute |
 | [HUMANO.md](HUMANO.md) | The human role: what we decide, approve and judge — and how to intervene little |

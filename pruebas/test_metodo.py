@@ -46,15 +46,17 @@ def correr(cmd, cwd, **env):
 class Proyecto:
     """Un repo de juguete con la forma que el método espera, para perturbar y tirar."""
 
-    def __init__(self, en_subdirectorio=True):
+    def __init__(self, donde="proyecto"):
         # El proyecto va en un SUBDIRECTORIO del repo a propósito: es la configuración donde
         # aparecen los bugs de rutas (`git diff` y `git cat-file` informan desde la raíz del
         # repo, no del proyecto) y es como están los dos ejemplos. Con el proyecto en la
         # raíz, esos bugs no se reproducen y los tests dan verde con el bug puesto — lo
         # comprobamos reintroduciéndolos.
         self.repo = pathlib.Path(tempfile.mkdtemp(prefix="prueba-metodo-"))
-        self.dir = (self.repo / "proyecto") if en_subdirectorio else self.repo
-        self.dir.mkdir(exist_ok=True)
+        # `donde` es la ubicación del proyecto DENTRO del repo. Variarla es la relación
+        # metamórfica del test de abajo: el veredicto no puede depender de dónde está.
+        self.dir = self.repo if donde == "." else (self.repo / donde)
+        self.dir.mkdir(parents=True, exist_ok=True)
         for d in ("tareas", "scripts", "src", "tests"):
             (self.dir / d).mkdir()
         shutil.copy(PLANTILLAS / "gate.sh", self.dir / "scripts" / "gate.sh")
@@ -119,6 +121,76 @@ class CasoBase(unittest.TestCase):
     def assertVerde(self, r, porque=""):
         self.assertEqual(r.returncode, 0,
                          f"debía dar VERDE{': ' + porque if porque else ''}\n{r.stdout[-800:]}")
+
+
+UBICACIONES = [
+    ".",                      # el proyecto es la raíz del repo
+    "proyecto",               # un nivel, como los dos ejemplos
+    "a/b/c/proyecto",         # profundo
+    "con espacio",            # un espacio en la ruta
+    "ñandú",                  # no-ASCII
+]
+
+
+class TestRelacionMetamorfica(unittest.TestCase):
+    """Mover el proyecto no puede cambiar el veredicto.
+
+    Es la relación metamórfica que usa la literatura de testeo de analizadores estáticos, y
+    para nosotros es la de mayor rendimiento: **cuatro de nuestros diez bugs eran de rutas**
+    —`git diff` y `git cat-file` informan desde la raíz del repo, no del proyecto— y los dos
+    defectos de esta misma suite también. El primero fue poner el proyecto en la raíz, donde
+    esos bugs no se reproducen: con el bug puesto, los tests daban verde.
+
+    No se afirma un veredicto concreto: se afirma que **todas las ubicaciones coinciden**.
+    Eso detecta la clase entera sin tener que anticipar cada caso.
+    """
+
+    def _veredicto(self, donde, perturbar):
+        p = Proyecto(donde=donde)
+        try:
+            p.implementar()
+            perturbar(p)
+            r = p.gate("T01")
+            # El motivo, normalizado: nos importa QUÉ marcó, no el texto completo.
+            motivos = sorted(l.split("✗")[1].split(":")[0].strip()
+                             for l in r.stdout.split("\n") if "✗" in l)
+            return (r.returncode == 0, tuple(motivos))
+        finally:
+            p.tirar()
+
+    def _comparar(self, nombre, perturbar):
+        vistos = {d: self._veredicto(d, perturbar) for d in UBICACIONES}
+        distintos = set(vistos.values())
+        self.assertEqual(len(distintos), 1,
+                         f"«{nombre}» da veredictos distintos según dónde esté el proyecto:\n"
+                         + "\n".join(f"    {d!r}: {v}" for d, v in vistos.items()))
+
+    def test_proyecto_sano_igual_en_toda_ubicacion(self):
+        self._comparar("proyecto sano", lambda p: None)
+
+    def test_test_modificado_igual_en_toda_ubicacion(self):
+        """La que atrapa el bug de `--relative`."""
+        def perturbar(p):
+            with (p.dir / "tests" / "test_cosa.py").open("a") as f:
+                f.write("# colado\n")
+        self._comparar("test modificado", perturbar)
+
+    def test_gate_modificado_igual_en_toda_ubicacion(self):
+        def perturbar(p):
+            with (p.dir / "scripts" / "gate.sh").open("a") as f:
+                f.write("# colado\n")
+        self._comparar("gate modificado", perturbar)
+
+    def test_paso4_igual_en_toda_ubicacion(self):
+        """La que atrapa el bug de `git cat-file` sin prefijo."""
+        def perturbar(p):
+            p.git("add -A"); p.git("commit -qm impl")
+            p.implementar("def f():\n    return 42\n\n\ndef g():\n    return 1\n")
+        self._comparar("paso 4 sobre un archivo ya versionado", perturbar)
+
+    def test_senal_suprimida_igual_en_toda_ubicacion(self):
+        self._comparar("señal suprimida",
+                       lambda p: p.implementar("def f():\n    return 42  # noqa\n"))
 
 
 class TestGate(CasoBase):
@@ -194,6 +266,36 @@ class TestGate(CasoBase):
         self.p.implementar("def f():\n    return 42\n\n\ndef g():\n    return 1\n")
         self.assertRojo(self.p.gate("T01"), "los tests no distinguen el cambio",
                         motivo="PASAN con la implementación vieja")
+
+
+class TestVacuidad(CasoBase):
+    """Un chequeo que no pudo correr no puede verse como un chequeo que pasó.
+
+    Es la defensa publicada contra nuestra clase de falla. En métodos formales se llama
+    vacuidad y tiene teoría desde 1997; en hardware tolerante a fallas es la pérdida de la
+    propiedad *self-testing*, definida en 1968. Los cuatro bugs de rutas que tuvimos vivieron
+    semanas detrás de un ✓ que no había mirado nada.
+    """
+
+    def test_el_paso4_sobre_un_archivo_nuevo_se_marca_vacuo(self):
+        """No se puede revertir un archivo que no existía: eso NO es un pase."""
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertIn("⊘", r.stdout, "revertir un archivo nuevo no verifica nada")
+        self.assertIn("nada que revertir", r.stdout)
+
+    def test_el_paso4_sobre_un_archivo_versionado_no_es_vacuo(self):
+        """Si el archivo existía, el paso 4 sí puede correr y tiene que decir qué hizo."""
+        self.p.implementar(); self.p.git("add -A"); self.p.git("commit -qm impl")
+        self.p.implementar("def f():\n    return 42\n\n\ndef g():\n    return 1\n")
+        r = self.p.gate("T01")
+        self.assertNotIn("nada que revertir", r.stdout, "el archivo existía: tenía que revertir")
+
+    def test_el_veredicto_informa_los_vacios(self):
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertIn("no pudieron correr", r.stdout,
+                      "el veredicto tiene que dejar constancia de lo que no se verificó")
 
 
 class TestValidarPlan(CasoBase):
