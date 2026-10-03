@@ -93,6 +93,39 @@ imaginar el caso donde dos algoritmos difieren**, y eso es razonamiento contraf�
 fallando, y el trabajo del agente es hacerlos pasar sin tocarlos. Los escribe quien
 planifica. Invierte el modo de falla más difícil de detectar.
 
+#### Y se puede delegar, detrás de ese gate
+
+Escribir los tests era lo último del método que seguía siendo trabajo manual, y con un plan
+de 28 tareas son 28 archivos a mano. `scripts/escribir-tests.sh` lo delega **sin aflojar
+nada**, porque la validación de arriba es mecánica:
+
+```bash
+bash $AGENTES/scripts/escribir-tests.sh T03 T04 T05
+```
+
+El agente hace **la tarea completa** —implementación y tests— en un worktree desechable, y
+se le dice explícito que *de su trabajo nos vamos a quedar sólo con los tests*. Después el
+gate decide, en este orden:
+
+| | |
+|---|---|
+| **0. Alcance** | sólo el test y los archivos que la tarea declara |
+| **1.** se revierte la implementación | el test tiene que **fallar** |
+| **2.** se restaura | tiene que **pasar** |
+| **3.** se muta | los mutantes tienen que **morir** |
+
+Al tronco llega **sólo el archivo de test**; la implementación muere con el worktree, y la
+escribe otro agente desde cero. Es el *architect/editor split* que se mide en +5,3 puntos,
+aplicado al oráculo: uno escribe la prueba, otro la satisface.
+
+**Y averigua algo gratis:** si el agente no puede implementar la tarea, lo sabés en la etapa
+de tests y no después.
+
+> **El paso 0 va primero y no es un detalle.** Sin él, si el agente implementa en el archivo
+> real, el test pasa y el gate concluye *"el test no prueba nada"* — el diagnóstico
+> equivocado. Nos pasó, y es la misma forma de error que el resto de este documento: un
+> chequeo que no puede distinguir dos causas reporta la que no es.
+
 #### Y el test se valida contra una implementación de referencia, antes de lanzar
 
 Escribir el test primero mueve el modo de falla, no lo elimina: **ahora el que puede estar
