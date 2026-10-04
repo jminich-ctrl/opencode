@@ -167,6 +167,57 @@ los `.pyc`. La falla sembrada apuntaba a que el patrón era **angosto**, no a la
 > y el código tiene bugs.** Ese falso positivo lo atrapó la propia suite en la corrida
 > siguiente, que es para lo que existe.
 
+## Lo que midió la corrida de clasificados
+
+La suite pasó de 33 a 70 casos, y los 37 nuevos no salieron de pensar en qué podía fallar:
+salieron de **catorce paradas de una corrida real**, trece de ellas por defectos del
+método. La diferencia importa, porque los casos que uno inventa mirando el código heredan
+el mismo sesgo que lo escribió.
+
+### El instrumento que los encontró
+
+No fue leer el gate. Fue exigir que el test diga **por qué** da rojo:
+
+```python
+def assertRojo(self, r, porque="", motivo=None):
+    self.assertNotEqual(r.returncode, 0, ...)
+    if motivo:
+        self.assertIn(motivo, r.stdout, f"dio rojo, pero no por «{motivo}»")
+```
+
+Un rojo por el motivo equivocado es indistinguible de un rojo correcto si sólo se mira el
+código de salida. Con esa exigencia puesta, un error de escapado en el extractor de alcance
+—`\\.` en vez de `\.`— apareció como «dio rojo, pero no por *fuera del alcance*» en vez de
+pasar como un rojo cualquiera.
+
+El simétrico vale igual y también se midió: **un chequeo que marca todo es un chequeo que
+se ignora.** El cruce de estados, en su primera versión, marcó 27 de 28 tareas.
+
+### Dos clases de test nuevas
+
+**Relación metamórfica sobre el cwd.** Una canaria que anota su propio `os.getcwd()` y se
+deja correr por los tres gates: el validador y el gate tienen que correr la suite desde el
+mismo directorio, porque un test validado en un cwd y juzgado en otro es imposible de
+pasar. No se lee el texto del gate; se lo deja correr y se mira desde dónde corrió.
+
+**Anti-deriva de los ejemplos.** Los ejemplos son copias adaptadas de la plantilla, y la
+copia se queda vieja: el arreglo del extractor de alcance entró en la plantilla y los dos
+ejemplos siguieron roto hasta que alguien lo notó a mano. `TestEjemplosNoDerivan` corre el
+motor de alcance de **cada** gate por conducta, no por texto, y si mañana hay un tercer
+ejemplo entra solo. Encontró que el gate del pacman nunca tuvo la regla de directorios.
+
+### Lo que sigue faltando
+
+- **La tasa de captura del gate.** `pruebas/mutar-gate.py` muta el gate mecánicamente
+  —un mutante por línea, nodos áridos excluidos, y SBR (borrar el chequeo) que fue el 68%
+  de los mutantes productivos de los 16,9M de Google— y mide qué fracción mata la suite.
+  Está escrito y no corrido con el árbol estable: cada mutante cuesta una corrida completa
+  de la suite, y hay 74 candidatos.
+- **Por qué mecánico y no sembrado a mano.** Una segunda ronda de siembra hecha por quien
+  ya leyó la tabla de fallas hereda el mismo sesgo. Un mutador no sabe nada de nuestra
+  lista: las fallas que inventa son las que la gramática del bash permite.
+- **Cobertura de ramas del gate** y el diferencial bash 3.2 contra 5.
+
 ## Y la advertencia que viene con todo esto
 
 > **Que los 41 casos pasen no mide que el gate esté correcto: mide el sesgo de la suite.**

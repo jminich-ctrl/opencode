@@ -42,10 +42,23 @@ correr_backend() {
 }
 
 correr_frontend() {
-  local sel="${1:-}"
+  local sel="${1:-}" archivo="" filtro=""
   [ -f frontend/package.json ] && grep -q '"vitest"' frontend/package.json 2>/dev/null || return 9
   [ -d frontend/node_modules ] || { echo "FALTA_CORREDOR node_modules (bash \$AGENTES/scripts/preparar-entorno.sh)"; return 3; }
-  ( cd frontend && npx --no-install vitest run --reporter=basic ${sel#frontend/} ) 2>&1
+  # `ruta::clase` es un selector de pytest; vitest no lo entiende y no encuentra el archivo.
+  # Acá se traduce: el archivo es el selector y el nombre va por `-t`. Sin esto, toda tarea
+  # de frontend se rechazaba con "el test no pasa ni con la implementación del agente".
+  if [ -n "$sel" ]; then
+    archivo="${sel%%::*}"; archivo="${archivo#frontend/}"
+    filtro="${sel#*::}"; [ "$filtro" = "$sel" ] && filtro=""
+  fi
+  SAL="$( cd frontend && npx --no-install vitest run --reporter=basic \
+            ${archivo:+"$archivo"} ${filtro:+-t "$filtro"} 2>&1 )"
+  RCV=$?
+  echo "$SAL"
+  # Una suite que no corrió nada no es una suite verde, y vitest lo dice de dos maneras.
+  echo "$SAL" | grep -qE 'No test files found|No test found' && return 2
+  return $RCV
 }
 
 case "$SEL" in

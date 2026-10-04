@@ -100,6 +100,8 @@ Dos cosas, las dos con la herramienta write:
 
 De tu trabajo nos vamos a quedar SÓLO con los tests: la implementación la va a escribir otro agente desde cero. Así que los tests son el entregable, y tienen que ser buenos.
 
+Antes de decir que terminaste, corré 'bash scripts/correr-suite.sh $ruta::$clase' y mostrá su salida real. Tienen que pasar: si tu test no pasa contra tu propia implementación, uno de los dos está mal y lo tenés que arreglar vos, no nosotros. Ese es el comando con el que te vamos a juzgar, así que no uses otro.
+
 No toques ningún otro archivo." 2>&1
   ) > "$log" 2>&1
 
@@ -187,12 +189,19 @@ No toques ningún otro archivo." 2>&1
         elif BASE=HEAD~1 CODIGO="$CODIGO" SUITE="$prueba" python3 "$AQUI/mutar.py" >/dev/null 2>&1; then
           echo "  ✓ los mutantes mueren: el test distingue"
         else
-          malo "sobreviven mutantes: el test cubre las líneas y no verifica su comportamiento"
-          BASE=HEAD~1 CODIGO="$CODIGO" SUITE="$prueba" python3 "$AQUI/mutar.py" 2>&1 \
-            | grep '→' | head -3 | sed 's/^/     /'
+          SOBREVIVEN="$(BASE=HEAD~1 CODIGO="$CODIGO" SUITE="$prueba" python3 "$AQUI/mutar.py" 2>&1 \
+                         | grep '→' | head -3 | tr '\n' ' ' | cut -c1-400)"
+          malo "sobreviven mutantes: el test cubre las líneas y no verifica su comportamiento.${SOBREVIVEN:+ Sobrevivió: $SOBREVIVEN}"
+          echo "$SOBREVIVEN" | tr ';' '\n' | sed 's/^/     /'
         fi
       else
-        malo "el test no pasa ni con la implementación del propio agente: el test está mal"
+        # El motivo lleva el fallo real, no su categoría: el nombre del test que falla y el
+        # mensaje del assert. Sin eso el reintento no tiene nada nuevo con lo que trabajar,
+        # y se vio: T02 falló dos veces por lo mismo recibiendo sólo "el test está mal".
+        DETALLE="$(eval "$prueba" 2>&1 \
+                   | grep -E '^E +[A-Za-z_.]*(Error|Exception|AssertionError)|^(FAILED|FAIL:) ' \
+                   | head -3 | tr '\n' ' ' | cut -c1-400)"
+        malo "el test no pasa ni con la implementación del propio agente.${DETALLE:+ Falla así: $DETALLE}"
       fi
     fi
   fi

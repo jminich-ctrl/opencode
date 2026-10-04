@@ -282,6 +282,127 @@ y ponía en rojo toda tarea, y la base del diff deducida dentro del gate se mov�
 primer commit del agente. **Los cuatro se encontraron rompiendo el gate a propósito, no
 leyéndolo.** Un verificador que no probaste contra una falla real es una opinión.
 
+#### El rojo tiene que ser atribuible
+
+Un gate que pone ROJO por algo que el agente no hizo es peor que un gate flojo: enseña a
+desconfiar del veredicto, y entonces nadie lo lee. La corrida de clasificados paró catorce
+veces, y **trece fueron por defectos del método**, no del modelo:
+
+| El gate decía | Lo que pasaba de verdad |
+|---|---|
+| archivos fuera del alcance: `.venv` | lo enlaza el runner, y `\.venv/` —con barra— no matchea un symlink: para git es un archivo |
+| archivos fuera del alcance: `package-lock.json` | lo escribe nuestro `npm install` al preparar el worktree |
+| la tarea no declara «Archivos que podés tocar» | el patrón del extractor quedó con `\\.` y no matcheaba nada |
+| hay tests y falta pytest | nadie instalaba lo que el manifiesto declaraba |
+| la suite está en rojo | el validador la corría desde otro cwd que el gate |
+| el test está mal | era `.test.ts` y se validaba con `python3 -m unittest` |
+| no escribió implementación | el entregable estaba fuera de `$CODIGO` |
+| hay archivos generados en el diff | `node_modules` lo instala el método |
+| GATE VERDE, y el tronco rojo | git no versiona directorios vacíos |
+| la tarea se volvió a lanzar ya integrada | el estado se marcaba en el archivo y no en la tabla |
+
+La regla, entonces: **todo ROJO que no pueda atribuirse al agente es un defecto del
+método**, y se arregla antes de seguir. El instrumento que los encontró no fue leer el
+gate: fue **exigir que el test diga por qué da rojo**.
+
+```python
+def assertRojo(self, r, porque="", motivo=None):
+    self.assertNotEqual(r.returncode, 0, ...)
+    if motivo:
+        self.assertIn(motivo, r.stdout, f"dio rojo, pero no por «{motivo}»")
+```
+
+Un rojo por el motivo equivocado es indistinguible de un rojo correcto si sólo se mira el
+código de salida. Y su simétrico vale igual: **un chequeo que marca todo es un chequeo que
+se ignora** —el cruce de estados marcó 27 de 28 tareas en su primera versión, porque la
+línea de estado trae una ayuda que menciona el propio `✅ hecha`.
+
+#### Toda cosa declarada dos veces hay que cruzarla
+
+Apareció cinco veces en un día, siempre igual: dos declaraciones de lo mismo, dos lectores
+distintos, y una divergencia que no rompe nada hasta que rompe todo.
+
+| Lo declarado | Lo lee | Y también lo lee |
+|---|---|---|
+| de qué depende una tarea | el deductor de etapas, en la tabla | el agente, en el archivo de tarea |
+| qué archivo de test tiene | `escribir-tests.sh`, en la tabla del plan | el agente, en el archivo de tarea |
+| qué archivos puede tocar | el deductor, para encontrar choques | el gate, para juzgar el alcance |
+| si está hecha | el deductor, en la columna Estado | `estado.sh`, en la línea del archivo |
+| qué archivos le piden escribir | el cuerpo de la tarea | su propio alcance declarado |
+
+Los cinco cruces los hace `validar-plan.py` y los cinco salieron de una divergencia real:
+23 de 27 tareas apuntaban a un archivo de test distinto del que el plan declaraba, el
+frontend entero decía `Login.vue` donde la tabla decía `Login.jsx` —en un proyecto React—,
+y una tarea ya integrada se relanzaba porque sólo se marcó en un lado.
+
+Vale también para el sentido inverso: cuando una declaración es la **abreviatura** de la
+otra —la tabla dice `laberinto.py` donde la tarea dice `src/pacman/laberinto.py`— el cruce
+tiene que aceptarla, o produce ruido y el ruido se ignora.
+
+#### Un solo comando para correr la suite
+
+El gate corría la suite de una manera y el validador de `escribir-tests.sh` de otra:
+
+| | validador | gate |
+|---|---|---|
+| cwd | raíz del proyecto | `backend/` |
+| PYTHONPATH | sin poner | `$PWD/backend` |
+| corredor | `python3 -m unittest` | `pytest -q` |
+| frontend | `python3 -m unittest` (!) | `npx vitest` |
+
+**Cada diferencia producía un test imposible de pasar**, y el mensaje que imprimía el
+método era «el test está mal»: acusaba al agente de un defecto nuestro. Un test de
+scaffolding que chequeaba `backend/app/datos` fue aceptado por el validador y en el gate
+resolvía a `backend/backend/app/datos`.
+
+Entonces `scripts/correr-suite.sh`, uno por proyecto, y **nadie más sabe invocar un
+corredor**. Los códigos de salida son contrato:
+
+| | |
+|---|---|
+| 0 | verde |
+| 1 | rojo |
+| 2 | no corrió ningún test — una suite vacía pasa siempre |
+| 3 | falta el corredor — defecto del método, no del código juzgado |
+| 127 | el proyecto no declara cómo se corre su suite |
+
+La única excepción es la suite reservada del paso 6, y es de principio: vive fuera del repo
+para que ningún agente la vea, así que no puede correrse por un script del proyecto —que el
+agente lee y podría cambiar—.
+
+#### El gate verifica lo que se va a integrar, no el árbol de trabajo
+
+T01 dio GATE VERDE en su worktree y dejó el tronco ROJO. Su entregable era una estructura
+de carpetas y **git versiona archivos, no directorios**: la carpeta existía en el worktree,
+el merge no la llevó, y el test que la verificaba falló del otro lado.
+
+Es la peor de las fallas de esta lista, porque el gate *afirmó* algo que no sobrevivía al
+commit. Un directorio vacío nuevo da ROJO en los tres gates, y toda tarea cuyo entregable
+sea estructura tiene que decir cómo se versiona.
+
+La pregunta que deja abierta, y vale la pena tenerla a mano: **¿qué otra cosa verifica el
+gate que no sobreviva al merge?** Sin chequear: permisos de archivo, enlaces simbólicos,
+nombres que difieren sólo en mayúsculas (macOS no distingue, Linux sí), y el orden de las
+migraciones.
+
+#### El entorno es del método, no de la tarea
+
+La tarea **declara** la dependencia en su manifiesto; **instalarla es del método**
+(`preparar-entorno.sh`, por manifiesto y con sello para no reinstalar). Los servicios que
+el proyecto necesita los levanta el proyecto, con un hook propio (`scripts/entorno.sh`) que
+corre antes de gastar una llamada al modelo. Dos reglas de hacerlo:
+
+- **Un servicio que no se puede levantar no se disimula.** Para la etapa, con el motivo
+  accionable. Un test de base de datos que pasa sin base no verifica nada.
+- **Para sólo si ya hace falta.** Mientras el proyecto es andamiaje no hay nada que
+  conectar, y la condición tiene que ser verificable: hay un módulo en `datos/` con
+  contenido, o hay una migración.
+
+Y el proyecto se trae su propio servidor en vez de pedirlo prestado al sistema: el mysqld
+de brew de esta máquina está instalado y **no arranca**, y arreglarlo pide `sudo`. Con
+tarball propio en `.mysql/dist`, datadir y puerto propios, el proyecto es autosuficiente y
+no deja rastro. `--no-defaults` en todo, porque el `my.cnf` del sistema se cuela.
+
 #### El paso 4 es grueso; mutar es fino
 
 El paso 4 revierte **todo** el cambio: atrapa el test vacuo grosero y deja pasar el fino

@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # La ÚNICA forma de correr los tests de este proyecto. La usan el gate (para juzgar) y
 # `escribir-tests.sh` (para validar). Que sea una sola no es prolijidad: todo lo que
-# difiera entre quien valida y quien juzga produce un test imposible de pasar, y el
+# difiera entre quien valida y quien juzga produce un test imposible de pasar, y el método
+# lo informa como "el test está mal": acusa al agente de un defecto nuestro.
+#
+#   bash scripts/correr-suite.sh                         # toda la suite
+#   bash scripts/correr-suite.sh tests/test_x.py         # un archivo
 #   bash scripts/correr-suite.sh tests/test_x.py::TestX  # una clase
 #
 # Códigos de salida, y son parte del contrato:

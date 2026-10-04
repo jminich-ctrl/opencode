@@ -33,11 +33,30 @@ HIZO=0
 # node_modules, así que con el orden invertido cada worktree hacía su propio `npm
 # install` desde cero. Un minuto por tarea, y el plan de clasificados tiene 28.
 if [ "$DESTINO" != "$BASE" ]; then
+  # El enlace de dependencias es CONDICIONAL: sólo si el worktree declara lo mismo que el
+  # tronco. Una tarea como T30 cambia el manifiesto —agrega vitest—, y con el enlace puesto
+  # su `npm install` escribiría dentro del node_modules del tronco, con el manifiesto del
+  # worktree: la instalación de una tarea se filtra a un tronco que todavía no la integró,
+  # y dos tareas de frontend de la misma etapa instalan a la vez en el mismo directorio.
+  mismo_manifiesto() {
+    local dir="$1" nombre="$2"
+    local a="$BASE/$dir/$nombre" b="$DESTINO/$dir/$nombre"
+    [ -f "$a" ] && [ -f "$b" ] || return 1
+    [ "$(cksum < "$a")" = "$(cksum < "$b")" ]
+  }
   for d in .venv .entorno backend/node_modules frontend/node_modules node_modules; do
     origen="$BASE/$d"
     [ -e "$origen" ] || continue
     destino="$DESTINO/$d"
     [ -e "$destino" ] && continue
+    case "$d" in
+      *node_modules)
+        dir_m="$(dirname "$d")"; [ "$dir_m" = "." ] && dir_m=""
+        if ! mismo_manifiesto "$dir_m" package.json; then
+          echo "· $d NO se enlaza: el worktree declara otras dependencias que el tronco"
+          continue
+        fi ;;
+    esac
     mkdir -p "$(dirname "$destino")"
     ln -s "$origen" "$destino" && { echo "· enlazado $d al tronco"; HIZO=1; }
   done

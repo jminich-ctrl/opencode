@@ -22,8 +22,16 @@ primera tarea de datos lo necesitaba.
 
 Entra:
 - Leer la configuración de las variables de entorno `MYSQL_HOST`, `MYSQL_PORT`,
-  `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DB`. Con valores por defecto razonables para
-  `HOST` (`127.0.0.1`) y `PORT` (`3306`); `MYSQL_DB` sin valor por defecto.
+  `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DB`.
+- Son dos casos distintos y conviene no mezclarlos en el mismo test:
+  - **Con `MYSQL_DB` puesta** y las demás ausentes, valen los valores por defecto:
+    `HOST` = `127.0.0.1`, `PORT` = `3306`, `USER` = `root`, `PASSWORD` = vacío.
+  - **Sin `MYSQL_DB`**, `configuracion()` levanta `RuntimeError`. No hay valor por defecto
+    para el nombre de la base: conectarse a una base sin nombre es un error que conviene
+    tener temprano y con mensaje.
+  Un test de «valores por defecto» que limpia TODO el entorno choca con la segunda regla y
+  no puede pasar. Es el error que ya cometimos: dejarlo escrito acá es más barato que
+  descubrirlo dos veces.
 - Un gestor de contexto que devuelve una conexión y la cierra siempre, con `commit` si el
   bloque termina bien y `rollback` si levanta una excepción.
 - Cursores que devuelven diccionarios, no tuplas: una fila a la que se accede por nombre
