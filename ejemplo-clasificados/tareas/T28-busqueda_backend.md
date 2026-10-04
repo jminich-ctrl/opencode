@@ -1,7 +1,7 @@
 # T28 — Búsqueda backend (texto y categoría)
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
-**Depende de:** T05
+**Depende de:** T05, T06
 **Archivos que podés tocar:** backend/app/rutas/search.py, backend/app/servicios/search.py, backend/app/datos/search_ads.py
 **Prohibido tocar:** Ninguno
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`

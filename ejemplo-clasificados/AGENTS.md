@@ -52,6 +52,11 @@ y no te lo contamos como error.
 
 ## Lo que ya está decidido y no se rediscute
 
+- **Un módulo de `rutas/` expone un `router` de FastAPI y nada más.** No importa
+  `backend/app/main.py` ni lo modifica: `main.py` descubre los routers de `rutas/` y los
+  monta solo. Si seis tareas tuvieran que agregar su `include_router`, seis tareas
+  editarían el mismo archivo y el paralelismo del plan se cae.
+
 - **Precios en centavos, entero.** Nada de flotantes para dinero.
 - **Esquema de tablas**: el de `PLAN.md`, tal cual. Si una tarea necesita una columna que
   no está, eso es un cambio de plan: pará y decilo.

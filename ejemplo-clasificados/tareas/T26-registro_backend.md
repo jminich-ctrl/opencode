@@ -1,7 +1,7 @@
 # T26 — Registro backend (creación de cuenta)
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
-**Depende de:** T03
+**Depende de:** T03, T06
 **Archivos que podés tocar:** backend/app/rutas/register.py, backend/app/servicios/register.py, backend/app/datos/users_register.py
 **Prohibido tocar:** Ninguno
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`

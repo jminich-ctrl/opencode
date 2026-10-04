@@ -1,7 +1,7 @@
 # T16 — Backend rutas favoritos
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
-**Depende de:** T15
+**Depende de:** T15, T06
 **Archivos que podés tocar:** backend/app/rutas/favorites.py
 **Prohibido tocar:** 
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`, que usa el runner, no puede elegir un subagente

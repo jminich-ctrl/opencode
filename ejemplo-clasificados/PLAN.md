@@ -70,30 +70,31 @@ vez de la aplicación.
 | T01 | Scaffolding del proyecto | — | backend/, frontend/, backend/requirements.txt, frontend/package.json | ✅ hecha |
 | T02 | Conexión a MySQL | T01 | backend/app/datos/conexion.py | ✅ hecha |
 | T03 | Primera migración (usuarios y anuncios) | T01 | backend/migraciones/001_initial.sql, backend/migraciones/001_initial_down.sql | ✅ hecha |
-| T04 | Auth backend (login, sesión) | T02, T03 | backend/app/rutas/auth.py, backend/app/servicios/auth.py, backend/app/datos/users.py | pendiente |
-| T05 | CRUD de avisos backend | T04 | backend/app/rutas/ads.py, backend/app/servicios/ads.py, backend/app/datos/ads.py | pendiente |
+| T06 | Aplicación FastAPI (punto de entrada) | T02 | backend/app/main.py | pendiente |
+| T04 | Auth backend (login, sesión) | T02, T03, T06 | backend/app/rutas/auth.py, backend/app/servicios/auth.py, backend/app/datos/users.py | pendiente |
+| T05 | CRUD de avisos backend | T04, T06 | backend/app/rutas/ads.py, backend/app/servicios/ads.py, backend/app/datos/ads.py | pendiente |
 | T30 | Scaffolding Vite | T01 | frontend/package.json, frontend/vite.config.ts | ✅ hecha |
 | T31 | Punto de entrada frontend | T30 | frontend/src/main.tsx, frontend/src/App.jsx | pendiente |
 | T07 | Login page y servicio auth frontend | T31 | frontend/src/pages/Login.jsx, frontend/src/services/auth.ts | pendiente |
 | T08 | Listado y detalle de avisos frontend | T07 | frontend/src/pages/AdsList.jsx, frontend/src/pages/AdDetail.jsx, frontend/src/services/ads.ts | pendiente |
 | T14 | Favoritos datos | T05 | backend/app/datos/favorites.py | pendiente |
 | T15 | Favoritos servicio | T14 | backend/app/servicios/favorites.py | pendiente |
-| T16 | Favoritos rutas | T15 | backend/app/rutas/favorites.py | pendiente |
+| T16 | Favoritos rutas | T15, T06 | backend/app/rutas/favorites.py | pendiente |
 | T17 | Favoritos servicio frontend | T16, T08 | frontend/src/services/favorites.ts | pendiente |
 | T18 | Favoritos UI lista | T17 | frontend/src/pages/AdsList.jsx | pendiente |
 | T19 | Favoritos SCSS | T18 | frontend/src/design/_favorites.scss | pendiente |
 | T20 | Mensajes datos | T05 | backend/app/datos/messages.py | pendiente |
 | T21 | Mensajes servicio | T20 | backend/app/servicios/messages.py | pendiente |
-| T22 | Mensajes rutas | T21 | backend/app/rutas/messages.py | pendiente |
+| T22 | Mensajes rutas | T21, T06 | backend/app/rutas/messages.py | pendiente |
 | T23 | Mensajes servicio frontend | T22 | frontend/src/services/messages.ts | pendiente |
 | T24 | Mensajes UI lista | T23 | frontend/src/pages/Messages.jsx | pendiente |
 | T25 | Mensajes UI detalle | T23 | frontend/src/pages/MessageDetail.jsx | pendiente |
 | T11 | Editar propios avisos | T05, T08 | frontend/src/pages/EditAd.jsx, frontend/src/services/ads.ts | pendiente |
 | T12 | Filtro por categoría en listado | T08 | frontend/src/pages/AdsList.jsx, frontend/src/design/_filters.scss | pendiente |
 | T13 | Sistema de diseño propio en SCSS | T30 | frontend/src/design/_variables.scss, frontend/src/design/_mixins.scss, frontend/src/design/main.scss | pendiente |
-| T26 | Registro backend (creación de cuenta) | T03 | backend/app/rutas/register.py, backend/app/servicios/register.py, backend/app/datos/users_register.py | pendiente |
+| T26 | Registro backend (creación de cuenta) | T03, T06 | backend/app/rutas/register.py, backend/app/servicios/register.py, backend/app/datos/users_register.py | pendiente |
 | T27 | Registro frontend (página y servicio) | T31 | frontend/src/pages/Register.jsx, frontend/src/services/register.ts | pendiente |
-| T28 | Búsqueda backend (texto y categoría) | T05 | backend/app/rutas/search.py, backend/app/servicios/search.py, backend/app/datos/search_ads.py | pendiente |
+| T28 | Búsqueda backend (texto y categoría) | T05, T06 | backend/app/rutas/search.py, backend/app/servicios/search.py, backend/app/datos/search_ads.py | pendiente |
 | T29 | Búsqueda frontend (UI y servicio) | T08 | frontend/src/components/SearchBar.jsx, frontend/src/services/search.ts | pendiente |
 
 > Las etapas **no se declaran acá**: se deducen de la tabla de arriba, que es lo que
@@ -107,6 +108,7 @@ vez de la aplicación.
 | T01 | backend/tests/test_scaffolding.py | TestScaffolding |
 | T02 | backend/tests/test_conexion.py | TestConexion |
 | T03 | backend/tests/test_migracion.py | TestMigracion |
+| T06 | backend/tests/test_app.py | TestApp |
 | T04 | backend/tests/test_auth_backend.py | TestAuthBackend |
 | T05 | backend/tests/test_ads_backend.py | TestAdsBackend |
 | T30 | frontend/tests/test_scaffolding_frontend.test.ts | TestScaffoldingFrontend |
