@@ -14,7 +14,7 @@ Crear el proyecto Vite con su package.json y vite.config.ts
 
 El plan tiene catorce archivos `.test.ts` y **ninguna otra tarea declara con qué se corren**.
 Entonces los declara esta: `package.json` tiene que traer, en `devDependencies`, `vite`,
-`@vitejs/plugin-react`, `vitest`, `jsdom` y `@testing-library/react`, más un script
+`@vitejs/plugin-react`, `vitest`, `jsdom`, `@testing-library/react` y `sass`, más un script
 `"test": "vitest run"`.
 
 Y `vite.config.ts` tiene que configurar el entorno de los tests como jsdom, que en la

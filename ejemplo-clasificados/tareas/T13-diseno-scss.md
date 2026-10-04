@@ -22,7 +22,29 @@ No entra:
 
 ## Contrato
 
-N/A (solo archivos de estilo).
+Los archivos no exportan una API, pero el sistema de diseño **sí tiene conducta
+verificable**: compila. Eso es lo que el test tiene que mirar, y no el texto de los
+archivos —un test que busca una cadena en un `.scss` pasa o falla según cómo esté escrito,
+no según qué haga—.
+
+```js
+// Lo que el test puede hacer, con `sass`, que está en devDependencies:
+import * as sass from 'sass';
+const { css } = sass.compile('frontend/src/design/main.scss');
+```
+
+Y entonces verificar sobre el CSS compilado:
+
+- que compilar **no tira error**, que es lo que prueba que los `@use`/`@import` resuelven
+  y que las variables y mixins que `main.scss` usa existen de verdad;
+- que la salida trae una regla para `body` con `color` y `font-family` resueltos a valores
+  concretos —no a nombres de variable—, que es lo que prueba que los parciales se
+  aplicaron;
+- que un mixin de `_mixins.scss`, usado en una prueba, produce las declaraciones que
+  promete.
+
+Las tres fallan si `_variables.scss` o `_mixins.scss` no están, o si `main.scss` no los
+importa, que es exactamente el criterio de terminado de esta tarea.
 
 ## Tests (ya escritos, fallando)
 
