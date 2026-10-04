@@ -9,6 +9,7 @@ __pycache__/
 .opencode-data/
 .tarea.log
 .base-ref
+.tests-base
 .metricas/
 PLAN.md.previo
 

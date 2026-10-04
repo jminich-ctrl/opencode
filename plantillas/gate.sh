@@ -92,6 +92,54 @@ echo "── 1. Tests"
 # Los códigos de salida son contrato: 0 verde, 1 rojo, 2 no corrió ningún test, 3 falta el
 # corredor. Los tres últimos son ROJO, y el 3 dice que el defecto es del método.
 SALIDA="$(bash scripts/correr-suite.sh 2>&1)"; RC=$?
+
+# En modo tarea el veredicto se mide contra una LÍNEA BASE. El método es tests-first: al
+# empezar la etapa el tronco tiene los tests de todas sus tareas y la implementación de
+# ninguna, así que la suite entera no puede estar verde y exigirlo haría que ninguna tarea
+# pudiera cerrar. Lo que se exige es lo que esta tarea sí controla:
+#   · sus propios tests pasan, y
+#   · ningún test que andaba antes dejó de andar.
+# La línea base la escribe el runner al crear el worktree, antes de que el agente toque
+# nada. Misma regla que `integrar.sh` usa para los merges, un nivel más abajo.
+veredicto_con_linea_base() {
+  local base_f ahora mios nuevas esperado ruta_t
+  ahora="$(bash scripts/correr-suite.sh --fallas 2>/dev/null | sort -u)"
+  base_f="$(sort -u .tests-base 2>/dev/null)"
+  nuevas="$(comm -13 <(printf '%s\n' "$base_f") <(printf '%s\n' "$ahora") | grep . || true)"
+
+  esperado="$(sed -n 's/.*Archivo: `\([^`]*\)`.*/\1/p' "tareas/${TAREA}"-*.md 2>/dev/null | head -1)"
+  ruta_t="${esperado:-}"
+  # Los ids vienen en dos formatos según el corredor: pytest nombra el archivo
+  # (`FAILED backend/tests/test_x.py::TestX::test_y`) y unittest nombra el módulo
+  # (`FAIL: test_y (tests.test_x.TestX.test_y)`). Buscamos las dos formas, o el chequeo
+  # pasa por alto justo lo que no puede pasar por alto: los tests de la propia tarea.
+  if [ -n "$ruta_t" ]; then
+    local mod_t
+    mod_t="$(echo "${ruta_t%.py}" | tr / .)"
+    mios="$(printf '%s\n' "$ahora" | grep -F -e "$ruta_t" -e "$mod_t" || true)"
+  else
+    mios=""
+  fi
+
+  if [ -n "$mios" ]; then
+    rojo "los tests de $TAREA siguen fallando:"
+    printf '%s\n' "$mios" | head -5 | sed 's/^/     /'
+    return
+  fi
+  if [ -n "$nuevas" ]; then
+    rojo "rompiste tests que andaban antes de esta tarea:"
+    printf '%s\n' "$nuevas" | head -5 | sed 's/^/     /'
+    return
+  fi
+  if [ -n "$base_f" ]; then
+    verde "los tests de $TAREA pasan; sigue fallando sólo lo de la línea base (tests-first)"
+    testigo "$(printf '%s\n' "$base_f" | grep -c . ) falla(s) de línea base, 0 nuevas${ruta_t:+, y $ruta_t en verde}"
+  else
+    verde "los tests de $TAREA pasan y nada más falla"
+    testigo "${ruta_t:-la suite entera} contra una línea base vacía"
+  fi
+}
+
 case "$RC" in
   0) RESUMEN="$(echo "$SALIDA" | grep -oE '[0-9]+ (passed|tests?)[^ ]*' | tail -1)"
      verde "${RESUMEN:-$(echo "$SALIDA" | grep -E '^Ran |^OK' | tail -1)}"
@@ -104,8 +152,12 @@ case "$RC" in
   127) rojo "no existe scripts/correr-suite.sh: el proyecto no declara cómo se corre su suite"
      echo "     Copiala de plantillas/correr-suite.sh y adaptala. Sin ella, quien valida los"
      echo "     tests y quien los juzga vuelven a inventar cada uno su comando." ;;
-  *) rojo "la suite está en rojo"
-     echo "$SALIDA" | tail -15 | sed 's/^/     /' ;;
+  *) if [ -n "${TAREA:-}" ] && [ -f .tests-base ]; then
+       veredicto_con_linea_base
+     else
+       rojo "la suite está en rojo"
+       echo "$SALIDA" | tail -15 | sed 's/^/     /'
+     fi ;;
 esac
 
 echo "── 2. Alcance${TAREA:+ (tarea $TAREA)}"
@@ -117,7 +169,7 @@ echo "── 2. Alcance${TAREA:+ (tarea $TAREA)}"
 # Si aparecieran en el diff, el gate pondría ROJO por «archivos generados» a la tarea
 # que declaró bien su manifiesto. Depender de una línea del .gitignore del worktree no
 # alcanza: el worktree se crea de HEAD, y un .gitignore arreglado después no viaja.
-INFRA='^(\.base-ref|\.tarea\.log|\.segundos|\.plan\.log|\.opencode-data/|\.metricas/|\.venv(/|$)|\.entorno$|\.mysql(/|$)|([A-Za-z0-9_-]+/)?node_modules(/|$)|([A-Za-z0-9_-]+/)?package-lock\.json$)'
+INFRA='^(\.base-ref|\.tests-base|\.tarea\.log|\.segundos|\.plan\.log|\.opencode-data/|\.metricas/|\.venv(/|$)|\.entorno$|\.mysql(/|$)|([A-Za-z0-9_-]+/)?node_modules(/|$)|([A-Za-z0-9_-]+/)?package-lock\.json$)'
 CAMBIADOS="$( { git diff --name-only --relative "$BASE_REF" 2>/dev/null; git ls-files --others --exclude-standard; } | grep -vE "$INFRA" || true)"
 if [ -z "$CAMBIADOS" ] && [ -n "${TAREA:-}" ]; then
   rojo "no hay ningún cambio: la tarea no se hizo"

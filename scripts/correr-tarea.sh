@@ -57,6 +57,15 @@ lanzar() {
   # venv y node_modules del tronco antes de que empiece.
   bash "$AQUI/preparar-entorno.sh" "$dir" 2>&1 | sed 's/^/  /'
 
+  # La línea base de tests, ANTES de que el agente toque nada. El método es tests-first: al
+  # empezar la etapa el tronco tiene los tests de todas sus tareas y la implementación de
+  # ninguna, así que la suite no puede estar verde. Sin esta lista, el gate de cada tarea la
+  # vería roja por los tests de sus hermanas y ninguna podría cerrar.
+  if [ -f "$dir/scripts/correr-suite.sh" ]; then
+    ( cd "$dir" && bash scripts/correr-suite.sh --fallas > .tests-base 2>/dev/null ) || true
+    echo "  · línea base: $(grep -c . "$dir/.tests-base" 2>/dev/null || echo 0) test(s) ya fallando"
+  fi
+
   # Modo manual: el método no depende de que haya una IA disponible. Preparamos el
   # worktree, mostramos la tarea, y la hace una persona; el gate decide igual.
   if [ "${MANUAL:-0}" = "1" ] || ! command -v opencode >/dev/null 2>&1; then

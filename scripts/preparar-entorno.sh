@@ -48,15 +48,26 @@ if [ "$DESTINO" != "$BASE" ]; then
     origen="$BASE/$d"
     [ -e "$origen" ] || continue
     destino="$DESTINO/$d"
-    [ -e "$destino" ] && continue
     case "$d" in
       *node_modules)
         dir_m="$(dirname "$d")"; [ "$dir_m" = "." ] && dir_m=""
         if ! mismo_manifiesto "$dir_m" package.json; then
-          echo "· $d NO se enlaza: el worktree declara otras dependencias que el tronco"
+          # Y si el enlace YA estaba puesto, se deshace: la condición se evalúa en la
+          # primera pasada, antes de que el agente escriba su package.json, así que el
+          # manifiesto diverge después. Sin deshacerlo, el `npm install` de la segunda
+          # pasada escribe a través del enlace en el node_modules del tronco, que todavía
+          # no integró nada. Borrar un enlace no toca su destino.
+          if [ -L "$destino" ]; then
+            rm -f "$destino"
+            echo "· $d se desenlaza: el worktree ya declara otras dependencias"
+            HIZO=1
+          else
+            echo "· $d NO se enlaza: el worktree declara otras dependencias que el tronco"
+          fi
           continue
         fi ;;
     esac
+    [ -e "$destino" ] && continue
     mkdir -p "$(dirname "$destino")"
     ln -s "$origen" "$destino" && { echo "· enlazado $d al tronco"; HIZO=1; }
   done

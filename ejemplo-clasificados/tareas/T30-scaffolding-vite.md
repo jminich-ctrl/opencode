@@ -10,6 +10,16 @@
 
 Crear el proyecto Vite con su package.json y vite.config.ts
 
+## El corredor de tests es parte del andamiaje
+
+El plan tiene catorce archivos `.test.ts` y **ninguna otra tarea declara con qué se corren**.
+Entonces los declara esta: `package.json` tiene que traer, en `devDependencies`, `vitest`,
+`jsdom` y `@testing-library/react`, más un script `"test": "vitest run"`. Y `vite.config.ts`
+tiene que configurar `test.environment = "jsdom"`.
+
+Sin eso, cada tarea de frontend se cae con «falta el corredor», que no es culpa de quien
+escribe el test.
+
 ## Alcance
 
 Entra:

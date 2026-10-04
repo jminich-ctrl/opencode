@@ -41,7 +41,10 @@ PLANTILLAS = RAIZ / "plantillas"
 
 def correr(cmd, cwd, **env):
     e = dict(os.environ, **{k: str(v) for k, v in env.items()})
-    return subprocess.run(cmd, shell=True, cwd=str(cwd), capture_output=True, text=True, env=e)
+    # errors="replace": npx y algunos corredores escriben bytes que no son UTF-8 válido, y
+    # un test que explota al decodificar la salida no mide nada de lo que quería medir.
+    return subprocess.run(cmd, shell=True, cwd=str(cwd), capture_output=True, text=True,
+                          errors="replace", env=e)
 
 
 class Proyecto:
@@ -352,6 +355,68 @@ class TestGate(CasoBase):
         self.p.implementar("def f():\n    return 42\n\n\ndef g():\n    return 1\n")
         self.assertRojo(self.p.gate("T01"), "los tests no distinguen el cambio",
                         motivo="PASAN con la implementación vieja")
+
+
+class TestLineaBaseDeTests(CasoBase):
+    """El método es tests-first: al empezar una etapa el tronco tiene los tests de todas sus
+    tareas y la implementación de ninguna. Si el gate de cada tarea exigiera la suite entera
+    en verde, **ninguna tarea podría cerrar** —la vería roja por los tests de sus hermanas—.
+    Lo que se exige es lo que la tarea sí controla: que sus tests pasen y que no rompa nada
+    que andaba. La línea base la escribe el runner antes de que el agente empiece.
+    """
+
+    def hermana_fallando(self):
+        """Un test de otra tarea de la misma etapa, sin su implementación."""
+        (self.p.dir / "tests" / "test_hermana.py").write_text(
+            "import unittest\nfrom src.hermana import g\n\n"
+            "class TestHermana(unittest.TestCase):\n"
+            "    def test_g(self):\n        self.assertEqual(g(), 1)\n")
+        self.p.git("add -A"); self.p.git('commit -qm "tests de la etapa"')
+
+    def fijar_base(self):
+        r = correr("bash scripts/correr-suite.sh --fallas", self.p.dir)
+        (self.p.dir / ".tests-base").write_text(r.stdout)
+        return r.stdout
+
+    def test_la_falla_de_una_hermana_no_reprueba_a_esta_tarea(self):
+        self.hermana_fallando()
+        base = self.fijar_base()
+        self.assertIn("test_hermana", base, "la hermana tiene que estar en la línea base")
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertVerde(r, "los tests de T01 pasan; la hermana ya fallaba")
+        self.assertIn("línea base", r.stdout, "el veredicto tiene que decir qué dejó pasar")
+
+    def test_el_propio_test_fallando_si_reprueba(self):
+        """Lo que la línea base NO puede tapar: los tests de la tarea misma."""
+        self.hermana_fallando()
+        self.fijar_base()
+        # Sin implementar src/cosa.py, el test de T01 sigue rojo.
+        (self.p.dir / "src" / "otra.py").write_text("# algo, para que haya cambios\n")
+        self.p.declarar("src/")
+        self.assertRojo(self.p.gate("T01"), "su propio test sigue rojo",
+                        motivo="los tests de T01 siguen fallando")
+
+    def test_romper_un_test_que_andaba_si_reprueba(self):
+        """La otra mitad de la regla: la línea base es un conjunto, no un permiso. El test
+        de la tarea puede estar en verde y el de al lado roto por lo mismo que ella cambió.
+        """
+        self.p.declarar("src/")
+        self.p.implementar("def f():\n    return 42\n\n\ndef h():\n    return 7\n")
+        (self.p.dir / "tests" / "test_vecino.py").write_text(
+            "import unittest\nfrom src.cosa import h\n\n"
+            "class TestVecino(unittest.TestCase):\n"
+            "    def test_h(self):\n        self.assertEqual(h(), 7)\n")
+        self.p.git("add -A"); self.p.git('commit -qm "todo verde"')
+        self.assertEqual(self.fijar_base().strip(), "", "la línea base arranca vacía")
+
+        # El "agente" deja su propio test en verde y se lleva puesto el del vecino.
+        self.p.implementar("def f():\n    return 42\n")
+        r = self.p.gate("T01")
+        self.assertRojo(r, "f() sigue bien y h() desapareció",
+                        motivo="rompiste tests que andaban")
+        # El id lo nombra el corredor: con un import roto, unittest informa el módulo.
+        self.assertIn("test_vecino", r.stdout, "tiene que decir cuál rompió")
 
 
 class TestVacuidad(CasoBase):
@@ -883,6 +948,27 @@ class TestEjemplosNoDerivan(unittest.TestCase):
         self.assertEqual(sueltos, [],
                          "escribir-tests.sh arma su propio comando de tests:\n  "
                          + "\n  ".join(sueltos))
+
+    def test_el_codigo_de_salida_de_la_suite_esta_en_el_contrato(self):
+        """0/1/2/3/127 y nada más. `correr-suite.sh` usa 9 como centinela interno de «esta
+        mitad no tiene nada que correr», para combinar backend y frontend cuando se pide la
+        suite entera; pedido UN archivo, ese 9 se escapaba. El gate lo caía en «la suite
+        está en rojo» y el validador en «el test está mal»: dos diagnósticos falsos para una
+        situación que el contrato ya sabe nombrar."""
+        CONTRATO = {0, 1, 2, 3, 127}
+        SELECTORES = ["", "tests/noexiste.py", "tests/noexiste.py::NoExiste",
+                      "frontend/tests/noexiste.test.ts", "backend/tests/noexiste.py",
+                      "cosa.rb"]
+        for gate in self.GATES:
+            suite = gate.parent / "correr-suite.sh"
+            if not suite.exists():
+                continue
+            for sel in SELECTORES:
+                with self.subTest(proyecto=str(gate.parent.relative_to(RAIZ)), sel=sel or "(toda)"):
+                    r = correr(f'bash {suite} {sel}', gate.parent.parent)
+                    self.assertIn(r.returncode, CONTRATO,
+                                  f"devolvió {r.returncode}, que no está en el contrato\n"
+                                  f"{r.stdout[-400:]}")
 
     def test_en_todos_un_chequeo_que_no_corre_se_marca_vacuo(self):
         """La regla que no se adapta: ⊘ nunca puede confundirse con ✓."""

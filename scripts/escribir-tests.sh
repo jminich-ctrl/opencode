@@ -198,9 +198,12 @@ No toques ningún otro archivo." 2>&1
         # El motivo lleva el fallo real, no su categoría: el nombre del test que falla y el
         # mensaje del assert. Sin eso el reintento no tiene nada nuevo con lo que trabajar,
         # y se vio: T02 falló dos veces por lo mismo recibiendo sólo "el test está mal".
+        # Los dos formatos: pytest escribe `E  AssertionError` y `FAILED ruta::test`;
+        # vitest escribe ` FAIL  tests/x.test.ts > TestX > caso` y el error sin prefijo.
+        # Con el patrón de uno solo, el motivo salía vacío en todo el frontend.
         DETALLE="$(eval "$prueba" 2>&1 \
-                   | grep -E '^E +[A-Za-z_.]*(Error|Exception|AssertionError)|^(FAILED|FAIL:) ' \
-                   | head -3 | tr '\n' ' ' | cut -c1-400)"
+                   | grep -E '^E +|^(FAILED|FAIL:) |^ *(FAIL|×) |(Assertion|Type|Reference|Syntax)Error|Cannot find|^Error: ' \
+                   | head -4 | tr '\n' ' ' | tr -s ' ' | cut -c1-400)"
         malo "el test no pasa ni con la implementación del propio agente.${DETALLE:+ Falla así: $DETALLE}"
       fi
     fi
