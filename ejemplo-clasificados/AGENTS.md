@@ -15,6 +15,10 @@ sigue existiendo, sólo que lo fija el plan y no el azar.
 - `uvicorn` — el servidor
 - `pydantic` — validación de entrada y salida
 - `pymysql` — el driver de MySQL
+
+Y en `backend/requirements-dev.txt`, que es para lo que **sólo** existe para testear y no
+se despliega. Ese archivo lo mantenemos nosotros, no lo toques:
+
 - `pytest` — el corredor de tests
 - `httpx` — el cliente de tests de FastAPI
 

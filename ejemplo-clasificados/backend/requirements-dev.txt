@@ -1,0 +1,5 @@
+# Dependencias que sólo existen para correr los tests. Van aparte del producto porque no se
+# despliegan, y porque el método las instala por su cuenta: el corredor de tests es del
+# método, no de la tarea (METODO.md, «el entorno es del método»).
+pytest
+httpx

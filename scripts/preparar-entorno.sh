@@ -108,8 +108,28 @@ if [ -n "$REQ" ]; then
       exit 1
     fi
   fi
-  # pytest no suele estar en requirements.txt (es de desarrollo) y sin él el gate no
-  # verifica nada. Lo exigimos acá para que no aparezca como falla de la tarea.
+  # Y las dependencias que existen SÓLO para correr los tests, si el proyecto las declara
+  # aparte. No se despliegan, así que no van en requirements.txt; y el corredor de tests es
+  # del método, así que instalarlas es nuestro. Sin esto pasó con `httpx` —el cliente de
+  # tests de FastAPI—: el test de T04 lo importaba, estaba permitido en AGENTS.md, y ninguna
+  # tarea lo tenía asignado, así que el diagnóstico que salía era «el test está mal».
+  DEV="$(ls "$DESTINO"/requirements-dev.txt "$DESTINO"/*/requirements-dev.txt 2>/dev/null | head -1)"
+  if [ -n "$DEV" ]; then
+    SELLO_DEV="$VENV/.sello-requirements-dev"
+    AHORA_DEV="$(cksum < "$DEV" | awk '{print $1}')"
+    if [ "$(cat "$SELLO_DEV" 2>/dev/null)" != "$AHORA_DEV" ]; then
+      echo "· instalando $(basename "$(dirname "$DEV")")/requirements-dev.txt"
+      if "$VENV/bin/pip" install -q -r "$DEV" 2>&1 | tail -5; then
+        echo "$AHORA_DEV" > "$SELLO_DEV"; HIZO=1
+      else
+        echo "✗ pip falló con las dependencias de test. El gate va a reprobar por eso." >&2
+        exit 1
+      fi
+    fi
+  fi
+
+  # pytest no siempre está declarado y sin él el gate no verifica nada. Lo exigimos acá
+  # para que no aparezca como falla de la tarea.
   if ! "$VENV/bin/python" -c "import pytest" >/dev/null 2>&1; then
     echo "· instalando pytest (corredor, no dependencia del producto)"
     "$VENV/bin/pip" install -q pytest || exit 1
