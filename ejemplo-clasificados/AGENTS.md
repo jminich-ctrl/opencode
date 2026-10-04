@@ -21,10 +21,17 @@ sigue existiendo, sólo que lo fija el plan y no el azar.
 **Frontend** (`frontend/package.json`):
 
 - `vite` — el bundler
+- `@vitejs/plugin-react` — el plugin de React para Vite; sin él `vite.config.ts` no puede
+  importar `react()`
 - `react` y `react-dom` — la UI
 - `vitest` — el corredor de tests
 - `jsdom` y `@testing-library/react` — para testear componentes
 - `sass` — para los `.scss` del sistema de diseño propio
+
+**Lo que importás, declaralo.** Un `import` de un paquete que no está en el manifiesto no
+falla al escribirlo: falla cuando alguien corre los tests, con un «Cannot find package» que
+no se parece en nada a la causa. Si necesitás algo que no está en esta lista, pará y decilo:
+la lista se amplía, no se esquiva.
 
 **La base es MySQL con SQL a mano, sin ORM**, como dice `PLAN.md`: el esquema está cerrado
 ahí y un ORM agrega una capa que nadie pidió. La conexión sale de variables de entorno

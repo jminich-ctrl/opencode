@@ -245,6 +245,13 @@ EOF
 fi
 # ADAPTAR: lo generado por tu stack y las dependencias que no querés ver aparecer.
 if echo "$CAMBIADOS" | grep -qE '__pycache__|\.pyc$|node_modules/|dist/'; then rojo "hay archivos generados en el diff"; else verde "sin archivos generados"; fi
+# ADAPTAR (si tu stack lo permite): **importar algo que no se declara**. No falla al
+# escribirlo; falla cuando alguien corre los tests, con un "no encuentro el paquete" que no
+# se parece a la causa. En JS/TS se verifica de un lado —los import contra package.json, y
+# está hecho en ejemplo-clasificados/scripts/gate.sh—. En Python hace falta la lista de
+# módulos de la stdlib, que es larga y cambia por versión: o la traés, o este chequeo no va.
+# Mejor no tenerlo que tenerlo a medias y en verde.
+
 # Apagar una señal es más barato que arreglar la causa, y no deja rastro en los tests.
 SUP="$(grep -rnEi '# *(noqa|type: *ignore)|except[^:]*: *pass|@ *unittest\.skip|\.skip\(|\|\| *true|eslint-disable' "$CODIGO" 2>/dev/null || true)"
 if [ -n "$SUP" ]; then rojo "hay señales suprimidas:"; echo "$SUP" | head -3 | sed 's/^/     /'; else verde "sin señales suprimidas"; fi

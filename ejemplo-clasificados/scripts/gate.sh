@@ -210,6 +210,35 @@ EOF
   fi
 fi
 if echo "$CAMBIADOS" | grep -qE '__pycache__|\.pyc$|node_modules/|dist/'; then rojo "hay archivos generados en el diff"; else verde "sin archivos generados"; fi
+# Importar algo que no se declara. No falla al escribirlo: falla cuando alguien corre los
+# tests, con un «Cannot find package» que no se parece en nada a la causa. Pasó dos veces y
+# de las dos el diagnóstico que daba el método era otro:
+#   · T30 importó `@vitejs/plugin-react` en vite.config.ts sin ponerlo en package.json;
+#   · T02 llamó `cursor(cursorclass=DictCursor)` en un test y `cursor()` en su código.
+# Es la misma forma —usar una cosa y declarar otra— y acá se puede verificar de un lado.
+if [ -f frontend/package.json ]; then
+  NO_DECLARADOS=""
+  while IFS= read -r paq; do
+    [ -n "$paq" ] || continue
+    grep -q "\"$paq\"" frontend/package.json 2>/dev/null || NO_DECLARADOS="$NO_DECLARADOS $paq"
+  done <<EOF
+$(grep -rhoE "(from|import)[[:space:]]+['\"]([@A-Za-z][^'\"]*)['\"]" \
+    frontend/src frontend/tests frontend/*.ts frontend/*.js 2>/dev/null \
+  | sed -E "s/.*['\"]([^'\"]*)['\"].*/\1/" \
+  | grep -vE "^[./]" \
+  | sed -E 's#^(@[^/]+/[^/]+).*#\1#; s#^([^@][^/]*)/.*#\1#' \
+  | grep -vE '^(node:|fs$|path$|url$|os$|crypto$|http$|https$|util$|events$|stream$|assert$|child_process$)' \
+  | sort -u)
+EOF
+  if [ -n "$NO_DECLARADOS" ]; then
+    rojo "importa paquetes que el package.json no declara:$NO_DECLARADOS"
+    echo "     Declaralo en frontend/package.json o no lo importes. Si no está permitido en"
+    echo "     AGENTS.md, pará y decilo: la lista se amplía, no se esquiva."
+  else
+    verde "todo lo importado está declarado"
+    testigo "los import de frontend/src, frontend/tests y las configs contra package.json"
+  fi
+fi
 if grep -rqE 'tailwind' frontend/ --include=*.json --include=*.js --include=*.ts 2>/dev/null; then rojo "apareció Tailwind: el diseño es propio"; else verde "sin librerías de diseño"; fi
 SUP="$(grep -rnEi '# *(noqa|type: *ignore)|except[^:]*: *pass|@ *unittest\.skip|\.skip\(|\|\| *true|eslint-disable' backend/app frontend/src 2>/dev/null || true)"
 if [ -n "$SUP" ]; then rojo "hay señales suprimidas:"; echo "$SUP" | head -3 | sed 's/^/     /'; else verde "sin señales suprimidas"; fi

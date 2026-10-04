@@ -449,6 +449,50 @@ class TestVacuidad(CasoBase):
                       "el veredicto tiene que dejar constancia de lo que no se verificó")
 
 
+class TestImportsDeclarados(unittest.TestCase):
+    """Importar algo que no se declara: la forma «usar una cosa y declarar otra».
+
+    Pasó dos veces en la corrida de clasificados y las dos el método dio otro diagnóstico:
+    T30 importó `@vitejs/plugin-react` en `vite.config.ts` sin ponerlo en `package.json`, y
+    T02 llamó `cursor(cursorclass=DictCursor)` en su test y `cursor()` en su código. En
+    JS/TS se puede verificar de un lado, así que se verifica.
+    """
+
+    GATE = RAIZ / "ejemplo-clasificados" / "scripts" / "gate.sh"
+
+    def montar(self, package_json, config):
+        repo = pathlib.Path(tempfile.mkdtemp(prefix="prueba-imports-"))
+        self.addCleanup(shutil.rmtree, str(repo), True)
+        d = repo / "proyecto"
+        for sub in ("scripts", "tareas", "frontend/src", "frontend/tests", "backend/tests"):
+            (d / sub).mkdir(parents=True)
+        shutil.copy(self.GATE, d / "scripts" / "gate.sh")
+        shutil.copy(self.GATE.parent / "correr-suite.sh", d / "scripts" / "correr-suite.sh")
+        (d / "frontend" / "package.json").write_text(package_json)
+        (d / "frontend" / "vite.config.ts").write_text(config)
+        correr("git init -q && git add -A && git commit -qm base", repo)
+        return correr("bash scripts/gate.sh", d)
+
+    def test_un_import_no_declarado_da_rojo(self):
+        r = self.montar('{"devDependencies": {"vite": "^5.0.0"}}\n',
+                        "import react from '@vitejs/plugin-react';\n")
+        self.assertIn("importa paquetes que el package.json no declara", r.stdout,
+                      f"no lo vio\n{r.stdout}")
+        self.assertIn("@vitejs/plugin-react", r.stdout, "y tiene que decir cuál")
+
+    def test_un_import_declarado_no_da_rojo(self):
+        r = self.montar('{"devDependencies": {"vite": "^5.0.0", "@vitejs/plugin-react": "^4.0.0"}}\n',
+                        "import react from '@vitejs/plugin-react';\n")
+        self.assertIn("todo lo importado está declarado", r.stdout,
+                      f"estaba declarado\n{r.stdout}")
+
+    def test_un_import_relativo_no_cuenta(self):
+        r = self.montar('{"devDependencies": {"vite": "^5.0.0"}}\n',
+                        "import algo from './algo';\nimport fs from 'node:fs';\n")
+        self.assertIn("todo lo importado está declarado", r.stdout,
+                      f"ni lo relativo ni los builtins de node son dependencias\n{r.stdout}")
+
+
 class TestContabilidadDelVeredicto(CasoBase):
     """Invariantes sobre la SALIDA del gate, no sobre un chequeo en particular.
 
