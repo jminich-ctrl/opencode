@@ -116,9 +116,15 @@ case "$RC" in
      testigo "scripts/correr-suite.sh, el mismo comando que valida los tests" ;;
   2) rojo "la suite no corrió ningún test: sin tests no hay gate"
      echo "$SALIDA" | tail -5 | sed 's/^/     /' ;;
-  3) rojo "falta el corredor de tests — esto es del método, no del código que se juzga"
-     echo "$SALIDA" | tail -5 | sed 's/^/     /'
-     echo "     bash \$AGENTES/scripts/preparar-entorno.sh" ;;
+  3) if [ -n "${TAREA:-}" ] && [ -f .tests-base ] && grep -q FALTA_CORREDOR .tests-base; then
+       # Ya faltaba antes de esta tarea: es la línea base, no su culpa. Pasa por la misma
+       # regla que el resto, que además exige que SUS tests pasen.
+       veredicto_con_linea_base
+     else
+       rojo "falta el corredor de tests — esto es del método, no del código que se juzga"
+       echo "$SALIDA" | tail -5 | sed 's/^/     /'
+       echo "     bash \$AGENTES/scripts/preparar-entorno.sh"
+     fi ;;
   127) rojo "no existe scripts/correr-suite.sh: el proyecto no declara cómo se corre su suite"
      echo "     Copiala de plantillas/correr-suite.sh y adaptala. Sin ella, quien valida los"
      echo "     tests y quien los juzga vuelven a inventar cada uno su comando." ;;
@@ -217,13 +223,22 @@ if echo "$CAMBIADOS" | grep -qE '__pycache__|\.pyc$|node_modules/|dist/'; then r
 #   · T02 llamó `cursor(cursorclass=DictCursor)` en un test y `cursor()` en su código.
 # Es la misma forma —usar una cosa y declarar otra— y acá se puede verificar de un lado.
 if [ -f frontend/package.json ]; then
+  # En modo tarea, sólo lo que ESTA tarea tocó: el test de T30 entró al tronco antes que su
+  # package.json con vitest, y el chequeo reprobaba a T02 y T03 —tareas de backend— por un
+  # import que no habían escrito. En modo integración sí se mira el árbol entero, que es
+  # cuando la pregunta «¿está todo declarado?» corresponde.
+  if [ -n "${TAREA:-}" ]; then
+    FUENTES_IMPORT="$(echo "$CAMBIADOS" | grep -E '\.(ts|tsx|js|jsx)$' | tr '\n' ' ')"
+    [ -n "$FUENTES_IMPORT" ] || FUENTES_IMPORT=""
+  else
+    FUENTES_IMPORT="frontend/src frontend/tests frontend/*.ts frontend/*.js"
+  fi
   NO_DECLARADOS=""
   while IFS= read -r paq; do
     [ -n "$paq" ] || continue
     grep -q "\"$paq\"" frontend/package.json 2>/dev/null || NO_DECLARADOS="$NO_DECLARADOS $paq"
   done <<EOF
-$(grep -rhoE "(from|import)[[:space:]]+['\"]([@A-Za-z][^'\"]*)['\"]" \
-    frontend/src frontend/tests frontend/*.ts frontend/*.js 2>/dev/null \
+$(grep -rhoE "(from|import)[[:space:]]+['\"]([@A-Za-z][^'\"]*)['\"]" ${FUENTES_IMPORT} 2>/dev/null \
   | sed -E "s/.*['\"]([^'\"]*)['\"].*/\1/" \
   | grep -vE "^[./]" \
   | sed -E 's#^(@[^/]+/[^/]+).*#\1#; s#^([^@][^/]*)/.*#\1#' \
@@ -234,9 +249,11 @@ EOF
     rojo "importa paquetes que el package.json no declara:$NO_DECLARADOS"
     echo "     Declaralo en frontend/package.json o no lo importes. Si no está permitido en"
     echo "     AGENTS.md, pará y decilo: la lista se amplía, no se esquiva."
+  elif [ -z "$FUENTES_IMPORT" ]; then
+    vacuo "esta tarea no tocó archivos JS/TS: no hay imports que cruzar"
   else
     verde "todo lo importado está declarado"
-    testigo "los import de frontend/src, frontend/tests y las configs contra package.json"
+    testigo "${FUENTES_IMPORT} contra frontend/package.json"
   fi
 fi
 if grep -rqE 'tailwind' frontend/ --include=*.json --include=*.js --include=*.ts 2>/dev/null; then rojo "apareció Tailwind: el diseño es propio"; else verde "sin librerías de diseño"; fi

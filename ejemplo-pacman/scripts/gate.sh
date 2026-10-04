@@ -108,9 +108,15 @@ case "$RC" in
      testigo "scripts/correr-suite.sh, el mismo comando que valida los tests" ;;
   2) rojo "la suite no corrió ningún test: sin tests no hay gate"
      echo "$SALIDA" | tail -5 | sed 's/^/     /' ;;
-  3) rojo "falta el corredor de tests — esto es del método, no del código que se juzga"
-     echo "$SALIDA" | tail -5 | sed 's/^/     /'
-     echo "     bash \$AGENTES/scripts/preparar-entorno.sh" ;;
+  3) if [ -n "${TAREA:-}" ] && [ -f .tests-base ] && grep -q FALTA_CORREDOR .tests-base; then
+       # Ya faltaba antes de esta tarea: es la línea base, no su culpa. Pasa por la misma
+       # regla que el resto, que además exige que SUS tests pasen.
+       veredicto_con_linea_base
+     else
+       rojo "falta el corredor de tests — esto es del método, no del código que se juzga"
+       echo "$SALIDA" | tail -5 | sed 's/^/     /'
+       echo "     bash \$AGENTES/scripts/preparar-entorno.sh"
+     fi ;;
   127) rojo "no existe scripts/correr-suite.sh: el proyecto no declara cómo se corre su suite"
      echo "     Copiala de plantillas/correr-suite.sh y adaptala. Sin ella, quien valida los"
      echo "     tests y quien los juzga vuelven a inventar cada uno su comando." ;;

@@ -113,11 +113,19 @@ correr_frontend() {
 # gate culpa sólo por las fallas NUEVAS. Es la misma regla que `integrar.sh` ya usa para los
 # merges, aplicada un nivel más abajo.
 fallas() {
-  local salida
-  salida="$( { correr_backend; correr_frontend; } 2>&1 )"
-  echo "$salida" \
-    | grep -oE '^(FAILED|ERROR) [^ ]+|^ *(FAIL|×) [^ ]+ *>[^>]*' \
-    | sed 's/^ *//; s/ *$//' | sort -u
+  local sb sf rb rf
+  sb="$(correr_backend 2>&1)"; rb=$?
+  sf="$(correr_frontend 2>&1)"; rf=$?
+  {
+    printf '%s\n%s\n' "$sb" "$sf" \
+      | grep -oE '^(FAILED|ERROR) [^ ]+|^ *(FAIL|×) [^ ]+ *>[^>]*' \
+      | sed 's/^ *//; s/ *$//'
+    # Una mitad que no se puede correr también es una falla de la línea base. Pasó: el test
+    # de T30 entró al tronco antes que su package.json con vitest, así que el frontend no
+    # tenía corredor, y el gate reprobaba a T02 y T03 —tareas de backend— por eso.
+    [ "$rb" = 8 ] && echo "FALTA_CORREDOR backend"
+    [ "$rf" = 8 ] && echo "FALTA_CORREDOR frontend"
+  } | sort -u
 }
 
 # Traduce los sentinelas al contrato y sale. Es el único punto de salida del script.
