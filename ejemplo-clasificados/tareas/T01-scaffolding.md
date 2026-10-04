@@ -26,7 +26,7 @@ N/A
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `tests/test_scaffolding.py`, clase `TestScaffolding`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_scaffolding.py`, clase `TestScaffolding`.
 
 ## Criterio de terminado
 

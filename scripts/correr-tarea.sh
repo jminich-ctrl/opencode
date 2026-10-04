@@ -52,6 +52,11 @@ lanzar() {
   # contra el intérprete del sistema y no vería las dependencias. Se lo pasamos.
   if [ -x "$BASE/.venv/bin/python" ]; then export PY_PROYECTO="$BASE/.venv/bin/python"; fi
 
+  # El entorno es responsabilidad del método, no de la tarea: el gate pone ROJO cuando
+  # falta el corredor de tests —y hace bien— pero ese rojo no es del agente. Enlazamos
+  # venv y node_modules del tronco antes de que empiece.
+  bash "$AQUI/preparar-entorno.sh" "$dir" 2>&1 | sed 's/^/  /'
+
   # Modo manual: el método no depende de que haya una IA disponible. Preparamos el
   # worktree, mostramos la tarea, y la hace una persona; el gate decide igual.
   if [ "${MANUAL:-0}" = "1" ] || ! command -v opencode >/dev/null 2>&1; then
@@ -85,6 +90,10 @@ lanzar() {
     # El agente ya terminó. Recién ahora corre el gate, y el veredicto es su código de
     # salida: nunca lo que el agente escribió. Pasó de verdad: el modelo afirmó
     # "El gate.sh indica GATE VERDE" después de ver fallar el gate tres veces.
+    # Otra vez, ahora que el agente ya escribió: una tarea de scaffolding CREA el
+    # manifiesto (requirements.txt, package.json), y sin instalarlo el gate reprueba por
+    # falta de corredor a la tarea que acaba de declararlo bien.
+    bash "$AQUI/preparar-entorno.sh" "$dir" >> "$log" 2>&1
     local error
     error="$(error_del_agente "$log")"
     cerrar_con_gate "$log" "$id"

@@ -31,7 +31,7 @@ export function filterAdsByCategory(ads: Ad[], category: string): Ad[] {
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `tests/frontend/test_filters_frontend.test.ts`, clase `TestFiltersFrontend`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `frontend/tests/test_filters_frontend.test.ts`, clase `TestFiltersFrontend`.
 
 ## Criterio de terminado
 

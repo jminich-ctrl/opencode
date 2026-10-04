@@ -27,7 +27,7 @@ export async function login(username: string, password: string): Promise<void>
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `frontend/tests/test_login.ts`, clase `TestLoginFrontend`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `frontend/tests/test_login_frontend.test.ts`, clase `TestLoginFrontend`.
 
 ## Criterio de terminado
 

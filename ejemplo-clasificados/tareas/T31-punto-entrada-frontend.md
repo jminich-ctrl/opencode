@@ -25,7 +25,7 @@ N/A
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `frontend/tests/test_scaffolding.ts`, clase `TestScaffoldingFrontend`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `frontend/tests/test_entrypoint_frontend.test.ts`, clase `TestEntrypointFrontend`.
 
 ## Criterio de terminado
 

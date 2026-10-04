@@ -28,7 +28,7 @@ export async function buscarAnuncios(texto: string, categoria?: string): Promise
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea están en `tests/frontend/test_search_frontend.test.ts` bajo la clase `TestSearchFrontend`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `frontend/tests/test_search_frontend.test.ts`, clase `TestSearchFrontend`.
 
 ## Criterio de terminado
 

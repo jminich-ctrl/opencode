@@ -69,6 +69,11 @@ for etapa in "${ETAPAS[@]}"; do
     continue
   fi
 
+  # 0. El entorno, antes de gastar una llamada al modelo. La etapa anterior pudo agregar
+  # dependencias, y el gate —con razón— pone ROJO si falta el corredor de tests. Ese rojo
+  # no sería del agente: sería nuestro.
+  bash "$AQUI/preparar-entorno.sh" || parar "$n" "no pude preparar el entorno. El gate iba a reprobar por falta de herramientas, no por el código."
+
   # 1. Los tests, con su validación mecánica. Lo que no pase no se lanza.
   echo "── 1/3 tests"
   bash "$AQUI/escribir-tests.sh" "${tareas[@]}" || true
@@ -85,11 +90,14 @@ for etapa in "${ETAPAS[@]}"; do
   git -C "$RAIZ" commit -q -m "tests de la etapa $n: ${tareas[*]}" >/dev/null 2>&1 || true
 
   # 2. Las tareas. El runner reintenta y corta en punto muerto por su cuenta.
+  #
+  # UNA sola invocación. Antes esto lanzaba correr-plan.sh en segundo plano Y correr-tarea.sh
+  # en primer plano sobre las mismas tareas: dos agentes compitiendo por el mismo worktree,
+  # que cada `correr-tarea.sh` borra y recrea (`rm -rf "$wt"`). Se pisaban. El síntoma era
+  # una tarea roja sin causa visible en su log, y la cuenta de intentos duplicada en el
+  # registro. correr-plan.sh ya llama a correr-tarea.sh: es el motor de reintentos.
   echo "── 2/3 tareas"
-  bash "$AQUI/correr-plan.sh" "$n" >/dev/null 2>&1 &
-  pid=$!
-  bash "$AQUI/correr-tarea.sh" "${tareas[@]}" || true
-  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || true
+  SOLO_UNA=1 bash "$AQUI/correr-plan.sh" "$n" || true
 
   rojas=(); imposibles=()
   for t in "${tareas[@]}"; do

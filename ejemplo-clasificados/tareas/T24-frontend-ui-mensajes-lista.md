@@ -25,7 +25,7 @@ N/A (modificación de UI existente).
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `tests/frontend/test_messages_ui_lista.test.ts`, clase `TestMessagesUILista`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `frontend/tests/test_messages_ui_lista.test.ts`, clase `TestMessagesUILista`.
 
 ## Criterio de terminado
 

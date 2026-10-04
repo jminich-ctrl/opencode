@@ -168,6 +168,64 @@ if gate.exists():
                     errores.append(f"{f.name} declara «{a}», que el gate considera intocable: "
                                    f"la tarea es insatisfacible")
 
+# ── La tabla de tests contra la tabla de tareas y contra los archivos de tarea.
+# Tres declaraciones de lo mismo que leen tres lectores distintos: `escribir-tests.sh` usa
+# la tabla del plan para saber qué archivo pedir, el agente lee la ruta del archivo de
+# tarea, y el gate juzga el archivo que quedó en el disco. En clasificados las tres
+# divergían: la tabla decía `backend/tests/test_auth_backend.py` y 23 de 27 archivos de
+# tarea decían otra cosa (`tests/...`, `tests/backend/...`). El agente busca el test donde
+# le dicen, no lo encuentra, y la tarea se cae por una razón que no es la suya.
+FILA_TEST = re.compile(r"^\|\s*(T\d+)\s*\|\s*`?([^|`]+?)`?\s*\|\s*`?([A-Za-z_][\w]*)`?\s*\|\s*$", re.M)
+tests_plan = {}
+for tid, ruta, clase in FILA_TEST.findall(texto):
+    # La tabla de tareas tiene 5 columnas y no matchea este patrón de 3; igual chequeamos
+    # que no estemos leyendo una fila de ahí.
+    if tid in tests_plan:
+        errores.append(f"la tabla de tests declara {tid} dos veces")
+        continue
+    tests_plan[tid] = (ruta.strip(), clase.strip())
+
+if tests_plan:
+    sin_test = sorted(set(tareas) - set(tests_plan))
+    if sin_test:
+        errores.append(f"tareas sin test declarado en la tabla de tests: {' '.join(sin_test)}"
+                       " (escribir-tests.sh no sabe qué archivo pedir y las saltea)")
+    sobran = sorted(set(tests_plan) - set(tareas))
+    if sobran:
+        errores.append(f"la tabla de tests nombra tareas que no están en la tabla de tareas:"
+                       f" {' '.join(sobran)}")
+
+    # Dos tareas con el mismo archivo de test se pisan: la segunda sobrescribe el test de
+    # la primera, y el gate de la primera pasa a juzgar otra cosa.
+    por_ruta = {}
+    for tid, (ruta, _) in tests_plan.items():
+        por_ruta.setdefault(ruta, []).append(tid)
+    for ruta, ids in sorted(por_ruta.items()):
+        if len(ids) > 1:
+            errores.append(f"{' y '.join(sorted(ids))} declaran el mismo archivo de test "
+                           f"«{ruta}»: el segundo pisa al primero")
+
+    # Y la ruta que el archivo de tarea le muestra al agente.
+    LINEA_TEST = re.compile(r"^(.*Archivo: )`([^`]+)`(, clase )`?([A-Za-z_]\w*)`?(\..*)$", re.M)
+    for tid in sorted(set(tareas) & set(en_disco) & set(tests_plan)):
+        arch = en_disco[tid][0]
+        cuerpo = arch.read_text()
+        m = LINEA_TEST.search(cuerpo)
+        ruta_plan, clase_plan = tests_plan[tid]
+        if not m:
+            avisos.append(f"{arch.name} no nombra su archivo de test: el agente no sabe "
+                          f"dónde está (el plan dice {ruta_plan})")
+            continue
+        if (m.group(2), m.group(4)) == (ruta_plan, clase_plan):
+            continue
+        if ARREGLAR:
+            nueva = f"{m.group(1)}`{ruta_plan}`{m.group(3)}`{clase_plan}`{m.group(5)}"
+            arch.write_text(cuerpo[:m.start()] + nueva + cuerpo[m.end():])
+            print(f"  · arreglado: {arch.name} apuntaba a «{m.group(2)}», ahora a «{ruta_plan}»")
+        else:
+            errores.append(f"{arch.name} dice que su test es «{m.group(2)}::{m.group(4)}» y "
+                           f"el plan dice «{ruta_plan}::{clase_plan}»")
+
 # ── Plantillas sin completar, en el plan y en las tareas
 def placeholders(cuerpo):
     # Fuera los bloques de código y el código en línea: `Promise<void>` y `<any>` son

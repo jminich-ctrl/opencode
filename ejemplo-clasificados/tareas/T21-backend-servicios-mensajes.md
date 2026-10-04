@@ -28,7 +28,7 @@ def send_message_service(sender_id: int, receiver_id: int, ad_id: int, content: 
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `tests/backend/test_messages_servicio.py`, clase `TestMessagesServicio`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_messages_servicio.py`, clase `TestMessagesServicio`.
 
 ## Criterio de terminado
 

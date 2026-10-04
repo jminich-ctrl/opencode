@@ -32,7 +32,7 @@ def crear_usuario(email: str, password: str) -> int:
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea están en `tests/backend/test_register_backend.py` bajo la clase `TestRegisterBackend`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_register_backend.py`, clase `TestRegisterBackend`.
 
 ## Criterio de terminado
 

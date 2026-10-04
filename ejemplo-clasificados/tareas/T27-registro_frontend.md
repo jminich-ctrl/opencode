@@ -29,7 +29,7 @@ export async function registrarUsuario(email: string, password: string): Promise
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea están en `tests/frontend/test_register_frontend.test.ts` bajo la clase `TestRegisterFrontend`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `frontend/tests/test_register_frontend.test.ts`, clase `TestRegisterFrontend`.
 
 ## Criterio de terminado
 

@@ -681,6 +681,54 @@ class TestEjemplosNoDerivan(unittest.TestCase):
                 self.assertIn("dentro del alcance", r.stdout,
                               f"declaró todo y aun así no pasó el paso de alcance\n{r.stdout[-900:]}")
 
+    def test_en_todos_la_suite_corre_desde_la_raiz_del_proyecto(self):
+        """El validador de `escribir-tests.sh` corre la suite desde la raíz del proyecto.
+        Si un gate la corre desde otro directorio, un test validado en un cwd se juzga en
+        otro y hay tests imposibles de pasar: el de scaffolding de clasificados chequeaba
+        `backend/app/datos` y en el gate resolvía a `backend/backend/app/datos`.
+
+        Se mide con una canaria que anota su propio `os.getcwd()`: no leemos el texto del
+        gate, lo dejamos correr y vemos desde dónde corrió."""
+        # TestCase y no una función: `unittest discover` sólo junta clases, y pytest
+        # junta las dos. Así la misma canaria sirve para los tres corredores.
+        canaria = ("import os\nimport pathlib\nimport unittest\n\n\n"
+                   "class TestCanaria(unittest.TestCase):\n"
+                   "    def test_anota_el_cwd(self):\n"
+                   "        pathlib.Path(os.environ['CANARIA']).write_text(os.getcwd())\n")
+        # El corredor tiene que existir o el gate dice —con razón— que falta la herramienta
+        # y la canaria no corre. Si no hay ninguno con pytest, lo decimos fuerte.
+        venvs = sorted(RAIZ.glob("ejemplo-*/.venv/bin/python"))
+        py_con_pytest = next(
+            (str(v) for v in venvs
+             if subprocess.run([str(v), "-c", "import pytest"], capture_output=True).returncode == 0),
+            None)
+        for gate in self.GATES:
+            with self.subTest(gate=str(gate.relative_to(RAIZ))):
+                repo = pathlib.Path(tempfile.mkdtemp(prefix="prueba-cwd-"))
+                self.addCleanup(shutil.rmtree, str(repo), True)
+                d = repo / "proyecto"
+                marca = repo / "cwd.txt"
+                # En los dos layouts a la vez: cada gate va a descubrir el que mira.
+                for sub in ("tests", "backend/tests", "tareas", "scripts", "src", "backend/app"):
+                    (d / sub).mkdir(parents=True, exist_ok=True)
+                for sub in ("tests", "backend/tests"):
+                    (d / sub / "__init__.py").touch()
+                    (d / sub / "test_canaria.py").write_text(canaria)
+                shutil.copy(gate, d / "scripts" / "gate.sh")
+                correr("git init -q && git add -A && git commit -qm base", repo)
+                extra = {"PY_PROYECTO": py_con_pytest} if py_con_pytest else {}
+                r = correr("bash scripts/gate.sh", d, CANARIA=str(marca), **extra)
+                if not marca.exists():
+                    if "falta su corredor" in r.stdout and not py_con_pytest:
+                        self.fail("no hay ningún python con pytest en los ejemplos, así que "
+                                  "este chequeo no puede correr. No es un pase: instalá el "
+                                  "corredor (bash scripts/preparar-entorno.sh) y repetilo.")
+                    self.fail("la canaria no corrió: el chequeo quedaría vacuo, y un "
+                              f"chequeo que no corre no es un chequeo que pasa\n{r.stdout[-900:]}")
+                self.assertEqual(marca.read_text(), str(d.resolve()),
+                                 "la suite corrió desde otro directorio que la raíz del "
+                                 "proyecto: un test validado en un cwd se juzga en otro")
+
     def test_en_todos_un_chequeo_que_no_corre_se_marca_vacuo(self):
         """La regla que no se adapta: ⊘ nunca puede confundirse con ✓."""
         for gate in self.GATES:

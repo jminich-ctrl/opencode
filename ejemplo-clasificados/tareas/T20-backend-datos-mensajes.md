@@ -29,7 +29,7 @@ def send_message(sender_id: int, receiver_id: int, ad_id: int, content: str) -> 
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `tests/backend/test_messages_datos.py`, clase `TestMessagesDatos`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_messages_datos.py`, clase `TestMessagesDatos`.
 
 ## Criterio de terminado
 

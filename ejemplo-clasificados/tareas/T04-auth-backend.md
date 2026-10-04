@@ -31,7 +31,7 @@ def login(request: Request) -> Response:
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `tests/test_auth_backend.py`, clase `TestAuthBackend`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_auth_backend.py`, clase `TestAuthBackend`.
 
 ## Criterio de terminado
 

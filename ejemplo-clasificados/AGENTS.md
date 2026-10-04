@@ -1,0 +1,54 @@
+# Reglas para el agente ejecutor — sitio de clasificados
+
+Esto se suma al `AGENTS.md` de la raíz del repo. Donde diga algo distinto, manda este.
+
+## Dependencias permitidas
+
+La regla general del método es «nada fuera de la biblioteca estándar». Acá no alcanza: el
+plan pide una API HTTP y un frontend con tests, y eso no se hace con stdlib sin reescribir
+un framework. Entonces la lista está **cerrada y declarada**, que es el punto: el límite
+sigue existiendo, sólo que lo fija el plan y no el azar.
+
+**Backend** (`backend/requirements.txt`):
+
+- `fastapi` — la API
+- `uvicorn` — el servidor
+- `pydantic` — validación de entrada y salida
+- `pymysql` — el driver de MySQL
+- `pytest` — el corredor de tests
+- `httpx` — el cliente de tests de FastAPI
+
+**Frontend** (`frontend/package.json`):
+
+- `vite` — el bundler
+- `react` y `react-dom` — la UI
+- `vitest` — el corredor de tests
+- `jsdom` y `@testing-library/react` — para testear componentes
+- `sass` — para los `.scss` del sistema de diseño propio
+
+**La base es MySQL con SQL a mano, sin ORM**, como dice `PLAN.md`: el esquema está cerrado
+ahí y un ORM agrega una capa que nadie pidió. La conexión sale de variables de entorno
+(`MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DB`), nunca de valores
+escritos en el código: el runner levanta un servidor propio del proyecto y las exporta.
+
+**Sin librerías de diseño.** Ni Tailwind, ni Bootstrap, ni componentes de terceros: el CSS
+es propio y en SCSS. El gate lo verifica (`sin librerías de diseño`), así que agregarlo da
+rojo.
+
+Cualquier otra cosa —incluida una que te parezca obvia— es una dependencia nueva: pará y
+decilo en la respuesta. Si la tarea no se puede hacer sin ella, es un `IMPOSIBLE:` legítimo
+y no te lo contamos como error.
+
+## Lo que ya está decidido y no se rediscute
+
+- **Precios en centavos, entero.** Nada de flotantes para dinero.
+- **Esquema de tablas**: el de `PLAN.md`, tal cual. Si una tarea necesita una columna que
+  no está, eso es un cambio de plan: pará y decilo.
+- **Errores de la API**: el formato está en `PLAN.md`. No inventes otro.
+
+## Entorno
+
+No instales nada a mano ni corras `pip` o `npm` por tu cuenta: el runner prepara el
+entorno antes de lanzarte (`scripts/preparar-entorno.sh`). Tu trabajo es **declarar** la
+dependencia en el manifiesto; instalarla es del método. Si el gate dice que falta un
+corredor de tests, eso es un defecto nuestro: reportalo y no lo arregles vos.

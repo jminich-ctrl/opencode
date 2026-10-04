@@ -25,7 +25,7 @@ N/A (modificación de UI existente).
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `tests/frontend/test_favorites_ui.test.ts`, clase `TestFavoritesUILista`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `frontend/tests/test_favorites_ui.test.ts`, clase `TestFavoritesUILista`.
 
 ## Criterio de terminado
 

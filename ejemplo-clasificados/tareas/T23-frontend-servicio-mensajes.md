@@ -30,7 +30,7 @@ export async function sendMessage(senderId: number, receiverId: number, adId: nu
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `tests/frontend/test_messages_servicio.test.ts`, clase `TestMessagesServicioFrontend`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `frontend/tests/test_messages_servicio.test.ts`, clase `TestMessagesServicioFrontend`.
 
 ## Criterio de terminado
 

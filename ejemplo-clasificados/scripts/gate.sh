@@ -56,7 +56,13 @@ if [ -d backend/tests ] && ls backend/tests/test_*.py >/dev/null 2>&1; then
   if ! "$PY_PROYECTO" -c "import pytest" >/dev/null 2>&1; then
     herramienta_falta "backend/tests" "pytest en $PY_PROYECTO"
   else
-  SALIDA="$(cd backend && "$PY_PROYECTO" -m pytest -q 2>&1)"
+  # Desde la RAÍZ DEL PROYECTO, no desde backend/. Esto no es estilo: el validador de
+  # `escribir-tests.sh` corre la suite desde la raíz, y si el gate la corre desde otro
+  # directorio, un test validado en un cwd se juzga en otro. Pasó: un test de scaffolding
+  # que chequeaba `backend/app/datos` fue aceptado por el validador y era imposible de
+  # pasar en el gate, porque ahí la ruta resolvía a `backend/backend/app/datos`.
+  # La regla: **el cwd de la suite es la raíz del proyecto, para todos los que la corren.**
+  SALIDA="$(PYTHONPATH="$PWD/backend" "$PY_PROYECTO" -m pytest -q backend/tests 2>&1)"
   if echo "$SALIDA" | grep -qE 'no tests ran|collected 0 items'; then
     rojo "backend: la suite no corrió ningún test"
   elif echo "$SALIDA" | grep -qE '[0-9]+ passed' && ! echo "$SALIDA" | grep -qE '[0-9]+ (failed|error)'; then
@@ -141,7 +147,7 @@ if [ -n "${TAREA:-}" ]; then
   if [ -z "$IMPL" ]; then vacuo "no hay implementación que revertir"
   elif [ -z "$REVERTIDOS" ]; then vacuo "archivos nuevos (no existían en HEAD): nada que revertir"
   else
-    if ( cd backend && "$PY_PROYECTO" -m pytest -q >/dev/null 2>&1 ); then
+    if PYTHONPATH="$PWD/backend" "$PY_PROYECTO" -m pytest -q backend/tests >/dev/null 2>&1; then
       rojo "los tests PASAN con la implementación vieja: no verifican el cambio"
       echo "     revertí:$REVERTIDOS y la suite siguió verde"
     else verde "la suite falla al revertir$REVERTIDOS"; fi

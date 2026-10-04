@@ -30,7 +30,7 @@ un `001_inicial_down.sql` que deje la base como estaba. Si no se puede revertir,
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `tests/test_migracion.py`, clase `TestMigracion`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_migracion.py`, clase `TestMigracion`.
 
 ## Criterio de terminado
 

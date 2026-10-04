@@ -11,7 +11,9 @@ Si el archivo de tarea no está en tu contexto, pedilo antes de empezar.
 
 1. **No toques archivos fuera de los declarados** en "Archivos que podés tocar".
    Si necesitás tocar otro, pará y decilo en la respuesta.
-2. **No agregues dependencias.** Todo con biblioteca estándar.
+2. **No agregues dependencias que el proyecto no declare.** La lista vive en el
+   `AGENTS.md` del proyecto; si ese archivo no declara ninguna, es biblioteca estándar y
+   nada más. Una dependencia que no está en la lista se pide, no se agrega: pará y decilo.
 3. **No toques un test para que pase.** Si un test falla, el que está mal es el código.
    Si el test está realmente mal, decilo y no lo cambies.
 4. **No borres código que no entendés.** Preguntá.

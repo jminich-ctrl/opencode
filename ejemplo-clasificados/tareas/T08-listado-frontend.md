@@ -29,7 +29,7 @@ export async function getAd(id: string): Promise<any>;
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `frontend/tests/test_ads_frontend.ts`, clase `TestAdsFrontend`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `frontend/tests/test_ads_frontend.test.ts`, clase `TestAdsFrontend`.
 
 ## Criterio de terminado
 

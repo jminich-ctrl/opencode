@@ -31,7 +31,7 @@ def buscar_anuncios(texto: str, categoria: str | None = None) -> list[dict]:
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea están en `tests/backend/test_search_backend.py` bajo la clase `TestSearchBackend`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_search_backend.py`, clase `TestSearchBackend`.
 
 ## Criterio de terminado
 

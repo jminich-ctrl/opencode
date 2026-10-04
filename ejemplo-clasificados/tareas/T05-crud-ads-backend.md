@@ -34,7 +34,7 @@ async def crear_ad(request: Request) -> Response:
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `tests/test_ads_backend.py`, clase `TestAdsBackend`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_ads_backend.py`, clase `TestAdsBackend`.
 
 ## Criterio de terminado
 

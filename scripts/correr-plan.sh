@@ -4,6 +4,7 @@
 #   bash scripts/correr-plan.sh              # de la primera etapa a la última
 #   bash scripts/correr-plan.sh 3            # desde la etapa 3
 #   REINTENTOS=2 bash scripts/correr-plan.sh # cuántas veces relanzar una tarea roja
+#   SOLO_UNA=1 bash scripts/correr-plan.sh 3  # la etapa 3 y nada más (lo usa correr-todo.sh)
 #
 # Las etapas se leen de PLAN.md. Formato esperado (una línea por etapa):
 #
@@ -156,6 +157,8 @@ for etapa in "${ETAPAS[@]}"; do
 
   echo "✓ etapa $n completa"
   echo
+  # correr-todo.sh intercala la integración entre etapas, así que necesita pedir una sola.
+  [ "${SOLO_UNA:-0}" = "1" ] && break
 done
 
 echo "══ Todas las etapas en verde."

@@ -28,7 +28,7 @@ def toggle_favorite_service(user_id: int, ad_id: int) -> bool:
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `tests/backend/test_favorites_servicio.py`, clase `TestFavoritesServicio`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_favorites_servicio.py`, clase `TestFavoritesServicio`.
 
 ## Criterio de terminado
 

@@ -107,7 +107,8 @@ vez de la aplicación.
 | T03 | backend/tests/test_migracion.py | TestMigracion |
 | T04 | backend/tests/test_auth_backend.py | TestAuthBackend |
 | T05 | backend/tests/test_ads_backend.py | TestAdsBackend |
-| T06 | frontend/tests/test_scaffolding_frontend.test.ts | TestScaffoldingFrontend |
+| T30 | frontend/tests/test_scaffolding_frontend.test.ts | TestScaffoldingFrontend |
+| T31 | frontend/tests/test_entrypoint_frontend.test.ts | TestEntrypointFrontend |
 | T07 | frontend/tests/test_login_frontend.test.ts | TestLoginFrontend |
 | T08 | frontend/tests/test_ads_frontend.test.ts | TestAdsFrontend |
 | T14 | backend/tests/test_favorites_datos.py | TestFavoritesDatos |
@@ -132,17 +133,17 @@ vez de la aplicación.
 
 ### Un choque que encontró el arquitecto
 
-T01 y T06 escriben los dos `frontend/package.json`. **No es un problema de paralelismo**
-—T06 depende de T01, así que van en serie— pero sí hay que saberlo: T01 crea el archivo
-básico y T06 lo **modifica**, no lo crea. Lo anotamos acá porque el deductor de etapas no
-puede saber cuál de los dos lo crea y cuál lo edita, y el agente de T06 necesita esperarlo.
+T01 y T30 escriben los dos `frontend/package.json`. **No es un problema de paralelismo**
+—T30 depende de T01, así que van en serie— pero sí hay que saberlo: T01 crea el archivo
+básico y T30 lo **modifica**, no lo crea. Lo anotamos acá porque el deductor de etapas no
+puede saber cuál de los dos lo crea y cuál lo edita, y el agente de T30 necesita esperarlo.
 
 Salió de una corrida del arquitecto que no escribió ningún archivo pero razonó bien: revisó
 las 27 tareas buscando choques sobre `main.tsx` y `App.jsx` y encontró este otro de paso.
 
-### Sobre el aviso de T06
+### Sobre el aviso de T30
 
-`validar-plan.py` marca T06 porque toca cuatro archivos. **Revisado y aceptado:** son
+`validar-plan.py` marca T30 porque toca cuatro archivos. **Revisado y aceptado:** son
 `package.json`, `vite.config.ts`, `main.ts` y `App.jsx`, y no le hacen escribir ni una
 función — es andamiaje. La regla que manda es cuántas cosas nuevas tiene que escribir el
 agente, no cuántos archivos toca (DESCOMPOSICION.md §4), y el aviso es una heurística sobre

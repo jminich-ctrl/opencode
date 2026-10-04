@@ -33,7 +33,7 @@ async def send_message_endpoint(...):
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `tests/backend/test_messages_rutas.py`, clase `TestMessagesRutas`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_messages_rutas.py`, clase `TestMessagesRutas`.
 
 ## Criterio de terminado
 

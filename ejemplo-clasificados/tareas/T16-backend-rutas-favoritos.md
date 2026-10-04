@@ -32,7 +32,7 @@ async def toggle_favorite_endpoint(user_id: int, ad_id: int):
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `tests/backend/test_favorites_rutas.py`, clase `TestFavoritesRutas`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_favorites_rutas.py`, clase `TestFavoritesRutas`.
 
 ## Criterio de terminado
 

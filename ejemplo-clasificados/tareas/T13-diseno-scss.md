@@ -26,7 +26,7 @@ N/A (solo archivos de estilo).
 
 ## Tests (ya escritos, fallando)
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `tests/frontend/test_design_system_frontend.test.ts`, clase `TestDesignSystemFrontend`.
+Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `frontend/tests/test_design_system_frontend.test.ts`, clase `TestDesignSystemFrontend`.
 
 ## Criterio de terminado
 
