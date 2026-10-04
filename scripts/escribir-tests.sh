@@ -96,7 +96,7 @@ for id in "$@"; do
 Dos cosas, las dos con la herramienta write:
 
 1. La implementación, en los archivos que la tarea declara en 'Archivos que podés tocar'.
-2. '$ruta', con una clase '$clase', que verifique el criterio de terminado. Cada test tiene que fallar si la implementación no hace lo que dice el alcance, y tiene que DISTINGUIR: un assert que pasaría igual con el código de antes no sirve de nada. Nada de 'assertTrue(len(x) > 0)'.
+2. '$ruta', con '$clase' como agrupador —si es un archivo .py, una clase 'class $clase'; si es .test.ts, un bloque describe('$clase', ...)—, que verifique el criterio de terminado. Cada test tiene que fallar si la implementación no hace lo que dice el alcance, y tiene que DISTINGUIR: un assert que pasaría igual con el código de antes no sirve de nada. Nada de 'assertTrue(len(x) > 0)'.
 
 De tu trabajo nos vamos a quedar SÓLO con los tests: la implementación la va a escribir otro agente desde cero. Así que los tests son el entregable, y tienen que ser buenos.
 
@@ -135,8 +135,19 @@ No toques ningún otro archivo." 2>&1
     echo "  ✓ sólo tocó el test y los archivos de la tarea"
   fi
 
-  if [ "$fallos" -eq 0 ] && { [ ! -f "$ruta" ] || ! grep -q "class $clase" "$ruta" 2>/dev/null; }; then
-    malo "no escribió $ruta con la clase $clase"
+  # Cómo se declara "la clase" depende del lenguaje. Esto exigía `class X` siempre, así que
+  # ningún test de vitest podía pasar: en TypeScript el agrupador es `describe('X', ...)`.
+  # Es la tercera vez hoy que aparece la misma forma —el método sabe de Python y supone que
+  # todo es Python—, así que la condición se declara por extensión y no se adivina.
+  case "$ruta" in
+    *.py)                                 DECLARA="class $clase" ;;
+    *.test.ts|*.test.tsx|*.test.js|*.test.jsx) DECLARA="describe" ;;
+    *)                                    DECLARA="$clase" ;;
+  esac
+  if [ "$fallos" -eq 0 ] && { [ ! -f "$ruta" ] \
+       || ! grep -q "$DECLARA" "$ruta" 2>/dev/null \
+       || ! grep -q "$clase" "$ruta" 2>/dev/null; }; then
+    malo "no escribió $ruta declarando $clase (en .py se espera «class $clase»; en .test.ts, «describe('"'"'$clase'"'"', ...)»)"
   fi
 
   # La validación del test, en tres pasos. Los archivos que la tarea declara son la
