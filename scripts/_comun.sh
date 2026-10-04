@@ -150,9 +150,30 @@ huella_de_falla() {
 #
 # Sale 142 si cortó por tiempo (SIGALRM), y eso se trata como un intento fallido con motivo
 # propio: es reintentable, porque la próxima vez puede andar.
+# Mata el GRUPO de procesos, no sólo el líder: `opencode` arranca hijos (node, servidores
+# de lenguaje) y una señal al líder los deja huérfanos corriendo. En una sesión larga eso se
+# acumula y la máquina se degrada sin que nadie relacione una cosa con la otra.
 con_limite() {
   local segundos="$1"; shift
-  perl -e 'my $s = shift; alarm $s; exec @ARGV or exit 127;' "$segundos" "$@"
+  local pid guardian rc
+  set -m                      # cada hijo arranca en su propio grupo de procesos
+  "$@" &
+  pid=$!
+  set +m
+  ( sleep "$segundos"
+    kill -TERM -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
+    sleep 5
+    kill -KILL -"$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null ) >/dev/null 2>&1 &
+  # El guardián NO hereda stdout: si lo hereda, su `sleep` mantiene la tubería abierta y
+  # quien capture la salida espera el límite entero aunque el comando ya haya terminado.
+  # Medido: tres casos de test tardaban 66s en vez de 3.
+  guardian=$!
+  wait "$pid"; rc=$?
+  kill "$guardian" 2>/dev/null
+  wait "$guardian" 2>/dev/null
+  # 143 = SIGTERM, 137 = SIGKILL: los dos son "lo cortamos nosotros". Se normalizan a 142
+  # para que quien lo llama tenga un solo código que mirar.
+  case "$rc" in 143|137) return 142 ;; *) return "$rc" ;; esac
 }
 
 # Cierra una tarea integrada: la marca hecha en su archivo (es lo que lee estado.sh),
