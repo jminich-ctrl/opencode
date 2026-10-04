@@ -1,0 +1,14 @@
+// Importar parciales
+@use './variables';
+@use './mixins';
+
+// Establecer estilos base
+body {
+  color: #333333;
+  font-family: "Arial", sans-serif;
+}
+
+// Usar un mixin
+.card {
+  @include mixins.shadow-box();
+}
