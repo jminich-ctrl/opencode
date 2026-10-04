@@ -48,6 +48,9 @@ lanzar() {
   git -C "$wt" rev-parse HEAD > "$wt/.base-ref"
 
   local dir="$wt/$PROYECTO"
+  # El venv del proyecto no viaja al worktree (está gitignorado), así que el gate correría
+  # contra el intérprete del sistema y no vería las dependencias. Se lo pasamos.
+  if [ -x "$BASE/.venv/bin/python" ]; then export PY_PROYECTO="$BASE/.venv/bin/python"; fi
 
   # Modo manual: el método no depende de que haya una IA disponible. Preparamos el
   # worktree, mostramos la tarea, y la hace una persona; el gate decide igual.

@@ -14,7 +14,8 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 # El intérprete del proyecto si hay uno. Con `python3` a secas el gate corre contra el del
 # sistema y no ve las dependencias del proyecto.
-if [ -x .venv/bin/python ]; then PY_PROYECTO=".venv/bin/python"
+if [ -n "${PY_PROYECTO:-}" ]; then :   # el runner lo pasa: en un worktree el venv no viaja
+elif [ -x .venv/bin/python ]; then PY_PROYECTO=".venv/bin/python"
 elif [ -x ../.venv/bin/python ]; then PY_PROYECTO="../.venv/bin/python"
 else PY_PROYECTO="python3"; fi
 
@@ -100,7 +101,7 @@ else
   # El alcance sale del archivo de la tarea, no de reglas escritas acá: una regla a mano
   # queda vieja en cuanto el plan crece.
   PERMITIDOS="$(sed -n 's/^\*\*Archivos que podés tocar:\*\* *//p' "tareas/${TAREA:-}"-*.md 2>/dev/null \
-                | tr ',' '\n' | grep -oE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]+' | sort -u)"
+                | tr ',' '\n' | grep -oE '[A-Za-z0-9_./-]+(\.[A-Za-z0-9]+|/)' | sort -u)"
   if [ -n "${TAREA:-}" ] && [ -z "$PERMITIDOS" ]; then
     rojo "la tarea $TAREA no declara \"Archivos que podés tocar\": sin alcance no hay gate"
   elif [ -z "${TAREA:-}" ]; then
@@ -113,7 +114,10 @@ else
       ok=""
       while read -r permitido; do
         [ -n "$permitido" ] || continue
-        { [ "$archivo" = "$permitido" ] || [ "$archivo" = "$CODIGO/$permitido" ]; } && ok=1
+        case "$permitido" in
+          */) case "$archivo" in "$permitido"*) ok=1 ;; esac ;;   # un directorio cubre lo de abajo
+          *) { [ "$archivo" = "$permitido" ] || [ "$archivo" = "$CODIGO/$permitido" ]; } && ok=1 ;;
+        esac
       done <<< "$PERMITIDOS"
       [ -n "$ok" ] || FUERA="$FUERA $archivo"
     done <<< "$CAMBIADOS"

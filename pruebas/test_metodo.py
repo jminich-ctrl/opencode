@@ -84,6 +84,12 @@ class Proyecto:
             f"## Objetivo\n\nQue haya una cosa.\n\n"
             f"## Tests (ya escritos, fallando)\n\nArchivo: `tests/test_cosa.py`, clase `TestCosa`.\n")
 
+    def declarar(self, archivos):
+        """Cambia el alcance de T01 y lo commitea: el archivo de tarea es de la etapa
+        anterior, no del agente. Sin el commit aparecía en su propio diff."""
+        self.escribir_tarea("T01", archivos)
+        self.git("add -A"); self.git('commit -qm "alcance"')
+
     def git(self, args):
         return correr(f"git {args}", self.repo)
 
@@ -240,6 +246,37 @@ class TestGate(CasoBase):
         (self.p.dir / "tests" / "cosa.py").write_text("# colado donde no va\n")
         self.assertRojo(self.p.gate("T01"), "un archivo en tests/ no entra por nombre",
                         motivo="fuera del alcance")
+
+    def test_extension_poco_comun_entra_en_el_alcance(self):
+        """La lista de extensiones estaba a mano y `requirements.txt` no estaba: se caía
+        fuera del alcance sin decir por qué. Una lista cerrada envejece con el primer stack
+        nuevo, así que el patrón tiene que ser genérico."""
+        self.p.declarar("src/cosa.py, requirements.txt")
+        self.p.implementar()
+        (self.p.dir / "requirements.txt").write_text("pytest\n")
+        self.assertVerde(self.p.gate("T01"), "requirements.txt estaba declarado")
+
+    def test_declarar_un_directorio_cubre_lo_de_abajo(self):
+        """Los planes declaran carpetas (`backend/`), no cada archivo: sin esto, toda tarea
+        que crea un archivo nuevo dentro de su propia carpeta da rojo."""
+        self.p.declarar("src/")
+        self.p.implementar()
+        (self.p.dir / "src" / "otra.py").write_text("# hermana, dentro de src/\n")
+        self.assertVerde(self.p.gate("T01"), "src/ cubre todo lo que está abajo")
+
+    def test_el_gate_usa_el_python_que_le_pasa_el_runner(self):
+        """En un worktree el .venv no viaja: si el gate no honra PY_PROYECTO cae a python3,
+        no encuentra la suite y el paso 2 informa una falla que no es del agente."""
+        self.p.implementar()
+        marca = self.p.dir / ".uso-el-python"
+        falso = self.p.dir / "py-falso"
+        falso.write_text(f'#!/bin/sh\ntouch "{marca}"\nexec python3 "$@"\n')
+        falso.chmod(0o755)
+        self.p.gate("T01")  # el veredicto no importa acá, importa a quién llamó
+        self.assertFalse(marca.exists(), "sin PY_PROYECTO no debería usarlo")
+        correr("bash scripts/gate.sh", self.p.dir, TAREA="T01", PY_PROYECTO=str(falso))
+        self.assertTrue(marca.exists(),
+                        "el gate ignoró PY_PROYECTO y usó otro intérprete")
 
     def test_infraestructura_del_runner_no_cuenta_como_fuera_de_alcance(self):
         """`.base-ref` lo escribe el runner y ponía en ROJO toda tarea."""
@@ -591,6 +628,66 @@ class TestArquitectura(CasoBase):
         self.preparar(["datos", "rutas"], [("rutas", "datos")],
                       {"datos": "", "rutas": "from .datos import x\n"})
         self.assertVerde(self.arq())
+
+
+class TestEjemplosNoDerivan(unittest.TestCase):
+    """Los ejemplos son copias adaptadas de la plantilla, y la copia se queda vieja: el
+    arreglo del extractor de alcance entró en la plantilla y los dos ejemplos siguieron
+    con el patrón roto hasta que alguien lo notó a mano.
+
+    No comparamos texto —los ejemplos ADAPTAN líneas a propósito— sino **conducta**: el
+    motor de alcance de cada gate tiene que dar el mismo veredicto, por el mismo motivo.
+    Si mañana hay un tercer ejemplo, entra solo."""
+
+    GATES = sorted([PLANTILLAS / "gate.sh"] + list(RAIZ.glob("ejemplo-*/scripts/gate.sh")))
+
+    def montar(self, gate, declara, archivos):
+        """Repo de juguete con la forma mínima que cualquiera de los gates acepta."""
+        repo = pathlib.Path(tempfile.mkdtemp(prefix="prueba-drift-"))
+        self.addCleanup(shutil.rmtree, str(repo), True)
+        d = repo / "proyecto"
+        for sub in ("tareas", "scripts", "permitido", "colado"):
+            (d / sub).mkdir(parents=True)
+        shutil.copy(gate, d / "scripts" / "gate.sh")
+        (d / "tareas" / "T01-cosa.md").write_text(
+            f"# T01 — Una cosa\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            f"**Archivos que podés tocar:** {declara}\n**Prohibido tocar:** tests/\n")
+        correr("git init -q && git add -A && git commit -qm base", repo)
+        for ruta, cuerpo in archivos.items():
+            p = d / ruta
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(cuerpo)
+        return correr("bash scripts/gate.sh", d, TAREA="T01")
+
+    def test_todos_detectan_un_archivo_fuera_del_alcance(self):
+        for gate in self.GATES:
+            with self.subTest(gate=str(gate.relative_to(RAIZ))):
+                r = self.montar(gate, "permitido/", {"permitido/ok.py": "x = 1\n",
+                                                     "colado/mal.py": "x = 2\n"})
+                self.assertIn("fuera del alcance", r.stdout,
+                              f"no vio el archivo colado\n{r.stdout[-900:]}")
+                self.assertIn("colado/mal.py", r.stdout, "no dijo cuál")
+
+    def test_en_todos_el_extractor_de_alcance_lee_la_tarea(self):
+        """El patrón mal escapado dejaba PERMITIDOS vacío: el gate acusaba a la tarea de
+        no declarar alcance cuando sí lo declaraba. Rojo por el motivo equivocado."""
+        for gate in self.GATES:
+            with self.subTest(gate=str(gate.relative_to(RAIZ))):
+                r = self.montar(gate, "permitido/, permitido/requirements.txt",
+                                {"permitido/ok.py": "x = 1\n",
+                                 "permitido/requirements.txt": "pytest\n"})
+                self.assertNotIn("no declara", r.stdout,
+                                 f"no pudo leer el alcance declarado\n{r.stdout[-900:]}")
+                self.assertIn("dentro del alcance", r.stdout,
+                              f"declaró todo y aun así no pasó el paso de alcance\n{r.stdout[-900:]}")
+
+    def test_en_todos_un_chequeo_que_no_corre_se_marca_vacuo(self):
+        """La regla que no se adapta: ⊘ nunca puede confundirse con ✓."""
+        for gate in self.GATES:
+            with self.subTest(gate=str(gate.relative_to(RAIZ))):
+                fuente = gate.read_text()
+                self.assertIn("VACIOS=$((VACIOS+1))", fuente, "el ejemplo perdió vacuo()")
+                self.assertIn("exit 1", fuente, "el ejemplo perdió la salida en rojo")
 
 
 if __name__ == "__main__":

@@ -71,7 +71,7 @@ else
   # El alcance sale del archivo de la tarea, no de reglas hardcodeadas acá: una regla
   # escrita a mano queda vieja en cuanto el plan crece (nos pasó con render.py y T12).
   PERMITIDOS="$(sed -n 's/^\*\*Archivos que podés tocar:\*\* *//p' "tareas/${TAREA:-}"-*.md 2>/dev/null \
-                | tr ',' '\n' | grep -oE '[A-Za-z0-9_./-]+\.(py|txt|md)' | sort -u)"
+                | tr ',' '\n' | grep -oE '[A-Za-z0-9_./-]+(\.[A-Za-z0-9]+|/)' | sort -u)"
   if [ -n "${TAREA:-}" ] && [ -z "$PERMITIDOS" ]; then
     rojo "la tarea $TAREA no declara \"Archivos que podés tocar\": sin alcance no hay gate"
   elif [ -z "${TAREA:-}" ]; then
@@ -84,7 +84,10 @@ else
       ok=""
       while read -r permitido; do
         [ -n "$permitido" ] || continue
-        [ "$archivo" = "$permitido" ] || [ "$archivo" = "src/$permitido" ] && ok=1
+        case "$permitido" in
+          */) case "$archivo" in "$permitido"*) ok=1 ;; esac ;;   # un directorio cubre lo de abajo
+          *) { [ "$archivo" = "$permitido" ] || [ "$archivo" = "src/$permitido" ]; } && ok=1 ;;
+        esac
       done <<< "$PERMITIDOS"
       [ -n "$ok" ] || FUERA="$FUERA $archivo"
     done <<< "$CAMBIADOS"
