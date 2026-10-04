@@ -15,8 +15,15 @@ vacuo() { echo "  ⊘ $1 — no pudo verificarse"; VACIOS=$((VACIOS+1)); }
 
 # La base del diff la fija el runner al crear el worktree, antes de que el agente toque nada.
 RAIZ_WT="$(git rev-parse --show-toplevel 2>/dev/null)"
-if [ -f "$RAIZ_WT/.base-ref" ]; then BASE_REF="$(cat "$RAIZ_WT/.base-ref")"
-else BASE_REF="$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null || echo HEAD)"; fi
+if [ -f "$RAIZ_WT/.base-ref" ]; then
+  BASE_REF="$(cat "$RAIZ_WT/.base-ref")"; ORIGEN_BASE="fijada por el runner"
+else
+  BASE_REF="$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null || echo HEAD)"
+  ORIGEN_BASE="deducida (no había .base-ref)"
+fi
+# Qué base se usó y de dónde salió. Una falla sembrada la cambiaba por otra y no
+# se notaba: los pasos 0, 2 y 4 dependen de esto y ninguno lo informaba.
+echo "base del diff: $(echo "$BASE_REF" | cut -c1-12) — $ORIGEN_BASE"
 
 # ── 0. Integridad
 # Los tests y el propio gate viven dentro del worktree del agente. La lista es fija acá y
@@ -90,9 +97,9 @@ fi
 echo "── 3. Higiene"
 if echo "$CAMBIADOS" | grep -qE '__pycache__|\.pyc$|node_modules/|dist/'; then rojo "hay archivos generados en el diff"; else verde "sin archivos generados"; fi
 if grep -rqE 'tailwind' frontend/ --include=*.json --include=*.js --include=*.ts 2>/dev/null; then rojo "apareció Tailwind: el diseño es propio"; else verde "sin librerías de diseño"; fi
-SUP="$(grep -rnE '# *(noqa|type: *ignore)|except[^:]*: *pass|@ *unittest\.skip|\.skip\(|\|\| *true|eslint-disable' backend/app frontend/src 2>/dev/null || true)"
+SUP="$(grep -rnEi '# *(noqa|type: *ignore)|except[^:]*: *pass|@ *unittest\.skip|\.skip\(|\|\| *true|eslint-disable' backend/app frontend/src 2>/dev/null || true)"
 if [ -n "$SUP" ]; then rojo "hay señales suprimidas:"; echo "$SUP" | head -3 | sed 's/^/     /'; else verde "sin señales suprimidas"; fi
-if grep -rn "TODO" backend/app frontend/src 2>/dev/null | grep -q .; then rojo "quedaron TODO sueltos"; else verde "sin TODO sueltos"; fi
+if grep -rnE "\bTODO\b" backend/app frontend/src --exclude-dir=__pycache__ 2>/dev/null | grep -q .; then rojo "quedaron TODO sueltos"; else verde "sin TODO sueltos"; fi
 
 # ── 4. ¿Los tests distinguen? (sólo en modo tarea)
 if [ -n "${TAREA:-}" ]; then

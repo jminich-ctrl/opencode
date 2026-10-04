@@ -12,16 +12,20 @@ verde() { echo "  ✓ $1"; }
 # publicada contra la clase de falla que más veces nos mordió: un pase vacío se ve igual que
 # un pase, y por eso cuatro bugs de rutas vivieron semanas detrás de un ✓.
 vacuo() { echo "  ⊘ $1 — no pudo verificarse"; VACIOS=$((VACIOS+1)); }
+# Lo que el chequeo miró. Sin esto, "no encontré nada" y "no miré nada" se ven igual.
+testigo() { echo "     · inspeccionó: $1"; }
 
 # Punto de partida del diff. Lo escribe el runner al crear el worktree, ANTES de que el
 # agente toque nada: si lo dedujéramos acá, el primer commit del agente movería la base y
 # los pasos 0 y 2 dejarían de ver sus propios cambios.
 RAIZ_WT="$(git rev-parse --show-toplevel 2>/dev/null)"
 if [ -f "$RAIZ_WT/.base-ref" ]; then
-  BASE_REF="$(cat "$RAIZ_WT/.base-ref")"
+  BASE_REF="$(cat "$RAIZ_WT/.base-ref")"; ORIGEN_BASE="fijada por el runner en .base-ref"
 else
   BASE_REF="$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null || echo HEAD)"
+  ORIGEN_BASE="deducida (no había .base-ref)"
 fi
+echo "base del diff: ${BASE_REF:0:12} — $ORIGEN_BASE"
 
 # ── 0. Integridad (solo en modo tarea)
 # El gate y los tests viven dentro del worktree del agente, así que son editables.
@@ -96,10 +100,10 @@ fi
 echo "── 3. Higiene"
 if echo "$CAMBIADOS" | grep -qE '__pycache__|\.pyc$'; then rojo "hay archivos generados en el diff"; else verde "sin archivos generados"; fi
 if grep -rqE '^\s*(import|from)\s+(pygame|numpy|pytest)' src/ 2>/dev/null; then rojo "dependencia externa en src/"; else verde "solo biblioteca estándar"; fi
-if grep -rn "TODO" src/ 2>/dev/null | grep -qv '^\s*$'; then rojo "quedaron TODO en src/: $(grep -rn 'TODO' src/ | head -2 | tr '\n' ' ')"; else verde "sin TODO sueltos"; fi
+if grep -rnE "\bTODO\b" src/ --exclude-dir=__pycache__ 2>/dev/null | grep -qv '^\s*$'; then rojo "quedaron TODO en src/: $(grep -rn 'TODO' src/ | head -2 | tr '\n' ' ')"; else verde "sin TODO sueltos"; fi
 if ! python3 -m compileall -q src/ >/dev/null 2>&1; then rojo "src/ no compila"; else verde "src/ compila"; fi
 # Apagar una señal es más barato que arreglar la causa, y no deja rastro en los tests.
-SUPRESIONES="$(grep -rnE '# *(noqa|type: *ignore)|except[^:]*: *pass|@unittest\.skip|\|\| *true' src/ 2>/dev/null || true)"
+SUPRESIONES="$(grep -rnEi '# *(noqa|type: *ignore)|except[^:]*: *pass|@unittest\.skip|\|\| *true' src/ 2>/dev/null || true)"
 if [ -n "$SUPRESIONES" ]; then
   rojo "hay señales suprimidas en src/:"; echo "$SUPRESIONES" | head -3 | sed 's/^/     /'
 else verde "sin señales suprimidas"; fi
@@ -139,9 +143,10 @@ if [ -n "${TAREA:-}" ]; then
         echo "     o los tests de $TAREA no verifican el cambio, o rompiste otra cosa"
       else
         verde "fallan los tests de la tarea ($CLASE) al revertir$REVERTIDOS"
+        testigo "$MOD.$CLASE, revirtiendo$REVERTIDOS"
       fi
     else
-      verde "la suite falla al revertir$REVERTIDOS (la tarea no nombra sus tests)"
+      vacuo "la tarea no nombra archivo y clase de test: sólo se pudo verificar la suite entera"
     fi
     for f in $REVERTIDOS; do cp "$TMP/$(echo "$f" | tr / _)" "$f"; done
   fi
@@ -152,10 +157,14 @@ fi
 # Los pasos 0-4 miran UNA tarea. Ninguno puede ver que diez diffs correctos por separado
 # dejaron la arquitectura peor: esa deriva sólo se ve mirando el conjunto, y por eso este
 # paso corre sobre el tronco y no dentro del worktree de una tarea.
-if [ -z "${TAREA:-}" ] && [ -f scripts/_arquitectura.py ]; then
+if [ -z "${TAREA:-}" ]; then
   echo "── 5. Coherencia"
-  if OUT="$(python3 scripts/_arquitectura.py 2>&1)"; then echo "$OUT"
-  else echo "$OUT"; FALLOS=$((FALLOS+1)); fi
+  if [ -f scripts/_arquitectura.py ]; then
+    if OUT="$(python3 scripts/_arquitectura.py 2>&1)"; then echo "$OUT"
+    else echo "$OUT"; FALLOS=$((FALLOS+1)); fi
+  else
+    vacuo "no hay scripts/_arquitectura.py"
+  fi
 fi
 
 # ── 6. La suite reservada (sólo en modo integración)
@@ -176,15 +185,17 @@ if [ -z "${TAREA:-}" ]; then
   # commitea por accidente, y OpenCode la rechaza por external_directory.
   RESERVADOS="${RESERVADOS:-$(cd "$(git rev-parse --show-toplevel)/.." && pwd)/reservados-$(basename "$PWD")}"
   echo "── 6. Suite reservada"
-  if [ -d "$RESERVADOS" ] && ls "$RESERVADOS"/test_*.py >/dev/null 2>&1; then
+  N_RES="$(ls "$RESERVADOS"/test_*.py 2>/dev/null | grep -c . || true)"
+  if [ "${N_RES:-0}" -gt 0 ]; then
     if OUT="$(PYTHONPATH="$PWD" python3 -m unittest discover -s "$RESERVADOS" -t "$RESERVADOS" -q 2>&1)"; then
       verde "$(echo "$OUT" | grep -E '^Ran ' | head -1) de composición"
+      testigo "$N_RES archivo(s) reservado(s) en $RESERVADOS"
     else
       rojo "la suite reservada falla: pasa los tests de las tareas y no hace lo que tiene que hacer"
       echo "$OUT" | tail -15 | sed 's/^/     /'
     fi
   else
-    echo "  · no hay suite reservada en $RESERVADOS"
+    vacuo "no hay suite reservada en $RESERVADOS"
     echo "    Es el gate que mide lo que el agente no pudo optimizar. Escribila: tests de"
     echo "    composición, invariantes de punta a punta, fuera del repo para que no la vea."
   fi

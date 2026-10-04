@@ -298,6 +298,93 @@ class TestVacuidad(CasoBase):
                       "el veredicto tiene que dejar constancia de lo que no se verificó")
 
 
+class TestTestigos(CasoBase):
+    """Cada chequeo tiene que informar QUÉ inspeccionó, no sólo su veredicto.
+
+    Esta clase no existe por un bug que tuvimos: existe por una **medición**. Sembramos 12
+    fallas realistas en el gate con un agente que no tenía nuestra lista de bugs, y la suite
+    atrapó **6 de 12**. Las seis que escaparon eran una sola clase: un chequeo que se vuelve
+    no-op e imprime un mensaje plausible.
+
+    El remedio no era agregar un caso por falla escapada —eso es sobreajustar de nuevo— sino
+    exigir el testigo. Un chequeo que dice qué miró no puede volverse mudo sin que se note.
+    """
+
+    def test_informa_de_donde_sale_la_base_del_diff(self):
+        """La falla sembrada 12 la cambiaba por otra y nadie se enteraba."""
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertIn("base del diff", r.stdout)
+        self.assertRegex(r.stdout, r"base del diff: \w+ — (fijada por el runner|deducida)")
+
+    def test_el_paso_0_dice_cuantas_rutas_comparo(self):
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertIn("inspeccionó:", r.stdout, "el paso 0 tiene que decir qué miró")
+        self.assertRegex(r.stdout, r"inspeccionó: \d+ ruta\(s\) del diff")
+
+    def test_el_paso_4_nombra_la_clase_que_corrio(self):
+        """Las fallas 07 y 08 dejaban la clase vacía y el gate caía a la rama genérica."""
+        self.p.implementar(); self.p.git("add -A"); self.p.git("commit -qm impl")
+        self.p.implementar("def f():\n    return 43\n")   # rompe el test: la clase falla
+        r = self.p.gate("T01")
+        self.assertIn("TestCosa", r.stdout,
+                      "el paso 4 tiene que nombrar la clase que verificó")
+
+    def test_el_paso_5_siempre_dice_algo_en_modo_integracion(self):
+        """La falla 09 lo volvía inalcanzable y mudo: ni ✓, ni ✗, ni ⊘."""
+        self.p.implementar(); self.p.git("add -A"); self.p.git("commit -qm impl")
+        r = self.p.gate()
+        self.assertIn("5. Coherencia", r.stdout,
+                      "el paso 5 no puede desaparecer sin dejar rastro")
+
+    def test_el_paso_6_sin_suite_reservada_es_vacuo_no_informativo(self):
+        """La falla 10 hacía que nunca corriera, y siempre decía 'no hay suite reservada'."""
+        self.p.implementar(); self.p.git("add -A"); self.p.git("commit -qm impl")
+        r = self.p.gate()
+        self.assertIn("6. Suite reservada", r.stdout)
+        self.assertIn("⊘", r.stdout, "sin suite reservada es un vacío, no un dato de color")
+
+    def test_el_paso_6_con_suite_reservada_informa_cuantos_archivos(self):
+        self.p.implementar(); self.p.git("add -A"); self.p.git("commit -qm impl")
+        res = self.p.repo.parent / f"reservados-{self.p.dir.name}"
+        res.mkdir(exist_ok=True)
+        (res / "test_reservado.py").write_text(
+            "import unittest\n\nclass T(unittest.TestCase):\n"
+            "    def test_ok(self):\n        self.assertTrue(True)\n")
+        try:
+            r = correr("bash scripts/gate.sh", self.p.dir, TAREA="", RESERVADOS=str(res))
+            self.assertIn("archivo(s) reservado(s)", r.stdout,
+                          "tiene que decir cuántos archivos reservados corrió")
+        finally:
+            shutil.rmtree(res, ignore_errors=True)
+
+
+class TestAmplitudDePatrones(CasoBase):
+    """Los patrones tienen que cubrir las formas que la gente escribe de verdad.
+
+    La falla sembrada 06 angostó el patrón de `TODO` a `TODO:` y escapó. Un testigo no
+    atrapa eso: hace falta un caso por cada forma que el patrón debe cubrir.
+    """
+
+    def test_todo_en_sus_formas_habituales(self):
+        # Sin `# todo pendiente`: en castellano "todo" es una palabra corriente, y poner el
+        # grep insensible a mayúsculas generó un falso positivo inmediato —hasta dentro de
+        # los .pyc—. El marcador es TODO en mayúsculas. La falla sembrada apuntaba a que el
+        # patrón era angosto (`TODO:`), no a la caja.
+        for forma in ("# TODO arreglar esto", "# TODO: arreglar", "# TODO(jose) arreglar"):
+            with self.subTest(forma=forma):
+                self.p.implementar(f"def f():\n    return 42  {forma}\n")
+                self.assertRojo(self.p.gate("T01"), f"«{forma}» es un TODO suelto")
+
+    def test_senales_suprimidas_en_sus_formas_habituales(self):
+        for forma in ("# noqa", "# type: ignore", "  # NOQA"):
+            with self.subTest(forma=forma):
+                self.p.implementar(f"def f():\n    return 42  {forma}\n")
+                self.assertRojo(self.p.gate("T01"), f"«{forma}» es una señal suprimida",
+                                motivo="señales suprimidas")
+
+
 class TestValidarPlan(CasoBase):
     def validar(self, extra=""):
         return correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py {extra}", self.p.dir)

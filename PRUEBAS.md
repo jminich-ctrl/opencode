@@ -102,6 +102,71 @@ colapsan en este cambio: vivían detrás de un `✓` que no había mirado nada.
   —que significaba que el runner del plan **nunca había corrido**— muere en el primer
   contacto.
 
+## La medición que rompe el sesgo: fallas sembradas por un tercero
+
+Esto es lo único que mide de verdad si la suite sirve. Un agente **sin acceso a nuestra lista
+de bugs y sin ver la suite** sembró 12 fallas realistas en el gate, una por variante, todas
+bash válido, todas de la clase peligrosa: un chequeo que se vuelve no-op y sigue imprimiendo
+algo plausible.
+
+```bash
+bash pruebas/medir-siembra.sh /tmp/siembra
+```
+
+**Primera medición: 6 de 12.** La suite que pasaba 100% sobre los bugs que conocíamos atrapó
+**la mitad** de los que no.
+
+Y las seis que escaparon eran **una sola clase**, no seis casos:
+
+| Variante | Qué quedó roto |
+|---|---|
+| 07, 08 | el paso 4 no encuentra la clase esperada y cae a la rama genérica |
+| 09 | el paso 5 queda inalcanzable y **mudo**: ni ✓, ni ✗, ni ⊘ |
+| 10 | la suite reservada nunca corre; siempre dice *"no hay suite reservada"* |
+| 12 | `.base-ref` no se encuentra y cae al respaldo, en silencio |
+| 06 | el patrón de `TODO` se angosta a `TODO:` |
+
+### El remedio fue estructural, no caso por caso
+
+Agregar seis casos —uno por falla escapada— habría sido sobreajustar de nuevo. La pregunta
+correcta era **qué clase de chequeo falta**, y la respuesta estaba en la literatura: el
+**testigo**.
+
+```
+base del diff: 8544a7a7e81f — deducida (no había .base-ref)
+✓ tests y scripts intactos
+   · inspeccionó: 3 ruta(s) del diff contra el patrón ^(tests/|scripts/)
+✓ Ran 7 tests in 0.022s de composición
+   · inspeccionó: 1 archivo(s) reservado(s) en /Users/jose/reservados-...
+```
+
+**Un chequeo que dice qué miró no puede volverse mudo sin que se note.** Más una clase de
+test sobre **amplitud de patrones**, que es lo que la variante 06 señalaba.
+
+**Segunda medición: 12 de 12.**
+
+### Y el asterisco, que es grande
+
+**Ese 12 de 12 está contaminado: para entonces ya habíamos leído la tabla de las 12 fallas.**
+Lo que se puede sostener es que **los arreglos fueron estructurales** —no hay un solo test
+que apunte a una variante— y eso es verificable leyendo `TestTestigos` y
+`TestAmplitudDePatrones`. Lo que **no** se puede sostener es que la tasa de captura real sea
+ahora del 100%. Para eso hace falta una tanda nueva, sembrada a ciegas.
+
+### Los tests estructurales encontraron más que la siembra
+
+Al exigir amplitud de patrones aparecieron dos huecos que ninguna falla sembrada marcaba:
+los patrones de higiene eran sensibles a mayúsculas, así que **`# NOQA` pasaba en verde**.
+
+Y el arreglo apresurado de eso produjo un falso positivo propio: poner el grep de `TODO`
+insensible a mayúsculas hace que matchee la palabra castellana *"todo"*, y hasta dentro de
+los `.pyc`. La falla sembrada apuntaba a que el patrón era **angosto**, no a la caja. Quedó
+`\bTODO\b` en mayúsculas, excluyendo `__pycache__`.
+
+> Vale como caso de estudio de esta página entera: **el arreglo de un verificador es código,
+> y el código tiene bugs.** Ese falso positivo lo atrapó la propia suite en la corrida
+> siguiente, que es para lo que existe.
+
 ## Y la advertencia que viene con todo esto
 
 > **Que los 41 casos pasen no mide que el gate esté correcto: mide el sesgo de la suite.**
