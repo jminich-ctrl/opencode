@@ -571,6 +571,44 @@ class TestLimiteDeTiempo(unittest.TestCase):
         self.assertEqual(r.returncode, 3, "el límite no puede cambiar el veredicto")
 
 
+class TestImportsDePython(CasoBase):
+    """El espejo en Python del chequeo de imports de JS.
+
+    Lo dejé sin hacer un rato porque pensé que pedía mantener a mano la lista de módulos de
+    la biblioteca estándar, que es larga y cambia por versión. `sys.stdlib_module_names` la
+    trae: el chequeo que parecía caro costaba una línea. Lo habría atrapado al toque —el
+    agente de T04 importó `mysql.connector` donde el proyecto declara `pymysql`— y el
+    síntoma fue un ModuleNotFoundError que el método informó como «el test está mal».
+    """
+
+    def preparar(self, requirements, codigo):
+        # `declarar` commitea, así que va ANTES de escribir lo que la tarea tiene que hacer:
+        # si no, no queda ningún cambio y el gate da rojo por «la tarea no se hizo».
+        # El chequeo es parte del verificador y va commiteado ANTES: si entra después del
+        # commit, el gate lo ve como un archivo fuera del alcance de la tarea —y tiene razón—.
+        shutil.copy(PLANTILLAS / "_imports.py", self.p.dir / "scripts" / "_imports.py")
+        self.p.declarar("src/, requirements.txt")
+        (self.p.dir / "requirements.txt").write_text(requirements)
+        (self.p.dir / "src" / "cosa.py").write_text(codigo)
+
+    def test_un_import_no_declarado_da_rojo(self):
+        self.preparar("pymysql==1.1.0\n", "import mysql.connector\n\n\ndef f():\n    return 42\n")
+        self.assertRojo(self.p.gate("T01"), "mysql no está en requirements",
+                        motivo="importa paquetes que los requirements no declaran")
+
+    def test_la_biblioteca_estandar_no_se_declara(self):
+        self.preparar("pymysql==1.1.0\n",
+                      "import os\nimport json\nimport hashlib\n\n\ndef f():\n    return 42\n")
+        self.assertVerde(self.p.gate("T01"), "os, json y hashlib son de la stdlib")
+
+    def test_un_modulo_propio_no_es_una_dependencia(self):
+        """`src` es del proyecto: importarlo no requiere declararlo en requirements."""
+        self.preparar("pymysql==1.1.0\n",
+                      "from src.otra import g\n\n\ndef f():\n    return g()\n")
+        (self.p.dir / "src" / "otra.py").write_text("def g():\n    return 42\n")
+        self.assertVerde(self.p.gate("T01"), "src es del proyecto, no una dependencia")
+
+
 class TestImportsDeclarados(unittest.TestCase):
     """Importar algo que no se declara: la forma «usar una cosa y declarar otra».
 

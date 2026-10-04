@@ -184,6 +184,24 @@ else
 fi
 
 echo "── 3. Higiene"
+# Lo mismo del lado de Python. Lo dejé sin hacer un rato porque pensé que pedía mantener a
+# mano la lista de módulos de la stdlib; `sys.stdlib_module_names` la trae, así que el
+# chequeo que parecía caro costaba una línea. Lo habría atrapado al toque: el agente de T04
+# importó `mysql.connector` donde el proyecto declara `pymysql`, y el síntoma fue un
+# ModuleNotFoundError dentro del test que el método informó como "el test está mal".
+if [ -f scripts/_imports.py ]; then
+  if [ -n "${TAREA:-}" ]; then
+    PY_IMPORT="$(echo "$CAMBIADOS" | grep -E '\.py$' | tr '\n' ' ')"
+  else
+    PY_IMPORT="--todo src tests"
+  fi
+  SAL_IMP="$("${PY_PROYECTO:-python3}" scripts/_imports.py ${PY_IMPORT} 2>&1)"; RC_IMP=$?
+  echo "$SAL_IMP"
+  case "$RC_IMP" in
+    1) FALLOS=$((FALLOS+1)) ;;
+    2) VACIOS=$((VACIOS+1)) ;;
+  esac
+fi
 # Directorios vacíos: **git no versiona directorios**, sólo archivos. Un test que verifica
 # que existe una carpeta pasa en el worktree del agente —donde la carpeta está, recién
 # creada— y falla en el tronco después del merge, porque el merge no la lleva. Pasó con T01
