@@ -25,6 +25,13 @@ DESTINO="${1:-$BASE}"
 [ -d "$DESTINO" ] || { echo "✗ no existe $DESTINO" >&2; exit 1; }
 HIZO=0
 
+mismo_manifiesto() {
+  local dir="$1" nombre="$2"
+  local a="$BASE/$dir/$nombre" b="$DESTINO/$dir/$nombre"
+  [ -f "$a" ] && [ -f "$b" ] || return 1
+  [ "$(cksum < "$a")" = "$(cksum < "$b")" ]
+}
+
 # ── El worktree, PRIMERO. El venv, node_modules y .entorno están gitignorados, así que
 # no viajan. En vez de copiarlos, los enlazamos al tronco: es instantáneo y no se
 # desincroniza.
@@ -38,12 +45,6 @@ if [ "$DESTINO" != "$BASE" ]; then
   # su `npm install` escribiría dentro del node_modules del tronco, con el manifiesto del
   # worktree: la instalación de una tarea se filtra a un tronco que todavía no la integró,
   # y dos tareas de frontend de la misma etapa instalan a la vez en el mismo directorio.
-  mismo_manifiesto() {
-    local dir="$1" nombre="$2"
-    local a="$BASE/$dir/$nombre" b="$DESTINO/$dir/$nombre"
-    [ -f "$a" ] && [ -f "$b" ] || return 1
-    [ "$(cksum < "$a")" = "$(cksum < "$b")" ]
-  }
   for d in .venv .entorno backend/node_modules frontend/node_modules node_modules; do
     origen="$BASE/$d"
     [ -e "$origen" ] || continue
@@ -126,8 +127,21 @@ if [ -n "$PKG" ]; then
   if [ "$(cat "$SELLO" 2>/dev/null)" != "$AHORA" ]; then
     if command -v npm >/dev/null 2>&1; then
       echo "· instalando $(basename "$DIR")/package.json"
-      if [ -f "$DIR/package-lock.json" ]; then ( cd "$DIR" && npm ci --silent ) || ( cd "$DIR" && npm install --silent )
-      else ( cd "$DIR" && npm install --silent ); fi
+      # Si el manifiesto del worktree NO es el del tronco, el lock commiteado es de otro
+      # manifiesto: `npm ci` se niega, y `npm install` sobre un lock viejo deja el árbol a
+      # medias por el bug de dependencias opcionales de npm —el agente de T30 se topó con
+      # «Cannot find native binding», que es rollup sin su binario de plataforma—. En ese
+      # caso se instala desde el package.json y sin escribir lock: el lock es del proyecto,
+      # no de un worktree de validación.
+      if ! mismo_manifiesto "${DIR#$DESTINO/}" package.json 2>/dev/null \
+         && [ "$DESTINO" != "$BASE" ]; then
+        echo "  · manifiesto propio del worktree: instalación limpia, sin tocar el lock"
+        ( cd "$DIR" && npm install --silent --no-package-lock )
+      elif [ -f "$DIR/package-lock.json" ]; then
+        ( cd "$DIR" && npm ci --silent ) || ( cd "$DIR" && npm install --silent )
+      else
+        ( cd "$DIR" && npm install --silent )
+      fi
       if [ -d "$DIR/node_modules" ]; then echo "$AHORA" > "$SELLO"; HIZO=1
       else echo "✗ npm no dejó node_modules" >&2; exit 1; fi
     else
