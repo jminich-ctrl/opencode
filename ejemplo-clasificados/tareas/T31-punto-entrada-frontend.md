@@ -1,6 +1,6 @@
 # T31 — Punto de entrada frontend
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T30
 **Archivos que podés tocar:** frontend/src/main.tsx, frontend/src/App.jsx
 **Prohibido tocar:** 
