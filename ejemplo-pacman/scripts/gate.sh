@@ -278,6 +278,10 @@ if [ -z "${TAREA:-}" ]; then
   if [ -f scripts/_arquitectura.py ]; then
     if OUT="$(python3 scripts/_arquitectura.py 2>&1)"; then echo "$OUT"
     else echo "$OUT"; FALLOS=$((FALLOS+1)); fi
+    # Los ⊘ que imprime el chequeo son vacíos del gate: si no se cuentan, el veredicto dice
+    # "GATE VERDE" a secas cuando en realidad hubo cosas que no pudieron verificarse.
+    N_VACUOS_ARQ="$(printf '%s\n' "$OUT" | grep -c '⊘' || true)"
+    [ "${N_VACUOS_ARQ:-0}" -gt 0 ] && VACIOS=$((VACIOS+N_VACUOS_ARQ))
   else
     vacuo "no hay scripts/_arquitectura.py"
   fi

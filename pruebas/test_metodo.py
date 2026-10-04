@@ -702,6 +702,32 @@ class TestPaso5PorElGate(CasoBase):
         self.assertIn("⊘", r.stdout.split("── 5.")[1].split("── 6.")[0],
                       f"sin _arquitectura.py el paso 5 no pudo verificarse\n{r.stdout}")
 
+    def test_una_capa_que_todavia_no_existe_es_vacuo_y_no_ausencia(self):
+        """El proyecto se construye por etapas y la arquitectura recién está completa al
+        final. Exigir el grafo entero en cada merge bloquea todos los merges tempranos:
+        integrar T02 —que crea `datos/conexion.py`— daba rojo porque `servicios` y `rutas`
+        todavía no tenían un solo módulo. No se calla: se informa ⊘."""
+        shutil.copy(PLANTILLAS / "_arquitectura.py", self.p.dir / "scripts" / "_arquitectura.py")
+        a = self.p.dir / "scripts" / "_arquitectura.py"
+        t = a.read_text().replace('CAPAS = ["datos", "servicios", "rutas"]',
+                                  'CAPAS = ["datos", "rutas"]')
+        t = t.replace('REQUERIDAS = [\n    ("servicios", "datos"),   # la lógica usa la capa de datos\n'
+                      '    ("rutas", "servicios"),   # los endpoints no hablan con datos directamente\n]',
+                      'REQUERIDAS = [("rutas", "datos")]')
+        a.write_text(t)
+        # Sólo existe la capa de abajo: la de arriba no llegó todavía.
+        (self.p.dir / "src" / "datos.py").write_text("x = 1\n")
+        self.p.implementar()
+        self.p.git("add -A"); self.p.git('commit -qm "sólo datos"')
+        r = self.p.gate()
+        self.assertEqual(r.returncode, 0,
+                         f"una capa que no llegó no es una ausencia\n{r.stdout}")
+        self.assertIn("todavía no tiene ningún módulo", r.stdout,
+                      f"y tiene que decirlo, no callarlo\n{r.stdout}")
+        self.assertIn("⊘", r.stdout.split("── 5.")[1], "con la marca de vacuidad")
+        self.assertIn("no pudieron correr", r.stdout,
+                      "y el veredicto tiene que contarlo entre los vacíos")
+
     def test_una_divergencia_de_capas_pone_el_gate_en_rojo(self):
         shutil.copy(PLANTILLAS / "_arquitectura.py", self.p.dir / "scripts" / "_arquitectura.py")
         a = self.p.dir / "scripts" / "_arquitectura.py"
