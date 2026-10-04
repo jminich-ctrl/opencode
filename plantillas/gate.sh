@@ -282,8 +282,17 @@ if echo "$CAMBIADOS" | grep -qE '__pycache__|\.pyc$|node_modules/|dist/'; then r
 # Mejor no tenerlo que tenerlo a medias y en verde.
 
 # Apagar una señal es más barato que arreglar la causa, y no deja rastro en los tests.
-SUP="$(grep -rnEi '# *(noqa|type: *ignore)|except[^:]*: *pass|@ *unittest\.skip|\.skip\(|\|\| *true|eslint-disable' "$CODIGO" 2>/dev/null || true)"
-if [ -n "$SUP" ]; then rojo "hay señales suprimidas:"; echo "$SUP" | head -3 | sed 's/^/     /'; else verde "sin señales suprimidas"; fi
+# Por árbol sintáctico y no por grep de línea: la forma más común de apagar una señal
+# en Python ocupa tres líneas (`except X:` / comentario / `pass`) y un grep por línea no
+# la ve. Pasó en serio, y el agente citó mi propio texto de la tarea para justificarla.
+if [ ! -f scripts/_suprimidas.py ]; then
+  rojo "falta scripts/_suprimidas.py: el gate no puede buscar señales suprimidas"
+  echo "     Copialo de plantillas/_suprimidas.py. Esto es del método, no del código juzgado."
+else
+  SAL_SUP="$("${PY_PROYECTO:-python3}" scripts/_suprimidas.py "$CODIGO" 2>&1)"; RC_SUP=$?
+  echo "$SAL_SUP"
+  case "$RC_SUP" in 1) FALLOS=$((FALLOS+1)) ;; 2) VACIOS=$((VACIOS+1)) ;; esac
+fi
 if grep -rnE "\bTODO\b" "$CODIGO" --exclude-dir=__pycache__ 2>/dev/null | grep -q .; then rojo "quedaron TODO sueltos en $CODIGO/"; else verde "sin TODO sueltos"; fi
 
 # ── 4. ¿Los tests distinguen? (sólo en modo tarea)

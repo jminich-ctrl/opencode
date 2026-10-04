@@ -67,6 +67,8 @@ class Proyecto:
         shutil.copy(PLANTILLAS / "gate.sh", self.dir / "scripts" / "gate.sh")
         # El gate ya no sabe correr la suite: lo sabe correr-suite.sh, y los dos van juntos.
         shutil.copy(PLANTILLAS / "correr-suite.sh", self.dir / "scripts" / "correr-suite.sh")
+        # El gate también depende de estos dos: si faltan, da rojo y lo dice.
+        shutil.copy(PLANTILLAS / "_suprimidas.py", self.dir / "scripts" / "_suprimidas.py")
         (self.dir / "src" / "__init__.py").touch()
         (self.dir / "tests" / "__init__.py").touch()
         (self.repo / ".gitignore").write_text(
@@ -344,6 +346,43 @@ class TestGate(CasoBase):
         (self.p.dir / "frontend").mkdir(exist_ok=True)
         (self.p.dir / "frontend" / "package-lock.json").write_text('{"lockfileVersion": 3}\n')
         self.assertVerde(self.p.gate("T01"), "el lock lo escribe el instalador")
+
+    def test_un_except_vacio_en_varias_lineas_da_rojo(self):
+        """La forma más común de apagar una señal en Python ocupa tres líneas y el grep por
+        línea no la veía:
+
+            except Exception:
+                # un comentario que explica por qué está bien
+                pass
+
+        Pasó en serio. El `main.py` de T06 montaba los routers así —citando mi propio texto
+        de la tarea para justificarlo— y un módulo de rutas roto quedaba sin montar en
+        silencio: el síntoma era un 404 donde el test esperaba un 400, que no se parece en
+        nada a su causa. Es la vacuidad otra vez: «no pude» disfrazado de «no hay nada».
+        """
+        shutil.copy(PLANTILLAS / "_suprimidas.py", self.p.dir / "scripts" / "_suprimidas.py")
+        self.p.declarar("src/")
+        self.p.implementar("def f():\n"
+                           "    try:\n"
+                           "        return 42\n"
+                           "    except Exception:\n"
+                           "        # si falla no importa\n"
+                           "        pass\n")
+        self.assertRojo(self.p.gate("T01"), "el except se come la falla",
+                        motivo="señales suprimidas")
+
+    def test_un_except_que_hace_algo_no_da_rojo(self):
+        """La otra mitad: manejar una excepción no es suprimir una señal."""
+        shutil.copy(PLANTILLAS / "_suprimidas.py", self.p.dir / "scripts" / "_suprimidas.py")
+        self.p.declarar("src/")
+        self.p.implementar("def f():\n"
+                           "    try:\n"
+                           "        return 42\n"
+                           "    except ValueError as e:\n"
+                           "        raise RuntimeError('no pude') from e\n")
+        r = self.p.gate("T01")
+        self.assertNotIn("señales suprimidas:", r.stdout,
+                         f"relanzar no es suprimir\n{r.stdout}")
 
     def test_senal_suprimida_da_rojo(self):
         self.p.implementar("def f():\n    return 42  # noqa\n")

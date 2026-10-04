@@ -1,6 +1,6 @@
 # T06 — Aplicación FastAPI (punto de entrada)
 
-**Estado:** ✅ hecha
+**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
 **Depende de:** T02
 **Archivos que podés tocar:** backend/app/main.py
 **Prohibido tocar:** `scripts/` y `*/tests/` (el paso 0 del gate los verifica)
@@ -23,9 +23,18 @@ tuviera que agregar su `include_router` a `main.py`, seis tareas editarían el m
 —choque garantizado en el deductor de etapas, y merges en serie donde podría haber
 paralelo—. Descubriendo los routers, `main.py` se escribe una vez y nadie más lo toca.
 
-El precio es que un módulo de `rutas/` que no exponga `router` queda montado en silencio.
-A cambio, queda verificable de un lado: el test de esta tarea monta un router de prueba y
-comprueba que respondió.
+**Un módulo de `rutas/` que no se pueda importar tiene que hacer fallar el arranque, con
+el nombre del módulo y el error original.** No se atrapa la excepción para seguir: si un
+módulo de rutas está roto, la aplicación levanta sin sus endpoints y el síntoma es un 404
+donde debería haber un 400 —un error que no se parece en nada a su causa—.
+
+Esto ya pasó, y por culpa de cómo estaba escrita esta tarea: la versión anterior decía que
+un módulo sin `router` «queda montado en silencio», el agente lo leyó como permiso para
+`except Exception: pass`, y los endpoints de T04 desaparecieron sin un solo mensaje.
+
+Un módulo que **sí** importa y no expone `router` es otra cosa y es legítimo (un helper).
+Ése se saltea, y para que no haya que adivinar cuáles se montaron, la lista queda en
+`app.state.routers_montados`.
 
 ## Alcance
 
@@ -33,6 +42,9 @@ Entra:
 - Crear la instancia `app = FastAPI()`.
 - Recorrer `backend/app/rutas/*.py`, importar cada módulo y, si expone un objeto `router`,
   incluirlo con `app.include_router(router)`.
+- Dejar en `app.state.routers_montados` la lista de nombres de módulo que se montaron.
+- Si un módulo **no se puede importar**, propagar el error con el nombre del módulo
+  adelante. No se atrapa para seguir.
 - Un endpoint `GET /salud` que devuelva `{"estado": "ok"}`. Es lo que el smoke test de
   pre-deploy usa para saber que el proceso levantó.
 
@@ -48,6 +60,10 @@ from fastapi import FastAPI
 app: FastAPI
 # Montado al importar el módulo. Los routers de `backend/app/rutas/` se incluyen solos:
 # un módulo que exponga `router` queda publicado sin tocar este archivo.
+#
+# app.state.routers_montados: list[str]  — qué módulos se montaron, para poder verificarlo.
+#
+# Un módulo de rutas que no se pueda importar hace fallar esta línea, con su nombre.
 
 # GET /salud → 200 {"estado": "ok"}
 ```
@@ -63,7 +79,11 @@ Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tes
 
 - [ ] `from app.main import app` funciona y `app` es una instancia de FastAPI.
 - [ ] `GET /salud` responde 200 con `{"estado": "ok"}`.
-- [ ] Un router nuevo en `backend/app/rutas/` queda montado sin tocar `main.py`.
+- [ ] Un router nuevo en `backend/app/rutas/` queda montado sin tocar `main.py`, y su nombre
+      aparece en `app.state.routers_montados`.
+- [ ] Un módulo de `rutas/` que tira error al importarse **hace fallar el import de
+      `app.main`**, con el nombre del módulo en el mensaje. Un `except` que lo deje pasar es
+      exactamente lo que esta tarea no tiene que hacer.
 - [ ] `bash scripts/gate.sh` en verde.
 
 ## Verificación

@@ -242,54 +242,16 @@ if grep -rqE '^\s*(import|from)\s+(pygame|numpy|pytest)' src/ 2>/dev/null; then 
 if grep -rnE "\bTODO\b" src/ --exclude-dir=__pycache__ 2>/dev/null | grep -qv '^\s*$'; then rojo "quedaron TODO en src/: $(grep -rn 'TODO' src/ | head -2 | tr '\n' ' ')"; else verde "sin TODO sueltos"; fi
 if ! python3 -m compileall -q src/ >/dev/null 2>&1; then rojo "src/ no compila"; else verde "src/ compila"; fi
 # Apagar una señal es más barato que arreglar la causa, y no deja rastro en los tests.
-SUPRESIONES="$(grep -rnEi '# *(noqa|type: *ignore)|except[^:]*: *pass|@unittest\.skip|\|\| *true' src/ 2>/dev/null || true)"
-if [ -n "$SUPRESIONES" ]; then
-  rojo "hay señales suprimidas en src/:"; echo "$SUPRESIONES" | head -3 | sed 's/^/     /'
-else verde "sin señales suprimidas"; fi
-
-# ── 4. ¿Los tests distinguen? (solo en modo tarea)
-# Revierte la implementación y exige que la suite FALLE. Un test que pasa con el
-# código viejo no prueba nada, y el gate no lo detecta de ninguna otra forma:
-# nos pasó en T13, con dos tests cuyo assert era "len(posiciones) > 0".
-if [ -n "${TAREA:-}" ]; then
-  echo "── 4. ¿Los tests distinguen?"
-  IMPL="$(echo "$CAMBIADOS" | grep -E 'src/.*\.py$' || true)"   # rutas relativas a la raíz del repo
-  TMP="$(mktemp -d)"; REVERTIDOS=""
-  PREFIJO="$(git rev-parse --show-prefix)"   # vacío si el proyecto es la raíz del repo
-  for f in $IMPL; do
-    if git cat-file -e "HEAD:${PREFIJO}$f" 2>/dev/null; then
-      cp "$f" "$TMP/$(echo "$f" | tr / _)"
-      git checkout HEAD -- "$f" && REVERTIDOS="$REVERTIDOS $f"
-    fi
-  done
-  if [ -z "$IMPL" ]; then
-    vacuo "no hay implementación que revertir"
-  elif [ -z "$REVERTIDOS" ]; then
-    vacuo "archivos nuevos (no existían en HEAD): nada que revertir"
-  else
-    # Qué tests tienen que fallar, no sólo que "algo" falle: medido, la tasa agregada casi
-    # no se mueve ante una regresión mientras las métricas por porción caen 25 a 91 puntos.
-    ESPERADO="$(sed -n 's/.*`\(tests\/[A-Za-z0-9_.]*\)`.*clase `\([A-Za-z0-9_]*\)`.*/\1 \2/p' \
-                 "tareas/${TAREA}"-*.md 2>/dev/null | head -1)"
-    if bash scripts/correr-suite.sh >/dev/null 2>&1; then
-      rojo "los tests PASAN con la implementación vieja: no verifican el cambio"
-      echo "     revertí:$REVERTIDOS y la suite siguió verde"
-    elif [ -n "$ESPERADO" ]; then
-      RUTA_T="$(echo "$ESPERADO" | cut -d' ' -f1)"
-      CLASE="$(echo "$ESPERADO" | cut -d' ' -f2)"
-      if bash scripts/correr-suite.sh "$RUTA_T::$CLASE" >/dev/null 2>&1; then
-        rojo "la suite falla, pero NO por los tests de esta tarea ($CLASE pasa con el código viejo)"
-        echo "     o los tests de $TAREA no verifican el cambio, o rompiste otra cosa"
-      else
-        verde "fallan los tests de la tarea ($CLASE) al revertir$REVERTIDOS"
-        testigo "$RUTA_T::$CLASE, revirtiendo$REVERTIDOS"
-      fi
-    else
-      vacuo "la tarea no nombra archivo y clase de test: sólo se pudo verificar la suite entera"
-    fi
-    for f in $REVERTIDOS; do cp "$TMP/$(echo "$f" | tr / _)" "$f"; done
-  fi
-  rm -rf "$TMP"
+# Por árbol sintáctico y no por grep de línea: la forma más común de apagar una señal
+# en Python ocupa tres líneas (`except X:` / comentario / `pass`) y un grep por línea no
+# la ve. Pasó en serio, y el agente citó mi propio texto de la tarea para justificarla.
+if [ ! -f scripts/_suprimidas.py ]; then
+  rojo "falta scripts/_suprimidas.py: el gate no puede buscar señales suprimidas"
+  echo "     Copialo de plantillas/_suprimidas.py. Esto es del método, no del código juzgado."
+else
+  SAL_SUP="$("${PY_PROYECTO:-python3}" scripts/_suprimidas.py src 2>&1)"; RC_SUP=$?
+  echo "$SAL_SUP"
+  case "$RC_SUP" in 1) FALLOS=$((FALLOS+1)) ;; 2) VACIOS=$((VACIOS+1)) ;; esac
 fi
 
 # ── 5. Coherencia (sólo en modo integración)
