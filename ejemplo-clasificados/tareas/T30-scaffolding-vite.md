@@ -1,6 +1,6 @@
 # T30 — Scaffolding Vite
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T01
 **Archivos que podés tocar:** frontend/package.json, frontend/vite.config.ts
 **Prohibido tocar:** 

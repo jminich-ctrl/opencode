@@ -72,7 +72,7 @@ vez de la aplicación.
 | T03 | Primera migración (usuarios y anuncios) | T01 | backend/migraciones/001_initial.sql, backend/migraciones/001_initial_down.sql | ✅ hecha |
 | T04 | Auth backend (login, sesión) | T02, T03 | backend/app/rutas/auth.py, backend/app/servicios/auth.py, backend/app/datos/users.py | pendiente |
 | T05 | CRUD de avisos backend | T04 | backend/app/rutas/ads.py, backend/app/servicios/ads.py, backend/app/datos/ads.py | pendiente |
-| T30 | Scaffolding Vite | T01 | frontend/package.json, frontend/vite.config.ts | pendiente |
+| T30 | Scaffolding Vite | T01 | frontend/package.json, frontend/vite.config.ts | ✅ hecha |
 | T31 | Punto de entrada frontend | T30 | frontend/src/main.tsx, frontend/src/App.jsx | pendiente |
 | T07 | Login page y servicio auth frontend | T31 | frontend/src/pages/Login.jsx, frontend/src/services/auth.ts | pendiente |
 | T08 | Listado y detalle de avisos frontend | T07 | frontend/src/pages/AdsList.jsx, frontend/src/pages/AdDetail.jsx, frontend/src/services/ads.ts | pendiente |
