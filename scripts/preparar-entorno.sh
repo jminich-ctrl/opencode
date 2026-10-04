@@ -52,6 +52,13 @@ if [ "$DESTINO" != "$BASE" ]; then
     case "$d" in
       *node_modules)
         dir_m="$(dirname "$d")"; [ "$dir_m" = "." ] && dir_m=""
+        # Si NINGUNO de los dos lados tiene manifiesto, no hay nada que comparar y el
+        # node_modules es basura de alguna corrida anterior: no se enlaza y no se explica
+        # con un motivo que no es el verdadero.
+        if [ ! -f "$BASE/${dir_m:+$dir_m/}package.json" ] \
+           && [ ! -f "$DESTINO/${dir_m:+$dir_m/}package.json" ]; then
+          continue
+        fi
         if ! mismo_manifiesto "$dir_m" package.json; then
           # Y si el enlace YA estaba puesto, se deshace: la condición se evalúa en la
           # primera pasada, antes de que el agente escriba su package.json, así que el

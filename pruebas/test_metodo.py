@@ -32,6 +32,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 RAIZ = pathlib.Path(__file__).resolve().parent.parent
@@ -516,6 +517,35 @@ class TestLimiteDeTiempo(unittest.TestCase):
         r = self.correr_con_limite(1, "sleep 30")
         self.assertEqual(r.returncode, 142,
                          f"tenía que cortar por tiempo y salir 142, salió {r.returncode}")
+
+    def test_el_silencio_se_corta_antes_que_el_limite_total(self):
+        """Lo que distingue un cuelgue de un agente lento no es el tiempo total: es el
+        silencio. El de opencode termina su propio log en `init` y no escribe más, mientras
+        un agente que trabaja escribe todo el tiempo. Con un solo reloj total hay que elegir
+        entre cortar rápido y no cortar a quien trabaja; con el de inactividad no."""
+        log = pathlib.Path(tempfile.mkdtemp(prefix="prueba-vigilia-")) / "salida.log"
+        self.addCleanup(shutil.rmtree, str(log.parent), True)
+        log.write_text("")
+        t0 = time.time()
+        r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; con_limite 600 sleep 600',
+                   RAIZ, LOG_VIGILADO=str(log), INACTIVIDAD=30)
+        tardo = time.time() - t0
+        self.assertEqual(r.returncode, 142, "el silencio tenía que cortarlo")
+        self.assertLess(tardo, 120, f"tardó {tardo:.0f}s: el límite total es 600, así que "
+                                    f"cortó por el total y no por el silencio")
+
+    def test_un_proceso_que_escribe_no_se_corta(self):
+        """La otra mitad, que es la que hace útil al reloj: mientras haya salida, no se toca.
+        Sin este caso, bajar el umbral de inactividad hasta que 'funcione' mataría a los
+        agentes lentos y nadie se enteraría."""
+        log = pathlib.Path(tempfile.mkdtemp(prefix="prueba-vigilia2-")) / "salida.log"
+        self.addCleanup(shutil.rmtree, str(log.parent), True)
+        log.write_text("")
+        r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                   f'con_limite 600 bash -c \'for i in 1 2 3 4; do echo x >> {log}; sleep 10; done\'',
+                   RAIZ, LOG_VIGILADO=str(log), INACTIVIDAD=25)
+        self.assertEqual(r.returncode, 0,
+                         "escribía cada 10s con umbral de 25s: no se podía cortar")
 
     def test_un_comando_que_termina_no_se_toca(self):
         r = self.correr_con_limite(30, "echo listo")

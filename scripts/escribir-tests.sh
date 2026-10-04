@@ -95,11 +95,14 @@ for id in "$@"; do
 
 
   log="$wt/.tests.log"
+  # El reloj que detecta el cuelgue es el de inactividad sobre este log: el agente que
+  # trabaja escribe todo el tiempo, el colgado no escribe nada.
+  export LOG_VIGILADO="$log" INACTIVIDAD="${INACTIVIDAD:-90}"
   echo "▶ $id · $AGENTE escribe $ruta::$clase"
   (
     cd "$wt/$PROYECTO" || exit 1
     export XDG_DATA_HOME="$wt/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
-    con_limite "${LIMITE_AGENTE:-900}" opencode run --agent "$AGENTE" \
+    con_limite "${LIMITE_AGENTE:-1200}" opencode run --agent "$AGENTE" \
       "${MOTIVO_TESTS:+Un intento anterior falló así: $MOTIVO_TESTS. No repitas ese camino. }Leé tareas/$(basename \"$archivo\"). Hacé la tarea completa: la implementación Y sus tests.
 
 Dos cosas, las dos con la herramienta write:

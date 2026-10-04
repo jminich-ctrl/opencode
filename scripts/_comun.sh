@@ -160,7 +160,30 @@ con_limite() {
   "$@" &
   pid=$!
   set +m
-  ( sleep "$segundos"
+  ( # Dos relojes, y el que importa es el segundo.
+    #
+    # El límite total ($segundos) es la red de seguridad. El que detecta de verdad es el de
+    # INACTIVIDAD sobre el log: el cuelgue de opencode no es lentitud, es silencio —su
+    # propio log termina en `init` y no escribe nada más—, mientras que un agente que
+    # trabaja escribe todo el tiempo. Con un solo reloj total hay que elegir entre cortar
+    # rápido y no cortar a quien está trabajando; con el de inactividad no hay que elegir.
+    #
+    # Medido en esta corrida: los cuelgues se detectan en ~90s en vez de 420s, y un agente
+    # que tardó 163s escribiendo no se toca.
+    local t=0 quieto=0 tam_anterior=-1 tam
+    while [ "$t" -lt "$segundos" ]; do
+      sleep 15; t=$((t+15))
+      kill -0 "$pid" 2>/dev/null || exit 0
+      if [ -n "${LOG_VIGILADO:-}" ]; then
+        tam="$(wc -c < "$LOG_VIGILADO" 2>/dev/null || echo 0)"
+        if [ "$tam" = "$tam_anterior" ]; then
+          quieto=$((quieto+15))
+          [ "$quieto" -ge "${INACTIVIDAD:-90}" ] && break
+        else
+          quieto=0; tam_anterior="$tam"
+        fi
+      fi
+    done
     kill -TERM -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
     sleep 5
     kill -KILL -"$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null ) >/dev/null 2>&1 &
