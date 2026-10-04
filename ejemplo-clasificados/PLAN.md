@@ -67,7 +67,7 @@ vez de la aplicación.
 
 | # | Tarea | Depende de | Archivos | Estado |
 |---|---|---|---|---|
-| T01 | Scaffolding del proyecto | — | backend/, frontend/, backend/requirements.txt, frontend/package.json | pendiente |
+| T01 | Scaffolding del proyecto | — | backend/, frontend/, backend/requirements.txt, frontend/package.json | ✅ hecha |
 | T02 | Conexión a MySQL | T01 | backend/app/datos/conexion.py | pendiente |
 | T03 | Primera migración (usuarios y anuncios) | T01 | backend/migraciones/001_initial.sql, backend/migraciones/001_initial_down.sql | pendiente |
 | T04 | Auth backend (login, sesión) | T02, T03 | backend/app/rutas/auth.py, backend/app/servicios/auth.py, backend/app/datos/users.py | pendiente |

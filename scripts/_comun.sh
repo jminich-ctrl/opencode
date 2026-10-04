@@ -157,8 +157,32 @@ marcar_hecha_y_limpiar() {
 ' "$archivo" 2>/dev/null || true
     fi
     git -C "$RAIZ" add "$archivo" >/dev/null 2>&1
-    git -C "$RAIZ" commit -q -m "$id: hecha" >/dev/null 2>&1 || true
   fi
+  # Y la columna Estado de la tabla del plan, que es la que lee el deductor de etapas.
+  # Marcar sólo el archivo dejaba la tarea "pendiente" para el deductor: T01 de
+  # clasificados se integró, quedó verde en el tronco, y la etapa 1 la volvía a lanzar.
+  # Dos declaraciones de lo mismo que leen dos lectores distintos; otra vez.
+  if [ -f "$BASE/PLAN.md" ] && grep -qE "^\| *$id *\|" "$BASE/PLAN.md"; then
+    "${PY_METODO:-python3}" - "$BASE/PLAN.md" "$id" <<'PYFIN'
+import re, sys
+plan, tid = sys.argv[1], sys.argv[2]
+with open(plan) as fh:
+    texto = fh.read()
+# Sólo la fila de la tabla de tareas (5 columnas), y sólo su última celda.
+def marcar(m):
+    celdas = m.group(0).rstrip("\n").strip("|").split("|")
+    if len(celdas) < 5 or "✅" in celdas[-1]:
+        return m.group(0)
+    celdas[-1] = " ✅ hecha "
+    return "|" + "|".join(celdas) + "|\n"
+nuevo = re.sub(rf"^\| *{re.escape(tid)} *\|.*\|\s*$\n?", marcar, texto, count=1, flags=re.M)
+if nuevo != texto:
+    with open(plan, "w") as fh:
+        fh.write(nuevo)
+PYFIN
+    git -C "$RAIZ" add "$BASE/PLAN.md" >/dev/null 2>&1
+  fi
+  git -C "$RAIZ" commit -q -m "$id: hecha" >/dev/null 2>&1 || true
   git -C "$RAIZ" worktree remove --force "$RAIZ/../trabajo-$id" 2>/dev/null
   git -C "$RAIZ" branch -D "$rama" >/dev/null 2>&1
 }

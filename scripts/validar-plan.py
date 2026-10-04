@@ -85,7 +85,7 @@ for tid, celdas in filas:
         duplicadas.append(tid)
         continue
     tareas[tid] = {"titulo": celdas[0], "deps": set(re.findall(r"T\d+", celdas[1])) - {tid},
-                   "archivos": celdas[2]}
+                   "archivos": celdas[2], "hecha": "✅" in celdas[-1]}
 if duplicadas:
     errores.append(f"filas repetidas en la tabla: {' '.join(sorted(set(duplicadas)))}")
 
@@ -137,6 +137,20 @@ for tid in sorted(set(tareas) & set(en_disco)):
     # y nada las cruzaba: si el plan dice que T13 depende de T31 y su archivo dice T30, el
     # runner usa la tabla para ordenar las etapas y el agente lee el archivo. Lo creamos
     # nosotros editando a mano, que es cómo pasa siempre.
+    # El estado, en los dos lados. El deductor de etapas lee la columna de la tabla y
+    # `estado.sh` lee esta línea: si sólo una dice «hecha», una tarea ya integrada se
+    # vuelve a lanzar (pasó con T01 de clasificados) o una pendiente no se lanza nunca.
+    m_est = re.search(r"^\*\*Estado:\*\* *(.*)$", cuerpo, re.M)
+    if m_est:
+        # La línea trae una ayuda después de «←» que menciona el propio «✅ hecha»:
+        # el valor es lo de antes de la flecha.
+        hecha_archivo = "✅" in m_est.group(1).split("←")[0]
+        if hecha_archivo != tareas[tid]["hecha"]:
+            quien = "el archivo" if hecha_archivo else "la tabla"
+            errores.append(f"{f.name}: {quien} la da por hecha y el otro no. El deductor de "
+                           f"etapas lee la tabla y estado.sh lee el archivo: así una tarea "
+                           f"integrada se vuelve a lanzar, o una pendiente no se lanza nunca")
+
     m_dep = re.search(r"^\*\*Depende de:\*\* *(.*)$", cuerpo, re.M)
     if m_dep:
         del_archivo = set(re.findall(r"T\d+", m_dep.group(1)))

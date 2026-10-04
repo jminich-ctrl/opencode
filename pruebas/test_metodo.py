@@ -502,6 +502,25 @@ class TestValidarPlan(CasoBase):
         self.assertRojo(self.validar(), "el archivo dice T07 y la tabla dice —",
                         motivo="Depende de")
 
+    def test_estado_distinto_entre_tabla_y_archivo_da_rojo(self):
+        """El deductor de etapas lee la columna de la tabla y `estado.sh` lee la línea del
+        archivo. T01 de clasificados se integró, quedó verde en el tronco, y la etapa 1 la
+        volvía a lanzar: `integrar.sh` marcaba sólo el archivo."""
+        t = self.p.dir / "tareas" / "T01-cosa.md"
+        t.write_text(t.read_text().replace("**Estado:** pendiente", "**Estado:** ✅ hecha"))
+        self.assertRojo(self.validar(), "el archivo dice hecha y la tabla pendiente",
+                        motivo="la da por hecha y el otro no")
+
+    def test_la_ayuda_de_la_linea_de_estado_no_cuenta_como_hecha(self):
+        """La línea trae «← al mergearla: `✅ hecha`» como ayuda, y el ✅ de la ayuda hacía
+        que toda tarea pendiente se leyera como hecha. Un chequeo que marca 27 de 28 es un
+        chequeo que se ignora."""
+        t = self.p.dir / "tareas" / "T01-cosa.md"
+        t.write_text(t.read_text().replace(
+            "**Estado:** pendiente",
+            "**Estado:** pendiente   ← al mergearla: `✅ hecha`"))
+        self.assertVerde(self.validar(), "el ✅ está en la ayuda, no en el valor")
+
     def test_alcance_del_archivo_distinto_de_la_tabla_da_rojo(self):
         """Dos declaraciones de lo mismo que leen dos lectores: el deductor de etapas usa
         la tabla para encontrar choques de archivo, y el gate usa el archivo de tarea para
