@@ -121,8 +121,34 @@ No toques ningún otro archivo." 2>&1
   # no se queda: el entregable es el test.
   if [ "$fallos" -eq 0 ]; then
     impl="$(echo "$TOCADOS" | grep -E "$PATRON_CODIGO" | grep -v "^$ruta$" || true)"
-    prueba="python3 -m unittest $(echo "${ruta%.py}" | tr / .).$clase"
-    if [ -z "$impl" ]; then
+    # Cómo se corre ESTE test depende de su extensión, no del proyecto. Antes era siempre
+    # `python3 -m unittest`, así que todo test de frontend (.test.ts) se validaba con un
+    # comando que no lo puede ejecutar: fallaba, y el diagnóstico era "el test está mal".
+    # Las 14 tareas de frontend del plan de clasificados caían ahí.
+    case "$ruta" in
+      *.py)
+        prueba="${PY_PROYECTO:-python3} -m unittest $(echo "${ruta%.py}" | tr / .).$clase"
+        MUTABLE=1 ;;
+      *.test.ts|*.test.tsx|*.test.js|*.test.jsx)
+        # vitest corre desde el directorio de su package.json; la ruta se le pasa relativa.
+        dir_front="$(dirname "$(ls frontend/package.json package.json 2>/dev/null | head -1)")"
+        if [ ! -d "$dir_front/node_modules" ]; then
+          echo "  ⊘ $id: hay tests de frontend y no está node_modules."
+          echo "     Eso es del método, no de la tarea: bash $AQUI/preparar-entorno.sh"
+          fallos=1; MUTABLE=0
+        else
+          prueba="( cd $dir_front && npx --no-install vitest run --reporter=basic ${ruta#$dir_front/} )"
+          # mutar.py muta Python. Para TypeScript no tenemos mutador: el paso se marca ⊘ y
+          # no se cuenta como pase (METODO.md P3).
+          MUTABLE=0
+        fi ;;
+      *)
+        echo "  ✗ $id: no sé cómo correr un test «$ruta». Declaralo en el plan con una"
+        echo "     extensión que el método sepa ejecutar (.py o .test.ts)."
+        fallos=1; MUTABLE=0 ;;
+    esac
+    if [ "$fallos" -ne 0 ]; then :
+    elif [ -z "$impl" ]; then
       echo "  ✗ no escribió implementación: sin ella no se puede validar el test"; fallos=1
     else
       tmp="$(mktemp -d)"
@@ -130,18 +156,21 @@ No toques ningún otro archivo." 2>&1
         cp "$f" "$tmp/$(echo "$f" | tr / _)"
         git checkout HEAD -- "$f" 2>/dev/null || rm -f "$f"
       done
-      if $prueba >/dev/null 2>&1; then
+      if eval "$prueba" >/dev/null 2>&1; then
         echo "  ✗ el test PASA con el código de antes: no prueba nada"; fallos=1
       else
         echo "  ✓ falla sin la implementación"
       fi
       for f in $impl; do cp "$tmp/$(echo "$f" | tr / _)" "$f"; done
       rm -rf "$tmp"
-      if $prueba >/dev/null 2>&1; then
+      if eval "$prueba" >/dev/null 2>&1; then
         echo "  ✓ pasa con la implementación"
         git add -A >/dev/null 2>&1
         git commit -q -m "impl+tests $id (worktree desechable)" >/dev/null 2>&1
-        if BASE=HEAD~1 CODIGO="$CODIGO" SUITE="$prueba" python3 "$AQUI/mutar.py" >/dev/null 2>&1; then
+        if [ "$MUTABLE" != "1" ]; then
+          echo "  ⊘ no hay mutador para «$ruta»: el test pasa los dos primeros pasos y el"
+          echo "     tercero (¿distingue?) no pudo verificarse. No es un pase."
+        elif BASE=HEAD~1 CODIGO="$CODIGO" SUITE="$prueba" python3 "$AQUI/mutar.py" >/dev/null 2>&1; then
           echo "  ✓ los mutantes mueren: el test distingue"
         else
           echo "  ✗ sobreviven mutantes: el test cubre las líneas y no verifica su comportamiento"
