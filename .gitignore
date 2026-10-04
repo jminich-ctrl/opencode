@@ -14,4 +14,11 @@ PLAN.md.previo
 
 # mediciones en vivo contra la plataforma
 colabhive/research/live/
-.venv/
+.venv
+
+# dependencias instaladas: las instala el método (scripts/preparar-entorno.sh), no la tarea.
+# Sin esto el gate las ve en el diff y pone ROJO por "archivos generados" — un rojo que no
+# es del agente, que es exactamente la clase de defecto que más nos costó.
+node_modules
+.entorno
+.mysql

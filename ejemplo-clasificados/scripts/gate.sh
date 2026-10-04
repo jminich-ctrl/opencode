@@ -11,6 +11,12 @@ elif [ -x .venv/bin/python ]; then PY_PROYECTO=".venv/bin/python"
 elif [ -x ../.venv/bin/python ]; then PY_PROYECTO="../.venv/bin/python"
 else PY_PROYECTO="python3"; fi
 
+# Credenciales y endpoints de los servicios del proyecto, si `scripts/entorno.sh` los dejó.
+# Va acá y no en cada test: un test que trae su propia credencial escrita adentro es una
+# credencial commiteada, y encima deja de valer en cuanto cambia el puerto.
+# shellcheck disable=SC1091
+[ -f .entorno ] && . ./.entorno
+
 FALLOS=0
 VACIOS=0
 rojo() { echo "  ✗ $1"; FALLOS=$((FALLOS+1)); }
@@ -90,7 +96,12 @@ echo "── 2. Alcance${TAREA:+ (tarea $TAREA)}"
 # La infraestructura del runner no es parte del trabajo de la tarea: se filtra ACÁ y no en
 # el .gitignore de cada proyecto, porque olvidarse de una línea del .gitignore ponía en rojo
 # toda tarea (`.base-ref` es un archivo que escribe el propio runner).
-INFRA='^(\.base-ref|\.tarea\.log|\.segundos|\.plan\.log|\.opencode-data/|\.metricas/)'
+# Las dependencias instaladas (.venv, node_modules) entran por la misma razón: las
+# instala el método antes de lanzar al agente, y AGENTS.md le prohíbe correr pip o npm.
+# Si aparecieran en el diff, el gate pondría ROJO por «archivos generados» a la tarea
+# que declaró bien su manifiesto. Depender de una línea del .gitignore del worktree no
+# alcanza: el worktree se crea de HEAD, y un .gitignore arreglado después no viaja.
+INFRA='^(\.base-ref|\.tarea\.log|\.segundos|\.plan\.log|\.opencode-data/|\.metricas/|\.venv(/|$)|\.entorno$|\.mysql(/|$)|([A-Za-z0-9_-]+/)?node_modules(/|$))'
 CAMBIADOS="$( { git diff --name-only --relative "$BASE_REF" 2>/dev/null; git ls-files --others --exclude-standard; } | grep -vE "$INFRA" || true)"
 if [ -z "$CAMBIADOS" ] && [ -n "${TAREA:-}" ]; then
   rojo "no hay ningún cambio: la tarea no se hizo"

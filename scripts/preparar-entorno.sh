@@ -25,6 +25,16 @@ DESTINO="${1:-$BASE}"
 [ -d "$DESTINO" ] || { echo "✗ no existe $DESTINO" >&2; exit 1; }
 HIZO=0
 
+# ── Servicios del proyecto (base de datos, colas, lo que sea). El método no sabe qué
+# necesita cada proyecto: si hay `scripts/entorno.sh`, lo corre y confía en su código de
+# salida. Un servicio que no se puede levantar NO se disimula: para la etapa con un motivo
+# accionable, porque un test de base de datos que pasa sin base no verifica nada.
+if [ -x "$BASE/scripts/entorno.sh" ]; then
+  ( cd "$BASE" && bash scripts/entorno.sh ) || {
+    echo "✗ los servicios del proyecto no están listos. El gate iba a reprobar por eso."; exit 1; }
+  HIZO=1
+fi
+
 # ── Python. El venv vive en el tronco y se comparte: crear uno por worktree son 40 MB y
 # medio minuto por tarea, y las dependencias son las mismas.
 REQ="$(ls "$DESTINO"/requirements.txt "$DESTINO"/*/requirements.txt 2>/dev/null | head -1)"
