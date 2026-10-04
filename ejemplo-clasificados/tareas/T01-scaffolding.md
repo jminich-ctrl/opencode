@@ -1,6 +1,6 @@
 # T01 — Scaffolding del proyecto
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** ninguna
 **Archivos que podés tocar:** backend/, frontend/, backend/requirements.txt, frontend/package.json
 **Prohibido tocar:** `scripts/` y `*/tests/` (el paso 0 del gate los verifica)
