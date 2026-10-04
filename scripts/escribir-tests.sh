@@ -100,6 +100,8 @@ Dos cosas, las dos con la herramienta write:
 
 De tu trabajo nos vamos a quedar SÓLO con los tests: la implementación la va a escribir otro agente desde cero. Así que los tests son el entregable, y tienen que ser buenos.
 
+Los tests corren con el directorio de trabajo en la RAÍZ del proyecto, no en la carpeta del archivo de test. Toda ruta que abras se escribe desde ahí: 'backend/app/x.py', 'frontend/package.json'. Nunca 'package.json' ni '../package.json'.
+
 Antes de decir que terminaste, corré 'bash scripts/correr-suite.sh $ruta::$clase' y mostrá su salida real. Tienen que pasar: si tu test no pasa contra tu propia implementación, uno de los dos está mal y lo tenés que arreglar vos, no nosotros. Ese es el comando con el que te vamos a juzgar, así que no uses otro.
 
 No toques ningún otro archivo." 2>&1
