@@ -35,6 +35,21 @@ if grep -qE '^\*\*Estado del gate G0:\*\*.*borrador' "$PLAN"; then
   exit 1
 fi
 
+# El tronco tiene que estar limpio ANTES de arrancar, no al integrar. `integrar.sh` ya lo
+# exige —mergear encima mezcla el trabajo de quien edita con el del agente— pero lo
+# descubría al final: la etapa 1 de clasificados gastó 13 minutos y cuatro intentos, llegó
+# a VERDE, y se detuvo ahí porque quien mira la corrida había editado un archivo mientras
+# corría. Lo que se puede saber antes, se dice antes.
+SUCIO="$(git -C "$RAIZ" status --porcelain | grep -v '^?? ' || true)"
+if [ -n "$SUCIO" ] && [ "$SOLO_VER" != "1" ]; then
+  echo "✗ El tronco tiene cambios sin commitear:" >&2
+  echo "$SUCIO" | head -10 | sed 's/^/    /' >&2
+  echo "  Commitealos o descartalos antes de arrancar: el worktree de cada tarea se crea" >&2
+  echo "  de HEAD, así que lo que no está commiteado no viaja, y al integrar se mezclaría" >&2
+  echo "  con el trabajo del agente." >&2
+  exit 1
+fi
+
 # Y la forma del plan, antes de gastar una sola llamada al modelo.
 echo "══ verificando el plan antes de arrancar"
 (cd "$BASE" && PLAN=PLAN.md python3 "$AQUI/validar-plan.py") || {

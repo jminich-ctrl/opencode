@@ -285,6 +285,25 @@ class TestGate(CasoBase):
             self.p.git("rev-parse HEAD").stdout.strip() + "\n")
         self.assertVerde(self.p.gate("T01"), ".base-ref es del runner, no del agente")
 
+    def test_el_venv_enlazado_no_cuenta_como_trabajo_del_agente(self):
+        """El runner enlaza el venv del tronco al worktree porque gitignorado no viaja. Un
+        enlace simbólico es un ARCHIVO para git, así que el patrón `\.venv/` —con barra— no
+        lo matcheaba y el gate se lo contaba al agente. Lo reportó el propio agente de T01:
+        «el gate muestra problemas relacionados con archivos del entorno del runner»."""
+        self.p.implementar()
+        (self.p.dir / ".venv").symlink_to("/usr/bin")
+        self.assertVerde(self.p.gate("T01"), "el venv lo enlaza el runner, no el agente")
+
+    def test_node_modules_instalado_no_cuenta_como_archivo_generado(self):
+        """Las instala preparar-entorno.sh y AGENTS.md le prohíbe al agente correr npm:
+        si aparecieran en el diff, el gate reprobaría por «archivos generados» a la tarea
+        que declaró bien su manifiesto."""
+        self.p.implementar()
+        (self.p.dir / "frontend").mkdir(exist_ok=True)
+        (self.p.dir / "frontend" / "node_modules").mkdir()
+        (self.p.dir / "frontend" / "node_modules" / "algo.js").write_text("// instalado\n")
+        self.assertVerde(self.p.gate("T01"), "node_modules lo instala el método")
+
     def test_senal_suprimida_da_rojo(self):
         self.p.implementar("def f():\n    return 42  # noqa\n")
         self.assertRojo(self.p.gate("T01"), "apagar una señal no es arreglarla",
