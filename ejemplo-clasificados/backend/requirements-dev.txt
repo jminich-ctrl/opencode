@@ -1,5 +1,11 @@
 # Dependencias que sólo existen para correr los tests. Van aparte del producto porque no se
 # despliegan, y porque el método las instala por su cuenta: el corredor de tests es del
 # método, no de la tarea (METODO.md, «el entorno es del método»).
-pytest
-httpx
+#
+# **Con versión fija.** Sin fijarlas, el veredicto del gate depende del día en que se corrió:
+# httpx 0.28 sacó el atajo `Client(app=...)` que usa el TestClient de starlette 0.27 —el que
+# trae fastapi 0.104—, así que un `pip install httpx` en octubre rompía todos los tests de
+# endpoints con «TypeError: Client.__init__() got an unexpected keyword argument 'app'», y el
+# método lo informaba como "el test está mal". Una medición que cambia sola no es una medición.
+pytest==8.3.4
+httpx==0.27.2

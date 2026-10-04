@@ -32,6 +32,12 @@ se despliega. Ese archivo lo mantenemos nosotros, no lo toques:
 - `jsdom` y `@testing-library/react` — para testear componentes
 - `sass` — para los `.scss` del sistema de diseño propio
 
+**Con versión fija.** `fastapi==0.104.1`, no `fastapi`. Sin fijar, el veredicto del gate
+depende del día: httpx 0.28 sacó un atajo que usa el TestClient de la starlette que trae
+fastapi 0.104, y de un día para el otro todos los tests de endpoints empezaron a fallar con
+un `TypeError` que no tenía nada que ver con el código. Una medición que cambia sola no es
+una medición.
+
 **Lo que importás, declaralo.** Un `import` de un paquete que no está en el manifiesto no
 falla al escribirlo: falla cuando alguien corre los tests, con un «Cannot find package» que
 no se parece en nada a la causa. Si necesitás algo que no está en esta lista, pará y decilo:
