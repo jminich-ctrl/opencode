@@ -31,6 +31,13 @@ ubicar_proyecto
 [ $# -ge 1 ] || { echo "uso: $0 TNN [TNN ...]" >&2; exit 1; }
 
 AGENTE="${AGENTE:-tester}"
+# Cuántas veces se reintenta la escritura de un test que no pasa su validación. Sin
+# esto, una generación inconsistente —el test del agente contra la implementación del
+# agente— paraba la corrida y pedía una persona.
+REINTENTOS_TESTS="${REINTENTOS_TESTS:-2}"
+
+# Diagnostica y deja el motivo anotado para el reintento.
+malo() { echo "  ✗ $1"; MOTIVO_TESTS="$1"; fallos=1; }
 # Uno o varios directorios de código, separados por coma. El Pacman tiene uno (`src`); un
 # proyecto con back y front tiene dos. Asumir uno era un supuesto que se colaba de calibrar
 # contra un solo proyecto.
@@ -62,11 +69,13 @@ for id in "$@"; do
     continue
   fi
 
+  intento=1; MOTIVO_TESTS=""; HUELLA_ANTERIOR=""
+  while :; do
   wt="$RAIZ/../tests-$id"
   rm -rf "$wt"
   git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
   git -C "$RAIZ" branch -D "tests/$id" 2>/dev/null
-  git -C "$RAIZ" worktree add -q -b "tests/$id" "$wt" || { echo "✗ $id: no pude crear el worktree"; continue; }
+  git -C "$RAIZ" worktree add -q -b "tests/$id" "$wt" || { echo "✗ $id: no pude crear el worktree"; break; }
   # El worktree es nuevo: no tiene venv ni node_modules. Sin esto, una tarea de frontend
   # se rechaza por falta de corredor, que es un defecto del método y no del test.
   bash "$AQUI/preparar-entorno.sh" "$wt/$PROYECTO" 2>&1 | sed 's/^/  /'
@@ -82,7 +91,7 @@ for id in "$@"; do
     cd "$wt/$PROYECTO" || exit 1
     export XDG_DATA_HOME="$wt/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
     opencode run --agent "$AGENTE" \
-      "Leé tareas/$(basename \"$archivo\"). Hacé la tarea completa: la implementación Y sus tests.
+      "${MOTIVO_TESTS:+Un intento anterior falló así: $MOTIVO_TESTS. No repitas ese camino. }Leé tareas/$(basename \"$archivo\"). Hacé la tarea completa: la implementación Y sus tests.
 
 Dos cosas, las dos con la herramienta write:
 
@@ -94,7 +103,7 @@ De tu trabajo nos vamos a quedar SÓLO con los tests: la implementación la va a
 No toques ningún otro archivo." 2>&1
   ) > "$log" 2>&1
 
-  cd "$wt/$PROYECTO" || continue
+  cd "$wt/$PROYECTO" || break
   # Otra vez, porque el agente pudo CREAR el manifiesto: T30 escribe el package.json con
   # vitest, y recién ahora se sabe que hace falta instalarlo.
   bash "$AQUI/preparar-entorno.sh" "$wt/$PROYECTO" >> "$log" 2>&1
@@ -105,25 +114,27 @@ No toques ningún otro archivo." 2>&1
   # que es el diagnóstico equivocado. Nos pasó en la primera corrida.
   # Los permitidos salen del archivo de tarea, igual que en el gate: una lista escrita acá
   # a mano queda vieja en cuanto el plan crece.
-  PERMITIDOS="$(sed -n 's/^\*\*Archivos que podés tocar:\*\* *//p' "tareas/$(basename "$archivo")" \
-                | tr ',' '\n' | grep -oE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]+' | sed 's#^#^#;s#$#$#' \
-                | tr '\n' '|' | sed 's/|$//')"
+  # Las rutas declaradas, tal cual: archivos y directorios. El patrón es genérico porque
+  # una lista de extensiones escrita a mano envejece con el primer stack nuevo.
+  RUTAS_OK="$(sed -n 's/^\*\*Archivos que podés tocar:\*\* *//p' "tareas/$(basename "$archivo")" \
+              | tr ',' '\n' | grep -oE '[A-Za-z0-9_./-]+(\.[A-Za-z0-9]+|/)' | sort -u)"
+  PERMITIDOS="$(echo "$RUTAS_OK" | sed 's#/$#/.*#; s#^#^#; s#$#$#' | tr '\n' '|' | sed 's/|$//')"
   TOCADOS="$(git diff --name-only --relative HEAD 2>/dev/null; git ls-files --others --exclude-standard)"
   # Ojo: `$$` en bash es el PID, no un `$` literal. Armar el patrón en una variable aparte
   # evita esa clase de error, que en un grep no falla: deja de matchear y todo queda "fuera".
-  PATRON_OK="^($ruta|\.tests\.log|\.opencode-data/.*)\$"
+  # El lock lo escribe nuestro `npm install` al preparar el entorno, no el agente.
+  PATRON_OK="^($ruta|\.tests\.log|\.opencode-data/.*|([A-Za-z0-9_-]+/)?package-lock\.json)\$"
   [ -n "$PERMITIDOS" ] && PATRON_OK="$PATRON_OK|$PERMITIDOS"
   FUERA="$(echo "$TOCADOS" | grep -vE "$PATRON_OK" | grep . || true)"
   if [ -n "$FUERA" ]; then
-    echo "  ✗ tocó archivos que no le corresponden a esta etapa:"; echo "$FUERA" | sed 's/^/     /'
+    malo "tocó archivos que no le corresponden a esta etapa:$(echo " $FUERA" | tr '\n' ' ')"
     echo "     Puede tocar los archivos de la tarea y su archivo de test. Nada más."
-    fallos=1
   else
     echo "  ✓ sólo tocó el test y los archivos de la tarea"
   fi
 
   if [ "$fallos" -eq 0 ] && { [ ! -f "$ruta" ] || ! grep -q "class $clase" "$ruta" 2>/dev/null; }; then
-    echo "  ✗ no escribió $ruta con la clase $clase"; fallos=1
+    malo "no escribió $ruta con la clase $clase"
   fi
 
   # La validación del test, en tres pasos. Los archivos que la tarea declara son la
@@ -131,7 +142,11 @@ No toques ningún otro archivo." 2>&1
   # comprobar que pasa, y se mutan para comprobar que el test distingue. La implementación
   # no se queda: el entregable es el test.
   if [ "$fallos" -eq 0 ]; then
-    impl="$(echo "$TOCADOS" | grep -E "$PATRON_CODIGO" | grep -v "^$ruta$" || true)"
+    # La implementación es lo que la tarea declara, no lo que matchea $CODIGO. T03
+    # entrega dos `.sql` en `backend/migraciones/`, que no está en CODIGO: el validador
+    # no veía implementación y rechazaba el test del agente por algo que el agente hizo
+    # bien. La autoridad es el archivo de tarea, igual que para el alcance.
+    impl="$(echo "$TOCADOS" | grep -E "$PERMITIDOS" | grep -v "^$ruta$" || true)"
     # El comando es el del proyecto, no uno que armemos acá: `scripts/correr-suite.sh`
     # es el mismo que usa el gate para juzgar. Mientras cada uno tenía el suyo, diferían en
     # el cwd, el PYTHONPATH, el corredor y sus flags, y cada diferencia producía un test
@@ -148,7 +163,7 @@ No toques ningún otro archivo." 2>&1
 
     if [ "$fallos" -ne 0 ]; then :
     elif [ -z "$impl" ]; then
-      echo "  ✗ no escribió implementación: sin ella no se puede validar el test"; fallos=1
+      malo "no escribió implementación: sin ella no se puede validar el test"
     else
       tmp="$(mktemp -d)"
       for f in $impl; do
@@ -156,7 +171,7 @@ No toques ningún otro archivo." 2>&1
         git checkout HEAD -- "$f" 2>/dev/null || rm -f "$f"
       done
       if eval "$prueba" >/dev/null 2>&1; then
-        echo "  ✗ el test PASA con el código de antes: no prueba nada"; fallos=1
+        malo "el test PASA con el código de antes: no prueba nada"
       else
         echo "  ✓ falla sin la implementación"
       fi
@@ -172,14 +187,12 @@ No toques ningún otro archivo." 2>&1
         elif BASE=HEAD~1 CODIGO="$CODIGO" SUITE="$prueba" python3 "$AQUI/mutar.py" >/dev/null 2>&1; then
           echo "  ✓ los mutantes mueren: el test distingue"
         else
-          echo "  ✗ sobreviven mutantes: el test cubre las líneas y no verifica su comportamiento"
+          malo "sobreviven mutantes: el test cubre las líneas y no verifica su comportamiento"
           BASE=HEAD~1 CODIGO="$CODIGO" SUITE="$prueba" python3 "$AQUI/mutar.py" 2>&1 \
             | grep '→' | head -3 | sed 's/^/     /'
-          fallos=1
         fi
       else
-        echo "  ✗ el test no pasa ni con la implementación del propio agente: el test está mal"
-        fallos=1
+        malo "el test no pasa ni con la implementación del propio agente: el test está mal"
       fi
     fi
   fi
@@ -189,10 +202,28 @@ No toques ningún otro archivo." 2>&1
     mkdir -p "$(dirname "$BASE/$ruta")"
     cp "$ruta" "$BASE/$ruta"
     echo "  ✓ $id: $ruta aceptado y copiado al tronco (la implementación se descarta)"
-  else
-    echo "  ✗ $id: los tests no se aceptan. Log: $log"
+    cd "$RAIZ" || true
+    break
   fi
+
+  [ -n "$MOTIVO_TESTS" ] || MOTIVO_TESTS="la validación del test no pasó"
   cd "$RAIZ" || true
+
+  # Misma regla de corte que correr-plan.sh: reintentar a ciegas gasta tiempo en la falla
+  # que no se va a ir sola. Si el motivo repite, es la misma falla.
+  if [ "$MOTIVO_TESTS" = "$HUELLA_ANTERIOR" ]; then
+    echo "  ✗ $id: punto muerto — falló dos veces por lo mismo: $MOTIVO_TESTS"
+    echo "     Log: $log"
+    break
+  fi
+  HUELLA_ANTERIOR="$MOTIVO_TESTS"
+  intento=$((intento+1))
+  if [ "$intento" -gt "$REINTENTOS_TESTS" ]; then
+    echo "  ✗ $id: los tests no se aceptan después de $REINTENTOS_TESTS intento(s). Log: $log"
+    break
+  fi
+  echo "  · $id: reintento $intento — $MOTIVO_TESTS"
+  done
 done
 
 echo

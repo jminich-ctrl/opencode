@@ -325,6 +325,15 @@ class TestGate(CasoBase):
         (self.p.dir / "src" / "paquete" / "__init__.py").touch()
         self.assertVerde(self.p.gate("T01"), "con __init__.py el merge sí la lleva")
 
+    def test_el_lock_que_genera_el_instalador_no_cuenta_como_trabajo_del_agente(self):
+        """`npm install` lo corre el método y escribe `package-lock.json`; AGENTS.md le
+        prohíbe al agente correr npm. T30 se rechazó por ese archivo, que generamos
+        nosotros al preparar su worktree."""
+        self.p.implementar()
+        (self.p.dir / "frontend").mkdir(exist_ok=True)
+        (self.p.dir / "frontend" / "package-lock.json").write_text('{"lockfileVersion": 3}\n')
+        self.assertVerde(self.p.gate("T01"), "el lock lo escribe el instalador")
+
     def test_senal_suprimida_da_rojo(self):
         self.p.implementar("def f():\n    return 42  # noqa\n")
         self.assertRojo(self.p.gate("T01"), "apagar una señal no es arreglarla",

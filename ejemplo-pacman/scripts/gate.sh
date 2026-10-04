@@ -80,7 +80,7 @@ echo "── 2. Alcance${TAREA:+ (tarea $TAREA)}"
 # Si aparecieran en el diff, el gate pondría ROJO por «archivos generados» a la tarea
 # que declaró bien su manifiesto. Depender de una línea del .gitignore del worktree no
 # alcanza: el worktree se crea de HEAD, y un .gitignore arreglado después no viaja.
-INFRA='^(\.base-ref|\.tarea\.log|\.segundos|\.plan\.log|\.opencode-data/|\.metricas/|\.venv(/|$)|\.entorno$|\.mysql(/|$)|([A-Za-z0-9_-]+/)?node_modules(/|$))'
+INFRA='^(\.base-ref|\.tarea\.log|\.segundos|\.plan\.log|\.opencode-data/|\.metricas/|\.venv(/|$)|\.entorno$|\.mysql(/|$)|([A-Za-z0-9_-]+/)?node_modules(/|$)|([A-Za-z0-9_-]+/)?package-lock\.json$)'
 CAMBIADOS="$( { git diff --name-only --relative "$BASE_REF" 2>/dev/null; git ls-files --others --exclude-standard; } | grep -vE "$INFRA" || true)"
 if [ -z "$CAMBIADOS" ] && [ -n "${TAREA:-}" ]; then
   rojo "no hay ningún cambio: la tarea no se hizo"

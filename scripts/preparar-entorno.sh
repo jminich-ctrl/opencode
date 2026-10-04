@@ -25,6 +25,25 @@ DESTINO="${1:-$BASE}"
 [ -d "$DESTINO" ] || { echo "✗ no existe $DESTINO" >&2; exit 1; }
 HIZO=0
 
+# ── El worktree, PRIMERO. El venv, node_modules y .entorno están gitignorados, así que
+# no viajan. En vez de copiarlos, los enlazamos al tronco: es instantáneo y no se
+# desincroniza.
+#
+# Va antes de instalar y no después: el sello que evita reinstalar vive DENTRO de
+# node_modules, así que con el orden invertido cada worktree hacía su propio `npm
+# install` desde cero. Un minuto por tarea, y el plan de clasificados tiene 28.
+if [ "$DESTINO" != "$BASE" ]; then
+  for d in .venv .entorno backend/node_modules frontend/node_modules node_modules; do
+    origen="$BASE/$d"
+    [ -e "$origen" ] || continue
+    destino="$DESTINO/$d"
+    [ -e "$destino" ] && continue
+    mkdir -p "$(dirname "$destino")"
+    ln -s "$origen" "$destino" && { echo "· enlazado $d al tronco"; HIZO=1; }
+  done
+fi
+
+
 # ── Servicios del proyecto (base de datos, colas, lo que sea). El método no sabe qué
 # necesita cada proyecto: si hay `scripts/entorno.sh`, lo corre y confía en su código de
 # salida. Un servicio que no se puede levantar NO se disimula: para la etapa con un motivo
@@ -87,19 +106,6 @@ if [ -n "$PKG" ]; then
       exit 1
     fi
   fi
-fi
-
-# ── El worktree. El venv y node_modules están gitignorados, así que no viajan. En vez de
-# copiarlos, los enlazamos al tronco: es instantáneo y no se desincroniza.
-if [ "$DESTINO" != "$BASE" ]; then
-  for d in .venv backend/node_modules frontend/node_modules node_modules; do
-    origen="$BASE/$d"
-    [ -e "$origen" ] || continue
-    destino="$DESTINO/$d"
-    [ -e "$destino" ] && continue
-    mkdir -p "$(dirname "$destino")"
-    ln -s "$origen" "$destino" && { echo "· enlazado $d al tronco"; HIZO=1; }
-  done
 fi
 
 [ "$HIZO" = "1" ] || echo "· entorno al día"
