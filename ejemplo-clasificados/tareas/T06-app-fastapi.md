@@ -1,6 +1,6 @@
 # T06 — Aplicación FastAPI (punto de entrada)
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T02
 **Archivos que podés tocar:** backend/app/main.py
 **Prohibido tocar:** `scripts/` y `*/tests/` (el paso 0 del gate los verifica)
