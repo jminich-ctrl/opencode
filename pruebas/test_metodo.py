@@ -449,6 +449,170 @@ class TestVacuidad(CasoBase):
                       "el veredicto tiene que dejar constancia de lo que no se verificó")
 
 
+class TestContabilidadDelVeredicto(CasoBase):
+    """Invariantes sobre la SALIDA del gate, no sobre un chequeo en particular.
+
+    Salieron de medir la tasa de captura con mutantes mecánicos (`pruebas/mutar-gate.py`):
+    de 20 mutantes del gate, la suite mataba 9. Tres de los sobrevivientes eran
+    `FALLOS=$((FALLOS+0))` y borrados de una línea de chequeo entera, y el remedio no es un
+    caso por sobreviviente —eso es sobreajustar de nuevo— sino un invariante que mate la
+    familia: **lo que el veredicto cuenta tiene que ser lo que el gate imprimió.**
+    """
+
+    def marcas(self, salida):
+        rojas = len([l for l in salida.splitlines() if l.startswith("  ✗ ")])
+        vacias = len([l for l in salida.splitlines() if l.startswith("  ⊘ ")])
+        return rojas, vacias
+
+    def declarado(self, salida):
+        """Lo que dice la línea del veredicto: (fallos, vacíos)."""
+        fallos = vacios = 0
+        for l in salida.splitlines():
+            m = re.match(r"GATE ROJO \((\d+) fallo", l)
+            if m:
+                fallos = int(m.group(1))
+            m = re.match(r"GATE VERDE — con (\d+) chequeo", l)
+            if m:
+                vacios = int(m.group(1))
+        return fallos, vacios
+
+    def escenarios(self):
+        """Varias configuraciones, para que el invariante se mida en más de una forma."""
+        yield "tarea sin implementar", lambda: None, "T01"
+        yield "tarea implementada", lambda: self.p.implementar(), "T01"
+        yield "modo integración", lambda: self.p.implementar(), None
+        def suprimida():
+            self.p.implementar("def f():\n    return 42  # noqa\n")
+        yield "con señal suprimida", suprimida, "T01"
+        def test_tocado():
+            self.p.implementar()
+            t = self.p.dir / "tests" / "test_cosa.py"
+            t.write_text(t.read_text() + "# tocado\n")
+        yield "con un test tocado", test_tocado, "T01"
+
+    def test_el_veredicto_cuenta_exactamente_las_marcas_impresas(self):
+        for nombre, preparar, tarea in self.escenarios():
+            with self.subTest(escenario=nombre):
+                self.setUp()
+                try:
+                    preparar()
+                    r = self.p.gate(tarea)
+                    rojas, vacias = self.marcas(r.stdout)
+                    f_dicho, v_dicho = self.declarado(r.stdout)
+                    if rojas:
+                        self.assertEqual(f_dicho, rojas,
+                                         f"imprimió {rojas} ✗ y el veredicto dice {f_dicho}"
+                                         f"\n{r.stdout}")
+                        self.assertNotEqual(r.returncode, 0, "con ✗ no puede salir 0")
+                    else:
+                        self.assertEqual(r.returncode, 0, f"sin ✗ tiene que salir 0\n{r.stdout}")
+                        self.assertEqual(v_dicho, vacias,
+                                         f"imprimió {vacias} ⊘ y el veredicto dice {v_dicho}"
+                                         f"\n{r.stdout}")
+                finally:
+                    self.tearDown()
+
+    def test_ningun_paso_anunciado_queda_sin_marca(self):
+        """Un paso que se anuncia y no imprime nada es un chequeo que se borró sin que el
+        veredicto cambie: tres de los mutantes que sobrevivieron eran exactamente eso."""
+        for nombre, preparar, tarea in self.escenarios():
+            with self.subTest(escenario=nombre):
+                self.setUp()
+                try:
+                    preparar()
+                    salida = self.p.gate(tarea).stdout
+                    paso, marcas, huerfanos = None, 0, []
+                    for l in salida.splitlines():
+                        if l.startswith("── "):
+                            if paso is not None and marcas == 0:
+                                huerfanos.append(paso)
+                            paso, marcas = l.strip(), 0
+                        elif l.startswith(("  ✓ ", "  ✗ ", "  ⊘ ", "  · ")):
+                            marcas += 1
+                    if paso is not None and marcas == 0:
+                        huerfanos.append(paso)
+                    self.assertEqual(huerfanos, [],
+                                     f"pasos que no dijeron nada: {huerfanos}\n{salida}")
+                finally:
+                    self.tearDown()
+
+
+class TestPaso5PorElGate(CasoBase):
+    """El paso 5 —coherencia— sólo estaba probado llamando a `_arquitectura.py` a mano.
+
+    Lo destapó la medición de mutantes: `FALLOS=$((FALLOS+1))` del paso 5 podía pasar a
+    `FALLOS+0` y los 74 casos seguían en verde. Es decir, el chequeo de arquitectura podía
+    fallar sin poner el gate en rojo y nadie se enteraba. El hueco no era un caso: era un
+    paso entero sin cobertura a través del gate.
+    """
+
+    def test_sin_arquitectura_el_paso_5_es_vacuo(self):
+        self.p.implementar()
+        r = self.p.gate()          # modo integración: el paso 5 sólo corre ahí
+        self.assertIn("── 5. Coherencia", r.stdout)
+        self.assertIn("⊘", r.stdout.split("── 5.")[1].split("── 6.")[0],
+                      f"sin _arquitectura.py el paso 5 no pudo verificarse\n{r.stdout}")
+
+    def test_una_divergencia_de_capas_pone_el_gate_en_rojo(self):
+        shutil.copy(PLANTILLAS / "_arquitectura.py", self.p.dir / "scripts" / "_arquitectura.py")
+        a = self.p.dir / "scripts" / "_arquitectura.py"
+        t = a.read_text().replace('CAPAS = ["datos", "servicios", "rutas"]',
+                                  'CAPAS = ["datos", "rutas"]')
+        t = t.replace('REQUERIDAS = [\n    ("servicios", "datos"),   # la lógica usa la capa de datos\n'
+                      '    ("rutas", "servicios"),   # los endpoints no hablan con datos directamente\n]',
+                      'REQUERIDAS = []')
+        a.write_text(t)
+        (self.p.dir / "src" / "datos.py").write_text("from .rutas import x\n")
+        (self.p.dir / "src" / "rutas.py").write_text("")
+        self.p.implementar()
+        self.p.git("add -A"); self.p.git('commit -qm arq')
+        r = self.p.gate()
+        self.assertNotEqual(r.returncode, 0,
+                            f"datos importa rutas: el gate tiene que dar rojo\n{r.stdout}")
+        self.assertIn("divergencia", r.stdout, "y tiene que decir por qué")
+
+
+class TestContratoDeLaSuite(CasoBase):
+    """El gate frente a cada código de salida de `correr-suite.sh`.
+
+    Los códigos son contrato (0/1/2/3/127) y cada uno tiene un veredicto distinto; el 3 y el
+    127 además tienen que decir que el defecto es del método y no del código juzgado. Se
+    prueba con un doble que sale con el código que queremos: así se recorren todas las ramas
+    sin necesitar un proyecto roto de cada forma. Mató al mutante que convertía el «falta el
+    corredor» en verde — una suite que no se puede correr informada como si hubiera corrido.
+    """
+
+    def con_codigo(self, codigo, texto="salida del doble"):
+        doble = self.p.dir / "scripts" / "correr-suite.sh"
+        doble.write_text(f'#!/usr/bin/env bash\necho "{texto}"\nexit {codigo}\n')
+        self.p.implementar()
+        return self.p.gate("T01")
+
+    def test_codigo_2_es_rojo_y_dice_que_no_corrio_nada(self):
+        self.assertRojo(self.con_codigo(2), "una suite vacía pasa siempre",
+                        motivo="no corrió ningún test")
+
+    def test_codigo_3_es_rojo_y_dice_que_es_del_metodo(self):
+        r = self.con_codigo(3)
+        self.assertRojo(r, "sin corredor no se verifica nada", motivo="falta el corredor")
+        self.assertIn("del método", r.stdout,
+                      "tiene que decir de quién es el defecto, o se lo cobran al agente")
+
+    def test_codigo_127_es_rojo_y_dice_que_falta_el_archivo(self):
+        (self.p.dir / "scripts" / "correr-suite.sh").unlink()
+        self.p.implementar()
+        self.assertRojo(self.p.gate("T01"), "sin correr-suite.sh no hay un solo comando",
+                        motivo="no declara cómo se corre su suite")
+
+    def test_codigo_1_es_rojo(self):
+        self.assertRojo(self.con_codigo(1), "la suite falla")
+
+    def test_codigo_0_es_verde_en_el_paso_1(self):
+        r = self.con_codigo(0, "3 passed")
+        self.assertIn("── 1. Tests", r.stdout)
+        self.assertIn("  ✓ ", r.stdout.split("── 2.")[0], f"el paso 1 tenía que estar verde\n{r.stdout}")
+
+
 class TestTestigos(CasoBase):
     """Cada chequeo tiene que informar QUÉ inspeccionó, no sólo su veredicto.
 
