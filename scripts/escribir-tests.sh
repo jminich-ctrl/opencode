@@ -64,8 +64,17 @@ for id in "$@"; do
     continue
   fi
 
-  if [ -f "$BASE/$ruta" ] && grep -q "class $clase" "$BASE/$ruta" 2>/dev/null; then
-    echo "· $id: $ruta ya tiene $clase — no se toca (reescribir lo que pasa lo empeora)"
+  # Cómo se declara el agrupador depende del lenguaje, igual que más abajo. Con la forma
+  # Python hardcodeada acá, un `.test.ts` que YA estaba bien en el tronco se reescribía en
+  # cada corrida — contra la regla del propio método, «reescribir lo que pasa lo empeora»—.
+  case "$ruta" in
+    *.py)                                      YA="class $clase" ;;
+    *.test.ts|*.test.tsx|*.test.js|*.test.jsx) YA="describe" ;;
+    *)                                         YA="$clase" ;;
+  esac
+  if [ -f "$BASE/$ruta" ] && grep -q "$YA" "$BASE/$ruta" 2>/dev/null \
+     && grep -q "$clase" "$BASE/$ruta" 2>/dev/null; then
+    echo "· $id: $ruta ya declara $clase — no se toca (reescribir lo que pasa lo empeora)"
     continue
   fi
 

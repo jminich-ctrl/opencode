@@ -564,6 +564,33 @@ class TestImportsDeclarados(unittest.TestCase):
         self.assertIn("todo lo importado está declarado", r.stdout,
                       f"estaba declarado\n{r.stdout}")
 
+    def test_sin_archivos_js_el_chequeo_es_vacuo_y_no_rojo(self):
+        """`grep -r` sin rutas lee la ENTRADA ESTÁNDAR, y en un heredoc eso es el propio
+        script: el chequeo «encontraba» los paquetes nombrados en sus comentarios y reprobaba
+        a tareas de backend por un import que no habían escrito. Pasó con T02 y T03.
+
+        Un chequeo sin material no es un chequeo que pasa: es ⊘.
+        """
+        repo = pathlib.Path(tempfile.mkdtemp(prefix="prueba-sinjs-"))
+        self.addCleanup(shutil.rmtree, str(repo), True)
+        d = repo / "proyecto"
+        for sub in ("scripts", "tareas", "frontend", "backend/tests", "backend/migraciones"):
+            (d / sub).mkdir(parents=True)
+        shutil.copy(self.GATE, d / "scripts" / "gate.sh")
+        shutil.copy(self.GATE.parent / "correr-suite.sh", d / "scripts" / "correr-suite.sh")
+        (d / "frontend" / "package.json").write_text('{"devDependencies": {"vite": "^5.0.0"}}\n')
+        (d / "tareas" / "T03-m.md").write_text(
+            "# T03\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** backend/migraciones/\n")
+        correr("git init -q && git add -A && git commit -qm base", repo)
+        # La tarea toca SÓLO un .sql: no hay nada JS/TS que cruzar.
+        (d / "backend" / "migraciones" / "001.sql").write_text("CREATE TABLE a (id INT);\n")
+        r = correr("bash scripts/gate.sh", d, TAREA="T03")
+        self.assertNotIn("importa paquetes que el package.json no declara", r.stdout,
+                         f"no tocó ningún JS/TS; no puede acusarla de importar nada\n{r.stdout}")
+        self.assertIn("no hay archivos JS/TS que cruzar", r.stdout,
+                      f"y tiene que decir que no pudo verificarse\n{r.stdout}")
+
     def test_un_import_relativo_no_cuenta(self):
         r = self.montar('{"devDependencies": {"vite": "^5.0.0"}}\n',
                         "import algo from './algo';\nimport fs from 'node:fs';\n")

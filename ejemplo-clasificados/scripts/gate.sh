@@ -229,15 +229,20 @@ if [ -f frontend/package.json ]; then
   # cuando la pregunta «¿está todo declarado?» corresponde.
   if [ -n "${TAREA:-}" ]; then
     FUENTES_IMPORT="$(echo "$CAMBIADOS" | grep -E '\.(ts|tsx|js|jsx)$' | tr '\n' ' ')"
-    [ -n "$FUENTES_IMPORT" ] || FUENTES_IMPORT=""
   else
-    FUENTES_IMPORT="frontend/src frontend/tests frontend/*.ts frontend/*.js"
+    FUENTES_IMPORT="$(ls -d frontend/src frontend/tests frontend/*.ts frontend/*.js 2>/dev/null | tr '\n' ' ')"
   fi
-  NO_DECLARADOS=""
-  while IFS= read -r paq; do
-    [ -n "$paq" ] || continue
-    grep -q "\"$paq\"" frontend/package.json 2>/dev/null || NO_DECLARADOS="$NO_DECLARADOS $paq"
-  done <<EOF
+  if [ -z "$FUENTES_IMPORT" ]; then
+    # Sin archivos que mirar, `grep -r` sin rutas lee la ENTRADA ESTÁNDAR: en un heredoc eso
+    # es el propio script, y el chequeo "encontraba" los paquetes nombrados en sus comentarios.
+    # Un chequeo sin material no es un chequeo que pasa.
+    vacuo "no hay archivos JS/TS que cruzar contra el package.json"
+  else
+    NO_DECLARADOS=""
+    while IFS= read -r paq; do
+      [ -n "$paq" ] || continue
+      grep -q "\"$paq\"" frontend/package.json 2>/dev/null || NO_DECLARADOS="$NO_DECLARADOS $paq"
+    done <<EOF
 $(grep -rhoE "(from|import)[[:space:]]+['\"]([@A-Za-z][^'\"]*)['\"]" ${FUENTES_IMPORT} 2>/dev/null \
   | sed -E "s/.*['\"]([^'\"]*)['\"].*/\1/" \
   | grep -vE "^[./]" \
@@ -245,15 +250,14 @@ $(grep -rhoE "(from|import)[[:space:]]+['\"]([@A-Za-z][^'\"]*)['\"]" ${FUENTES_I
   | grep -vE '^(node:|fs$|path$|url$|os$|crypto$|http$|https$|util$|events$|stream$|assert$|child_process$)' \
   | sort -u)
 EOF
-  if [ -n "$NO_DECLARADOS" ]; then
-    rojo "importa paquetes que el package.json no declara:$NO_DECLARADOS"
-    echo "     Declaralo en frontend/package.json o no lo importes. Si no está permitido en"
-    echo "     AGENTS.md, pará y decilo: la lista se amplía, no se esquiva."
-  elif [ -z "$FUENTES_IMPORT" ]; then
-    vacuo "esta tarea no tocó archivos JS/TS: no hay imports que cruzar"
-  else
-    verde "todo lo importado está declarado"
-    testigo "${FUENTES_IMPORT} contra frontend/package.json"
+    if [ -n "$NO_DECLARADOS" ]; then
+      rojo "importa paquetes que el package.json no declara:$NO_DECLARADOS"
+      echo "     Declaralo en frontend/package.json o no lo importes. Si no está permitido en"
+      echo "     AGENTS.md, pará y decilo: la lista se amplía, no se esquiva."
+    else
+      verde "todo lo importado está declarado"
+      testigo "${FUENTES_IMPORT}contra frontend/package.json"
+    fi
   fi
 fi
 if grep -rqE 'tailwind' frontend/ --include=*.json --include=*.js --include=*.ts 2>/dev/null; then rojo "apareció Tailwind: el diseño es propio"; else verde "sin librerías de diseño"; fi
