@@ -12,6 +12,12 @@
 #   · Lo que el agente no puede tocar lo decide ESTE archivo, no el archivo de tarea.
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
+# El intérprete del proyecto si hay uno. Con `python3` a secas el gate corre contra el del
+# sistema y no ve las dependencias del proyecto.
+if [ -x .venv/bin/python ]; then PY_PROYECTO=".venv/bin/python"
+elif [ -x ../.venv/bin/python ]; then PY_PROYECTO="../.venv/bin/python"
+else PY_PROYECTO="python3"; fi
+
 FALLOS=0
 VACIOS=0
 rojo() { echo "  ✗ $1"; FALLOS=$((FALLOS+1)); }
@@ -24,7 +30,7 @@ vacuo() { echo "  ⊘ $1 — no pudo verificarse"; VACIOS=$((VACIOS+1)); }
 testigo() { echo "     · inspeccionó: $1"; }
 
 # ADAPTAR: el comando que corre TODA tu suite, y cómo se ve una suite que no corrió nada.
-TESTS="python3 -m unittest discover -s tests -t . -q"
+TESTS="$PY_PROYECTO -m unittest discover -s tests -t . -q"
 VACIA='^Ran 0 tests'
 # ADAPTAR: dónde vive el código de producción (no los tests).
 CODIGO="src"
@@ -60,6 +66,13 @@ if [ -n "${TAREA:-}" ]; then
     testigo "${N_DIFF:-0} ruta(s) del diff contra el patrón $INTOCABLES"
   fi
 fi
+
+# ── Cadena de herramientas. Un corredor ausente no puede verse como "no hay tests".
+herramienta_falta() {
+  echo "  ✗ hay tests en $1 y falta su corredor ($2)"
+  echo "     Instalalo antes de correr el gate; si no, el gate no verifica nada y lo diría en verde."
+  FALLOS=$((FALLOS+1))
+}
 
 echo "── 1. Tests"
 SALIDA="$($TESTS 2>&1)"
@@ -149,7 +162,7 @@ if [ -n "${TAREA:-}" ]; then
     elif [ -n "$ESPERADO" ]; then
       MOD="$(echo "$ESPERADO" | cut -d' ' -f1 | sed 's|/|.|g; s|\.py$||')"
       CLASE="$(echo "$ESPERADO" | cut -d' ' -f2)"
-      if python3 -m unittest "$MOD.$CLASE" >/dev/null 2>&1; then
+      if "$PY_PROYECTO" -m unittest "$MOD.$CLASE" >/dev/null 2>&1; then
         rojo "la suite falla, pero NO por los tests de esta tarea ($CLASE pasa con el código viejo)"
         echo "     o los tests de $TAREA no verifican el cambio, o rompiste otra cosa"
       else
@@ -171,7 +184,7 @@ fi
 if [ -z "${TAREA:-}" ]; then
   echo "── 5. Coherencia"
   if [ -f scripts/_arquitectura.py ]; then
-    if OUT="$(python3 scripts/_arquitectura.py 2>&1)"; then echo "$OUT"
+    if OUT="$("$PY_PROYECTO" scripts/_arquitectura.py 2>&1)"; then echo "$OUT"
     else echo "$OUT"; FALLOS=$((FALLOS+1)); fi
   else
     vacuo "no hay scripts/_arquitectura.py"
@@ -198,7 +211,7 @@ if [ -z "${TAREA:-}" ]; then
   echo "── 6. Suite reservada"
   N_RES="$(ls "$RESERVADOS"/test_*.py 2>/dev/null | grep -c . || true)"
   if [ "${N_RES:-0}" -gt 0 ]; then
-    if OUT="$(PYTHONPATH="$PWD" python3 -m unittest discover -s "$RESERVADOS" -t "$RESERVADOS" -q 2>&1)"; then
+    if OUT="$(PYTHONPATH="$PWD" "$PY_PROYECTO" -m unittest discover -s "$RESERVADOS" -t "$RESERVADOS" -q 2>&1)"; then
       verde "$(echo "$OUT" | grep -E '^Ran ' | head -1) de composición"
       testigo "$N_RES archivo(s) reservado(s) en $RESERVADOS"
     else

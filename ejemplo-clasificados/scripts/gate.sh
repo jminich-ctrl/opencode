@@ -4,6 +4,12 @@
 #   0) integridad  1) tests  2) alcance  3) higiene  4) ¿distinguen?  5) coherencia
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
+# El intérprete del proyecto si hay uno. Con `python3` a secas el gate corre contra el del
+# sistema y no ve las dependencias del proyecto.
+if [ -x .venv/bin/python ]; then PY_PROYECTO=".venv/bin/python"
+elif [ -x ../.venv/bin/python ]; then PY_PROYECTO="../.venv/bin/python"
+else PY_PROYECTO="python3"; fi
+
 FALLOS=0
 VACIOS=0
 rojo() { echo "  ✗ $1"; FALLOS=$((FALLOS+1)); }
@@ -36,10 +42,20 @@ if [ -n "${TAREA:-}" ]; then
   else verde "tests y scripts intactos"; fi
 fi
 
+# ── Cadena de herramientas. Un corredor ausente no puede verse como "no hay tests".
+herramienta_falta() {
+  echo "  ✗ hay tests en $1 y falta su corredor ($2)"
+  echo "     Instalalo antes de correr el gate; si no, el gate no verifica nada y lo diría en verde."
+  FALLOS=$((FALLOS+1))
+}
+
 echo "── 1. Tests"
 CORRIO=0
 if [ -d backend/tests ] && ls backend/tests/test_*.py >/dev/null 2>&1; then
-  SALIDA="$(cd backend && python3 -m pytest -q 2>&1)"
+  if ! "$PY_PROYECTO" -c "import pytest" >/dev/null 2>&1; then
+    herramienta_falta "backend/tests" "pytest en $PY_PROYECTO"
+  else
+  SALIDA="$(cd backend && "$PY_PROYECTO" -m pytest -q 2>&1)"
   if echo "$SALIDA" | grep -qE 'no tests ran|collected 0 items'; then
     rojo "backend: la suite no corrió ningún test"
   elif echo "$SALIDA" | grep -qE '[0-9]+ passed' && ! echo "$SALIDA" | grep -qE '[0-9]+ (failed|error)'; then
@@ -47,14 +63,19 @@ if [ -d backend/tests ] && ls backend/tests/test_*.py >/dev/null 2>&1; then
   else
     rojo "backend en rojo"; echo "$SALIDA" | tail -15 | sed 's/^/     /'
   fi
+  fi
 fi
 if [ -f frontend/package.json ] && grep -q '"vitest"' frontend/package.json 2>/dev/null; then
+  if [ ! -d frontend/node_modules ]; then
+    herramienta_falta "frontend" "node_modules (corré npm install)"
+  else
   SALIDA="$(cd frontend && npx --no-install vitest run --reporter=basic 2>&1)"
   if echo "$SALIDA" | grep -qE 'No test files found'; then
     rojo "frontend: la suite no corrió ningún test"
   elif echo "$SALIDA" | grep -qE 'FAIL|failed'; then
     rojo "frontend en rojo"; echo "$SALIDA" | tail -15 | sed 's/^/     /'
   else verde "frontend: tests en verde"; CORRIO=1; fi
+  fi
 fi
 [ "$CORRIO" = "0" ] && rojo "no se ejecutó ninguna suite: sin tests no hay gate"
 
@@ -116,7 +137,7 @@ if [ -n "${TAREA:-}" ]; then
   if [ -z "$IMPL" ]; then vacuo "no hay implementación que revertir"
   elif [ -z "$REVERTIDOS" ]; then vacuo "archivos nuevos (no existían en HEAD): nada que revertir"
   else
-    if ( cd backend && python3 -m pytest -q >/dev/null 2>&1 ); then
+    if ( cd backend && "$PY_PROYECTO" -m pytest -q >/dev/null 2>&1 ); then
       rojo "los tests PASAN con la implementación vieja: no verifican el cambio"
       echo "     revertí:$REVERTIDOS y la suite siguió verde"
     else verde "la suite falla al revertir$REVERTIDOS"; fi
@@ -128,7 +149,7 @@ fi
 # ── 5. Coherencia (sólo en modo integración): lo único que mira a través de las tareas.
 if [ -z "${TAREA:-}" ] && [ -f scripts/_arquitectura.py ]; then
   echo "── 5. Coherencia"
-  if OUT="$(python3 scripts/_arquitectura.py 2>&1)"; then echo "$OUT"
+  if OUT="$("$PY_PROYECTO" scripts/_arquitectura.py 2>&1)"; then echo "$OUT"
   else echo "$OUT"; FALLOS=$((FALLOS+1)); fi
 fi
 
@@ -151,7 +172,7 @@ if [ -z "${TAREA:-}" ]; then
   RESERVADOS="${RESERVADOS:-$(cd "$(git rev-parse --show-toplevel)/.." && pwd)/reservados-$(basename "$PWD")}"
   echo "── 6. Suite reservada"
   if [ -d "$RESERVADOS" ] && ls "$RESERVADOS"/test_*.py >/dev/null 2>&1; then
-    if OUT="$(PYTHONPATH="$PWD/backend" python3 -m pytest -q "$RESERVADOS" 2>&1)"; then
+    if OUT="$(PYTHONPATH="$PWD/backend" "$PY_PROYECTO" -m pytest -q "$RESERVADOS" 2>&1)"; then
       verde "$(echo "$OUT" | grep -E '^Ran ' | head -1) de composición"
     else
       rojo "la suite reservada falla: pasa los tests de las tareas y no hace lo que tiene que hacer"

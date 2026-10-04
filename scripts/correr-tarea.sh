@@ -89,7 +89,7 @@ lanzar() {
     # Una línea por intento en el registro: las métricas leen datos, no adivinan del texto.
     anotar_intento "$id" "$([ -n "$error" ] && echo ERROR || veredicto "$log")" \
                    "$(( $(date +%s) - inicio ))" \
-                   "$(grep -m1 -oE '^\[0m> [a-z]+ · [0-9a-f]{8}' "$log" | awk '{print $NF}')" \
+                   "$(grep -m1 -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}' "$log" | cut -c1-8)" \
                    "$log"
     if [ -n "$error" ]; then echo "✗ $id ERROR del agente: $error"
     elif [ "$rc" -eq 0 ]; then echo "✓ $id gate VERDE"

@@ -31,7 +31,11 @@ ubicar_proyecto
 [ $# -ge 1 ] || { echo "uso: $0 TNN [TNN ...]" >&2; exit 1; }
 
 AGENTE="${AGENTE:-tester}"
+# Uno o varios directorios de código, separados por coma. El Pacman tiene uno (`src`); un
+# proyecto con back y front tiene dos. Asumir uno era un supuesto que se colaba de calibrar
+# contra un solo proyecto.
 CODIGO="${CODIGO:-src}"
+PATRON_CODIGO="^($(echo "$CODIGO" | tr ',' '|'))/"
 
 # El tester es subagente y desde la CLI cae al agente por defecto sin avisar (OPENCODE.md §3).
 # Para escribir archivos hace falta un primario; `ejecutor` es el que tiene el harness flaco.
@@ -116,7 +120,7 @@ No toques ningún otro archivo." 2>&1
   # comprobar que pasa, y se mutan para comprobar que el test distingue. La implementación
   # no se queda: el entregable es el test.
   if [ "$fallos" -eq 0 ]; then
-    impl="$(echo "$TOCADOS" | grep -E "^$CODIGO/" | grep -v "^$ruta$" || true)"
+    impl="$(echo "$TOCADOS" | grep -E "$PATRON_CODIGO" | grep -v "^$ruta$" || true)"
     prueba="python3 -m unittest $(echo "${ruta%.py}" | tr / .).$clase"
     if [ -z "$impl" ]; then
       echo "  ✗ no escribió implementación: sin ella no se puede validar el test"; fallos=1

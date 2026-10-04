@@ -91,7 +91,10 @@ if imposibles:
 if segs:
     print(f"Tiempo por intento: mediana {statistics.median(segs):.0f}s, "
           f"máximo {max(segs)}s, total {sum(segs) // 60} min")
-modelos = collections.Counter(f["modelo"] for f in filas if f["modelo"])
-if modelos:
-    print("Modelos usados: " + ", ".join(f"{m} ({n})" for m, n in modelos.items()))
+modelos = collections.Counter(f.get("modelo") or "(sin registrar)" for f in filas)
+print("Modelos usados: " + ", ".join(f"{m} ({n})" for m, n in modelos.items()))
+if modelos.get("(sin registrar)"):
+    # Una columna vacía no puede desaparecer del reporte: así vivió un bug del extractor
+    # durante tres corridas sin que nadie lo viera.
+    print(f"  ⊘ {modelos['(sin registrar)']} intento(s) sin modelo registrado — el extractor falló")
 PY
