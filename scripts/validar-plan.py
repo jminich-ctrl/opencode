@@ -146,6 +146,28 @@ for tid in sorted(set(tareas) & set(en_disco)):
         avisos.append(f"{tid} toca {n_archivos} archivos: candidata a partirse "
                       f"(ver DESCOMPOSICION.md §4)")
 
+# ── Ninguna tarea puede declarar un archivo que el gate considera intocable.
+# Es un cruce entre dos componentes que nadie hacía, y produce tareas INSATISFACIBLES: el
+# plan permite lo que el gate prohíbe, así que ningún agente puede cerrarlas. Nos pasó con
+# dos tareas de 28, y una era peor que un problema de alcance — le pedía al agente escribir
+# `scripts/_arquitectura.py`, es decir el verificador que lo juzga. Eso viola el corolario
+# de P2: el comando tiene que ser inmodificable por quien es juzgado.
+gate = RAIZ / "scripts" / "gate.sh"
+if gate.exists():
+    m = re.search(r"^INTOCABLES='([^']+)'", gate.read_text(), re.M)
+    if m:
+        patron = re.compile(m.group(1))
+        for tid in sorted(set(tareas) & set(en_disco)):
+            f = en_disco[tid][0]
+            mm = re.search(r"^\*\*Archivos que podés tocar:\*\* *(.*)$", f.read_text(), re.M)
+            if not mm:
+                continue
+            for a in re.split(r"[,\s]+", mm.group(1)):
+                a = a.strip("`")
+                if a and patron.match(a):
+                    errores.append(f"{f.name} declara «{a}», que el gate considera intocable: "
+                                   f"la tarea es insatisfacible")
+
 # ── Plantillas sin completar, en el plan y en las tareas
 def placeholders(cuerpo):
     # Fuera los bloques de código y el código en línea: `Promise<void>` y `<any>` son

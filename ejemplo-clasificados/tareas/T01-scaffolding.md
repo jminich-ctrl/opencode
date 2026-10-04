@@ -2,8 +2,8 @@
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
 **Depende de:** ninguna
-**Archivos que podés tocar:** backend/, frontend/, scripts/, backend/requirements.txt, frontend/package.json
-**Prohibido tocar:** 
+**Archivos que podés tocar:** backend/requirements.txt, frontend/package.json
+**Prohibido tocar:** `scripts/` y `*/tests/` (el paso 0 del gate los verifica)
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`, que usa el runner, no puede elegir un subagente
 
 ## Objetivo

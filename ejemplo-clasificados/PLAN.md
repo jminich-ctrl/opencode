@@ -40,8 +40,7 @@ Crear un sitio de clasificados funcional con backend FastAPI (MySQL sin ORM) y f
 
 | # | Tarea | Depende de | Archivos | Estado |
 |---|---|---|---|---|
-| T01 | Scaffolding del proyecto | — | backend/, frontend/, scripts/, backend/requirements.txt, frontend/package.json | pendiente |
-| T02 | Script de arquitectura (_arquitectura.py) | T01 | scripts/_arquitectura.py | pendiente |
+| T01 | Scaffolding del proyecto | — | backend/requirements.txt, frontend/package.json | pendiente |
 | T03 | Primera migración (usuarios y anuncios) | T01 | backend/migraciones/001_initial.sql | pendiente |
 | T04 | Auth backend (login, sesión) | T03 | backend/app/rutas/auth.py, backend/app/servicios/auth.py, backend/app/datos/users.py | pendiente |
 | T05 | CRUD de avisos backend | T04 | backend/app/rutas/ads.py, backend/app/servicios/ads.py, backend/app/datos/ads.py | pendiente |
@@ -77,33 +76,32 @@ Crear un sitio de clasificados funcional con backend FastAPI (MySQL sin ORM) y f
 
 | Tarea | Archivo de test | Clase |
 |---|---|---|
-| T01 | tests/test_scaffolding.py | TestScaffolding |
-| T02 | tests/test_arquitectura.py | TestArquitectura |
-| T03 | tests/test_migracion.py | TestMigracion |
-| T04 | tests/test_auth_backend.py | TestAuthBackend |
-| T05 | tests/test_ads_backend.py | TestAdsBackend |
-| T06 | tests/frontend/test_scaffolding_frontend.test.ts | TestScaffoldingFrontend |
-| T07 | tests/frontend/test_login_frontend.test.ts | TestLoginFrontend |
-| T08 | tests/frontend/test_ads_frontend.test.ts | TestAdsFrontend |
-| T14 | tests/backend/test_favorites_datos.py | TestFavoritesDatos |
-| T15 | tests/backend/test_favorites_servicio.py | TestFavoritesServicio |
-| T16 | tests/backend/test_favorites_rutas.py | TestFavoritesRutas |
-| T17 | tests/frontend/test_favorites_servicio.test.ts | TestFavoritesServicioFrontend |
-| T18 | tests/frontend/test_favorites_ui.test.ts | TestFavoritesUILista |
-| T19 | tests/frontend/test_favorites_scss.test.ts | TestFavoritesSCSS |
-| T20 | tests/backend/test_messages_datos.py | TestMessagesDatos |
-| T21 | tests/backend/test_messages_servicio.py | TestMessagesServicio |
-| T22 | tests/backend/test_messages_rutas.py | TestMessagesRutas |
-| T23 | tests/frontend/test_messages_servicio.test.ts | TestMessagesServicioFrontend |
-| T24 | tests/frontend/test_messages_ui_lista.test.ts | TestMessagesUILista |
-| T25 | tests/frontend/test_messages_ui_detalle.test.ts | TestMessagesUIDetalle |
-| T11 | tests/frontend/test_edit_ad_frontend.test.ts | TestEditAdFrontend |
-| T12 | tests/frontend/test_filters_frontend.test.ts | TestFiltersFrontend |
-| T13 | tests/frontend/test_design_system_frontend.test.ts | TestDesignSystemFrontend |
-| T26 | tests/backend/test_register_backend.py | TestRegisterBackend |
-| T27 | tests/frontend/test_register_frontend.test.ts | TestRegisterFrontend |
-| T28 | tests/backend/test_search_backend.py | TestSearchBackend |
-| T29 | tests/frontend/test_search_frontend.test.ts | TestSearchFrontend |
+| T01 | backend/tests/test_scaffolding.py | TestScaffolding |
+| T03 | backend/tests/test_migracion.py | TestMigracion |
+| T04 | backend/tests/test_auth_backend.py | TestAuthBackend |
+| T05 | backend/tests/test_ads_backend.py | TestAdsBackend |
+| T06 | frontend/tests/test_scaffolding_frontend.test.ts | TestScaffoldingFrontend |
+| T07 | frontend/tests/test_login_frontend.test.ts | TestLoginFrontend |
+| T08 | frontend/tests/test_ads_frontend.test.ts | TestAdsFrontend |
+| T14 | backend/tests/test_favorites_datos.py | TestFavoritesDatos |
+| T15 | backend/tests/test_favorites_servicio.py | TestFavoritesServicio |
+| T16 | backend/tests/test_favorites_rutas.py | TestFavoritesRutas |
+| T17 | frontend/tests/test_favorites_servicio.test.ts | TestFavoritesServicioFrontend |
+| T18 | frontend/tests/test_favorites_ui.test.ts | TestFavoritesUILista |
+| T19 | frontend/tests/test_favorites_scss.test.ts | TestFavoritesSCSS |
+| T20 | backend/tests/test_messages_datos.py | TestMessagesDatos |
+| T21 | backend/tests/test_messages_servicio.py | TestMessagesServicio |
+| T22 | backend/tests/test_messages_rutas.py | TestMessagesRutas |
+| T23 | frontend/tests/test_messages_servicio.test.ts | TestMessagesServicioFrontend |
+| T24 | frontend/tests/test_messages_ui_lista.test.ts | TestMessagesUILista |
+| T25 | frontend/tests/test_messages_ui_detalle.test.ts | TestMessagesUIDetalle |
+| T11 | frontend/tests/test_edit_ad_frontend.test.ts | TestEditAdFrontend |
+| T12 | frontend/tests/test_filters_frontend.test.ts | TestFiltersFrontend |
+| T13 | frontend/tests/test_design_system_frontend.test.ts | TestDesignSystemFrontend |
+| T26 | backend/tests/test_register_backend.py | TestRegisterBackend |
+| T27 | frontend/tests/test_register_frontend.test.ts | TestRegisterFrontend |
+| T28 | backend/tests/test_search_backend.py | TestSearchBackend |
+| T29 | frontend/tests/test_search_frontend.test.ts | TestSearchFrontend |
 
 ### Un choque que encontró el arquitecto
 
@@ -125,6 +123,17 @@ el proxy, no sobre la regla.
 
 Queda anotado acá a propósito: **un aviso que nadie resuelve por escrito vuelve a aparecer
 en cada revisión y se empieza a ignorar.**
+
+### Por qué T02 salió del plan
+
+El arquitecto había planificado una tarea para que el agente escribiera
+`scripts/_arquitectura.py` — es decir, **el verificador que lo juzga**. Eso viola el
+corolario de P2: el comando que da el veredicto tiene que ser inmodificable por quien es
+juzgado, y el paso 0 del gate declara `scripts/` intocable, así que la tarea era además
+insatisfacible.
+
+Las herramientas de verificación las prepara una persona. `scripts/_arquitectura.py` ya está
+escrito, con las capas que cerramos en el encargo.
 
 ## Gates
 
