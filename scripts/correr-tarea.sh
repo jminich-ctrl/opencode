@@ -101,7 +101,7 @@ lanzar() {
       # 142 = SIGALRM: cortado por tiempo. Se deja escrito en el log con la forma que
       # `error_del_agente` reconoce, así el intento queda como ERROR del agente y no como
       # "la tarea no se hizo", que es el diagnóstico equivocado.
-      [ "$?" = "142" ] && echo "Error: el agente no respondió en ${LIMITE_AGENTE:-900}s (cortado por tiempo)"
+      [ "$?" = "142" ] && echo "Error: el agente no respondió: $(motivo_del_corte "$log")"
     } > "$log" 2>&1
     # El agente ya terminó. Recién ahora corre el gate, y el veredicto es su código de
     # salida: nunca lo que el agente escribió. Pasó de verdad: el modelo afirmó

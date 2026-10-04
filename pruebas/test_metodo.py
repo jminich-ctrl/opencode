@@ -534,6 +534,20 @@ class TestLimiteDeTiempo(unittest.TestCase):
         self.assertLess(tardo, 120, f"tardó {tardo:.0f}s: el límite total es 600, así que "
                                     f"cortó por el total y no por el silencio")
 
+    def test_el_motivo_del_corte_dice_cual_reloj_fue(self):
+        """Informar «no respondió en 1200s» cuando se lo cortó a los 90 por silencio manda a
+        buscar un problema de lentitud que no existe. Pasó, y es el mismo defecto que vengo
+        arreglando todo el día: un mensaje con el motivo equivocado."""
+        log = pathlib.Path(tempfile.mkdtemp(prefix="prueba-motivo-")) / "salida.log"
+        self.addCleanup(shutil.rmtree, str(log.parent), True)
+        log.write_text("")
+        r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                   f'con_limite 600 sleep 600 >/dev/null 2>&1; motivo_del_corte "{log}"',
+                   RAIZ, LOG_VIGILADO=str(log), INACTIVIDAD=30)
+        self.assertIn("inactividad", r.stdout,
+                      f"cortó por silencio y tiene que decirlo\n{r.stdout}")
+        self.assertNotIn("600", r.stdout, "no fue el límite total")
+
     def test_un_proceso_que_escribe_no_se_corta(self):
         """La otra mitad, que es la que hace útil al reloj: mientras haya salida, no se toca.
         Sin este caso, bajar el umbral de inactividad hasta que 'funcione' mataría a los

@@ -126,7 +126,7 @@ No toques ningún otro archivo." 2>&1
   # propio y reintentable, no un test malo: pasó que `opencode run` se quedó 31 minutos con
   # el log en 0 bytes mientras la API del modelo respondía en 3 segundos.
   if [ "${RC_AGENTE:-0}" = "142" ]; then
-    malo "el agente no respondió en ${LIMITE_AGENTE:-900}s (cortado por tiempo)"
+    malo "el agente no respondió: $(motivo_del_corte "$log")"
   fi
   # Otra vez, porque el agente pudo CREAR el manifiesto: T30 escribe el package.json con
   # vitest, y recién ahora se sabe que hace falta instalarlo.

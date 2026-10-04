@@ -178,12 +178,20 @@ con_limite() {
         tam="$(wc -c < "$LOG_VIGILADO" 2>/dev/null || echo 0)"
         if [ "$tam" = "$tam_anterior" ]; then
           quieto=$((quieto+15))
-          [ "$quieto" -ge "${INACTIVIDAD:-90}" ] && break
+          if [ "$quieto" -ge "${INACTIVIDAD:-90}" ]; then
+            # Qué reloj cortó: el mensaje de un corte tiene que decirlo, o se informa "no
+            # respondió en 1200s" cuando en realidad se lo cortó a los 90 por silencio, y
+            # el próximo que lo lea va a buscar un problema de lentitud que no existe.
+            [ -n "${LOG_VIGILADO:-}" ] && echo "inactividad ${INACTIVIDAD:-90}s" > "$LOG_VIGILADO.corte"
+            break
+          fi
         else
           quieto=0; tam_anterior="$tam"
         fi
       fi
     done
+    [ -n "${LOG_VIGILADO:-}" ] && [ ! -f "$LOG_VIGILADO.corte" ] \
+      && echo "límite total ${segundos}s" > "$LOG_VIGILADO.corte"
     kill -TERM -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
     sleep 5
     kill -KILL -"$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null ) >/dev/null 2>&1 &
@@ -197,6 +205,14 @@ con_limite() {
   # 143 = SIGTERM, 137 = SIGKILL: los dos son "lo cortamos nosotros". Se normalizan a 142
   # para que quien lo llama tenga un solo código que mirar.
   case "$rc" in 143|137) return 142 ;; *) return "$rc" ;; esac
+}
+
+# Por qué se cortó el último `con_limite`: "inactividad 90s" o "límite total 1200s".
+# Lo escribe el guardián y se consume una sola vez.
+motivo_del_corte() {
+  local f="${1:-${LOG_VIGILADO:-}}.corte"
+  [ -f "$f" ] || { echo "cortado por tiempo"; return; }
+  cat "$f"; rm -f "$f"
 }
 
 # Cierra una tarea integrada: la marca hecha en su archivo (es lo que lee estado.sh),
