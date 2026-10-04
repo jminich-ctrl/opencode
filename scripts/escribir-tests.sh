@@ -241,7 +241,15 @@ No toques ningún otro archivo." 2>&1
 
   # Misma regla de corte que correr-plan.sh: reintentar a ciegas gasta tiempo en la falla
   # que no se va a ir sola. Si el motivo repite, es la misma falla.
-  if [ "$MOTIVO_TESTS" = "$HUELLA_ANTERIOR" ]; then
+  #
+  # Con una excepción: **un corte por tiempo no es una falla que repite.** El cuelgue de
+  # opencode es intermitente —inicializa y no llega a pedirle nada al modelo— y el mismo
+  # prompt anduvo seis veces de seis en reproducciones aisladas. Tratarlo como punto muerto
+  # convierte un problema transitorio de la herramienta en una parada del método.
+  if [ "${RC_AGENTE:-0}" = "142" ]; then
+    HUELLA_ANTERIOR=""
+    echo "     (un corte por tiempo no cuenta como punto muerto: es intermitente)"
+  elif [ "$MOTIVO_TESTS" = "$HUELLA_ANTERIOR" ]; then
     echo "  ✗ $id: punto muerto — falló dos veces por lo mismo: $MOTIVO_TESTS"
     echo "     Log: $log"
     break
