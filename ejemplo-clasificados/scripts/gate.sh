@@ -74,7 +74,7 @@ if [ -d backend/tests ] && ls backend/tests/test_*.py >/dev/null 2>&1; then
   elif echo "$SALIDA" | grep -qE '[0-9]+ passed' && ! echo "$SALIDA" | grep -qE '[0-9]+ (failed|error)'; then
     verde "backend: $(echo "$SALIDA" | grep -oE '[0-9]+ passed[^ ]*' | head -1)"; CORRIO=1
   else
-    rojo "backend en rojo"; echo "$SALIDA" | tail -15 | sed 's/^/     /'
+    rojo "backend en rojo"; CORRIO=1; echo "$SALIDA" | tail -15 | sed 's/^/     /'
   fi
   fi
 fi
@@ -86,7 +86,7 @@ if [ -f frontend/package.json ] && grep -q '"vitest"' frontend/package.json 2>/d
   if echo "$SALIDA" | grep -qE 'No test files found'; then
     rojo "frontend: la suite no corrió ningún test"
   elif echo "$SALIDA" | grep -qE 'FAIL|failed'; then
-    rojo "frontend en rojo"; echo "$SALIDA" | tail -15 | sed 's/^/     /'
+    rojo "frontend en rojo"; CORRIO=1; echo "$SALIDA" | tail -15 | sed 's/^/     /'
   else verde "frontend: tests en verde"; CORRIO=1; fi
   fi
 fi
@@ -137,6 +137,23 @@ else
 fi
 
 echo "── 3. Higiene"
+# Directorios vacíos: **git no versiona directorios**, sólo archivos. Un test que verifica
+# que existe una carpeta pasa en el worktree del agente —donde la carpeta está, recién
+# creada— y falla en el tronco después del merge, porque el merge no la lleva. Pasó con T01
+# de clasificados: `backend/app/datos` existía, el gate dio VERDE, y el tronco quedó rojo.
+# El gate no puede verificar algo que no va a sobrevivir al commit.
+VACIAS="$(find . -type d -empty \
+            -not -path './.git/*' -not -path './.venv/*' -not -path './.mysql/*' \
+            -not -path '*/node_modules/*' -not -path '*/__pycache__/*' \
+            -not -path './.opencode-data/*' 2>/dev/null || true)"
+if [ -n "$VACIAS" ]; then
+  rojo "hay directorios vacíos: git no los versiona y el merge no los lleva"
+  echo "$VACIAS" | head -5 | sed 's/^/     /'
+  echo "     Si la carpeta es un paquete, poné su __init__.py; si no, no hace falta la carpeta."
+else
+  verde "sin directorios vacíos"
+  testigo "el árbol del proyecto, salvo .git, .venv y dependencias instaladas"
+fi
 if echo "$CAMBIADOS" | grep -qE '__pycache__|\.pyc$|node_modules/|dist/'; then rojo "hay archivos generados en el diff"; else verde "sin archivos generados"; fi
 if grep -rqE 'tailwind' frontend/ --include=*.json --include=*.js --include=*.ts 2>/dev/null; then rojo "apareció Tailwind: el diseño es propio"; else verde "sin librerías de diseño"; fi
 SUP="$(grep -rnEi '# *(noqa|type: *ignore)|except[^:]*: *pass|@ *unittest\.skip|\.skip\(|\|\| *true|eslint-disable' backend/app frontend/src 2>/dev/null || true)"

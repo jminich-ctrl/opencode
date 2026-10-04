@@ -140,6 +140,23 @@ else
 fi
 
 echo "── 3. Higiene"
+# Directorios vacíos: **git no versiona directorios**, sólo archivos. Un test que verifica
+# que existe una carpeta pasa en el worktree del agente —donde la carpeta está, recién
+# creada— y falla en el tronco después del merge, porque el merge no la lleva. Pasó con T01
+# de clasificados: `backend/app/datos` existía, el gate dio VERDE, y el tronco quedó rojo.
+# El gate no puede verificar algo que no va a sobrevivir al commit.
+VACIAS="$(find . -type d -empty \
+            -not -path './.git/*' -not -path './.venv/*' -not -path './.mysql/*' \
+            -not -path '*/node_modules/*' -not -path '*/__pycache__/*' \
+            -not -path './.opencode-data/*' 2>/dev/null || true)"
+if [ -n "$VACIAS" ]; then
+  rojo "hay directorios vacíos: git no los versiona y el merge no los lleva"
+  echo "$VACIAS" | head -5 | sed 's/^/     /'
+  echo "     Si la carpeta es un paquete, poné su __init__.py; si no, no hace falta la carpeta."
+else
+  verde "sin directorios vacíos"
+  testigo "el árbol del proyecto, salvo .git, .venv y dependencias instaladas"
+fi
 # ADAPTAR: lo generado por tu stack y las dependencias que no querés ver aparecer.
 if echo "$CAMBIADOS" | grep -qE '__pycache__|\.pyc$|node_modules/|dist/'; then rojo "hay archivos generados en el diff"; else verde "sin archivos generados"; fi
 # Apagar una señal es más barato que arreglar la causa, y no deja rastro en los tests.

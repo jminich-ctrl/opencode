@@ -106,6 +106,22 @@ else
 fi
 
 echo "── 3. Higiene"
+# Directorios vacíos: **git no versiona directorios**, sólo archivos. Un test que verifica
+# que existe una carpeta pasa en el worktree del agente —donde la carpeta está, recién
+# creada— y falla en el tronco después del merge, porque el merge no la lleva. Pasó con T01
+# de clasificados: `backend/app/datos` existía, el gate dio VERDE, y el tronco quedó rojo.
+# El gate no puede verificar algo que no va a sobrevivir al commit.
+VACIAS="$(find . -type d -empty \
+            -not -path './.git/*' -not -path './.venv/*' -not -path './.mysql/*' \
+            -not -path '*/node_modules/*' -not -path '*/__pycache__/*' \
+            -not -path './.opencode-data/*' 2>/dev/null || true)"
+if [ -n "$VACIAS" ]; then
+  rojo "hay directorios vacíos: git no los versiona y el merge no los lleva"
+  echo "$VACIAS" | head -5 | sed 's/^/     /'
+  echo "     Si la carpeta es un paquete, poné su __init__.py; si no, no hace falta la carpeta."
+else
+  verde "sin directorios vacíos"
+fi
 if echo "$CAMBIADOS" | grep -qE '__pycache__|\.pyc$'; then rojo "hay archivos generados en el diff"; else verde "sin archivos generados"; fi
 if grep -rqE '^\s*(import|from)\s+(pygame|numpy|pytest)' src/ 2>/dev/null; then rojo "dependencia externa en src/"; else verde "solo biblioteca estándar"; fi
 if grep -rnE "\bTODO\b" src/ --exclude-dir=__pycache__ 2>/dev/null | grep -qv '^\s*$'; then rojo "quedaron TODO en src/: $(grep -rn 'TODO' src/ | head -2 | tr '\n' ' ')"; else verde "sin TODO sueltos"; fi

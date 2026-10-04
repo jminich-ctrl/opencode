@@ -304,6 +304,24 @@ class TestGate(CasoBase):
         (self.p.dir / "frontend" / "node_modules" / "algo.js").write_text("// instalado\n")
         self.assertVerde(self.p.gate("T01"), "node_modules lo instala el método")
 
+    def test_un_directorio_vacio_da_rojo(self):
+        """git no versiona directorios, sólo archivos. Un test que verifica que existe una
+        carpeta pasa en el worktree del agente —donde la carpeta está— y falla en el tronco
+        después del merge, porque el merge no la lleva. Pasó con T01 de clasificados:
+        `backend/app/datos` existía, el gate dio VERDE, y el tronco quedó rojo. El gate no
+        puede dar por bueno algo que no va a sobrevivir al commit."""
+        self.p.implementar()
+        (self.p.dir / "src" / "paquete").mkdir()
+        self.assertRojo(self.p.gate("T01"), "una carpeta vacía no sobrevive al merge",
+                        motivo="directorios vacíos")
+
+    def test_un_directorio_con_un_archivo_no_da_rojo(self):
+        self.p.declarar("src/")   # antes de implementar: declarar commitea
+        self.p.implementar()
+        (self.p.dir / "src" / "paquete").mkdir()
+        (self.p.dir / "src" / "paquete" / "__init__.py").touch()
+        self.assertVerde(self.p.gate("T01"), "con __init__.py el merge sí la lleva")
+
     def test_senal_suprimida_da_rojo(self):
         self.p.implementar("def f():\n    return 42  # noqa\n")
         self.assertRojo(self.p.gate("T01"), "apagar una señal no es arreglarla",

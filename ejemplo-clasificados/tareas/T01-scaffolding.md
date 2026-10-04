@@ -1,6 +1,6 @@
 # T01 — Scaffolding del proyecto
 
-**Estado:** ✅ hecha
+**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
 **Depende de:** ninguna
 **Archivos que podés tocar:** backend/, frontend/, backend/requirements.txt, frontend/package.json
 **Prohibido tocar:** `scripts/` y `*/tests/` (el paso 0 del gate los verifica)
@@ -9,6 +9,13 @@
 ## Objetivo
 
 Crear la estructura de carpetas y archivos iniciales del proyecto según la arquitectura definida.
+
+## Cómo se versiona una carpeta
+
+git versiona **archivos**, no directorios: una carpeta vacía no viaja en el commit y el
+merge la pierde, aunque el gate del worktree la haya visto. Cada paquete de Python tiene
+que tener su `__init__.py` (vacío está bien) y cada carpeta del frontend, al menos un
+archivo. Si no, el tronco queda rojo después de integrar tu tarea.
 
 ## Alcance
 
