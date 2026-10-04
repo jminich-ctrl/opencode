@@ -53,6 +53,17 @@ y no te lo contamos como error.
   no está, eso es un cambio de plan: pará y decilo.
 - **Errores de la API**: el formato está en `PLAN.md`. No inventes otro.
 
+## Desde dónde corren los tests
+
+**Desde la raíz del proyecto, siempre**, los de backend y los de frontend. Así que las
+rutas que un test abra se escriben desde ahí: `backend/app/datos/x.py`,
+`frontend/package.json`. No `app/datos/x.py` ni `package.json`.
+
+Vale para los dos corredores: pytest corre con la raíz como cwd, y vitest también —se le
+pasa `--root frontend` en vez de entrar a la carpeta, justamente para que el cwd no cambie—.
+Si un test se escribe suponiendo otro directorio, pasa donde lo escribiste y falla donde lo
+juzgamos, que es la peor forma de fallar.
+
 ## Entorno
 
 No instales nada a mano ni corras `pip` o `npm` por tu cuenta: el runner prepara el

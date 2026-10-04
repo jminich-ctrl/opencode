@@ -1256,6 +1256,30 @@ class TestEjemplosNoDerivan(unittest.TestCase):
                                   f"devolvió {r.returncode}, que no está en el contrato\n"
                                   f"{r.stdout[-400:]}")
 
+    def test_nadie_corre_la_suite_desde_un_subdirectorio(self):
+        """La canaria de cwd mide los corredores de Python; vitest no la ejecuta, y por ahí
+        se colaba el mismo defecto: `cd frontend && vitest` deja el `process.cwd()` de los
+        tests en `frontend/`, y un test que abre `frontend/package.json` busca
+        `frontend/frontend/package.json`. Pasó, con ese mensaje exacto.
+
+        Chequeo de forma porque la conducta pide vitest instalado, que no está en el
+        proyecto de juguete. Lo que pinea es la regla: **nadie hace `cd` a un subdirectorio
+        para correr la suite.** Los corredores aceptan el directorio por bandera
+        (`--root`, `-s`, `--rootdir`) y así el cwd queda donde tiene que estar."""
+        CD_Y_CORREDOR = re.compile(
+            r"cd\s+[A-Za-z0-9_./-]+\s*&&\s*[^\n]*(vitest|pytest|unittest|jest)")
+        for gate in self.GATES:
+            suite = gate.parent / "correr-suite.sh"
+            if not suite.exists():
+                continue
+            with self.subTest(proyecto=str(gate.parent.relative_to(RAIZ))):
+                malos = [l.strip() for l in suite.read_text().splitlines()
+                         if CD_Y_CORREDOR.search(l) and not l.strip().startswith("#")]
+                self.assertEqual(malos, [],
+                                 "corre la suite desde un subdirectorio; el cwd de los "
+                                 "tests tiene que ser la raíz del proyecto:\n  "
+                                 + "\n  ".join(malos))
+
     def test_en_todos_un_chequeo_que_no_corre_se_marca_vacuo(self):
         """La regla que no se adapta: ⊘ nunca puede confundirse con ✓."""
         for gate in self.GATES:

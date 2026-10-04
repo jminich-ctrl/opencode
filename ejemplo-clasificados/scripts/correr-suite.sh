@@ -73,15 +73,24 @@ correr_frontend() {
     ls frontend/tests/*.test.* >/dev/null 2>&1 || return 9
     echo "hay tests en frontend/tests y el package.json no declara vitest"
     return 8; }
-  [ -d frontend/node_modules ] || { echo "falta node_modules en frontend"; return 8; }
+  [ -x frontend/node_modules/.bin/vitest ] || { echo "falta vitest en frontend/node_modules"; return 8; }
   # `ruta::clase` es un selector de pytest; vitest no lo entiende y no encuentra el archivo.
   # Acá se traduce: el archivo es el selector y el nombre va por `-t`. Sin esto, toda tarea
   # de frontend se rechazaba con "el test no pasa ni con la implementación del agente".
   if [ -n "$sel" ]; then
-    archivo="${sel%%::*}"; archivo="${archivo#frontend/}"
+    archivo="${sel%%::*}"
     filtro="${sel#*::}"; [ "$filtro" = "$sel" ] && filtro=""
   fi
-  salida="$( cd frontend && npx --no-install vitest run --reporter=basic \
+  # `--root frontend` desde la RAÍZ DEL PROYECTO, y no `cd frontend && vitest`: con el cd,
+  # el `process.cwd()` de los tests es `frontend/` y un test que abre `frontend/package.json`
+  # busca `frontend/frontend/package.json`. Es exactamente el mismo defecto que teníamos en
+  # el backend —`backend/backend/app/datos`— y la misma regla lo arregla: **el cwd de la
+  # suite es la raíz del proyecto, para todos**. Con --root, vitest resuelve su config en
+  # frontend/ y deja el cwd en la raíz; medido.
+  #
+  # El binario directo en vez de `npx`: npx busca en el node_modules del cwd, que ahora es
+  # la raíz, y ahí no está.
+  salida="$( frontend/node_modules/.bin/vitest run --root frontend --reporter=basic \
                ${archivo:+"$archivo"} ${filtro:+-t "$filtro"} 2>&1 )"
   rc=$?
   echo "$salida"
