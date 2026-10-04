@@ -31,6 +31,37 @@ export MYSQL_SOCKET=$SOCKET
 EOF
 }
 
+aplicar_migraciones() {
+  local dir="$PROY/backend/migraciones" f nombre
+  [ -d "$dir" ] || return 0
+  ls "$dir"/*.sql >/dev/null 2>&1 || return 0
+  mysql --no-defaults --default-character-set=utf8mb4 --protocol=TCP \
+        -h 127.0.0.1 -P "$PUERTO" -u root "$BASE_DATOS" \
+        -e "CREATE TABLE IF NOT EXISTS _migraciones (nombre VARCHAR(255) PRIMARY KEY,
+             aplicada_en DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB" 2>/dev/null
+  for f in "$dir"/*.sql; do
+    nombre="$(basename "$f")"
+    case "$nombre" in *_down.sql) continue ;; esac   # la reversa no se aplica sola
+    if mysql --no-defaults --protocol=TCP -h 127.0.0.1 -P "$PUERTO" -u root "$BASE_DATOS" \
+             -N -B -e "SELECT 1 FROM _migraciones WHERE nombre='$nombre'" 2>/dev/null | grep -q 1
+    then continue; fi
+    echo "· aplicando migración $nombre"
+    # Sin pipe: `if cmd | head; then` prueba el estado de `head`, que sale 0 siempre, así
+    # que una migración fallida quedaba registrada como aplicada. Verificado:
+    #   $ if false | head -3; then echo "dio verdadero"; fi  → dio verdadero
+    SALIDA_MIG="$(mysql --no-defaults --default-character-set=utf8mb4 --protocol=TCP \
+                        -h 127.0.0.1 -P "$PUERTO" -u root "$BASE_DATOS" < "$f" 2>&1)"
+    if [ $? -eq 0 ]; then
+      mysql --no-defaults --protocol=TCP -h 127.0.0.1 -P "$PUERTO" -u root "$BASE_DATOS" \
+            -e "INSERT INTO _migraciones (nombre) VALUES ('$nombre')" 2>/dev/null
+    else
+      echo "✗ la migración $nombre falló: el esquema queda incompleto y el gate lo va a decir"
+      echo "$SALIDA_MIG" | head -5 | sed 's/^/     /'
+      return 1
+    fi
+  done
+}
+
 vivo() { mysqladmin --no-defaults --protocol=TCP -h 127.0.0.1 -P "$PUERTO" -u root ping >/dev/null 2>&1; }
 
 # ¿Este proyecto ya necesita la base? Mientras no haya capa de datos no hay nada que
@@ -56,11 +87,20 @@ aviso_o_falla() {
   exit 0
 }
 
+# El cliente, antes de cualquier uso: el del proyecto si está, el del sistema si no. Mezclar
+# un cliente del sistema con un servidor propio es cómo aparecen errores de protocolo.
+if [ -x "$PROY/.mysql/dist/bin/mysql" ]; then PATH="$PROY/.mysql/dist/bin:$PATH"; fi
+
 if vivo; then
-  mysql --no-defaults --default-character-set=utf8mb4 --protocol=TCP -h 127.0.0.1 -P "$PUERTO" -u root \
+  mysql --no-defaults --default-character-set=utf8mb4 --protocol=TCP \
+        -h 127.0.0.1 -P "$PUERTO" -u root \
         -e "CREATE DATABASE IF NOT EXISTS \`$BASE_DATOS\` CHARACTER SET utf8mb4" >/dev/null 2>&1
   escribir_entorno
   echo "· MySQL del proyecto ya está arriba en 127.0.0.1:$PUERTO"
+  # Y las migraciones TAMBIÉN acá: ésta es la rama normal —el servidor queda levantado
+  # entre etapas— y salía antes de llegar a aplicarlas, así que el esquema no se creaba
+  # nunca por el método. Las tablas existían por accidente, creadas por algún agente.
+  aplicar_migraciones || exit 1
   exit 0
 fi
 
@@ -135,3 +175,14 @@ mysql --no-defaults --default-character-set=utf8mb4 --protocol=TCP -h 127.0.0.1 
       -e "CREATE DATABASE IF NOT EXISTS \`$BASE_DATOS\` CHARACTER SET utf8mb4" >/dev/null 2>&1
 escribir_entorno
 echo "· base \`$BASE_DATOS\` lista; credenciales en .entorno"
+
+# ── Las migraciones. Aplicarlas es del método, no de la tarea: el esquema tiene que existir
+# para que un test de datos verifique algo, y ninguna tarea del plan lo tiene asignado —T03
+# escribe el `.sql` y nadie lo corre—. Fue el cuarto hueco de la misma forma: pasó que el
+# endpoint de login devolvía 500 en vez de 401 porque la tabla `usuarios` no existía, y el
+# método lo informaba como "el test no pasa ni con la implementación del propio agente".
+#
+# Se lleva registro en `_migraciones` para no reaplicar: los `.sql` del plan usan
+# `CREATE TABLE` sin `IF NOT EXISTS` —y está bien que así sea, una migración se aplica una
+# vez— así que reaplicar a ciegas sería un error disfrazado de idempotencia.
+aplicar_migraciones || exit 1
