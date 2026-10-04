@@ -141,7 +141,12 @@ veredicto_con_linea_base() {
 }
 
 case "$RC" in
-  0) RESUMEN="$(echo "$SALIDA" | grep -oE '[0-9]+ (passed|tests?)[^ ]*' | tail -1)"
+  0) # TODAS las cuentas, no la última: con dos mitades, `tail -1` mostraba "3 passed"
+     # del frontend y escondía los 13 del backend. Un resumen que informa una parte del
+     # trabajo como si fuera todo es la clase de dato que hace confiar de más.
+     RESUMEN="$(echo "$SALIDA" \
+                | grep -oE '^[0-9]+ (passed|failed)[^,]*|^Ran [0-9]+ tests?[^,]*|Tests +[0-9]+ passed' \
+                | sed 's/  */ /g' | tr '\n' ';' | sed 's/;/ · /g; s/ · $//')"
      verde "${RESUMEN:-$(echo "$SALIDA" | grep -E '^Ran |^OK' | tail -1)}"
      testigo "scripts/correr-suite.sh, el mismo comando que valida los tests" ;;
   2) rojo "la suite no corrió ningún test: sin tests no hay gate"
