@@ -2,6 +2,9 @@
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
 **Depende de:** <TNN, TNN | ninguna>
+<!-- El archivo de test NUNCA va en el alcance: los tests llegan escritos y el paso 0 del
+     gate verifica que no se toquen. Tampoco `scripts/`, que es el verificador mismo.
+     `validar-plan.py` rechaza una tarea que los declare: sería insatisfacible. -->
 **Archivos que podés tocar:** <rutas exactas>
 **Prohibido tocar:** <rutas que el agente no debe abrir para escribir>
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`, que usa el runner, no puede elegir un subagente

@@ -2,8 +2,8 @@
 
 **Estado:** ✅ hecha — agente (rojo al 1er intento por una regla vieja del gate, ver BITACORA.md, hallazgo 10)
 **Depende de:** T07 (ya hecha)
-**Archivos que podés tocar:** `src/pacman/render.py`, `tests/test_render.py`
-**Prohibido tocar:** todo lo demás de `src/pacman/`
+**Archivos que podés tocar:** `src/pacman/render.py`
+**Prohibido tocar:** `tests/` (los tests ya están escritos; el paso 0 del gate lo verifica), todo lo demás de `src/pacman/`
 
 ## El problema
 

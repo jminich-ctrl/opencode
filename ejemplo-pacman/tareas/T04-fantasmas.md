@@ -2,8 +2,8 @@
 
 **Estado:** ✅ hecha — a mano (el agente no terminó)
 **Depende de:** T01, T02
-**Archivos que podés tocar:** `src/pacman/entidades.py`, `tests/test_entidades.py`
-**Prohibido tocar:** `src/pacman/juego.py`, `src/pacman/laberinto.py`, `src/pacman/render.py`
+**Archivos que podés tocar:** `src/pacman/entidades.py`
+**Prohibido tocar:** `tests/` (los tests ya están escritos; el paso 0 del gate lo verifica), `src/pacman/juego.py`, `src/pacman/laberinto.py`, `src/pacman/render.py`
 
 ## Objetivo
 

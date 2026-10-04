@@ -2,8 +2,8 @@
 
 **Estado:** ✅ hecha — sirve de referencia de calidad para las demás
 **Depende de:** ninguna
-**Archivos que podés tocar:** `src/pacman/laberinto.py`, `tests/test_laberinto.py`, `mapas/clasico.txt`
-**Prohibido tocar:** todo lo demás
+**Archivos que podés tocar:** `src/pacman/laberinto.py`, `mapas/clasico.txt`
+**Prohibido tocar:** `tests/` (los tests ya están escritos; el paso 0 del gate lo verifica), todo lo demás
 
 ## Objetivo
 

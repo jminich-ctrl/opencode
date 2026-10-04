@@ -2,8 +2,8 @@
 
 **Estado:** ✅ hecha — agente (verde al 1er intento)
 **Depende de:** T05, T06 (ya hechas)
-**Archivos que podés tocar:** `src/pacman/juego.py`, `tests/test_juego.py`
-**Prohibido tocar:** `entidades.py`, `laberinto.py`, `render.py`, `__main__.py`
+**Archivos que podés tocar:** `src/pacman/juego.py`
+**Prohibido tocar:** `tests/` (los tests ya están escritos; el paso 0 del gate lo verifica), `entidades.py`, `laberinto.py`, `render.py`, `__main__.py`
 
 ## El problema
 

@@ -2,8 +2,8 @@
 
 **Estado:** ✅ hecha — a mano
 **Depende de:** T06
-**Archivos que podés tocar:** `src/pacman/render.py`, `tests/test_render.py`
-**Prohibido tocar:** todo el resto de `src/pacman/`
+**Archivos que podés tocar:** `src/pacman/render.py`
+**Prohibido tocar:** `tests/` (los tests ya están escritos; el paso 0 del gate lo verifica), todo el resto de `src/pacman/`
 
 ## Objetivo
 

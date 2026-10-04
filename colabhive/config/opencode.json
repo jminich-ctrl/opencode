@@ -87,7 +87,15 @@
       "description": "Implementa los cambios ya decididos.",
       "prompt": "{file:./prompts/build.md}",
       "steps": 80,
-      "mode": "primary"
+      "mode": "primary",
+      "permission": {
+        "edit": {
+          "tests/**": "deny",
+          "*/tests/**": "deny",
+          "scripts/**": "deny",
+          "*": "allow"
+        }
+      }
     },
     "explore": {
       "model": "colabhive/5d21e32a-3bbb-4040-9c34-3b06c4415b84",
@@ -135,6 +143,14 @@
         "skill": false,
         "task": false,
         "todowrite": false
+      },
+      "permission": {
+        "edit": {
+          "tests/**": "deny",
+          "*/tests/**": "deny",
+          "scripts/**": "deny",
+          "*": "allow"
+        }
       }
     },
     "arquitecto": {
@@ -185,6 +201,14 @@
         "skill": false,
         "task": false,
         "todowrite": false
+      },
+      "permission": {
+        "edit": {
+          "tests/**": "deny",
+          "*/tests/**": "deny",
+          "scripts/**": "deny",
+          "*": "allow"
+        }
       }
     },
     "migrador": {
@@ -198,6 +222,14 @@
         "skill": false,
         "task": false,
         "todowrite": false
+      },
+      "permission": {
+        "edit": {
+          "tests/**": "deny",
+          "*/tests/**": "deny",
+          "scripts/**": "deny",
+          "*": "allow"
+        }
       }
     },
     "ejecutor": {
@@ -212,7 +244,15 @@
         "task": false,
         "todowrite": false
       },
-      "mode": "primary"
+      "mode": "primary",
+      "permission": {
+        "edit": {
+          "tests/**": "deny",
+          "*/tests/**": "deny",
+          "scripts/**": "deny",
+          "*": "allow"
+        }
+      }
     }
   },
   "share": "disabled",

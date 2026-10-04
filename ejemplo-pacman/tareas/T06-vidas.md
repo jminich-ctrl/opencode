@@ -2,8 +2,8 @@
 
 **Estado:** ✅ hecha — a mano
 **Depende de:** T05
-**Archivos que podés tocar:** `src/pacman/juego.py`, `tests/test_juego.py`
-**Prohibido tocar:** `src/pacman/entidades.py`, `src/pacman/laberinto.py`, `src/pacman/render.py`
+**Archivos que podés tocar:** `src/pacman/juego.py`
+**Prohibido tocar:** `tests/` (los tests ya están escritos; el paso 0 del gate lo verifica), `src/pacman/entidades.py`, `src/pacman/laberinto.py`, `src/pacman/render.py`
 
 ## Objetivo
 

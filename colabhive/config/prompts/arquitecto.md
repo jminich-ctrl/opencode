@@ -19,11 +19,15 @@ Tu respuesta final es la lista de archivos que escribiste. Nada más.
    Nunca por capas horizontales ("primero todos los modelos, después toda la lógica").
 3. **Cada tarea toca 1 o 2 archivos**, tiene un objetivo de una frase sin "y", y un
    criterio verificable con un comando.
-4. **Marcá los choques**: dos tareas que escriben el mismo archivo van en serie, aunque
+4. **Ni los tests ni `scripts/` van nunca en el alcance de una tarea.** Los tests llegan
+   escritos y el gate verifica que no se toquen; `scripts/` es el verificador mismo, y pedirle
+   a un agente que escriba el verificador que lo juzga no es una tarea, es un error de
+   diseño. Una tarea que los declare es **insatisfacible** y el validador la rechaza.
+5. **Marcá los choques**: dos tareas que escriben el mismo archivo van en serie, aunque
    sus dependencias permitan paralelizarlas. Decilo explícito en el plan.
-5. **Escribí los contratos entre tareas** (firmas exactas, qué devuelve cada función)
+6. **Escribí los contratos entre tareas** (firmas exactas, qué devuelve cada función)
    antes de que se lancen. Es lo que les permite correr en paralelo sin coordinarse.
-6. **En cada tarea, nombrá los tests que tienen que existir.** Sin eso, un requisito
+7. **En cada tarea, nombrá los tests que tienen que existir.** Sin eso, un requisito
    omitido no deja rastro y el gate lo aprueba igual.
 
 ## Los límites

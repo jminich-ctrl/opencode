@@ -2,8 +2,8 @@
 
 **Estado:** ✅ hecha — agente (verde al 3er intento; el túnel se agregó a mano, ver BITACORA.md, hallazgo 8)
 **Depende de:** T01
-**Archivos que podés tocar:** `src/pacman/entidades.py`, `tests/test_entidades.py`
-**Prohibido tocar:** `src/pacman/laberinto.py`, `src/pacman/juego.py`, `src/pacman/render.py`
+**Archivos que podés tocar:** `src/pacman/entidades.py`
+**Prohibido tocar:** `tests/` (los tests ya están escritos; el paso 0 del gate lo verifica), `src/pacman/laberinto.py`, `src/pacman/juego.py`, `src/pacman/render.py`
 
 ## Objetivo
 

@@ -425,6 +425,34 @@ class TestValidarPlan(CasoBase):
         self.assertRojo(self.validar(), "el archivo dice T07 y la tabla dice —",
                         motivo="Depende de")
 
+    def test_tarea_que_declara_un_intocable_da_rojo(self):
+        """Una tarea que declara lo que el gate prohíbe es insatisfacible.
+
+        El plan permite lo que el gate prohíbe, así que ningún agente puede cerrarla y la
+        tarea quema GPU hasta el punto muerto. Nadie cruzaba esos dos componentes: lo
+        encontramos con dos tareas de 28 en el segundo ejemplo, y después con diez de
+        diecinueve en el primero —las viejas, de cuando el agente escribía los tests—.
+        """
+        t = self.p.dir / "tareas" / "T01-cosa.md"
+        t.write_text(t.read_text().replace(
+            "**Archivos que podés tocar:** src/cosa.py",
+            "**Archivos que podés tocar:** src/cosa.py, tests/test_cosa.py"))
+        self.assertRojo(self.validar(), "declara un archivo intocable",
+                        motivo="insatisfacible")
+
+    def test_tarea_que_declara_scripts_da_rojo(self):
+        """El caso peor: pedirle al agente el verificador que lo juzga.
+
+        El arquitecto, solo, planificó una tarea para que el agente escribiera
+        `scripts/_arquitectura.py`. Viola el corolario de P2 —el comando del veredicto tiene
+        que ser inmodificable por quien es juzgado— y además era insatisfacible.
+        """
+        t = self.p.dir / "tareas" / "T01-cosa.md"
+        t.write_text(t.read_text().replace(
+            "**Archivos que podés tocar:** src/cosa.py",
+            "**Archivos que podés tocar:** scripts/_arquitectura.py"))
+        self.assertRojo(self.validar(), "declara scripts/", motivo="insatisfacible")
+
     def test_generico_de_typescript_no_es_un_placeholder(self):
         p = self.p.dir / "PLAN.md"
         p.write_text(p.read_text() + "\nContrato: `Promise<void>` y `<any>`\n")
