@@ -456,6 +456,50 @@ class TestVacuidad(CasoBase):
                       "el veredicto tiene que dejar constancia de lo que no se verificó")
 
 
+class TestPortabilidadBash32(unittest.TestCase):
+    """macOS trae bash 3.2 y el método escribe sus mensajes en castellano, con «comillas».
+
+    En bash 3.2 una variable pegada a un carácter multibyte se come sus bytes como parte
+    del nombre: `"«$x»"` da «unbound variable» y `"«${x}»"` anda. Con `set -u` eso no es un
+    mensaje mal impreso: **aborta el script**. Pasó en `escribir-tests.sh` justo después de
+    que el agente escribiera bien su test, y la etapa se detuvo por el diagnóstico, no por
+    el defecto.
+
+    Es un chequeo estático y no de conducta a propósito: la condición es sintáctica, y
+    probarla por conducta pediría una rama de error por cada mensaje.
+    """
+
+    PEGADA = re.compile(rb"\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7F]")
+
+    def scripts(self):
+        for d in ("scripts", "plantillas", "pruebas"):
+            yield from sorted((RAIZ / d).glob("*.sh"))
+        for d in sorted(RAIZ.glob("ejemplo-*/scripts")):
+            yield from sorted(d.glob("*.sh"))
+
+    def test_ninguna_variable_pegada_a_un_caracter_multibyte(self):
+        malos = []
+        for f in self.scripts():
+            datos = f.read_bytes()
+            for m in self.PEGADA.finditer(datos):
+                linea = datos[:m.start()].count(b"\n") + 1
+                malos.append(f"{f.relative_to(RAIZ)}:{linea} — "
+                             f"{m.group(0).decode('utf-8', 'replace')}")
+        self.assertEqual(malos, [],
+                         "en bash 3.2 esto es «unbound variable» y con set -u aborta.\n"
+                         "Poné llaves: ${var}.\n  " + "\n  ".join(malos))
+
+    def test_la_reproduccion_minima_sigue_siendo_valida(self):
+        """Si una versión futura de bash dejara de hacerlo, el chequeo de arriba sobra y
+        conviene saberlo en vez de arrastrarlo."""
+        sin_llaves = correr('set -u; x=hola; echo "«$x»"', RAIZ)
+        con_llaves = correr('set -u; x=hola; echo "«${x}»"', RAIZ)
+        self.assertIn("hola", con_llaves.stdout, "con llaves tiene que andar")
+        if sin_llaves.returncode == 0:
+            self.skipTest("este bash ya no se come el carácter multibyte: "
+                          "revisá si el chequeo estático sigue haciendo falta")
+
+
 class TestLimiteDeTiempo(unittest.TestCase):
     """Un agente colgado detiene la corrida para siempre, y eso es peor que un error: un
     error se reintenta, un cuelgue no se nota. Pasó: `opencode run` se quedó 31 minutos con

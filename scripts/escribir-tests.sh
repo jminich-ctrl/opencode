@@ -154,7 +154,8 @@ No toques ningún otro archivo." 2>&1
   if [ "$fallos" -eq 0 ] && { [ ! -f "$ruta" ] \
        || ! grep -q "$DECLARA" "$ruta" 2>/dev/null \
        || ! grep -q "$clase" "$ruta" 2>/dev/null; }; then
-    malo "no escribió $ruta declarando $clase (en .py se espera «class $clase»; en .test.ts, «describe('"'"'$clase'"'"', ...)»)"
+    malo "no escribió $ruta declarando $clase"
+    echo "     En .py se espera «class ${clase}»; en .test.ts, un describe con ese nombre."
   fi
 
   # La validación del test, en tres pasos. Los archivos que la tarea declara son la
@@ -202,7 +203,7 @@ No toques ningún otro archivo." 2>&1
         git add -A >/dev/null 2>&1
         git commit -q -m "impl+tests $id (worktree desechable)" >/dev/null 2>&1
         if [ "$MUTABLE" != "1" ]; then
-          echo "  ⊘ no hay mutador para «$ruta»: el test pasa los dos primeros pasos y el"
+          echo "  ⊘ no hay mutador para «${ruta}»: el test pasa los dos primeros pasos y el"
           echo "     tercero (¿distingue?) no pudo verificarse. No es un pase."
         elif BASE=HEAD~1 CODIGO="$CODIGO" SUITE="$prueba" python3 "$AQUI/mutar.py" >/dev/null 2>&1; then
           echo "  ✓ los mutantes mueren: el test distingue"

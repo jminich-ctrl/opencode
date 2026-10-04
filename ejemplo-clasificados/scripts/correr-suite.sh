@@ -138,7 +138,7 @@ case "$SEL" in
     salir 1 ;;
   *.py|*.py::*)   correr_backend "$SEL";  salir $? ;;
   frontend/*)     correr_frontend "$SEL"; salir $? ;;
-  *) echo "no sé cómo correr «$SEL»: declaralo en el plan con una extensión que el método"
+  *) echo "no sé cómo correr «${SEL}»: declaralo en el plan con una extensión que el método"
      echo "sepa ejecutar (.py o .test.ts)"
      salir 8 ;;
 esac
