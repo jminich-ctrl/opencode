@@ -141,18 +141,35 @@ echo "── 3. Higiene"
 # que existe una carpeta pasa en el worktree del agente —donde la carpeta está, recién
 # creada— y falla en el tronco después del merge, porque el merge no la lleva. Pasó con T01
 # de clasificados: `backend/app/datos` existía, el gate dio VERDE, y el tronco quedó rojo.
-# El gate no puede verificar algo que no va a sobrevivir al commit.
-VACIAS="$(find . -type d -empty \
-            -not -path './.git/*' -not -path './.venv/*' -not -path './.mysql/*' \
-            -not -path '*/node_modules/*' -not -path '*/__pycache__/*' \
-            -not -path './.opencode-data/*' 2>/dev/null || true)"
-if [ -n "$VACIAS" ]; then
-  rojo "hay directorios vacíos: git no los versiona y el merge no los lleva"
-  echo "$VACIAS" | head -5 | sed 's/^/     /'
-  echo "     Si la carpeta es un paquete, poné su __init__.py; si no, no hace falta la carpeta."
-else
-  verde "sin directorios vacíos"
-  testigo "el árbol del proyecto, salvo .git, .venv y dependencias instaladas"
+# El gate no puede dar por bueno algo que no va a sobrevivir al commit.
+#
+# Sólo las que son NUEVAS respecto de la base del diff, y sólo en modo tarea: una carpeta
+# vacía que ya estaba no la creó esta tarea, y en modo integración la pregunta no aplica
+# —el merge ya pasó—. Sin esa condición el chequeo informaba las carpetas que esperan a
+# tareas futuras, que es ruido y encima acusa a quien no hizo nada.
+if [ -n "${TAREA:-}" ]; then
+  NUEVAS_VACIAS=""
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    d="${d#./}"
+    # ¿Había algún archivo acá en la base? Si había, la carpeta no es nueva.
+    if [ -z "$(git ls-tree -r --name-only "$BASE_REF" -- "$d" 2>/dev/null)" ]; then
+      NUEVAS_VACIAS="$NUEVAS_VACIAS$d
+"
+    fi
+  done <<EOF
+$(find . -type d -empty \
+    -not -path './.git/*' -not -path './.venv/*' -not -path './.mysql/*' \
+    -not -path '*/node_modules/*' -not -path '*/__pycache__/*' \
+    -not -path './.opencode-data/*' 2>/dev/null || true)
+EOF
+  if [ -n "$NUEVAS_VACIAS" ]; then
+    rojo "creaste directorios vacíos: git no los versiona y el merge no los lleva"
+    echo "$NUEVAS_VACIAS" | grep . | head -5 | sed 's/^/     /'
+    echo "     Si la carpeta es un paquete, poné su __init__.py; si no, no hace falta la carpeta."
+  else
+    verde "sin directorios vacíos nuevos"
+  fi
 fi
 if echo "$CAMBIADOS" | grep -qE '__pycache__|\.pyc$|node_modules/|dist/'; then rojo "hay archivos generados en el diff"; else verde "sin archivos generados"; fi
 if grep -rqE 'tailwind' frontend/ --include=*.json --include=*.js --include=*.ts 2>/dev/null; then rojo "apareció Tailwind: el diseño es propio"; else verde "sin librerías de diseño"; fi
