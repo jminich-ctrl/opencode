@@ -127,8 +127,15 @@ class CasoBase(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0,
                             f"debía dar ROJO{': ' + porque if porque else ''}\n{r.stdout[-800:]}")
         if motivo:
-            self.assertIn(motivo, r.stdout,
-                          f"dio rojo, pero no por «{motivo}»\n{r.stdout[-800:]}")
+            # El motivo tiene que estar en una línea MARCADA como falla, no en cualquier
+            # parte de la salida. Lo destapó medir mutantes: cambiar `rojo "rompiste tests
+            # que andaban"` por `verde "..."` dejaba el mensaje impreso, el gate rojo por
+            # otra cosa, y este assert pasaba. Es decir, la exigencia de «rojo por el motivo
+            # correcto» se podía satisfacer con el motivo informado en VERDE.
+            marcadas = [l for l in r.stdout.splitlines() if l.startswith("  ✗ ")]
+            self.assertTrue(any(motivo in l for l in marcadas),
+                            f"dio rojo, pero «{motivo}» no aparece en ninguna línea ✗\n"
+                            f"líneas ✗: {marcadas}\n{r.stdout[-800:]}")
 
     def assertVerde(self, r, porque=""):
         self.assertEqual(r.returncode, 0,
@@ -447,6 +454,33 @@ class TestVacuidad(CasoBase):
         r = self.p.gate("T01")
         self.assertIn("no pudieron correr", r.stdout,
                       "el veredicto tiene que dejar constancia de lo que no se verificó")
+
+
+class TestLimiteDeTiempo(unittest.TestCase):
+    """Un agente colgado detiene la corrida para siempre, y eso es peor que un error: un
+    error se reintenta, un cuelgue no se nota. Pasó: `opencode run` se quedó 31 minutos con
+    el log en 0 bytes mientras la API del modelo respondía en 3 segundos.
+
+    macOS no trae `timeout`, así que el límite lo pone perl con `alarm`. 142 es SIGALRM.
+    """
+
+    def correr_con_limite(self, segundos, comando):
+        return correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; con_limite {segundos} {comando}',
+                      RAIZ)
+
+    def test_un_comando_colgado_se_corta(self):
+        r = self.correr_con_limite(1, "sleep 30")
+        self.assertEqual(r.returncode, 142,
+                         f"tenía que cortar por tiempo y salir 142, salió {r.returncode}")
+
+    def test_un_comando_que_termina_no_se_toca(self):
+        r = self.correr_con_limite(30, "echo listo")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("listo", r.stdout)
+
+    def test_el_codigo_de_salida_del_comando_se_respeta(self):
+        r = self.correr_con_limite(30, "sh -c 'exit 3'")
+        self.assertEqual(r.returncode, 3, "el límite no puede cambiar el veredicto")
 
 
 class TestImportsDeclarados(unittest.TestCase):

@@ -90,7 +90,7 @@ for id in "$@"; do
   (
     cd "$wt/$PROYECTO" || exit 1
     export XDG_DATA_HOME="$wt/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
-    opencode run --agent "$AGENTE" \
+    con_limite "${LIMITE_AGENTE:-900}" opencode run --agent "$AGENTE" \
       "${MOTIVO_TESTS:+Un intento anterior falló así: $MOTIVO_TESTS. No repitas ese camino. }Leé tareas/$(basename \"$archivo\"). Hacé la tarea completa: la implementación Y sus tests.
 
 Dos cosas, las dos con la herramienta write:
@@ -104,12 +104,19 @@ Antes de decir que terminaste, corré 'bash scripts/correr-suite.sh $ruta::$clas
 
 No toques ningún otro archivo." 2>&1
   ) > "$log" 2>&1
+  RC_AGENTE=$?
 
   cd "$wt/$PROYECTO" || break
+  fallos=0
+  # 142 = SIGALRM: el agente no respondió en el límite. Es un intento fallido con motivo
+  # propio y reintentable, no un test malo: pasó que `opencode run` se quedó 31 minutos con
+  # el log en 0 bytes mientras la API del modelo respondía en 3 segundos.
+  if [ "${RC_AGENTE:-0}" = "142" ]; then
+    malo "el agente no respondió en ${LIMITE_AGENTE:-900}s (cortado por tiempo)"
+  fi
   # Otra vez, porque el agente pudo CREAR el manifiesto: T30 escribe el package.json con
   # vitest, y recién ahora se sabe que hace falta instalarlo.
   bash "$AQUI/preparar-entorno.sh" "$wt/$PROYECTO" >> "$log" 2>&1
-  fallos=0
 
   # 0. Alcance. Va PRIMERO porque sin esto el chequeo 1 miente: si el agente implementó la
   # feature en el archivo real, el test pasa y el gate concluye "el test no prueba nada",

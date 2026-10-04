@@ -139,6 +139,22 @@ huella_de_falla() {
     | grep -m1 '✗' | sed 's/^ *//; s/[0-9]\{2,\}/N/g' | cut -c1-90
 }
 
+# Corre un comando con límite de tiempo. macOS no trae `timeout`, y perl sí está siempre.
+#
+# Existe porque pasó: `opencode run` se quedó 31 minutos con el log en 0 bytes mientras la
+# API del modelo respondía en 3 segundos. Sin límite, **un agente colgado detiene la corrida
+# para siempre**, y para un método que se vende como autónomo eso es peor que un error: un
+# error se reintenta, un cuelgue no se nota.
+#
+#   con_limite 900 opencode run --agent ejecutor "..."
+#
+# Sale 142 si cortó por tiempo (SIGALRM), y eso se trata como un intento fallido con motivo
+# propio: es reintentable, porque la próxima vez puede andar.
+con_limite() {
+  local segundos="$1"; shift
+  perl -e 'my $s = shift; alarm $s; exec @ARGV or exit 127;' "$segundos" "$@"
+}
+
 # Cierra una tarea integrada: la marca hecha en su archivo (es lo que lee estado.sh),
 # saca el worktree y borra la rama. Sin esto la tarea figura "verde" para siempre y nadie
 # se entera de que está mergeada — o peor, de que no lo está.
