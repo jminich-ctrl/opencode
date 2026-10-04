@@ -1,6 +1,6 @@
 # T02 — Conexión a MySQL
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T01
 **Archivos que podés tocar:** backend/app/datos/conexion.py
 **Prohibido tocar:** `scripts/` y `*/tests/` (el paso 0 del gate los verifica)
