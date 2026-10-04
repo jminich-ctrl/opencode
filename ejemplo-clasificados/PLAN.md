@@ -1,6 +1,6 @@
 # Plan — sitio de clasificados
 
-**Estado del gate G0:** borrador | aprobado por <quién> el <fecha>
+**Estado del gate G0:** aprobado por Jose el 2026-10-04 — revisadas las siete preguntas de HUMANO.md §1; cuatro decisiones abiertas cerradas acá; dos tareas insatisfacibles y 27 rutas de test corregidas antes de firmar
 
 ## Objetivo
 
@@ -16,12 +16,39 @@ Crear un sitio de clasificados funcional con backend FastAPI (MySQL sin ORM) y f
 - Capas del backend: `app/datos` → `app/servicios` → `app/rutas`.
 - El orden de las etapas lo decide el equipo.
 
-## Decisiones abiertas
+## Decisiones cerradas en G0
 
-- Orden exacto de las etapas (agrupación de tareas en cada ETAPA).
-- Detalles del esquema de la base de datos (columnas exactas de usuarios, anuncios, favoritos, mensajes).
-- Convenciones de nombres de rutas y servicios en el frontend.
-- Estrategia de manejo de errores y códigos de respuesta en la API.
+Las cuatro que el plan dejaba abiertas, cerradas por quien firma. La del esquema es la que
+importaba: T03 tenía contrato «N/A», y 26 tareas dependen de lo que esa migración cree.
+
+### El esquema, explícito
+
+Todo en UTC, `utf8mb4`, claves con `hashlib.scrypt`, fotos por URL. SQL a mano, sin ORM.
+
+```sql
+usuarios    (id PK, email UNIQUE, clave_hash, clave_salt, creado_en)
+categorias  (id PK, nombre UNIQUE, orden)
+anuncios    (id PK, usuario_id FK, categoria_id FK, titulo, descripcion,
+             precio_centavos INT, foto_url, creado_en, actualizado_en)
+favoritos   (usuario_id FK, anuncio_id FK, creado_en, PRIMARY KEY (usuario_id, anuncio_id))
+mensajes    (id PK, anuncio_id FK, de_usuario_id FK, a_usuario_id FK, cuerpo, creado_en)
+sesiones    (token PK, usuario_id FK, creado_en, expira_en)
+```
+
+**Precios en centavos y enteros**, nunca flotante. **Favoritos con clave compuesta**, no con
+`id` propio: un usuario no puede marcar dos veces el mismo aviso y el esquema lo impide en
+vez de la aplicación.
+
+### Las otras tres
+
+- **Orden de las etapas:** no se declara. Se deduce de la tabla, que es lo que respeta las
+  dependencias y los choques de archivo.
+- **Nombres en el frontend:** una página por archivo en `pages/`, un módulo por recurso en
+  `services/`, nombres en castellano como el resto del repo.
+- **Errores de la API:** `400` para entrada inválida, `401` sin sesión, `403` con sesión y
+  sin permiso, `404` para lo que no existe, `409` para conflicto (email repetido, favorito
+  duplicado). Cuerpo `{"error": "<mensaje para la persona>"}`. Nunca un `500` esperado: si
+  se puede anticipar, tiene su código.
 
 ## Arquitectura
 

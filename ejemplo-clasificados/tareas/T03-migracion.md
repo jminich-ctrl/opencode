@@ -21,7 +21,12 @@ No entra:
 
 ## Contrato
 
-N/A
+El esquema está cerrado en PLAN.md, sección «Decisiones cerradas en G0». Creá exactamente
+esas seis tablas, con esos nombres de columna. **No inventes columnas ni cambies nombres**:
+hay 26 tareas que dependen de esto.
+
+La migración va en `backend/migraciones/001_inicial.sql` y **tiene que tener su reversa**:
+un `001_inicial_down.sql` que deje la base como estaba. Si no se puede revertir, no se sube.
 
 ## Tests (ya escritos, fallando)
 
