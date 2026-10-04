@@ -1,6 +1,6 @@
 # T03 — Primera migración (usuarios y anuncios)
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T01
 **Archivos que podés tocar:** backend/migraciones/001_initial.sql, backend/migraciones/001_initial_down.sql
 **Prohibido tocar:** 

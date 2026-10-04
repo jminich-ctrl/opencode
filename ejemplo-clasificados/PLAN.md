@@ -69,7 +69,7 @@ vez de la aplicación.
 |---|---|---|---|---|
 | T01 | Scaffolding del proyecto | — | backend/, frontend/, backend/requirements.txt, frontend/package.json | ✅ hecha |
 | T02 | Conexión a MySQL | T01 | backend/app/datos/conexion.py | ✅ hecha |
-| T03 | Primera migración (usuarios y anuncios) | T01 | backend/migraciones/001_initial.sql, backend/migraciones/001_initial_down.sql | pendiente |
+| T03 | Primera migración (usuarios y anuncios) | T01 | backend/migraciones/001_initial.sql, backend/migraciones/001_initial_down.sql | ✅ hecha |
 | T04 | Auth backend (login, sesión) | T02, T03 | backend/app/rutas/auth.py, backend/app/servicios/auth.py, backend/app/datos/users.py | pendiente |
 | T05 | CRUD de avisos backend | T04 | backend/app/rutas/ads.py, backend/app/servicios/ads.py, backend/app/datos/ads.py | pendiente |
 | T30 | Scaffolding Vite | T01 | frontend/package.json, frontend/vite.config.ts | pendiente |
