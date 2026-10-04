@@ -67,6 +67,14 @@ for id in "$@"; do
   git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
   git -C "$RAIZ" branch -D "tests/$id" 2>/dev/null
   git -C "$RAIZ" worktree add -q -b "tests/$id" "$wt" || { echo "✗ $id: no pude crear el worktree"; continue; }
+  # El worktree es nuevo: no tiene venv ni node_modules. Sin esto, una tarea de frontend
+  # se rechaza por falta de corredor, que es un defecto del método y no del test.
+  bash "$AQUI/preparar-entorno.sh" "$wt/$PROYECTO" 2>&1 | sed 's/^/  /'
+  # El venv del tronco, igual que en correr-tarea.sh: el del worktree es un enlace, pero
+  # si el enlace no está, el validador correría con el intérprete del sistema y no vería
+  # las dependencias — y el diagnóstico que saldría es "el test está mal".
+  if [ -x "$BASE/.venv/bin/python" ]; then export PY_PROYECTO="$BASE/.venv/bin/python"; fi
+
 
   log="$wt/.tests.log"
   echo "▶ $id · $AGENTE escribe $ruta::$clase"
@@ -87,6 +95,9 @@ No toques ningún otro archivo." 2>&1
   ) > "$log" 2>&1
 
   cd "$wt/$PROYECTO" || continue
+  # Otra vez, porque el agente pudo CREAR el manifiesto: T30 escribe el package.json con
+  # vitest, y recién ahora se sabe que hace falta instalarlo.
+  bash "$AQUI/preparar-entorno.sh" "$wt/$PROYECTO" >> "$log" 2>&1
   fallos=0
 
   # 0. Alcance. Va PRIMERO porque sin esto el chequeo 1 miente: si el agente implementó la
@@ -121,32 +132,20 @@ No toques ningún otro archivo." 2>&1
   # no se queda: el entregable es el test.
   if [ "$fallos" -eq 0 ]; then
     impl="$(echo "$TOCADOS" | grep -E "$PATRON_CODIGO" | grep -v "^$ruta$" || true)"
-    # Cómo se corre ESTE test depende de su extensión, no del proyecto. Antes era siempre
-    # `python3 -m unittest`, así que todo test de frontend (.test.ts) se validaba con un
-    # comando que no lo puede ejecutar: fallaba, y el diagnóstico era "el test está mal".
-    # Las 14 tareas de frontend del plan de clasificados caían ahí.
-    case "$ruta" in
-      *.py)
-        prueba="${PY_PROYECTO:-python3} -m unittest $(echo "${ruta%.py}" | tr / .).$clase"
-        MUTABLE=1 ;;
-      *.test.ts|*.test.tsx|*.test.js|*.test.jsx)
-        # vitest corre desde el directorio de su package.json; la ruta se le pasa relativa.
-        dir_front="$(dirname "$(ls frontend/package.json package.json 2>/dev/null | head -1)")"
-        if [ ! -d "$dir_front/node_modules" ]; then
-          echo "  ⊘ $id: hay tests de frontend y no está node_modules."
-          echo "     Eso es del método, no de la tarea: bash $AQUI/preparar-entorno.sh"
-          fallos=1; MUTABLE=0
-        else
-          prueba="( cd $dir_front && npx --no-install vitest run --reporter=basic ${ruta#$dir_front/} )"
-          # mutar.py muta Python. Para TypeScript no tenemos mutador: el paso se marca ⊘ y
-          # no se cuenta como pase (METODO.md P3).
-          MUTABLE=0
-        fi ;;
-      *)
-        echo "  ✗ $id: no sé cómo correr un test «$ruta». Declaralo en el plan con una"
-        echo "     extensión que el método sepa ejecutar (.py o .test.ts)."
-        fallos=1; MUTABLE=0 ;;
-    esac
+    # El comando es el del proyecto, no uno que armemos acá: `scripts/correr-suite.sh`
+    # es el mismo que usa el gate para juzgar. Mientras cada uno tenía el suyo, diferían en
+    # el cwd, el PYTHONPATH, el corredor y sus flags, y cada diferencia producía un test
+    # imposible de pasar que esto informaba como "el test está mal".
+    if [ ! -f scripts/correr-suite.sh ]; then
+      echo "  ✗ $id: el proyecto no tiene scripts/correr-suite.sh, así que no hay una sola"
+      echo "     forma de correr la suite. Copiala de plantillas/correr-suite.sh y adaptala."
+      fallos=1
+    fi
+    prueba="bash scripts/correr-suite.sh \"$ruta::$clase\""
+    # mutar.py muta Python. Para TypeScript no hay mutador: el paso se marca ⊘ y no cuenta
+    # como pase (METODO.md P3).
+    case "$ruta" in *.py) MUTABLE=1 ;; *) MUTABLE=0 ;; esac
+
     if [ "$fallos" -ne 0 ]; then :
     elif [ -z "$impl" ]; then
       echo "  ✗ no escribió implementación: sin ella no se puede validar el test"; fallos=1

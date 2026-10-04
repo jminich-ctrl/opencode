@@ -2,19 +2,20 @@
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
 **Depende de:** T01
-**Archivos que podés tocar:** backend/migraciones/001_initial.sql
+**Archivos que podés tocar:** backend/migraciones/001_initial.sql, backend/migraciones/001_initial_down.sql
 **Prohibido tocar:** 
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`, que usa el runner, no puede elegir un subagente
 
 ## Objetivo
 
-Crear el script SQL inicial que define las tablas `usuarios`, `anuncios`, `favoritos` y `mensajes`, y su script de reversa.
+Crear el script SQL inicial que define las seis tablas del esquema cerrado en G0 —`usuarios`, `categorias`, `anuncios`, `favoritos`, `mensajes` y `sesiones`— y su script de reversa.
 
 ## Alcance
 
 Entra:
 - Definir esquema de tablas con columnas básicas.
-- Incluir sentencias `DROP TABLE IF EXISTS` para reversa.
+- La reversa, en su propio archivo: `001_initial_down.sql`, con los `DROP TABLE IF EXISTS`
+  en el orden que respete las claves foráneas (primero las que referencian).
 
 No entra:
 - Poblado de datos ni lógica de negocio.
@@ -25,8 +26,13 @@ El esquema está cerrado en PLAN.md, sección «Decisiones cerradas en G0». Cre
 esas seis tablas, con esos nombres de columna. **No inventes columnas ni cambies nombres**:
 hay 26 tareas que dependen de esto.
 
-La migración va en `backend/migraciones/001_inicial.sql` y **tiene que tener su reversa**:
-un `001_inicial_down.sql` que deje la base como estaba. Si no se puede revertir, no se sube.
+La migración va en `backend/migraciones/001_initial.sql` y **tiene que tener su reversa**:
+`backend/migraciones/001_initial_down.sql`, que deje la base como estaba. Si no se puede
+revertir, no se sube.
+
+Las dos se escriben contra MySQL 8: `utf8mb4`, `INT` para los centavos, `DATETIME` en UTC.
+El runner levanta la base antes de lanzarte y exporta `MYSQL_HOST`, `MYSQL_PORT`,
+`MYSQL_USER`, `MYSQL_PASSWORD` y `MYSQL_DB`: los tests se conectan a una base real.
 
 ## Tests (ya escritos, fallando)
 
@@ -34,7 +40,8 @@ Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tes
 
 ## Criterio de terminado
 
-- [ ] Archivo `backend/migraciones/001_initial.sql` creado con esquema y reversa.
+- [ ] `backend/migraciones/001_initial.sql` crea las seis tablas con los nombres de columna del plan.
+- [ ] `backend/migraciones/001_initial_down.sql` las borra en orden y deja la base como estaba.
 - [ ] `bash scripts/gate.sh` en verde.
 
 ## Verificación

@@ -36,9 +36,9 @@ vacuo() { echo "  ⊘ $1 — no pudo verificarse"; VACIOS=$((VACIOS+1)); }
 # Lo que el chequeo miró. Sin esto, "no encontré nada" y "no miré nada" se ven igual.
 testigo() { echo "     · inspeccionó: $1"; }
 
-# ADAPTAR: el comando que corre TODA tu suite, y cómo se ve una suite que no corrió nada.
-TESTS="$PY_PROYECTO -m unittest discover -s tests -t . -q"
-VACIA='^Ran 0 tests'
+# El comando que corre la suite NO está acá: está en `scripts/correr-suite.sh`, porque lo
+# usan dos —este gate, para juzgar, y `escribir-tests.sh`, para validar— y mientras cada
+# uno tenía el suyo, diferían.
 # ADAPTAR: dónde vive el código de producción (no los tests).
 CODIGO="src"
 
@@ -82,15 +82,31 @@ herramienta_falta() {
 }
 
 echo "── 1. Tests"
-SALIDA="$($TESTS 2>&1)"
-if echo "$SALIDA" | grep -qE "$VACIA"; then
-  # Una suite vacía pasa siempre. "No pude verificar" no puede parecerse a "verifiqué".
-  rojo "la suite no corrió ningún test"
-elif echo "$SALIDA" | grep -qE '^OK'; then
-  verde "$(echo "$SALIDA" | grep -E '^Ran ' | head -1)"
-else
-  rojo "tests en rojo"; echo "$SALIDA" | tail -15 | sed 's/^/     /'
-fi
+# El gate NO sabe cómo se corre la suite: lo sabe `scripts/correr-suite.sh`, y es el mismo
+# comando que usa el validador de `escribir-tests.sh`. Esa separación no es prolijidad.
+# Mientras cada uno tenía su propia invocación, diferían en cuatro cosas a la vez —el
+# directorio de trabajo, el PYTHONPATH, el corredor y sus flags— y **cada diferencia
+# producía un test imposible de pasar** que el método informaba como "el test está mal":
+# acusaba al agente de un defecto nuestro.
+#
+# Los códigos de salida son contrato: 0 verde, 1 rojo, 2 no corrió ningún test, 3 falta el
+# corredor. Los tres últimos son ROJO, y el 3 dice que el defecto es del método.
+SALIDA="$(bash scripts/correr-suite.sh 2>&1)"; RC=$?
+case "$RC" in
+  0) RESUMEN="$(echo "$SALIDA" | grep -oE '[0-9]+ (passed|tests?)[^ ]*' | tail -1)"
+     verde "${RESUMEN:-$(echo "$SALIDA" | grep -E '^Ran |^OK' | tail -1)}"
+     testigo "scripts/correr-suite.sh, el mismo comando que valida los tests" ;;
+  2) rojo "la suite no corrió ningún test: sin tests no hay gate"
+     echo "$SALIDA" | tail -5 | sed 's/^/     /' ;;
+  3) rojo "falta el corredor de tests — esto es del método, no del código que se juzga"
+     echo "$SALIDA" | tail -5 | sed 's/^/     /'
+     echo "     bash \$AGENTES/scripts/preparar-entorno.sh" ;;
+  127) rojo "no existe scripts/correr-suite.sh: el proyecto no declara cómo se corre su suite"
+     echo "     Copiala de plantillas/correr-suite.sh y adaptala. Sin ella, quien valida los"
+     echo "     tests y quien los juzga vuelven a inventar cada uno su comando." ;;
+  *) rojo "la suite está en rojo"
+     echo "$SALIDA" | tail -15 | sed 's/^/     /' ;;
+esac
 
 echo "── 2. Alcance${TAREA:+ (tarea $TAREA)}"
 # La infraestructura del runner no es parte del trabajo de la tarea: se filtra ACÁ y no en
@@ -206,18 +222,18 @@ if [ -n "${TAREA:-}" ]; then
     # métricas por porción caen 25 a 91 puntos. "La suite falla" puede ser otro test.
     ESPERADO="$(sed -n 's/.*`\(tests\/[A-Za-z0-9_.]*\)`.*clase `\([A-Za-z0-9_]*\)`.*/\1 \2/p' \
                  "tareas/${TAREA}"-*.md 2>/dev/null | head -1)"
-    if $TESTS >/dev/null 2>&1; then
+    if bash scripts/correr-suite.sh >/dev/null 2>&1; then
       rojo "los tests PASAN con la implementación vieja: no verifican el cambio"
       echo "     revertí:$REVERTIDOS y la suite siguió verde"
     elif [ -n "$ESPERADO" ]; then
-      MOD="$(echo "$ESPERADO" | cut -d' ' -f1 | sed 's|/|.|g; s|\.py$||')"
+      RUTA_T="$(echo "$ESPERADO" | cut -d' ' -f1)"
       CLASE="$(echo "$ESPERADO" | cut -d' ' -f2)"
-      if "$PY_PROYECTO" -m unittest "$MOD.$CLASE" >/dev/null 2>&1; then
+      if bash scripts/correr-suite.sh "$RUTA_T::$CLASE" >/dev/null 2>&1; then
         rojo "la suite falla, pero NO por los tests de esta tarea ($CLASE pasa con el código viejo)"
         echo "     o los tests de $TAREA no verifican el cambio, o rompiste otra cosa"
       else
         verde "fallan los tests de la tarea ($CLASE) al revertir$REVERTIDOS"
-        testigo "$MOD.$CLASE, revirtiendo$REVERTIDOS"
+        testigo "$RUTA_T::$CLASE, revirtiendo$REVERTIDOS"
       fi
     else
       vacuo "la tarea no nombra archivo y clase de test: sólo se pudo verificar la suite entera"

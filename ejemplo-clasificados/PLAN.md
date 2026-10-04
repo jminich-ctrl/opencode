@@ -68,8 +68,9 @@ vez de la aplicación.
 | # | Tarea | Depende de | Archivos | Estado |
 |---|---|---|---|---|
 | T01 | Scaffolding del proyecto | — | backend/, frontend/, backend/requirements.txt, frontend/package.json | pendiente |
-| T03 | Primera migración (usuarios y anuncios) | T01 | backend/migraciones/001_initial.sql | pendiente |
-| T04 | Auth backend (login, sesión) | T03 | backend/app/rutas/auth.py, backend/app/servicios/auth.py, backend/app/datos/users.py | pendiente |
+| T02 | Conexión a MySQL | T01 | backend/app/datos/conexion.py | pendiente |
+| T03 | Primera migración (usuarios y anuncios) | T01 | backend/migraciones/001_initial.sql, backend/migraciones/001_initial_down.sql | pendiente |
+| T04 | Auth backend (login, sesión) | T02, T03 | backend/app/rutas/auth.py, backend/app/servicios/auth.py, backend/app/datos/users.py | pendiente |
 | T05 | CRUD de avisos backend | T04 | backend/app/rutas/ads.py, backend/app/servicios/ads.py, backend/app/datos/ads.py | pendiente |
 | T30 | Scaffolding Vite | T01 | frontend/package.json, frontend/vite.config.ts | pendiente |
 | T31 | Punto de entrada frontend | T30 | frontend/src/main.tsx, frontend/src/App.jsx | pendiente |
@@ -104,6 +105,7 @@ vez de la aplicación.
 | Tarea | Archivo de test | Clase |
 |---|---|---|
 | T01 | backend/tests/test_scaffolding.py | TestScaffolding |
+| T02 | backend/tests/test_conexion.py | TestConexion |
 | T03 | backend/tests/test_migracion.py | TestMigracion |
 | T04 | backend/tests/test_auth_backend.py | TestAuthBackend |
 | T05 | backend/tests/test_ads_backend.py | TestAdsBackend |

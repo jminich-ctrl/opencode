@@ -25,6 +25,8 @@ verde() { echo "  ✓ $1"; }
 # publicada contra la clase de falla que más veces nos mordió: un pase vacío se ve igual que
 # un pase, y por eso cuatro bugs de rutas vivieron semanas detrás de un ✓.
 vacuo() { echo "  ⊘ $1 — no pudo verificarse"; VACIOS=$((VACIOS+1)); }
+# Lo que el chequeo miró. Sin esto, "no encontré nada" y "no miré nada" se ven igual.
+testigo() { echo "     · inspeccionó: $1"; }
 
 # La base del diff la fija el runner al crear el worktree, antes de que el agente toque nada.
 RAIZ_WT="$(git rev-parse --show-toplevel 2>/dev/null)"
@@ -49,48 +51,32 @@ if [ -n "${TAREA:-}" ]; then
   else verde "tests y scripts intactos"; fi
 fi
 
-# ── Cadena de herramientas. Un corredor ausente no puede verse como "no hay tests".
-herramienta_falta() {
-  echo "  ✗ hay tests en $1 y falta su corredor ($2)"
-  echo "     Instalalo antes de correr el gate; si no, el gate no verifica nada y lo diría en verde."
-  FALLOS=$((FALLOS+1))
-}
-
 echo "── 1. Tests"
-CORRIO=0
-if [ -d backend/tests ] && ls backend/tests/test_*.py >/dev/null 2>&1; then
-  if ! "$PY_PROYECTO" -c "import pytest" >/dev/null 2>&1; then
-    herramienta_falta "backend/tests" "pytest en $PY_PROYECTO"
-  else
-  # Desde la RAÍZ DEL PROYECTO, no desde backend/. Esto no es estilo: el validador de
-  # `escribir-tests.sh` corre la suite desde la raíz, y si el gate la corre desde otro
-  # directorio, un test validado en un cwd se juzga en otro. Pasó: un test de scaffolding
-  # que chequeaba `backend/app/datos` fue aceptado por el validador y era imposible de
-  # pasar en el gate, porque ahí la ruta resolvía a `backend/backend/app/datos`.
-  # La regla: **el cwd de la suite es la raíz del proyecto, para todos los que la corren.**
-  SALIDA="$(PYTHONPATH="$PWD/backend" "$PY_PROYECTO" -m pytest -q backend/tests 2>&1)"
-  if echo "$SALIDA" | grep -qE 'no tests ran|collected 0 items'; then
-    rojo "backend: la suite no corrió ningún test"
-  elif echo "$SALIDA" | grep -qE '[0-9]+ passed' && ! echo "$SALIDA" | grep -qE '[0-9]+ (failed|error)'; then
-    verde "backend: $(echo "$SALIDA" | grep -oE '[0-9]+ passed[^ ]*' | head -1)"; CORRIO=1
-  else
-    rojo "backend en rojo"; CORRIO=1; echo "$SALIDA" | tail -15 | sed 's/^/     /'
-  fi
-  fi
-fi
-if [ -f frontend/package.json ] && grep -q '"vitest"' frontend/package.json 2>/dev/null; then
-  if [ ! -d frontend/node_modules ]; then
-    herramienta_falta "frontend" "node_modules (corré npm install)"
-  else
-  SALIDA="$(cd frontend && npx --no-install vitest run --reporter=basic 2>&1)"
-  if echo "$SALIDA" | grep -qE 'No test files found'; then
-    rojo "frontend: la suite no corrió ningún test"
-  elif echo "$SALIDA" | grep -qE 'FAIL|failed'; then
-    rojo "frontend en rojo"; CORRIO=1; echo "$SALIDA" | tail -15 | sed 's/^/     /'
-  else verde "frontend: tests en verde"; CORRIO=1; fi
-  fi
-fi
-[ "$CORRIO" = "0" ] && rojo "no se ejecutó ninguna suite: sin tests no hay gate"
+# El gate NO sabe cómo se corre la suite: lo sabe `scripts/correr-suite.sh`, y es el mismo
+# comando que usa el validador de `escribir-tests.sh`. Esa separación no es prolijidad.
+# Mientras cada uno tenía su propia invocación, diferían en cuatro cosas a la vez —el
+# directorio de trabajo, el PYTHONPATH, el corredor y sus flags— y **cada diferencia
+# producía un test imposible de pasar** que el método informaba como "el test está mal":
+# acusaba al agente de un defecto nuestro.
+#
+# Los códigos de salida son contrato: 0 verde, 1 rojo, 2 no corrió ningún test, 3 falta el
+# corredor. Los tres últimos son ROJO, y el 3 dice que el defecto es del método.
+SALIDA="$(bash scripts/correr-suite.sh 2>&1)"; RC=$?
+case "$RC" in
+  0) RESUMEN="$(echo "$SALIDA" | grep -oE '[0-9]+ (passed|tests?)[^ ]*' | tail -1)"
+     verde "${RESUMEN:-$(echo "$SALIDA" | grep -E '^Ran |^OK' | tail -1)}"
+     testigo "scripts/correr-suite.sh, el mismo comando que valida los tests" ;;
+  2) rojo "la suite no corrió ningún test: sin tests no hay gate"
+     echo "$SALIDA" | tail -5 | sed 's/^/     /' ;;
+  3) rojo "falta el corredor de tests — esto es del método, no del código que se juzga"
+     echo "$SALIDA" | tail -5 | sed 's/^/     /'
+     echo "     bash \$AGENTES/scripts/preparar-entorno.sh" ;;
+  127) rojo "no existe scripts/correr-suite.sh: el proyecto no declara cómo se corre su suite"
+     echo "     Copiala de plantillas/correr-suite.sh y adaptala. Sin ella, quien valida los"
+     echo "     tests y quien los juzga vuelven a inventar cada uno su comando." ;;
+  *) rojo "la suite está en rojo"
+     echo "$SALIDA" | tail -15 | sed 's/^/     /' ;;
+esac
 
 echo "── 2. Alcance${TAREA:+ (tarea $TAREA)}"
 # La infraestructura del runner no es parte del trabajo de la tarea: se filtra ACÁ y no en
@@ -192,7 +178,7 @@ if [ -n "${TAREA:-}" ]; then
   if [ -z "$IMPL" ]; then vacuo "no hay implementación que revertir"
   elif [ -z "$REVERTIDOS" ]; then vacuo "archivos nuevos (no existían en HEAD): nada que revertir"
   else
-    if PYTHONPATH="$PWD/backend" "$PY_PROYECTO" -m pytest -q backend/tests >/dev/null 2>&1; then
+    if bash scripts/correr-suite.sh >/dev/null 2>&1; then
       rojo "los tests PASAN con la implementación vieja: no verifican el cambio"
       echo "     revertí:$REVERTIDOS y la suite siguió verde"
     else verde "la suite falla al revertir$REVERTIDOS"; fi

@@ -115,6 +115,16 @@ for tid, fs in en_disco.items():
     if len(fs) > 1:
         errores.append(f"{tid} tiene más de un archivo: {', '.join(f.name for f in fs)}")
 
+# El nombre pelado es la abreviatura de la ruta: la tabla del pacman dice `laberinto.py`
+# donde la tarea dice `src/pacman/laberinto.py`, y es el mismo archivo. Lo que esta
+# comparación sigue atrapando es el nombre con OTRA extensión —la tabla decía `Login.jsx`
+# y la tarea `Login.vue`, en un proyecto React— y el archivo que está en una lista y no en
+# la otra.
+def cubierto(ruta, otros):
+    base = ruta.rsplit("/", 1)[-1]
+    return any(ruta == o or o.rsplit("/", 1)[-1] == base for o in otros)
+
+
 # ── Cada archivo de tarea: las cabeceras que el gate y el runner leen de verdad
 CABECERAS = ["**Estado:**", "**Depende de:**", "**Archivos que podés tocar:**"]
 for tid in sorted(set(tareas) & set(en_disco)):
@@ -134,6 +144,34 @@ for tid in sorted(set(tareas) & set(en_disco)):
             errores.append(
                 f"{f.name} declara «Depende de: {' '.join(sorted(del_archivo)) or '—'}» y la "
                 f"tabla dice «{' '.join(sorted(tareas[tid]['deps'])) or '—'}»")
+
+    # El alcance del archivo contra la columna «Archivos» de la tabla. Son dos
+    # declaraciones de lo mismo que leen dos lectores: el deductor de etapas usa la tabla
+    # para encontrar choques de archivo y paralelizar, y el gate usa el archivo de tarea
+    # para juzgar el alcance. Divergían en todo el frontend de clasificados —la tabla decía
+    # `Login.jsx` y la tarea `Login.vue`, en un proyecto React— así que el deductor
+    # paralelizaba tareas que sí chocan y el gate juzgaba otro alcance que el planificado.
+    m_alc = re.search(r"^\*\*Archivos que podés tocar:\*\* *(.*)$", cuerpo, re.M)
+    if m_alc:
+        def rutas(txt):
+            return {a.strip().strip("`") for a in re.split(r"[,\s]+", txt)
+                    if a.strip().strip("`") and ("." in a or a.strip().endswith("/"))}
+        del_archivo = rutas(m_alc.group(1))
+        de_la_tabla = rutas(tareas[tid]["archivos"])
+
+        if de_la_tabla:
+            falta = sorted(r for r in de_la_tabla if not cubierto(r, del_archivo))
+            sobra = sorted(r for r in del_archivo if not cubierto(r, de_la_tabla))
+        else:
+            falta = sobra = []
+        if falta or sobra:
+            detalle = []
+            if falta:
+                detalle.append("la tabla declara y la tarea no: " + ", ".join(falta))
+            if sobra:
+                detalle.append("la tarea declara y la tabla no: " + ", ".join(sobra))
+            errores.append(f"{f.name} y la tabla no declaran los mismos archivos — "
+                           + "; ".join(detalle))
 
     m = re.search(r"^\*\*Archivos que podés tocar:\*\* *(.*)$", cuerpo, re.M)
     if m and not m.group(1).strip():
@@ -225,6 +263,64 @@ if tests_plan:
         else:
             errores.append(f"{arch.name} dice que su test es «{m.group(2)}::{m.group(4)}» y "
                            f"el plan dice «{ruta_plan}::{clase_plan}»")
+
+# ── Las rutas que el cuerpo de la tarea nombra, contra su propio alcance.
+# T03 declaraba `001_initial.sql` y su contrato le pedía además escribir
+# `001_inicial_down.sql`: dos archivos, uno permitido, y encima escrito de dos maneras
+# (`initial` / `inicial`), así que no había respuesta que cerrara. El agente hizo lo
+# correcto —escribir la reversa que le pedían— y el chequeo de alcance lo reprobó por eso.
+# Misma clase que «la tarea declara un intocable»: el plan pide lo que el gate prohíbe.
+# Qué cuenta como ruta en el texto. `127.0.0.1` no lo es (la extensión empieza con
+# dígito) y `Juego.fruta` tampoco (es un atributo). La lista de extensiones es cerrada a
+# propósito: acá fallar abierto —no marcar— es el lado seguro, porque marcar de más
+# convierte el chequeo en ruido y el ruido se ignora.
+RUTA_EN_TEXTO = re.compile(r"`([A-Za-z0-9_][A-Za-z0-9_./-]*\.[A-Za-z][A-Za-z0-9]{0,4})`")
+EXT_DE_ARCHIVO = {"py", "ts", "tsx", "js", "jsx", "sql", "md", "json", "scss", "css",
+                  "html", "txt", "yml", "yaml", "sh", "toml", "cfg", "ini", "lock", "env"}
+DEL_METODO = ("scripts/", "PLAN.md", "OBJETIVO.md", "AGENTS.md", "METODO.md", "HUMANO.md",
+              "BITACORA.md", "DESCOMPOSICION.md", "OPENCODE.md", "PRUEBAS.md")
+for tid in sorted(set(tareas) & set(en_disco)):
+    arch = en_disco[tid][0]
+    cuerpo = arch.read_text()
+    mm = re.search(r"^\*\*Archivos que podés tocar:\*\* *(.*)$", cuerpo, re.M)
+    if not mm:
+        continue
+    alcance = [a.strip().strip("`") for a in re.split(r"[,\s]+", mm.group(1)) if a.strip()]
+    if not alcance:
+        continue
+    del_plan = tests_plan.get(tid, ("", ""))[0]
+
+    def en_alcance(r, alcance=alcance, del_plan=del_plan):
+        if r == del_plan or r.startswith(DEL_METODO):
+            return True
+        # El nombre pelado es la abreviatura natural de una ruta del alcance: si algo
+        # permitido termina en `/<nombre>`, el cuerpo lo está nombrando corto. Lo que esto
+        # SÍ sigue atrapando es el nombre pelado con otra extensión —T07 pedía `Login.vue`
+        # en un proyecto React cuyo alcance declara `Login.jsx`—, que es el caso real.
+        if "/" not in r and any(a.endswith("/" + r) for a in alcance):
+            return True
+        return any(r == a or (a.endswith("/") and r.startswith(a)) for a in alcance)
+
+    # Sólo las secciones que le PIDEN escribir algo. El objetivo y las notas pueden
+    # nombrar archivos ajenos para dar contexto.
+    pedido = "\n".join(re.findall(
+        r"^## (?:Contrato|Criterio de terminado|Alcance)\s*\n(.*?)(?=^## |\Z)",
+        cuerpo, re.M | re.S))
+    def parece_archivo(r):
+        return "/" in r or r.rsplit(".", 1)[-1].lower() in EXT_DE_ARCHIVO
+
+    for r in sorted({r for r in RUTA_EN_TEXTO.findall(pedido)
+                     if parece_archivo(r) and not en_alcance(r)}):
+        # Si el archivo es de OTRA tarea, nombrarlo es una referencia legítima: así se
+        # describe una interfaz. Lo que no puede pasar es que el cuerpo pida un archivo que
+        # **ninguna tarea tiene asignado**: ése no lo va a escribir nadie, y si lo escribe
+        # quien lo lee, el chequeo de alcance lo reprueba. Era el caso de T03.
+        asignados = {a.strip().strip("`") for otro in tareas.values()
+                     for a in re.split(r"[,\s]+", otro["archivos"]) if a.strip().strip("`")}
+        if cubierto(r, asignados):
+            continue
+        errores.append(f"{arch.name} le pide escribir «{r}», y no está en su alcance ni en "
+                       f"el de ninguna otra tarea: nadie lo va a escribir")
 
 # ── Plantillas sin completar, en el plan y en las tareas
 def placeholders(cuerpo):

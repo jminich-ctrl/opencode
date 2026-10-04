@@ -27,6 +27,7 @@ aparezca.
 """
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -60,6 +61,8 @@ class Proyecto:
         for d in ("tareas", "scripts", "src", "tests"):
             (self.dir / d).mkdir()
         shutil.copy(PLANTILLAS / "gate.sh", self.dir / "scripts" / "gate.sh")
+        # El gate ya no sabe correr la suite: lo sabe correr-suite.sh, y los dos van juntos.
+        shutil.copy(PLANTILLAS / "correr-suite.sh", self.dir / "scripts" / "correr-suite.sh")
         (self.dir / "src" / "__init__.py").touch()
         (self.dir / "tests" / "__init__.py").touch()
         (self.repo / ".gitignore").write_text(
@@ -286,7 +289,7 @@ class TestGate(CasoBase):
         self.assertVerde(self.p.gate("T01"), ".base-ref es del runner, no del agente")
 
     def test_el_venv_enlazado_no_cuenta_como_trabajo_del_agente(self):
-        """El runner enlaza el venv del tronco al worktree porque gitignorado no viaja. Un
+        r"""El runner enlaza el venv del tronco al worktree porque gitignorado no viaja. Un
         enlace simbólico es un ARCHIVO para git, así que el patrón `\.venv/` —con barra— no
         lo matcheaba y el gate se lo contaba al agente. Lo reportó el propio agente de T01:
         «el gate muestra problemas relacionados con archivos del entorno del runner»."""
@@ -499,6 +502,57 @@ class TestValidarPlan(CasoBase):
         self.assertRojo(self.validar(), "el archivo dice T07 y la tabla dice —",
                         motivo="Depende de")
 
+    def test_alcance_del_archivo_distinto_de_la_tabla_da_rojo(self):
+        """Dos declaraciones de lo mismo que leen dos lectores: el deductor de etapas usa
+        la tabla para encontrar choques de archivo, y el gate usa el archivo de tarea para
+        juzgar el alcance. En clasificados divergían en todo el frontend —la tabla decía
+        `Login.jsx` y la tarea `Login.vue`, en un proyecto React—."""
+        t = self.p.dir / "tareas" / "T01-cosa.md"
+        t.write_text(t.read_text().replace("**Archivos que podés tocar:** src/cosa.py",
+                                           "**Archivos que podés tocar:** src/cosa.ts"))
+        self.assertRojo(self.validar(), "la tabla dice .py y la tarea .ts",
+                        motivo="no declaran los mismos archivos")
+
+    def test_nombre_pelado_no_cuenta_como_divergencia(self):
+        """La tabla del pacman dice `laberinto.py` donde la tarea dice
+        `src/pacman/laberinto.py`: es el mismo archivo y marcarlo sería ruido."""
+        t = self.p.dir / "tareas" / "T01-cosa.md"
+        t.write_text(t.read_text().replace("**Archivos que podés tocar:** src/cosa.py",
+                                           "**Archivos que podés tocar:** cosa.py"))
+        self.assertVerde(self.validar(), "es la abreviatura de la misma ruta")
+
+    def test_tarea_que_pide_un_archivo_que_nadie_tiene_asignado_da_rojo(self):
+        """T03 declaraba `001_initial.sql` y su contrato le pedía además escribir
+        `001_inicial_down.sql`. El agente hizo lo correcto —escribir la reversa que le
+        pedían— y el chequeo de alcance lo reprobó por eso."""
+        t = self.p.dir / "tareas" / "T01-cosa.md"
+        c = t.read_text().replace(
+            "## Objetivo\n\nQue haya una cosa.",
+            "## Objetivo\n\nQue haya una cosa.\n\n## Contrato\n\n"
+            "La cosa va en `src/cosa.py` y **tiene que tener su reversa**: un "
+            "`src/cosa_reversa.py` que la deshaga.")
+        t.write_text(c)
+        self.assertRojo(self.validar(), "nadie tiene asignado cosa_reversa.py",
+                        motivo="nadie lo va a escribir")
+
+    def test_tarea_que_nombra_el_archivo_de_otra_tarea_no_da_rojo(self):
+        """Nombrar el módulo de otra tarea es cómo se describe una interfaz."""
+        plan = self.p.dir / "PLAN.md"
+        plan.write_text(plan.read_text().replace(
+            "| T01 | Una cosa | — | src/cosa.py | pendiente |",
+            "| T01 | Una cosa | — | src/cosa.py | pendiente |\n"
+            "| T02 | Otra | T01 | src/otra.py | pendiente |"))
+        self.p.escribir_tarea("T02", "src/otra.py")
+        (self.p.dir / "tareas" / "T02-cosa.md").write_text(
+            (self.p.dir / "tareas" / "T02-cosa.md").read_text().replace(
+                "**Depende de:** —", "**Depende de:** T01"))
+        t = self.p.dir / "tareas" / "T01-cosa.md"
+        t.write_text(t.read_text().replace(
+            "## Objetivo\n\nQue haya una cosa.",
+            "## Objetivo\n\nQue haya una cosa.\n\n## Contrato\n\n"
+            "`src/otra.py` la va a usar; no la toques."))
+        self.assertVerde(self.validar(), "src/otra.py es de T02, nombrarla es legítimo")
+
     def test_tarea_que_declara_un_intocable_da_rojo(self):
         """Una tarea que declara lo que el gate prohíbe es insatisfacible.
 
@@ -686,6 +740,7 @@ class TestEjemplosNoDerivan(unittest.TestCase):
         for sub in ("tareas", "scripts", "permitido", "colado"):
             (d / sub).mkdir(parents=True)
         shutil.copy(gate, d / "scripts" / "gate.sh")
+        shutil.copy(gate.parent / "correr-suite.sh", d / "scripts" / "correr-suite.sh")
         (d / "tareas" / "T01-cosa.md").write_text(
             f"# T01 — Una cosa\n\n**Estado:** pendiente\n**Depende de:** —\n"
             f"**Archivos que podés tocar:** {declara}\n**Prohibido tocar:** tests/\n")
@@ -752,6 +807,8 @@ class TestEjemplosNoDerivan(unittest.TestCase):
                     (d / sub / "__init__.py").touch()
                     (d / sub / "test_canaria.py").write_text(canaria)
                 shutil.copy(gate, d / "scripts" / "gate.sh")
+                shutil.copy(gate.parent / "correr-suite.sh",
+                            d / "scripts" / "correr-suite.sh")
                 correr("git init -q && git add -A && git commit -qm base", repo)
                 extra = {"PY_PROYECTO": py_con_pytest} if py_con_pytest else {}
                 r = correr("bash scripts/gate.sh", d, CANARIA=str(marca), **extra)
@@ -765,6 +822,39 @@ class TestEjemplosNoDerivan(unittest.TestCase):
                 self.assertEqual(marca.read_text(), str(d.resolve()),
                                  "la suite corrió desde otro directorio que la raíz del "
                                  "proyecto: un test validado en un cwd se juzga en otro")
+
+    def test_nadie_mas_que_correr_suite_sabe_correr_la_suite(self):
+        """La invocación de la suite vive en UN archivo. Mientras el gate y el validador de
+        `escribir-tests.sh` tenían cada uno la suya, diferían en el cwd, el PYTHONPATH, el
+        corredor y sus flags, y **cada diferencia producía un test imposible de pasar** que
+        el método informaba como «el test está mal».
+
+        Esto es un chequeo de texto y no de conducta a propósito: la conducta ya la mide la
+        canaria de cwd, y lo que falta impedir es que alguien vuelva a escribir el comando
+        en otro lado. Si aparece, la canaria lo detecta sólo si además cambia el cwd."""
+        CORREDORES = re.compile(r"-m\s+(pytest|unittest)|npx[^|\n]*vitest|\bjest\b")
+        for gate in self.GATES:
+            with self.subTest(gate=str(gate.relative_to(RAIZ))):
+                suite = gate.parent / "correr-suite.sh"
+                self.assertTrue(suite.exists(),
+                                f"falta {suite.relative_to(RAIZ)}: el gate devuelve 127 y el "
+                                f"proyecto no declara cómo se corre su suite")
+                # La suite reservada es la excepción, y es de principio: vive FUERA del
+                # repo para que ningún agente la vea, así que no puede correrse por un
+                # script del proyecto —que el agente lee y podría cambiar—. El paso 6 la
+                # invoca directo a propósito.
+                sueltos = [l.strip() for l in gate.read_text().splitlines()
+                           if CORREDORES.search(l) and not l.strip().startswith("#")
+                           and "RESERVADOS" not in l]
+                self.assertEqual(sueltos, [],
+                                 "el gate invoca un corredor de tests por su cuenta en vez "
+                                 "de pasar por correr-suite.sh:\n  " + "\n  ".join(sueltos))
+        validador = (SCRIPTS / "escribir-tests.sh").read_text()
+        sueltos = [l.strip() for l in validador.splitlines()
+                   if CORREDORES.search(l) and not l.strip().startswith("#")]
+        self.assertEqual(sueltos, [],
+                         "escribir-tests.sh arma su propio comando de tests:\n  "
+                         + "\n  ".join(sueltos))
 
     def test_en_todos_un_chequeo_que_no_corre_se_marca_vacuo(self):
         """La regla que no se adapta: ⊘ nunca puede confundirse con ✓."""

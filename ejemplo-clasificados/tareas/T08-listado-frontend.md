@@ -2,7 +2,7 @@
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
 **Depende de:** T07
-**Archivos que podés tocar:** frontend/src/pages/AdsList.vue, frontend/src/pages/AdDetail.vue, frontend/src/services/ads.ts
+**Archivos que podés tocar:** frontend/src/pages/AdsList.jsx, frontend/src/pages/AdDetail.jsx, frontend/src/services/ads.ts
 **Prohibido tocar:** 
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`, que usa el runner, no puede elegir un subagente
 
@@ -13,8 +13,8 @@ Crear las vistas para listar los avisos y mostrar el detalle de cada anuncio, y 
 ## Alcance
 
 Entra:
-- Componente Vue `AdsList.vue` que muestra una lista de anuncios obtenidos del backend.
-- Componente Vue `AdDetail.vue` que muestra los datos de un anuncio seleccionado.
+- Componente React `AdsList.jsx` que muestra una lista de anuncios obtenidos del backend.
+- Componente React `AdDetail.jsx` que muestra los datos de un anuncio seleccionado.
 - Servicio TypeScript `ads.ts` con funciones `getAds()` y `getAd(id)` que hacen `fetch` a los endpoints correspondientes.
 
 No entra:
@@ -33,7 +33,7 @@ Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `frontend/te
 
 ## Criterio de terminado
 
-- [ ] Componentes `AdsList.vue` y `AdDetail.vue` creados y renderizan datos.
+- [ ] Componentes `AdsList.jsx` y `AdDetail.jsx` creados y renderizan datos.
 - [ ] Servicio `ads.ts` implementado y pruebas pasan.
 - [ ] `bash scripts/gate.sh` en verde.
 

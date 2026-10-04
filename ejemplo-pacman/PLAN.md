@@ -52,7 +52,7 @@ solo para leer. Nadie depende de `render`.
 
 | # | Tarea | Depende de | Archivos | Estado |
 |---|---|---|---|---|
-| T01 | Laberinto: parseo del mapa | — | `laberinto.py` | ✅ humano (referencia) |
+| T01 | Laberinto: parseo del mapa | — | `laberinto.py`, `mapas/clasico.txt` | ✅ humano (referencia) |
 | T02 | Movimiento de Pacman | T01 | `entidades.py` | ✅ agente (3er intento) + túnel a mano |
 | T03 | Puntos y pastillas | T01 | `juego.py` | ✅ humano (agente falló 2 veces) |
 | T04 | Fantasmas: persecución | T01, T02 | `entidades.py` | ✅ humano |
