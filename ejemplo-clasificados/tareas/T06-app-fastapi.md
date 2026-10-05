@@ -82,9 +82,9 @@ app: FastAPI
 Y el contrato del otro lado, que vale para las seis tareas de rutas: **un módulo de
 `rutas/` expone un `router` de FastAPI y nada más. No importa `main.py` ni lo modifica.**
 
-## Tests (ya escritos, fallando)
+## Tests
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_app.py`, clase `TestApp`.
+Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando vos**. Archivo: `backend/tests/test_app.py`, clase `TestApp`.
 
 ## Criterio de terminado
 

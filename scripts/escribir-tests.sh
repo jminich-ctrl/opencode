@@ -107,13 +107,16 @@ for id in "$@"; do
   log="$wt/.tests.log"
   # El reloj que detecta el cuelgue es el de inactividad sobre este log: el agente que
   # trabaja escribe todo el tiempo, el colgado no escribe nada.
-  export LOG_VIGILADO="$log" INACTIVIDAD="${INACTIVIDAD:-45}"
+  # El valor de INACTIVIDAD lo declara _comun.sh en un solo lugar. Acá decía 45,
+  # que era el valor viejo: una tercera copia del mismo número, de las que quedan
+  # viejas sin que nadie se entere.
+  export LOG_VIGILADO="$log"
   echo "▶ $id · $AGENTE escribe $ruta::$clase"
   (
     cd "$wt/$PROYECTO" || exit 1
     export XDG_DATA_HOME="$wt/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
     con_limite "${LIMITE_AGENTE:-1200}" opencode run --agent "$AGENTE" \
-      "${MOTIVO_TESTS:+Un intento anterior falló así: $MOTIVO_TESTS. No repitas ese camino. }Leé tareas/$(basename \"$archivo\") y hacé la tarea completa: la implementación Y sus tests, las dos cosas con la herramienta write. El archivo de test es '$ruta' y su agrupador se llama '$clase'. Las reglas de cómo escribir tests están en AGENTS.md: leelas. Al terminar corré 'bash scripts/correr-suite.sh $ruta::$clase' y mostrá su salida real." 2>&1
+      "${MOTIVO_TESTS:+Un intento anterior falló así: $MOTIVO_TESTS. No repitas ese camino. }Leé tareas/$(basename \"$archivo\"). Ojo: esta corrida es la que CREA los tests, así que todavía no existen, los estás creando vos. Hacé la tarea completa: la implementación Y sus tests, las dos cosas con la herramienta write. El archivo de test es '$ruta' y su agrupador se llama '$clase'. Las reglas de cómo escribir tests están en AGENTS.md: leelas. Al terminar corré 'bash scripts/correr-suite.sh $ruta::$clase' y mostrá su salida real." 2>&1
   ) > "$log" 2>&1
   RC_AGENTE=$?
 

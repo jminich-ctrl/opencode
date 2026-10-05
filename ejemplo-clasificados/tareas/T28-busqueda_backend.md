@@ -29,9 +29,9 @@ def buscar_anuncios(texto: str, categoria: str | None = None) -> list[dict]:
     """
 ```
 
-## Tests (ya escritos, fallando)
+## Tests
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_search_backend.py`, clase `TestSearchBackend`.
+Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando vos**. Archivo: `backend/tests/test_search_backend.py`, clase `TestSearchBackend`.
 
 ## Criterio de terminado
 

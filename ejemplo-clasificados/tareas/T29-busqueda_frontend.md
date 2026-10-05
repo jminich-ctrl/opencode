@@ -26,9 +26,9 @@ No entra:
 export async function buscarAnuncios(texto: string, categoria?: string): Promise<Anuncio[]>;
 ```
 
-## Tests (ya escritos, fallando)
+## Tests
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `frontend/tests/test_search_frontend.test.ts`, clase `TestSearchFrontend`.
+Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando vos**. Archivo: `frontend/tests/test_search_frontend.test.ts`, clase `TestSearchFrontend`.
 
 ## Criterio de terminado
 

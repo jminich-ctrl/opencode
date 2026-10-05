@@ -26,9 +26,9 @@ def send_message_service(sender_id: int, receiver_id: int, ad_id: int, content: 
     """Servicio que delega a la capa de datos para crear un mensaje."""
 ```
 
-## Tests (ya escritos, fallando)
+## Tests
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_messages_servicio.py`, clase `TestMessagesServicio`.
+Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando vos**. Archivo: `backend/tests/test_messages_servicio.py`, clase `TestMessagesServicio`.
 
 ## Criterio de terminado
 

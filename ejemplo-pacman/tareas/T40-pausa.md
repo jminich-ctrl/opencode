@@ -20,9 +20,9 @@ No entra:
 - La tecla que la activa (eso es del bucle, y no es esta tarea).
 - Pausar el movimiento de los fantasmas: el bucle no los mueve si está en pausa.
 
-## Tests (ya escritos, fallando)
+## Tests
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `tests/test_pausa.py`, clase `TestPausa`.
+Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando vos**. Archivo: `tests/test_pausa.py`, clase `TestPausa`.
 
 ## Criterio de terminado
 

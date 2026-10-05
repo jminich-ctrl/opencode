@@ -26,9 +26,9 @@ def toggle_favorite_service(user_id: int, ad_id: int) -> bool:
     """Servicio que delega a la capa de datos para marcar/desmarcar favorito."""
 ```
 
-## Tests (ya escritos, fallando)
+## Tests
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_favorites_servicio.py`, clase `TestFavoritesServicio`.
+Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando vos**. Archivo: `backend/tests/test_favorites_servicio.py`, clase `TestFavoritesServicio`.
 
 ## Criterio de terminado
 

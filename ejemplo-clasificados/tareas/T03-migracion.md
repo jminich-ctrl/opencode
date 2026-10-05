@@ -34,9 +34,9 @@ Las dos se escriben contra MySQL 8: `utf8mb4`, `INT` para los centavos, `DATETIM
 El runner levanta la base antes de lanzarte y exporta `MYSQL_HOST`, `MYSQL_PORT`,
 `MYSQL_USER`, `MYSQL_PASSWORD` y `MYSQL_DB`: los tests se conectan a una base real.
 
-## Tests (ya escritos, fallando)
+## Tests
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_migracion.py`, clase `TestMigracion`.
+Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando vos**. Archivo: `backend/tests/test_migracion.py`, clase `TestMigracion`.
 
 ## Criterio de terminado
 

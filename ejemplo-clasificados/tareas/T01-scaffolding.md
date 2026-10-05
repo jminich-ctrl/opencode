@@ -31,9 +31,9 @@ No entra:
 
 N/A
 
-## Tests (ya escritos, fallando)
+## Tests
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_scaffolding.py`, clase `TestScaffolding`.
+Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando vos**. Archivo: `backend/tests/test_scaffolding.py`, clase `TestScaffolding`.
 
 ## Criterio de terminado
 

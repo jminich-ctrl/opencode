@@ -27,9 +27,9 @@ export async function toggleFavorite(userId: number, adId: number): Promise<bool
 }
 ```
 
-## Tests (ya escritos, fallando)
+## Tests
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `frontend/tests/test_favorites_servicio.test.ts`, clase `TestFavoritesServicioFrontend`.
+Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando vos**. Archivo: `frontend/tests/test_favorites_servicio.test.ts`, clase `TestFavoritesServicioFrontend`.
 
 ## Criterio de terminado
 

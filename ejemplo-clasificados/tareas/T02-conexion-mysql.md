@@ -64,9 +64,9 @@ def configuracion() -> dict:
     """
 ```
 
-## Tests (ya escritos, fallando)
+## Tests
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_conexion.py`, clase `TestConexion`.
+Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando vos**. Archivo: `backend/tests/test_conexion.py`, clase `TestConexion`.
 
 El runner levanta MySQL antes de lanzarte (`scripts/entorno.sh`) y exporta las variables:
 los tests se conectan a una base real, no a un simulacro.

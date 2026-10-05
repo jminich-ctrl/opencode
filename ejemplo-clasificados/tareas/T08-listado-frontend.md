@@ -27,9 +27,9 @@ export async function getAds(): Promise<any[]>;
 export async function getAd(id: string): Promise<any>;
 ```
 
-## Tests (ya escritos, fallando)
+## Tests
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `frontend/tests/test_ads_frontend.test.ts`, clase `TestAdsFrontend`.
+Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando vos**. Archivo: `frontend/tests/test_ads_frontend.test.ts`, clase `TestAdsFrontend`.
 
 ## Criterio de terminado
 

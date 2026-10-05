@@ -29,9 +29,9 @@ def login(request: Request) -> Response:
     """Valida credenciales y devuelve respuesta con cookie de sesión."""
 ```
 
-## Tests (ya escritos, fallando)
+## Tests
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_auth_backend.py`, clase `TestAuthBackend`.
+Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando vos**. Archivo: `backend/tests/test_auth_backend.py`, clase `TestAuthBackend`.
 
 ## Criterio de terminado
 

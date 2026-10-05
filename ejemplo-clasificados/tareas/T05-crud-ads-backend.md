@@ -32,9 +32,9 @@ async def crear_ad(request: Request) -> Response:
     """Crea un nuevo anuncio y devuelve su ID."""
 ```
 
-## Tests (ya escritos, fallando)
+## Tests
 
-Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tests/test_ads_backend.py`, clase `TestAdsBackend`.
+Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando vos**. Archivo: `backend/tests/test_ads_backend.py`, clase `TestAdsBackend`.
 
 ## Criterio de terminado
 

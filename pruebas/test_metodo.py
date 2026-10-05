@@ -669,6 +669,52 @@ class TestPlataformaCaida(unittest.TestCase):
                       "un stream cortado por la plataforma no es culpa del agente")
 
 
+class TestElArchivoDeTareaNoSeContradiceConLaFase(unittest.TestCase):
+    """El MISMO archivo de tarea lo leen dos fases, y decía algo cierto sólo en una.
+
+    Las 29 tareas traían «Los tests de esta tarea **ya están en el repo y fallan**». Es
+    cierto cuando le toca al agente que implementa —los tests se escriben antes— y es
+    **falso** para el agente que los escribe, que recibe el mismo archivo. El modelo lo
+    dijo con todas las letras en su transcript: «the task says the tests already exist and
+    are failing, but the user is asking me to write both the implementation and the
+    tests». Y entonces no los escribió.
+
+    Horas de T06 fallando por una frase que era verdad en la otra mitad del proceso.
+
+    La regla: **un documento que leen dos fases no puede afirmar el estado de una sola.**
+    O se escribe en términos que valgan en las dos, o dice de qué fase habla.
+    """
+
+    def test_ninguna_tarea_afirma_que_los_tests_ya_existen(self):
+        culpables = []
+        for proyecto in sorted(RAIZ.glob("ejemplo-*")):
+            for f in sorted((proyecto / "tareas").glob("*.md")) if (proyecto / "tareas").is_dir() else []:
+                texto = f.read_text()
+                afirma = ("ya están en el repo y fallan" in texto
+                          or "ya escritos, fallando" in texto)
+                # La afirmación es válida si viene con su condición: «si te toca
+                # implementar, ya están… si te toca escribirlos, todavía no existen».
+                # Lo que no puede es afirmarse a secas, porque entonces es falsa para
+                # una de las dos fases que leen este mismo archivo.
+                aclara = "todavía no existen" in texto
+                if afirma and not aclara:
+                    culpables.append(str(f.relative_to(RAIZ)))
+        self.assertEqual(
+            culpables[:5], [],
+            f"{len(culpables)} tarea(s) afirman que sus tests ya existen. El agente que "
+            f"los ESCRIBE lee el mismo archivo y se frena ante la contradicción. "
+            f"Primeras: {culpables[:5]}")
+
+    def test_el_prompt_de_escribir_tests_aclara_la_fase(self):
+        """Y aunque el archivo esté bien redactado, el prompt tiene que dejar claro que
+        esta corrida es la que los crea: es la única señal que el agente tiene de en qué
+        mitad del proceso está."""
+        texto = (SCRIPTS / "escribir-tests.sh").read_text()
+        self.assertRegex(
+            texto, r"todavía no existen|no existen todavía|los estás creando|sos vos quien",
+            "el prompt no le dice al agente que en esta fase los tests todavía no existen")
+
+
 class TestLasReglasEstanDondeElAgenteLasBusca(unittest.TestCase):
     """`escribir-tests.sh` le dice al agente «las reglas de cómo escribir tests están en
     AGENTS.md: leelas». El agente corre con el directorio de trabajo en el PROYECTO, así
@@ -1013,6 +1059,23 @@ class TestElVigilanteNoTapaLaEvidencia(unittest.TestCase):
     """
 
     MARGEN = 20  # sobre los 68,4s medidos
+
+    def test_la_ventana_no_se_redeclara_en_otro_lado(self):
+        """Tres copias del mismo número: _comun.sh lo declaraba y escribir-tests.sh y
+        correr-tarea.sh lo volvían a declarar con el valor VIEJO (45). Mientras el de
+        _comun.sh estuviera seteado no se notaba, que es justamente cómo sobreviven estas
+        copias hasta el día que importan."""
+        import re
+        culpables = []
+        for s in sorted(SCRIPTS.glob("*.sh")):
+            if s.name == "_comun.sh":
+                continue
+            for m in re.finditer(r"(INACTIVIDAD|ARRANQUE|UMBRAL_ARRANQUE)\s*=\s*[\"']?\$?\{?\1?:?-?(\d+)",
+                                 s.read_text()):
+                culpables.append(f"{s.name}: {m.group(1)}={m.group(2)}")
+        self.assertEqual(culpables, [],
+                         f"la ventana del vigilante se declara en _comun.sh y nada más; "
+                         f"estas copias van a quedar viejas: {culpables}")
 
     def test_la_ventana_de_inactividad_deja_hablar_a_la_herramienta(self):
         r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; echo "${{INACTIVIDAD:-45}}"', RAIZ)
