@@ -109,7 +109,19 @@ class Proyecto:
         return correr("bash scripts/gate.sh", self.dir, TAREA=(tarea or ""))
 
     def tirar(self):
-        shutil.rmtree(self.repo, ignore_errors=True)
+        # `ignore_errors=True` se tragaba la falla y dejaba el directorio: los objetos de git
+        # son de sólo lectura (444) y `rmtree` no los puede borrar sin cambiarles el permiso.
+        # La suite dejó 147 directorios temporales en un día de corridas, y el `ignore_errors`
+        # hacía que nadie se enterara — un `rm` que falla en silencio es la misma clase de
+        # problema que un chequeo que no puede correr y dice que pasó.
+        def forzar(func, ruta, _exc):
+            try:
+                os.chmod(ruta, 0o700)
+                func(ruta)
+            except OSError:
+                pass
+
+        shutil.rmtree(self.repo, onerror=forzar)
 
 
 class CasoBase(unittest.TestCase):
