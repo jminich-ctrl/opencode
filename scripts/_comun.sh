@@ -99,11 +99,26 @@ error_del_agente() {
 plataforma_responde() {
   [ -n "${COLABHIVE_BASE_URL:-}" ] || return 0      # sin configurar, no opinamos
   local codigo
-  codigo="$(curl -s -m 20 -o /dev/null -w '%{http_code}' \
-            "$COLABHIVE_BASE_URL/models" \
-            -H "Authorization: Bearer ${COLABHIVE_API_KEY:-}" 2>/dev/null || echo 000)"
+  # Contra `/chat/completions` CON herramientas, no contra `/models`. Listar modelos pasa
+  # por otro camino: lo vimos devolver 200 mientras las peticiones reales de un agente
+  # —20 KB de prompt y definiciones de herramientas— devolvían 502. Un chequeo que pasa
+  # mientras el camino que importa falla es un falso verde, y éste iba a dejar arrancar una
+  # corrida de nueve etapas contra una plataforma que no podía atenderla.
+  codigo="$(curl -s -m 45 -o /dev/null -w '%{http_code}' \
+            "$COLABHIVE_BASE_URL/chat/completions" \
+            -H "Authorization: Bearer ${COLABHIVE_API_KEY:-}" \
+            -H "Content-Type: application/json" \
+            -d '{"model":"'"${MODELO_SONDA:-f5d76140-5b4d-41c0-88da-dad6d11f341a}"'",
+                 "max_tokens":4,"messages":[{"role":"user","content":"OK"}],
+                 "tools":[{"type":"function","function":{"name":"read",
+                   "description":"sonda","parameters":{"type":"object",
+                   "properties":{"p":{"type":"string"}}}}}]}' 2>/dev/null)"
+  # Sin `|| echo 000`: cuando curl no conecta ya imprime «000» y además sale distinto de
+  # cero, así que el `||` agregaba otro y el mensaje decía «HTTP 000000». Un mensaje con un
+  # valor inventado es justo lo que vengo arreglando todo el día.
+  codigo="${codigo:-000}"
   [ "$codigo" = "200" ] && return 0
-  echo "✗ la plataforma de modelos no responde: HTTP $codigo en $COLABHIVE_BASE_URL/models" >&2
+  echo "✗ la plataforma de modelos no responde: HTTP $codigo en $COLABHIVE_BASE_URL/chat/completions" >&2
   echo "  No es la tarea ni el agente. Reintentar contra una plataforma caída gasta el" >&2
   echo "  presupuesto de todas las tareas sin aprender nada." >&2
   return 1
