@@ -218,6 +218,42 @@ ejemplo entra solo. Encontró que el gate del pacman nunca tuvo la regla de dire
   lista: las fallas que inventa son las que la gramática del bash permite.
 - **Cobertura de ramas del gate** y el diferencial bash 3.2 contra 5.
 
+## El día que medí mi propio instrumento
+
+Pasé horas convencido de que `opencode run` colgaba al 100% en esta máquina. Tenía la
+medición: **ocho intentos seguidos, ocho cuelgues**, todos con 0 bytes y el log propio
+terminando en `message=init`. Con eso descarté diez hipótesis, una por una y con prueba:
+la API (200 en 3s, streaming y no streaming, los dos modelos), los modelos fríos, mi
+cambio de `headerTimeout`, la contención entre procesos, el WAL de SQLite, los servicios
+externos, la caché de modelos, la config del proyecto, el binario (reinstalado) y los doce
+worktrees acumulados. Y terminé subiendo la versión de opencode, que tampoco lo arregló.
+
+El cuelgue lo causaba **mi envoltorio de medición.** Para acotar el tiempo en las pruebas
+usaba
+
+    perl -e 'alarm 90; exec @ARGV;' opencode run ...
+
+y `exec` deja a opencode con el temporizador y la máscara de señales de perl. Lanzado
+directo, o con el `con_limite` del propio método —que corre el comando en segundo plano en
+su grupo de procesos y no hace `exec`—, anda: **cinco de cinco, entre 5 y 8 segundos.**
+
+Las dos mediciones, lado a lado:
+
+| Cómo lo lancé | Resultado |
+|---|---|
+| `perl -e 'alarm N; exec @ARGV'` | 8 de 8 colgados, 0 bytes, log en `init` |
+| `con_limite` del método (sin exec) | 5 de 5 en verde, 5–8s |
+
+Lo que me deja, y es la advertencia más más cara que me llevé del día: **un instrumento no
+validado no mide el sistema, se mide a sí mismo.** Toda la cadena de razonamiento era
+impecable y toda la evidencia era real; el dato de entrada estaba contaminado por la forma
+de tomarlo. Es exactamente lo que el método le exige al gate —que un chequeo se pruebe
+contra una falla conocida antes de creerle— aplicado al instrumento con el que yo juzgaba
+la herramienta.
+
+El corolario operativo: **antes de medir con un envoltorio, medí el envoltorio.** Una
+corrida de control sin él habría costado treinta segundos y habría ahorrado horas.
+
 ## Y la advertencia que viene con todo esto
 
 > **Que los 41 casos pasen no mide que el gate esté correcto: mide el sesgo de la suite.**
