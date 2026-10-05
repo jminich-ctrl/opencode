@@ -97,3 +97,28 @@ eso no es de la plataforma, es una decisión de asignación nuestra que hay que 
 - Arc Pro B70 para IA local, costo por token (Gigazine): https://gigazine.net/gsc_news/en/20260619-intel-arc-pro-b70-local-ai/
 - Review del stack en Arc Pro B70 (StorageReview): https://www.storagereview.com/review/intel-arc-pro-b70-review
 - Referencia H200 para el contraste: https://www.millstoneai.com/inference-benchmark/qwen3-coder-30b-a3b-instruct-fp8-1x-h200-sxm
+
+---
+
+## Apéndice: el cuelgue de opencode no llega a la plataforma
+
+Durante estas mediciones, `opencode run` se colgaba con frecuencia. Monté un proxy que
+graba lo que opencode manda y lo reenvía a la API, y el resultado es concluyente:
+
+```
+#1 GET /models · 0B → {'codigo': 200, 'bytes': 22239, 'segundos': 2.29}
+```
+
+**Una sola petición: el listado de modelos.** Cuando se cuelga, opencode **nunca manda la
+petición de completado** — su propio log dice `stream` y `llm runtime selected`, pero nada
+sale del proceso—. O sea que el cuelgue es local y está antes de la red.
+
+Mientras eso pasaba, la plataforma atendía peticiones realistas sin problema: **5 de 5**
+con 20 KB de prompt y definiciones de herramientas, TTFB 0,6 s y total ~7 s. Nada que
+pedirle a la plataforma por esto.
+
+Un dato más, sin causalidad probada: después de `npm i -g @ai-sdk/openai-compatible` —el
+paquete de proveedor que la config declara y que no estaba en el disco— la tasa pasó a
+**7 de 8**. No afirmo que sea la causa: la tasa de cuelgue varía sola a lo largo del día y
+no tengo una medición de control del mismo momento. Queda como pista para reportarlo
+aguas arriba.
