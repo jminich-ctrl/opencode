@@ -20,6 +20,7 @@
 set -uo pipefail
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$AQUI/_comun.sh"
+[ -f "$HOME/.config/colabhive/env" ] && . "$HOME/.config/colabhive/env"
 ubicar_proyecto
 DESDE="${1:-1}"
 SOLO_VER="${SOLO_VER:-0}"
@@ -91,9 +92,14 @@ for etapa in "${ETAPAS[@]}"; do
   # informaríamos como cuelgue. Es la misma trampa de siempre: el umbral sólo es válido si
   # la condición que mide es la que uno cree.
   if command -v oc >/dev/null 2>&1; then
-    con_limite 240 oc --warm >/dev/null 2>&1 \
-      && echo "· modelos calientes" \
-      || echo "⊘ no pude calentar los modelos: si alguno está frío, su arranque se va a ver como un cuelgue"
+    # Se informa lo que dijo, no se juzga: `oc --warm` avisa «quedaron modelos fríos» cuando
+    # alguno del equipo no se pudo levantar, y puede ser uno que esta corrida no usa. Quien
+    # sabe si importa es la herramienta del proyecto, no este script.
+    SALIDA_WARM="$(con_limite 240 oc --warm 2>&1)"
+    echo "$SALIDA_WARM" | grep -E '^ *[●◐○]' | sed 's/^/  /' || true
+    echo "$SALIDA_WARM" | grep -q "Quedaron modelos fríos" \
+      && echo "  ⊘ quedaron modelos fríos: si la corrida usa uno de ésos, su arranque (~253s" \
+      && echo "     sin imprimir nada) se va a ver como un cuelgue y el vigilante lo va a cortar"
   fi
 
   # 0. El entorno, antes de gastar una llamada al modelo. La etapa anterior pudo agregar
