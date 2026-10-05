@@ -92,6 +92,11 @@ Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tes
 - [ ] `GET /salud` responde 200 con `{"estado": "ok"}`.
 - [ ] Un router nuevo en `backend/app/rutas/` queda montado sin tocar `main.py`, y su nombre
       aparece en `app.state.routers_montados`.
+
+      **El router de prueba lo crea el test en tiempo de ejecución y lo borra al terminar**
+      —escribir el archivo, recargar `app.main`, verificar, y limpiar en un `finally`—. No
+      es un entregable: no se commitea y no está en el alcance de esta tarea. Un intento
+      anterior lo dejó como archivo y el chequeo de alcance lo reprobó, con razón.
 - [ ] Un módulo de `rutas/` que tira error al importarse **hace fallar el import de
       `app.main`**, con el nombre del módulo en el mensaje. Un `except` que lo deje pasar es
       exactamente lo que esta tarea no tiene que hacer.
