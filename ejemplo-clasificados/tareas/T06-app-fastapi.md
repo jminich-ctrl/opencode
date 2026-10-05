@@ -1,6 +1,6 @@
 # T06 — Aplicación FastAPI (punto de entrada)
 
-**Estado:** ✅ hecha
+**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
 **Depende de:** T02
 **Archivos que podés tocar:** backend/app/main.py
 **Prohibido tocar:** `scripts/` y `*/tests/` (el paso 0 del gate los verifica)
@@ -47,6 +47,12 @@ Entra:
   adelante. No se atrapa para seguir.
 - Un endpoint `GET /salud` que devuelva `{"estado": "ok"}`. Es lo que el smoke test de
   pre-deploy usa para saber que el proceso levantó.
+- **Normalizar los errores al contrato del plan.** FastAPI responde `422` con cuerpo
+  `{"detail": [...]}` cuando la validación del esquema falla, y el plan cerró en G0 que la
+  entrada inválida es `400` con cuerpo `{"error": "<mensaje>"}`. Entonces acá van dos
+  manejadores: uno para `RequestValidationError` → 400, y otro para `HTTPException` que
+  reescriba `{"detail": ...}` como `{"error": ...}`. Sin eso, cada ruta tendría que validar
+  a mano para esquivar el 422, o el plan sería mentira.
 
 No entra:
 - Cualquier endpoint de negocio: ésos son de las tareas de `rutas/`.
@@ -66,6 +72,11 @@ app: FastAPI
 # Un módulo de rutas que no se pueda importar hace fallar esta línea, con su nombre.
 
 # GET /salud → 200 {"estado": "ok"}
+#
+# Y los errores, para TODA la aplicación:
+#   RequestValidationError  → 400 {"error": "<mensaje para la persona>"}
+#   HTTPException(code, detail) → code {"error": detail}
+# Una ruta levanta HTTPException con el código del plan y no arma el cuerpo: lo arma acá.
 ```
 
 Y el contrato del otro lado, que vale para las seis tareas de rutas: **un módulo de
@@ -84,6 +95,9 @@ Los tests de esta tarea **ya están en el repo y fallan**. Archivo: `backend/tes
 - [ ] Un módulo de `rutas/` que tira error al importarse **hace fallar el import de
       `app.main`**, con el nombre del módulo en el mensaje. Un `except` que lo deje pasar es
       exactamente lo que esta tarea no tiene que hacer.
+- [ ] Un POST con el cuerpo incompleto responde **400** —no 422— y el cuerpo es
+      `{"error": ...}`.
+- [ ] Un `HTTPException(404, "no existe")` sale como `{"error": "no existe"}`.
 - [ ] `bash scripts/gate.sh` en verde.
 
 ## Verificación

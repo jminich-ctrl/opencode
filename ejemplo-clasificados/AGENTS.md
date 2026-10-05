@@ -69,7 +69,11 @@ y no te lo contamos como error.
 - **Precios en centavos, entero.** Nada de flotantes para dinero.
 - **Esquema de tablas**: el de `PLAN.md`, tal cual. Si una tarea necesita una columna que
   no está, eso es un cambio de plan: pará y decilo.
-- **Errores de la API**: el formato está en `PLAN.md`. No inventes otro.
+- **Errores de la API**: una ruta levanta `HTTPException(código, "mensaje")` con los códigos
+  del plan y **no arma el cuerpo de la respuesta**. El `main.py` lo normaliza a
+  `{"error": ...}` para toda la aplicación, y convierte el `422` de FastAPI en el `400` que
+  pide el plan. Si validás a mano para esquivar el 422, estás resolviendo dos veces algo
+  que ya está resuelto en un solo lugar.
 
 ## Desde dónde corren los tests
 
