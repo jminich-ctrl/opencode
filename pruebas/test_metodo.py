@@ -669,6 +669,36 @@ class TestPlataformaCaida(unittest.TestCase):
                       "un stream cortado por la plataforma no es culpa del agente")
 
 
+class TestLaConfigVersionadaDiceLaVerdad(unittest.TestCase):
+    """`OPENCODE.md` llama a `colabhive/config/opencode.json` «el archivo real, versionado
+    en este repo». Si la config que de verdad usa opencode no es ésa, el archivo versionado
+    describe algo que no corre — y todo el que lo lea para entender qué modelo usa cada
+    agente va a leer una mentira.
+
+    Pasó: la copia del repo quedó dos días atrás, sin el `headerTimeout` que bajamos hoy y
+    sin los dos modelos candidatos que agregamos para poder medirlos. Es la declaración
+    doble de siempre, y el método ya tiene la regla: cruzá toda declaración doble.
+
+    Si no hay config instalada, esto no se puede comprobar: ⊘, se salta diciendo por qué.
+    Un chequeo que no pudo correr no es un chequeo que pasó.
+    """
+
+    def test_la_config_del_repo_es_la_que_corre(self):
+        viva = pathlib.Path.home() / ".config" / "opencode" / "opencode.json"
+        if not viva.exists():
+            self.skipTest("⊘ no hay opencode instalado acá: nada que cruzar")
+        repo = RAIZ / "colabhive" / "config" / "opencode.json"
+        import json
+        a, b = json.loads(repo.read_text()), json.loads(viva.read_text())
+        if a == b:
+            return
+        difs = sorted(set(json.dumps(a, sort_keys=True).split(",")) ^
+                      set(json.dumps(b, sort_keys=True).split(",")))[:6]
+        self.fail(f"la config versionada y la instalada no dicen lo mismo. "
+                  f"OPENCODE.md llama «el archivo real» a la del repo, así que la "
+                  f"diferencia es una mentira documentada. Muestra: {difs}")
+
+
 class TestTodoWorktreeJuzgadoTieneEntorno(unittest.TestCase):
     """Un worktree recién creado no tiene `.venv` ni `node_modules`, así que la suite no
     puede correr y el gate reprueba por «falta el corredor de tests» — un rojo que no es

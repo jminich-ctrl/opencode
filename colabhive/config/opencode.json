@@ -7,7 +7,7 @@
       "options": {
         "baseURL": "https://api.colabhive.com/v1",
         "apiKey": "{env:COLABHIVE_API_KEY}",
-        "headerTimeout": 900000,
+        "headerTimeout": 300000,
         "chunkTimeout": 120000,
         "timeout": false
       },
@@ -60,6 +60,26 @@
           "limit": {
             "context": 53000,
             "output": 8192
+          }
+        },
+        "9465ae5a-403d-4213-833e-b2eeaffe9dd1": {
+          "name": "GLM-4.7-Flash 30B-A3B · candidato a ejecutor (razona)",
+          "tool_call": true,
+          "reasoning": true,
+          "temperature": true,
+          "limit": {
+            "context": 200000,
+            "output": 16384
+          }
+        },
+        "d7750d6c-2a00-40d0-99e2-a3c0b0ffffd4": {
+          "name": "Devstral-Small-2-24B · candidato a ejecutor (denso, rápido)",
+          "tool_call": true,
+          "reasoning": false,
+          "temperature": true,
+          "limit": {
+            "context": 128000,
+            "output": 16384
           }
         }
       }
