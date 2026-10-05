@@ -3,6 +3,13 @@
 **Pregunta:** ColabHive permite importar desde HuggingFace, así que el catálogo no es el que
 está desplegado. ¿Cuál conviene para cada papel del método?
 
+> **Corrección, el mismo día.** La primera versión de este documento recomendaba
+> GLM-4.7-Flash dando por hecho que entraba por `GLMForCausalLM`. Falso: su arquitectura
+> real es **`Glm4MoeLiteForCausalLM`** y **no está en la lista de XPU** —las únicas
+> entradas GLM son las del 4-9B—. El nombre que figura en la tabla de soporte no es el
+> nombre de la familia: hay que leerlo del `config.json` del checkpoint. Abajo queda
+> corregido, y aparece un candidato que no habíamos visto.
+
 **Fecha:** 2026-10-05. **Todos los números de abajo son publicados, no medidos por
 nosotros.** Sirven para elegir *candidatos*; quién gana lo decide `comparar-modelos.sh`
 corriendo una tarea real contra el gate. Esa distinción es la misma trampa que la
@@ -28,40 +35,55 @@ mitad o menos, por bueno que sea. Cada agente del método trabaja solo: esto pes
 
 ## Los candidatos que pasan el filtro
 
-| Modelo | Forma | Memoria en B70 | Lo que publica | Veredicto |
+Verificado leyendo el `config.json` de cada checkpoint y el tamaño real de los pesos vía la
+API de HuggingFace, no estimado:
+
+| Modelo | Arquitectura real | Pesos en disco | Placas de 32 GB | ¿En la lista de XPU? |
 |---|---|---|---|---|
-| **GLM-4.7-Flash** | 30B-**A3B** MoE, 200K | FP8 ~30 GB → TP2 cómodo | SWE-bench Verified **59,2** · τ²-Bench **79,5** (herramientas) · LCB v6 64,0 | **el candidato** |
-| **Muse Glimmer 30B** | 30B **denso** + ViT, 131K | FP8 32,78 GB → **TP2 mínimo** | MCP Atlas **75,5** (vs 62,5 del Qwen3.6-27B) · SWE-bench Verified 76,0 · SWE-bench Pro 51,2 | el techo de calidad, caro en placas |
-| **Qwen3.8-Flash-Next** | 125B totales / **6B activos** | FP8 ~125 GB → no entra; Int4 ~63 GB → TP4, el clúster entero | Toolathlon **73,5** · CoWorkBench 73,9 | sólo si sobran placas |
-| Qwen3.8-27B FP8 *(ya desplegado)* | 27B denso | 1 placa | medido por nosotros: 30,1 tok/s, 12 de 12 sano | el que funciona hoy |
+| **DeepSeek-V4-Flash** 284B-**A13B**, 1M ctx, MIT | `DeepseekV4ForCausalLM` | **159,6 GB** (FP8 nativo) | **6 mínimo** | ✅ fila propia: `BF16/Online FP8` |
+| **Muse Glimmer 30B** denso + ViT, 131K, Apache 2.0 | `MuseGlimmerForConditionalGeneration` | 32,78 GB (FP8) | 2 | ✅ y validado en B70 con la imagen XPU |
+| GLM-4.7-Flash 31B-A3B, 200K, MIT | `Glm4MoeLiteForCausalLM` | 62,4 GB (BF16) | 1–2 con FP8 online | ❌ **no está** |
+| Qwen3.8-27B FP8 *(ya desplegado)* | `Qwen3ForCausalLM` | — | 1 | ✅ |
 
-### Por qué GLM-4.7-Flash es el candidato
+### El hallazgo: hay un modelo que necesita Orion para existir
 
-Tres razones, en orden de peso:
+**DeepSeek-V4-Flash son 159,6 GB de pesos en FP8 nativo.** En las cuatro placas de hoy
+(128 GB) no entra. En **Orion, 8× B70 = 256 GB, entra con ~96 GB libres para KV cache.**
 
-1. **Es un reemplazo de forma idéntica al que está roto.** 30B-A3B MoE, mismos 3B activos,
-   mismo perfil de memoria y de velocidad. No hay que replanificar nada de la topología.
-2. **Trae MTP de fábrica.** El comando de servido que publican ya lleva
-   `--speculative-config.method mtp`. Eso es exactamente la palanca que identifiqué esta
-   mañana como la única mejora real disponible en esta placa (×2,8 publicado en B70). No
-   hay que pelearla aparte: viene en la receta.
-3. **τ²-Bench 79,5** mide encadenar herramientas sin perder el hilo —buscar, leer, editar—,
-   que es literalmente lo que hace el `ejecutor`. Es el número más parecido a nuestro uso
-   de todos los que hay publicados.
+Eso cambia de qué se trata la ventana de Orion. No es solamente «más paralelismo»: es una
+clase de modelo que en el hardware actual no se puede servir en absoluto. Y no es un modelo
+cualquiera para lo que hacemos — Terminal Bench 2.1 **82,7**, Toolathlon-Verified **70,3**,
+que son las dos varas más parecidas a un agente trabajando en una terminal sobre un repo.
 
-También publica `--tool-call-parser glm47` y `--reasoning-parser glm45`, o sea que el
-razonamiento viene separado del contenido. Eso importa: medimos que `gpt-oss-20b` gasta el
-**98% de su presupuesto en razonamiento** con `max_tokens=256`, y sin parser eso se mezcla.
+Dos cosas más que lo hacen encajar acá y no sólo en un benchmark:
 
-### Por qué Muse Glimmer no es el candidato, aunque mida mejor
+- **13B activos de 284B.** La decodificación con un solo flujo lee sólo los expertos
+  activos, así que repartidos en ocho placas cada una lee algo así como 1,6 GB por token.
+  No es el cuello de botella que sí tiene un denso de 30B. (Aritmética de techo, no
+  medición: la ruteo de expertos y la atención se pagan igual.)
+- **Viene cuantizado de fábrica**, `fp8` e4m3 con bloques de 128×128 declarado en su
+  `config.json`, y la fila de XPU dice exactamente `BF16/Online FP8`. No hay que producir
+  un checkpoint ni confiar en una cuantización de terceros — que es, literalmente, el
+  problema que hoy nos rompió el ejecutor.
 
-Mide mejor en uso de herramientas (75,5 contra los 62,5 del Qwen de la generación anterior)
-y está **validado en B70** con la imagen XPU y `--enforce-eager`. Pero es **denso**: su
-checkpoint FP8 son 32,78 GB, que no entran en una placa de 32 GB con KV cache. Mínimo TP2,
-y con la mitad de la velocidad de decodificación de un A3B.
+### Muse Glimmer 30B: el candidato para las cuatro placas de hoy
 
-Tiene algo que sí vale la pena mirar aparte: **un draft head de 5,11 GB para decodificación
-especulativa**. Es la misma palanca del MTP, empaquetada.
+Es el único de la lista que está **validado en B70** con receta publicada (imagen XPU,
+`--enforce-eager`) y que entra en el hardware actual: 32,78 GB en FP8, o sea TP2. Publica
+MCP Atlas **75,5** en uso de herramientas contra 62,5 del Qwen de la generación anterior, y
+SWE-bench Verified 76,0. Es denso, así que decodifica a la mitad que un A3B — el precio de
+la calidad. Trae además un **draft head de 5,11 GB** para decodificación especulativa, que
+es la palanca ×2,8 empaquetada.
+
+### Por qué GLM-4.7-Flash queda afuera, aunque era el mejor candidato sobre el papel
+
+Sobre el papel era ideal: misma forma que el modelo roto (30B-A3B), MIT, MTP en la receta
+publicada, τ²-Bench 79,5. Pero su arquitectura es `Glm4MoeLiteForCausalLM`, que no figura
+en la lista de XPU, y el propio modelo aclara que **vLLM y SGLang lo soportan sólo en sus
+ramas principales**. Tampoco publica checkpoints cuantizados oficiales.
+
+Queda como **pedido**, no como plan: si Intel o el equipo de vLLM agregan
+`Glm4MoeLiteForCausalLM` al backend XPU, es el mejor candidato para una sola placa.
 
 ## Lo que hay que pedirle a ColabHive
 
@@ -71,8 +93,10 @@ especulativa**. Es la misma palanca del MTP, empaquetada.
    `colabhive/bug-token-repetido-30b.md`.
 3. **Alinear cómo se informa la cuantización.** `oc --status` dice FP8 y la API dice AWQ
    para el mismo modelo. Con logits rotos de por medio, ese es el primer dato que uno mira.
-4. Si sobran placas: **importar `Muse-Glimmer-30B` en FP8 con TP2** como candidato de techo
-   para el `arquitecto`, que es el papel donde la calidad vale más que la velocidad.
+4. **Importar `Muse-Glimmer-30B` en FP8 con TP2**: es el único candidato nuevo que entra en
+   el hardware de hoy y está validado en B70.
+5. **`DeepSeek-V4-Flash` necesita 6 placas como mínimo** (159,6 GB de pesos). Si hay acceso a
+   Orion, es el candidato de techo; en las cuatro de hoy no entra.
 
 ## Lo que decide, que no es esta tabla
 
@@ -92,8 +116,8 @@ de que tampoco miden si el servido está sano.
 
 | Papel | Hoy | Propuesto | Por qué |
 |---|---|---|---|
-| `ejecutor`, `build`, `tester`, `devops`, `migrador` | 30B-A3B (roto) | **GLM-4.7-Flash** | τ²-Bench, MoE rápido, MTP de fábrica |
-| `arquitecto` | 30B-A3B (roto) | Muse Glimmer 30B, si hay placas | planifica: la calidad vale más que el reloj |
+| `ejecutor`, `build`, `tester`, `devops`, `migrador` | 30B-A3B (roto) | **Muse Glimmer 30B** (TP2) hoy; **DeepSeek-V4-Flash** en Orion | los dos están en la lista de XPU; GLM-4.7-Flash no |
+| `arquitecto` | 30B-A3B (roto) | DeepSeek-V4-Flash si hay 6+ placas | planifica: la calidad vale más que el reloj, y 13B activos no castigan tanto |
 | `plan`, `reviewer`, `seguridad` | 27B FP8 | se queda | medido sano, 30,1 tok/s |
 | `title`, `summary`, `compaction` | gpt-oss-20b / 30B | un modelo chico **sin razonamiento** | el 98% del presupuesto se va razonando: para un título es puro desperdicio |
 
