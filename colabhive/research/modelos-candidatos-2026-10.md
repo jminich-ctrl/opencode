@@ -98,6 +98,44 @@ Queda como **pedido**, no como plan: si Intel o el equipo de vLLM agregan
 5. **`DeepSeek-V4-Flash` necesita 6 placas como mínimo** (159,6 GB de pesos). Si hay acceso a
    Orion, es el candidato de techo; en las cuatro de hoy no entra.
 
+## Lo que midió el gate, que desmintió a la tabla
+
+Lo de arriba son números publicados. Esto es `comparar-modelos.sh` sobre **T08 de
+clasificados**: misma tarea real, mismo repo, mismo arnés, mismo gate que puede reprobar.
+
+| Modelo | Herramientas | Deliberación | **Archivos** | Segundos | ¿Su código sostiene peso? |
+|---|---|---|---|---|---|
+| **Devstral-Small-2-24B** | 20 | 700 | **3** | **192** | ✅ revertirlos rompe la suite |
+| Qwen3.8-27B FP8 | 26 | 974 | 3 | 1574 | — |
+| GLM-4.7-Flash | 4 | 9 | **0** | 82 | no hizo nada |
+
+**Ganó el que no estaba en esta investigación.** Devstral-Small-2-24B no aparecía en ninguna
+de mis búsquedas: lo encontré mirando el catálogo que ya estaba desplegado. Escribió
+`AdsList.jsx`, `AdDetail.jsx` y `services/ads.ts`, y la prueba de mutación del gate confirma
+que no es decorado: al revertir esos archivos la suite se cae.
+
+**Perdió el que yo había elegido.** GLM-4.7-Flash tiene los mejores números publicados de
+los tres —τ²-Bench 79,5, SWE-bench Verified 59,2— y en la tarea real se rinde tras cuatro
+llamadas a herramientas con cero archivos. No está roto: el chequeo de salud le da 4 de 4
+sano y llamando herramientas. Simplemente **no termina el trabajo en este arnés**.
+
+**El 27B llega al mismo lugar que Devstral y tarda 8 veces más.** 1574 segundos contra 192,
+con más deliberación (974 líneas contra 700) para el mismo resultado.
+
+Tres advertencias sobre esta tabla, para que no se lea de más:
+
+- **Es UNA tarea y UNA corrida por modelo.** Suficiente para descartar a GLM-4.7-Flash como
+  ejecutor y para preferir a Devstral sobre el 27B por un factor de 8; insuficiente para
+  ordenar dos modelos que queden cerca.
+- **Mide el par modelo + arnés, no el modelo.** Con otro arnés —OpenHands, por ejemplo— el
+  orden puede ser otro, y medirlo es justamente para lo que sirve el modo `@agente` de
+  `comparar-modelos.sh`.
+- **Tres veces en el día el número publicado eligió mal.** Primero recomendé GLM-4.7-Flash
+  por τ²-Bench; después lo descarté porque su arquitectura no figuraba en la lista de XPU
+  de vLLM —y ya estaba desplegado y andando—; y al final la tarea real lo descartó por un
+  motivo que ninguna tabla decía. La lista de arquitecturas y el banco público son dos
+  documentos, y los dos estaban desactualizados respecto del sistema.
+
 ## Lo que decide, que no es esta tabla
 
 El método ya tiene el instrumento, y es el único honesto para esto:
