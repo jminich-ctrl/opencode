@@ -69,11 +69,21 @@ def revisar(archivo):
 
 
 def main():
-    dirs = [pathlib.Path(a) for a in sys.argv[1:]]
-    archivos = [p for d in dirs if d.exists()
-                for p in d.rglob("*")
-                if p.is_file() and p.suffix in (".py", ".ts", ".tsx", ".js", ".jsx")
-                and "node_modules" not in p.parts and "__pycache__" not in p.parts]
+    EXT = (".py", ".ts", ".tsx", ".js", ".jsx")
+
+    def sirve(p):
+        return (p.is_file() and p.suffix in EXT
+                and "node_modules" not in p.parts and "__pycache__" not in p.parts)
+
+    # Acepta directorios y archivos sueltos: en modo tarea el gate pasa la lista de lo que
+    # esa tarea tocó, no un árbol.
+    archivos = []
+    for a in sys.argv[1:]:
+        ruta = pathlib.Path(a)
+        if ruta.is_dir():
+            archivos += [p for p in ruta.rglob("*") if sirve(p)]
+        elif sirve(ruta):
+            archivos.append(ruta)
     if not archivos:
         print("  ⊘ no hay archivos que revisar por señales suprimidas — no pudo verificarse")
         return 2

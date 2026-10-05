@@ -249,7 +249,15 @@ if [ ! -f scripts/_suprimidas.py ]; then
   rojo "falta scripts/_suprimidas.py: el gate no puede buscar señales suprimidas"
   echo "     Copialo de plantillas/_suprimidas.py. Esto es del método, no del código juzgado."
 else
-  SAL_SUP="$("${PY_PROYECTO:-python3}" scripts/_suprimidas.py src 2>&1)"; RC_SUP=$?
+  # En modo tarea, sólo lo que ESTA tarea tocó: una señal suprimida que ya estaba en el
+  # tronco no es de esta tarea. Es el mismo error que cometí con los imports y con el
+  # corredor faltante — tests-first deja el tronco con defectos de etapas en vuelo.
+  if [ -n "${TAREA:-}" ]; then
+    ARG_SUP="$(echo "$CAMBIADOS" | grep -E '\.(py|ts|tsx|js|jsx)$' | tr '\n' ' ')"
+  else
+    ARG_SUP="src"
+  fi
+  SAL_SUP="$("${PY_PROYECTO:-python3}" scripts/_suprimidas.py ${ARG_SUP} 2>&1)"; RC_SUP=$?
   echo "$SAL_SUP"
   case "$RC_SUP" in 1) FALLOS=$((FALLOS+1)) ;; 2) VACIOS=$((VACIOS+1)) ;; esac
 fi

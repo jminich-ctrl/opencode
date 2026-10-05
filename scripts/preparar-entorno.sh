@@ -160,13 +160,22 @@ if [ -n "$PKG" ]; then
       # «Cannot find native binding», que es rollup sin su binario de plataforma—. En ese
       # caso se instala desde el package.json y sin escribir lock: el lock es del proyecto,
       # no de un worktree de validación.
-      if ! mismo_manifiesto "${DIR#$DESTINO/}" package.json 2>/dev/null \
-         && [ "$DESTINO" != "$BASE" ]; then
+      # Instalación LIMPIA siempre que el manifiesto cambió: `npm install` sobre un
+      # node_modules viejo deja el árbol a medias por el bug de dependencias opcionales de
+      # npm, y el síntoma es «Cannot find native binding» —rollup sin su binario de
+      # plataforma— a mitad de una tarea que no tiene nada que ver. Nos pasó dos veces, y la
+      # segunda el node_modules roto estaba en el TRONCO, así que se lo heredaban todas.
+      # La documentación de npm para ese bug dice exactamente esto: borrar node_modules y el
+      # lock antes de reinstalar.
+      if [ "$DESTINO" != "$BASE" ] && ! mismo_manifiesto "${DIR#$DESTINO/}" package.json; then
         echo "  · manifiesto propio del worktree: instalación limpia, sin tocar el lock"
+        rm -rf "$DIR/node_modules"
         ( cd "$DIR" && npm install --silent --no-package-lock )
-      elif [ -f "$DIR/package-lock.json" ]; then
-        ( cd "$DIR" && npm ci --silent ) || ( cd "$DIR" && npm install --silent )
+      elif [ -f "$DIR/package-lock.json" ] && ( cd "$DIR" && npm ci --silent ); then
+        :
       else
+        echo "  · instalación limpia (el lock no estaba en sincronía con el manifiesto)"
+        rm -rf "$DIR/node_modules" "$DIR/package-lock.json"
         ( cd "$DIR" && npm install --silent )
       fi
       if [ -d "$DIR/node_modules" ]; then echo "$AHORA" > "$SELLO"; HIZO=1
