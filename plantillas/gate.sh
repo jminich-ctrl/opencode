@@ -214,6 +214,14 @@ else
     if [ -n "$FUERA" ]; then
       rojo "archivos fuera del alcance de $TAREA:$FUERA"
       echo "     permitidos: $(echo "$PERMITIDOS" | tr '\n' ' ')"
+      # Si lo que se fue del alcance parece andamiaje de un test, lo más probable es que el
+      # criterio de terminado lo esté pidiendo y el alcance no lo permita: la tarea se
+      # contradice a sí misma y el agente hizo lo que le pedían.
+      if echo "$FUERA" | grep -qE '(^| )[^ ]*(/|^)(test_[^ /]*|[^ /]*_test)\.[a-z]+'; then
+        echo "     OJO: eso parece andamiaje de un test. Revisá el criterio de terminado de"
+        echo "     $TAREA: si pide crear algo que el alcance no permite, la tarea se contradice"
+        echo "     y el defecto es del plan. Un archivo que un test necesita lo crea el test."
+      fi
     else verde "todo dentro del alcance declarado"; fi
   fi
 fi

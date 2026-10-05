@@ -294,6 +294,28 @@ class TestGate(CasoBase):
         self.assertTrue(marca.exists(),
                         "el gate ignoró PY_PROYECTO y usó otro intérprete")
 
+    def test_un_archivo_de_andamiaje_fuera_del_alcance_apunta_al_plan(self):
+        """Cuando lo que se fue del alcance huele a andamiaje de test, lo más probable es que
+        el criterio de terminado lo esté pidiendo: pasó con T06, cuyo criterio pedía un router
+        de prueba que su propio alcance prohibía. El gate no puede decidirlo, pero sí puede
+        decir dónde mirar en vez de dejar al agente como único acusado."""
+        self.p.implementar()
+        (self.p.dir / "src" / "test_sonda.py").write_text("# router de prueba\n")
+        r = self.p.gate("T01")
+        self.assertRojo(r, "el archivo no está en el alcance", motivo="fuera del alcance")
+        self.assertIn("Revisá el criterio de terminado", r.stdout,
+                      f"tiene que mandar a mirar el plan, no sólo culpar al agente\n{r.stdout}")
+
+    def test_un_archivo_cualquiera_fuera_del_alcance_no_culpa_al_plan(self):
+        """Y la otra mitad: un archivo que no parece andamiaje no insinúa nada del plan.
+        Una pista que aparece siempre no es una pista."""
+        self.p.implementar()
+        (self.p.dir / "src" / "colado.py").write_text("# no va\n")
+        r = self.p.gate("T01")
+        self.assertRojo(r, "el archivo no está en el alcance", motivo="fuera del alcance")
+        self.assertNotIn("Revisá el criterio de terminado", r.stdout,
+                         "no hay motivo para sospechar del plan acá")
+
     def test_infraestructura_del_runner_no_cuenta_como_fuera_de_alcance(self):
         """`.base-ref` lo escribe el runner y ponía en ROJO toda tarea."""
         self.p.implementar()
