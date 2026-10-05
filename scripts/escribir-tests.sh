@@ -35,6 +35,12 @@ AGENTE="${AGENTE:-tester}"
 # esto, una generación inconsistente —el test del agente contra la implementación del
 # agente— paraba la corrida y pedía una persona.
 REINTENTOS_TESTS="${REINTENTOS_TESTS:-2}"
+# Los cortes por cuelgue de la herramienta llevan cuenta aparte, y más generosa. No es lo
+# mismo que una falla de contenido: ésa no se va a ir sola y reintentarla gasta modelo, pero
+# un cuelgue intermitente sí se va —el mismo prompt anduvo seis de seis veces aislado—, así
+# que reintentar es la respuesta correcta y no un gasto. Con los dos en la misma cuenta,
+# dos cuelgues seguidos agotaban el presupuesto de una tarea que nunca llegó a fallar.
+CORTES_MAX="${CORTES_MAX:-5}"
 
 # Diagnostica y deja el motivo anotado para el reintento.
 malo() { echo "  ✗ $1"; MOTIVO_TESTS="$1"; fallos=1; }
@@ -78,7 +84,7 @@ for id in "$@"; do
     continue
   fi
 
-  intento=1; MOTIVO_TESTS=""; HUELLA_ANTERIOR=""
+  intento=1; cortes=0; MOTIVO_TESTS=""; HUELLA_ANTERIOR=""
   while :; do
   wt="$RAIZ/../tests-$id"
   rm -rf "$wt"
@@ -279,7 +285,14 @@ No toques ningún otro archivo." 2>&1
   # convierte un problema transitorio de la herramienta en una parada del método.
   if [ "${RC_AGENTE:-0}" = "142" ]; then
     HUELLA_ANTERIOR=""
-    echo "     (un corte por tiempo no cuenta como punto muerto: es intermitente)"
+    cortes=$((cortes+1))
+    if [ "$cortes" -gt "$CORTES_MAX" ]; then
+      echo "  ✗ $id: $cortes cortes por cuelgue seguidos. No es la tarea: es la herramienta."
+      echo "     Log: $log"
+      break
+    fi
+    echo "     (corte $cortes de $CORTES_MAX permitidos; no cuenta como intento ni como punto muerto)"
+    continue
   elif [ "$MOTIVO_TESTS" = "$HUELLA_ANTERIOR" ]; then
     echo "  ✗ $id: punto muerto — falló dos veces por lo mismo: $MOTIVO_TESTS"
     echo "     Log: $log"
