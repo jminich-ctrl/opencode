@@ -5,6 +5,9 @@ import importlib.util
 # Crear la aplicación FastAPI
 app = FastAPI()
 
+# Inicializar la lista de routers montados
+app.state.routers_montados = []
+
 # Ruta donde se encuentran los routers
 rutas_dir = os.path.join(os.path.dirname(__file__), "rutas")
 
@@ -21,10 +24,11 @@ for filename in os.listdir(rutas_dir):
             # Si el módulo tiene un atributo router, incluirlo
             if hasattr(module, "router"):
                 app.include_router(module.router)
-        except Exception:
-            # Si hay algún error al cargar el módulo, se ignora silenciosamente
-            # como se menciona en la tarea: "un módulo de `rutas/` que no exponga `router` queda montado en silencio"
-            pass
+                app.state.routers_montados.append(module_name)
+        except Exception as e:
+            # Si hay algún error al cargar el módulo, se propaga el error
+            # con el nombre del módulo en el mensaje
+            raise ImportError(f"Error al cargar el módulo {module_name}: {str(e)}")
 
 # Endpoint de salud
 @app.get("/salud")
