@@ -46,6 +46,12 @@ for modelo in "$@"; do
   echo "▶ $n: $modelo"
   (
     cd "$wt/$PROYECTO" || exit 1
+    # Un worktree recién creado no tiene .venv ni node_modules, así que la suite no puede
+    # correr y el gate reprueba por «falta el corredor de tests» — a TODOS los modelos, por
+    # igual, por un motivo que no los distingue. La primera comparación válida de GLM,
+    # Devstral y el 27B se perdió así: midió el entorno, no los modelos.
+    # `correr-tarea.sh` ya lo hacía; acá faltaba.
+    bash "$AQUI/preparar-entorno.sh" "$wt/$PROYECTO" >/dev/null 2>&1
     export XDG_DATA_HOME="$wt/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
     inicio=$(date +%s)
     # CON límite. Lo primero que uno le pide a un modelo candidato es que capaz esté roto,

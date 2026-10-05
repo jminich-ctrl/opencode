@@ -669,6 +669,33 @@ class TestPlataformaCaida(unittest.TestCase):
                       "un stream cortado por la plataforma no es culpa del agente")
 
 
+class TestTodoWorktreeJuzgadoTieneEntorno(unittest.TestCase):
+    """Un worktree recién creado no tiene `.venv` ni `node_modules`, así que la suite no
+    puede correr y el gate reprueba por «falta el corredor de tests» — un rojo que no es
+    del agente ni del modelo.
+
+    `correr-tarea.sh` ya lo resolvía llamando a `preparar-entorno.sh`, con el comentario
+    puesto. `comparar-modelos.sh` no, y por eso su primera comparación válida dio el MISMO
+    rojo a los tres modelos por un motivo que no los distinguía: midió el entorno, no los
+    modelos. Es el patrón que este repo ya tiene anotado —una mejora en un lado y la
+    medición rota en el otro— así que el test es estructural y no sobre un script.
+    """
+
+    def test_el_que_crea_worktree_y_juzga_prepara_el_entorno(self):
+        culpables = []
+        for s in sorted(SCRIPTS.glob("*.sh")):
+            texto = s.read_text()
+            crea = "worktree add" in texto
+            juzga = "cerrar_con_gate" in texto or "gate.sh" in texto
+            if crea and juzga and "preparar-entorno.sh" not in texto:
+                culpables.append(s.name)
+        self.assertEqual(
+            culpables, [],
+            f"{culpables} crean un worktree y lo juzgan con el gate sin preparar el "
+            f"entorno: el gate va a reprobar por falta de corredor, y ese rojo no es del "
+            f"agente")
+
+
 class TestLaSeñalDeVidaNoEsElSilencio(unittest.TestCase):
     """El silencio no distingue a un agente que trabaja de uno colgado, a ningún umbral.
 
