@@ -616,6 +616,44 @@ class TestElGateManda(unittest.TestCase):
                          "si el gate pudo decidir, decide el gate (P2)")
 
 
+class TestPlataformaCaida(unittest.TestCase):
+    """Un 502 de la plataforma no es una falla de la tarea ni del agente.
+
+    Pasó: la API pasó de responder en 3s a devolver 502 en TODO —incluido `/models`— y el
+    método lo informaba como «el test no pasa ni con la implementación del propio agente»,
+    que es el diagnóstico más lejano posible de la causa. Y peor: reintentaba, gastando el
+    presupuesto de cada tarea contra algo que no iba a cambiar por insistir.
+    """
+
+    def consultar(self, url):
+        return correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; plataforma_responde; echo "rc=$?"',
+                      RAIZ, COLABHIVE_BASE_URL=url, COLABHIVE_API_KEY="x")
+
+    def test_una_url_que_no_responde_se_informa(self):
+        # Puerto cerrado en loopback: curl falla y el código queda en 000.
+        r = self.consultar("http://127.0.0.1:9/v1")
+        self.assertIn("rc=1", r.stdout, "tiene que decir que no responde")
+        self.assertIn("no responde", r.stderr + r.stdout,
+                      "y decir que no es la tarea ni el agente")
+
+    def test_sin_plataforma_configurada_no_opina(self):
+        """Si el proyecto no usa esta plataforma, el chequeo no aplica y no puede frenar
+        nada: un chequeo que opina sobre algo que no está configurado es un falso rojo."""
+        r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; unset COLABHIVE_BASE_URL; '
+                   f'plataforma_responde; echo "rc=$?"', RAIZ)
+        self.assertIn("rc=0", r.stdout)
+
+    def test_el_502_se_reconoce_como_falla_de_la_plataforma(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-502-"))
+        self.addCleanup(shutil.rmtree, str(d), True)
+        log = d / ".tarea.log"
+        log.write_text("=== T01\nError: Bad Gateway\n=== gate ===\nx\n=== rc=1\n"
+                       "=== fin T01 · hoy\n")
+        r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; error_del_agente "{log}"', RAIZ)
+        self.assertIn("Bad Gateway", r.stdout,
+                      "un 502 es una falla de la plataforma, no del test")
+
+
 class TestLimiteDeTiempo(unittest.TestCase):
     """Un agente colgado detiene la corrida para siempre, y eso es peor que un error: un
     error se reintenta, un cuelgue no se nota. Pasó: `opencode run` se quedó 31 minutos con

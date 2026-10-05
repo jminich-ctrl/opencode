@@ -88,7 +88,25 @@ parte_del_agente() {
 # —aunque eso el gate ya lo dice con «no hay ningún cambio: la tarea no se hizo»—.
 error_del_agente() {
   parte_del_agente "$1" \
-    | grep -m1 -oE 'inference timed out[^"]*|database is locked|el agente no respondió[^"]*'
+    | grep -m1 -oE 'inference timed out[^"]*|database is locked|el agente no respondió[^"]*|Bad Gateway|Service Unavailable|Internal Server Error|50[0234] '
+}
+
+# ¿Responde la plataforma? Un 502 de nginx no es una falla de la tarea ni del agente, y
+# reintentar contra una plataforma caída gasta el presupuesto de todas las tareas sin
+# aprender nada. Pasó: la API pasó de responder en 3s a devolver 502 en TODO —incluido
+# `/models`— y el método lo informaba como «el test no pasa ni con la implementación del
+# propio agente», que es el diagnóstico más lejano posible de la causa.
+plataforma_responde() {
+  [ -n "${COLABHIVE_BASE_URL:-}" ] || return 0      # sin configurar, no opinamos
+  local codigo
+  codigo="$(curl -s -m 20 -o /dev/null -w '%{http_code}' \
+            "$COLABHIVE_BASE_URL/models" \
+            -H "Authorization: Bearer ${COLABHIVE_API_KEY:-}" 2>/dev/null || echo 000)"
+  [ "$codigo" = "200" ] && return 0
+  echo "✗ la plataforma de modelos no responde: HTTP $codigo en $COLABHIVE_BASE_URL/models" >&2
+  echo "  No es la tarea ni el agente. Reintentar contra una plataforma caída gasta el" >&2
+  echo "  presupuesto de todas las tareas sin aprender nada." >&2
+  return 1
 }
 
 # Registro de intentos: una línea por corrida, para que las métricas lean datos y no

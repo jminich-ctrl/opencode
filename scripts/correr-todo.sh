@@ -36,6 +36,12 @@ if grep -qE '^\*\*Estado del gate G0:\*\*.*borrador' "$PLAN"; then
   exit 1
 fi
 
+# Y la plataforma tiene que responder. Arrancar diez etapas contra una API caída gasta
+# horas de reintentos y produce diagnósticos que señalan al agente.
+if [ "$SOLO_VER" != "1" ]; then
+  plataforma_responde || exit 1
+fi
+
 # El tronco tiene que estar limpio ANTES de arrancar, no al integrar. `integrar.sh` ya lo
 # exige —mergear encima mezcla el trabajo de quien edita con el del agente— pero lo
 # descubría al final: la etapa 1 de clasificados gastó 13 minutos y cuatro intentos, llegó
