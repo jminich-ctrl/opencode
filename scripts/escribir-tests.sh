@@ -299,8 +299,19 @@ No toques ningún otro archivo." 2>&1
     HUELLA_ANTERIOR=""
     cortes=$((cortes+1))
     if [ "$cortes" -gt "$CORTES_MAX" ]; then
-      echo "  ✗ $id: $cortes cortes por cuelgue seguidos. No es la tarea: es la herramienta."
-      echo "     Log: $log"
+      # Antes de culpar a la herramienta, preguntarle a la red. Hoy perdimos horas: la
+      # conexión se cortaba de a ratos y el método informaba «es la herramienta» —y yo
+      # detrás, buscando la causa en opencode, en la plataforma, en la cuantización del
+      # modelo y en el tamaño del prompt—. Una tanda de cuelgues y una conexión caída se
+      # ven exactamente igual desde acá, así que hay que mirar.
+      if ! plataforma_responde 2>/dev/null; then
+        echo "  ✗ $id: $cortes cortes seguidos Y la plataforma no responde ahora mismo."
+        echo "     Esto es conexión o plataforma, no la tarea ni la herramienta. Cuando"
+        echo "     vuelva, retomá: no hay nada que arreglar en el plan."
+      else
+        echo "  ✗ $id: $cortes cortes por cuelgue seguidos, con la plataforma respondiendo."
+        echo "     Eso sí apunta a la herramienta. Log: $log"
+      fi
       break
     fi
     echo "     (corte $cortes de $CORTES_MAX permitidos; no cuenta como intento ni como punto muerto)"
