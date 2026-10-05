@@ -13,7 +13,8 @@
 # no miden si un modelo llama a las herramientas o se queda deliberando.
 #
 # Por cada modelo informa: gate (verde/rojo), tiempo, herramientas usadas,
-# líneas de deliberación y archivos tocados.
+# líneas de deliberación y archivos tocados. Cada agente corre con límite de tiempo
+# (LIMITE_AGENTE, 1200s por omisión) porque un candidato roto es el caso normal acá.
 set -uo pipefail
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$AQUI/_comun.sh"
@@ -47,9 +48,18 @@ for modelo in "$@"; do
     cd "$wt/$PROYECTO" || exit 1
     export XDG_DATA_HOME="$wt/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
     inicio=$(date +%s)
+    # CON límite. Lo primero que uno le pide a un modelo candidato es que capaz esté roto,
+    # y un modelo roto se cuelga: sin límite, la comparación que vino a detectarlo se queda
+    # corriendo para siempre y no informa nada. Un instrumento que no sobrevive al defecto
+    # que vino a medir no mide ese defecto.
+    export LOG_VIGILADO="$wt/.tarea.log"
     {
       echo "=== $TAREA · $modelo"
-      opencode run "${COMO[@]}" "Implementá la tarea descrita en $archivo. Leela completa antes de empezar. Respetá los archivos permitidos y prohibidos. Al terminar corré 'bash scripts/gate.sh' y mostrá su salida real." 2>&1
+      con_limite "${LIMITE_AGENTE:-1200}" opencode run "${COMO[@]}" "Implementá la tarea descrita en $archivo. Leela completa antes de empezar. Respetá los archivos permitidos y prohibidos. Al terminar corré 'bash scripts/gate.sh' y mostrá su salida real." 2>&1
+      rc=$?
+      # Por qué se cortó, si se cortó: «✗ error» sin motivo no distingue un modelo lento
+      # de uno roto, que es exactamente lo que se está midiendo.
+      [ "$rc" = 142 ] && echo "el agente no respondió: $(motivo_del_corte "$wt/.tarea.log")"
     } > "$wt/.tarea.log" 2>&1
     duracion=$(( $(date +%s) - inicio ))
     # Veredicto por código de salida del gate, corrido cuando el agente ya terminó.

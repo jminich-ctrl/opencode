@@ -669,6 +669,29 @@ class TestPlataformaCaida(unittest.TestCase):
                       "un stream cortado por la plataforma no es culpa del agente")
 
 
+class TestElComparadorNoSeCuelga(unittest.TestCase):
+    """`comparar-modelos.sh` existe para elegir modelo midiendo, y lo primero que uno le
+    pide a un candidato nuevo es que capaz esté roto. Lanzaba los agentes en paralelo
+    SIN límite de tiempo: con un modelo que se cuelga —que es el caso que el comparador
+    tiene que detectar— la comparación no termina nunca y no informa nada.
+
+    Un instrumento que no sobrevive al defecto que vino a medir no mide ese defecto.
+    """
+
+    def test_el_comparador_limita_el_tiempo_de_cada_agente(self):
+        texto = (SCRIPTS / "comparar-modelos.sh").read_text()
+        self.assertIn("con_limite", texto,
+                      "lanza `opencode run` sin límite: un modelo colgado deja la "
+                      "comparación corriendo para siempre")
+
+    def test_el_comparador_informa_por_qué_se_cortó(self):
+        """Si corta sin decir si fue silencio o límite total, el resultado «✗ error» no
+        distingue un modelo lento de uno roto, que es justo lo que se está midiendo."""
+        texto = (SCRIPTS / "comparar-modelos.sh").read_text()
+        self.assertIn("motivo_del_corte", texto,
+                      "corta pero no informa el motivo del corte")
+
+
 class TestElVigilanteNoTapaLaEvidencia(unittest.TestCase):
     """La regla que costó un día entero.
 
