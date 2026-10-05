@@ -218,13 +218,21 @@ con_limite() {
       kill -0 "$pid" 2>/dev/null || exit 0
       if [ -n "${LOG_VIGILADO:-}" ]; then
         tam="$(wc -c < "$LOG_VIGILADO" 2>/dev/null || echo 0)"
+        # Ventana más corta mientras la salida siga siendo sólo el encabezado. Todos los
+        # cuelgues observados son de ARRANQUE: el proxy mostró que opencode no manda ni una
+        # petición de completado —sólo el GET /models— y el log se queda entre 61 y 272
+        # bytes. Como el primer token del modelo llega en 0,6s y la salida se transmite
+        # token por token, un proceso con menos de 1 KB y veinte segundos sin escribir una
+        # letra está colgado, no pensando. Cada cuelgue cuesta 20s en vez de 45.
+        local limite_quieto="${INACTIVIDAD:-45}"
+        [ "${tam:-0}" -lt "${UMBRAL_ARRANQUE:-1024}" ] && limite_quieto="${ARRANQUE:-20}"
         if [ "$tam" = "$tam_anterior" ]; then
           quieto=$((quieto+15))
-          if [ "$quieto" -ge "${INACTIVIDAD:-45}" ]; then
+          if [ "$quieto" -ge "$limite_quieto" ]; then
             # Qué reloj cortó: el mensaje de un corte tiene que decirlo, o se informa "no
             # respondió en 1200s" cuando en realidad se lo cortó a los 90 por silencio, y
             # el próximo que lo lea va a buscar un problema de lentitud que no existe.
-            [ -n "${LOG_VIGILADO:-}" ] && echo "inactividad ${INACTIVIDAD:-45}s" > "$LOG_VIGILADO.corte"
+            [ -n "${LOG_VIGILADO:-}" ] && echo "inactividad ${limite_quieto}s$([ "${tam:-0}" -lt "${UMBRAL_ARRANQUE:-1024}" ] && echo ' (sin pasar del encabezado: cuelgue de arranque)')" > "$LOG_VIGILADO.corte"
             break
           fi
         else
