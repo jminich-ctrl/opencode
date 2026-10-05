@@ -1,6 +1,6 @@
 # T07 — Login page y servicio auth frontend
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T31
 **Archivos que podés tocar:** frontend/src/pages/Login.jsx, frontend/src/services/auth.ts
 **Prohibido tocar:** 

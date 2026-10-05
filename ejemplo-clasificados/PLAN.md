@@ -75,7 +75,7 @@ vez de la aplicación.
 | T05 | CRUD de avisos backend | T04, T06 | backend/app/rutas/ads.py, backend/app/servicios/ads.py, backend/app/datos/ads.py | pendiente |
 | T30 | Scaffolding Vite | T01 | frontend/package.json, frontend/vite.config.ts | ✅ hecha |
 | T31 | Punto de entrada frontend | T30 | frontend/src/main.tsx, frontend/src/App.jsx | ✅ hecha |
-| T07 | Login page y servicio auth frontend | T31 | frontend/src/pages/Login.jsx, frontend/src/services/auth.ts | pendiente |
+| T07 | Login page y servicio auth frontend | T31 | frontend/src/pages/Login.jsx, frontend/src/services/auth.ts | ✅ hecha |
 | T08 | Listado y detalle de avisos frontend | T07 | frontend/src/pages/AdsList.jsx, frontend/src/pages/AdDetail.jsx, frontend/src/services/ads.ts | pendiente |
 | T14 | Favoritos datos | T05 | backend/app/datos/favorites.py | pendiente |
 | T15 | Favoritos servicio | T14 | backend/app/servicios/favorites.py | pendiente |
