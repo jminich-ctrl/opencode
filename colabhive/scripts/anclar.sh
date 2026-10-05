@@ -22,10 +22,24 @@ ACCION="${1:-anclar}"
 # único blob JSON — un archivo entero escapado en una sola tirada, que es la forma más
 # difícil justo para lo que el planificador tiene que hacer. El segundo porque para títulos
 # y resúmenes medimos 12,8s contra 1,1s de gpt-oss-20b.
-MODELOS=(
-  "1af07b1f-5832-4451-a61c-76d1fe43115a:arquitecto y reviewer  Qwen3.8-27B"
-  "f5d76140-5b4d-41c0-88da-dad6d11f341a:ejecutor               Qwen3-Coder-30B"
-  "5d21e32a-3bbb-4040-9c34-3b06c4415b84:rápidos (title/summary) gpt-oss-20b"
+# Salen de la config de OpenCode, no de una lista acá: esta lista anclaba el
+# Qwen3-Coder-30B mucho después de que ningún agente lo usara. Un id de modelo escrito en
+# un script es una copia de lo que declara opencode.json, y una copia que nadie cruza queda
+# vieja el día que cambia el original.
+CONFIG_OC="${CONFIG_OC:-$HOME/.config/opencode/opencode.json}"
+[ -f "$CONFIG_OC" ] || CONFIG_OC="$(dirname "${BASH_SOURCE[0]}")/../config/opencode.json"
+MODELOS=()
+while IFS= read -r l; do [ -n "$l" ] && MODELOS+=("$l"); done < <(python3 - "$CONFIG_OC" <<'PYANC'
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+mods = cfg.get("provider", {}).get("colabhive", {}).get("models", {})
+usos = {}
+for ag, v in (cfg.get("agent") or {}).items():
+    if (v or {}).get("model"):
+        usos.setdefault(v["model"].split("/")[-1], []).append(ag)
+for mid, ags in usos.items():
+    print(f"{mid}:{', '.join(sorted(ags))[:38]:38s} {(mods.get(mid) or {}).get('name', mid[:8]).split('·')[0].strip()}")
+PYANC
 )
 
 auth() { printf 'X-API-Key: %s\n' "$COLABHIVE_API_KEY"; }

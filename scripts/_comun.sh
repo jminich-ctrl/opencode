@@ -112,9 +112,31 @@ error_del_agente() {
 # aprender nada. Pasó: la API pasó de responder en 3s a devolver 502 en TODO —incluido
 # `/models`— y el método lo informaba como «el test no pasa ni con la implementación del
 # propio agente», que es el diagnóstico más lejano posible de la causa.
+# Qué modelo usa un agente, según la config de OpenCode. Existe porque el id del modelo
+# estaba clavado en tres scripts a la vez —la sonda de acá, warm.sh y anclar.sh— y los tres
+# quedaron apuntando al modelo viejo el día que los agentes cambiaron. El de la sonda fue
+# el caro: consultaba un modelo que ningún agente usaba, que encima estaba frío y roto, se
+# comía el timeout, y la corrida entera se negaba a arrancar diciendo «la plataforma no
+# responde» con la plataforma perfectamente arriba.
+modelo_del_agente() {
+  local agente="${1:-ejecutor}" cfg="${CONFIG_OC:-$HOME/.config/opencode/opencode.json}"
+  [ -f "$cfg" ] || return 1
+  python3 - "$cfg" "$agente" <<'PYMOD' 2>/dev/null
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+m = ((cfg.get("agent") or {}).get(sys.argv[2]) or {}).get("model")
+print(m.split("/")[-1] if m else "", end="")
+PYMOD
+}
+
 plataforma_responde() {
   [ -n "${COLABHIVE_BASE_URL:-}" ] || return 0      # sin configurar, no opinamos
-  local codigo
+  local codigo modelo
+  modelo="${MODELO_SONDA:-$(modelo_del_agente ejecutor)}"
+  if [ -z "$modelo" ]; then
+    echo "  ⊘ no pude saber qué modelo usa el ejecutor: la sonda de plataforma no corre" >&2
+    return 0   # no sabemos: no es excusa para frenar, pero queda dicho
+  fi
   # Contra `/chat/completions` CON herramientas, no contra `/models`. Listar modelos pasa
   # por otro camino: lo vimos devolver 200 mientras las peticiones reales de un agente
   # —20 KB de prompt y definiciones de herramientas— devolvían 502. Un chequeo que pasa
@@ -124,7 +146,7 @@ plataforma_responde() {
             "$COLABHIVE_BASE_URL/chat/completions" \
             -H "Authorization: Bearer ${COLABHIVE_API_KEY:-}" \
             -H "Content-Type: application/json" \
-            -d '{"model":"'"${MODELO_SONDA:-f5d76140-5b4d-41c0-88da-dad6d11f341a}"'",
+            -d '{"model":"'$modelo'",
                  "max_tokens":4,"messages":[{"role":"user","content":"OK"}],
                  "tools":[{"type":"function","function":{"name":"read",
                    "description":"sonda","parameters":{"type":"object",

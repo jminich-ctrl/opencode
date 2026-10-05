@@ -684,21 +684,36 @@ class TestElCalentadorSigueALaConfig(unittest.TestCase):
     directamente se borra la copia.
     """
 
-    def test_warm_no_tiene_su_propia_lista_de_modelos(self):
-        import json, re
-        warm = (RAIZ / "colabhive" / "scripts" / "warm.sh").read_text()
-        uuids = set(re.findall(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
-                               warm))
-        if not uuids:
-            return   # no mantiene lista propia: lee la config, que es lo que se quiere
+    def modelos_que_usan_los_agentes(self):
+        import json
         cfg = json.loads((RAIZ / "colabhive" / "config" / "opencode.json").read_text())
-        usados = {v["model"].split("/")[-1] for v in cfg.get("agent", {}).values()
-                  if isinstance(v, dict) and v.get("model")}
-        huerfanos = sorted(uuids - usados)
+        return {v["model"].split("/")[-1] for v in cfg.get("agent", {}).values()
+                if isinstance(v, dict) and v.get("model")}
+
+    def test_ningun_script_clava_un_modelo_que_nadie_usa(self):
+        """Generalizado después de encontrar el mismo defecto dos veces en una hora.
+
+        `warm.sh` calentaba el modelo viejo. Y la sonda de plataforma de `_comun.sh` tenía
+        `MODELO_SONDA` con el mismo id clavado por omisión: consultaba el modelo roto —que
+        además estaba frío y que ya ningún agente usaba—, se comía el timeout, y la corrida
+        entera se negaba a empezar diciendo que la plataforma no responde.
+
+        Un id de modelo escrito en un script es una copia de lo que declara opencode.json,
+        y una copia que nadie cruza queda vieja el día que cambia el original.
+        """
+        import re
+        usados = self.modelos_que_usan_los_agentes()
+        culpables = []
+        for s in sorted(list(SCRIPTS.glob("*.sh")) + list((RAIZ / "colabhive" / "scripts").glob("*.sh"))):
+            for uuid in set(re.findall(
+                    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+                    s.read_text())):
+                if uuid not in usados:
+                    culpables.append(f"{s.name}: {uuid}")
         self.assertEqual(
-            huerfanos, [],
-            f"warm.sh calienta modelos que ningún agente usa: {huerfanos}. Mantener la "
-            f"lista a mano garantiza que quede vieja; que la lea de opencode.json")
+            culpables, [],
+            "estos scripts clavan un id de modelo que ningún agente usa, así que operan "
+            "sobre algo que la corrida no va a tocar:\n  " + "\n  ".join(culpables))
 
     def test_warm_calienta_todos_los_que_los_agentes_usan(self):
         import json, re
