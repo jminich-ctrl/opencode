@@ -125,7 +125,7 @@ lanzar() {
     # veredicto.
     if [ "$rc" -eq 0 ]; then
       echo "✓ $id gate VERDE"
-      [ -n "$error" ] && echo "   (nota: la herramienta informó «$error», y el gate pasó igual)"
+      [ -n "$error" ] && echo "   (nota: la herramienta informó «${error}», y el gate pasó igual)"
     elif [ -n "$error" ]; then
       echo "✗ $id gate ROJO, y la herramienta falló: $error"
     else
