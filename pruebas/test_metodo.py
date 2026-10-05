@@ -669,6 +669,49 @@ class TestPlataformaCaida(unittest.TestCase):
                       "un stream cortado por la plataforma no es culpa del agente")
 
 
+class TestUnTestNoPuedeClavarUnaRutaAbsoluta(unittest.TestCase):
+    """Un test con una ruta absoluta no es un test: es una foto del directorio de una
+    máquina en un momento.
+
+    Pasó, y tardó dos semanas en verse. El agente de T03 escribió
+    `down_file = '/Users/jose/tests-T03/ejemplo-clasificados/backend/migraciones/...'`
+    —su PROPIO worktree temporal—, el gate lo aceptó porque ahí adentro pasaba, y se mergeó
+    al tronco. Desde entonces ese test falla en todos lados menos en un directorio que ya
+    no existe, y la línea base lo venía tapando: quedó registrado como «ya fallaba», así
+    que nadie volvió a mirarlo.
+
+    El costo real: la primera comparación válida de tres modelos candidatos salió en rojo
+    para los tres por culpa de ese archivo, y durante un rato parecía que los modelos no
+    sabían hacer la tarea.
+
+    El método ya tiene la regla del cwd único —la suite corre siempre desde la raíz del
+    proyecto—, así que una ruta absoluta nunca hace falta.
+    """
+
+    RUTA_ABSOLUTA = re.compile(r'[\'"](/(?:Users|home|private|tmp|var)/[^\'"\n]{4,})[\'"]')
+
+    def test_ningun_test_del_repo_clava_una_ruta_absoluta(self):
+        culpables = []
+        for proyecto in sorted(RAIZ.glob("ejemplo-*")):
+            for f in list(proyecto.rglob("test_*.py")) + list(proyecto.rglob("*.test.ts")):
+                if "node_modules" in f.parts or ".venv" in f.parts:
+                    continue
+                for m in self.RUTA_ABSOLUTA.finditer(f.read_text(errors="replace")):
+                    culpables.append(f"{f.relative_to(RAIZ)}: {m.group(1)[:70]}")
+        self.assertEqual(
+            culpables, [],
+            "estos tests clavan una ruta absoluta, así que sólo pueden pasar en la máquina "
+            "y el directorio donde se escribieron:\n  " + "\n  ".join(culpables))
+
+    def test_el_gate_rechaza_un_test_con_ruta_absoluta(self):
+        """Y que no vuelva a entrar: el gate tiene que verlo en el diff, no la suite tres
+        semanas después en otro worktree."""
+        for gate in [RAIZ / "plantillas" / "gate.sh"] + sorted(RAIZ.glob("ejemplo-*/scripts/gate.sh")):
+            self.assertIn(
+                "ruta absoluta", gate.read_text(),
+                f"{gate.relative_to(RAIZ)} no revisa rutas absolutas en los tests que juzga")
+
+
 class TestLaConfigVersionadaDiceLaVerdad(unittest.TestCase):
     """`OPENCODE.md` llama a `colabhive/config/opencode.json` «el archivo real, versionado
     en este repo». Si la config que de verdad usa opencode no es ésa, el archivo versionado

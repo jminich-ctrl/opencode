@@ -247,6 +247,29 @@ EOF
 fi
 if echo "$CAMBIADOS" | grep -qE '__pycache__|\.pyc$'; then rojo "hay archivos generados en el diff"; else verde "sin archivos generados"; fi
 if grep -rqE '^\s*(import|from)\s+(pygame|numpy|pytest)' src/ 2>/dev/null; then rojo "dependencia externa en src/"; else verde "solo biblioteca estándar"; fi
+# Una ruta absoluta dentro de un test no es un test: es una foto del directorio de una
+# máquina. Pasó y tardó dos semanas en verse: el agente de T03 escribió la ruta de su
+# PROPIO worktree temporal (`/Users/.../tests-T03/...`), adentro pasaba, el gate lo aceptó
+# y se mergeó. Desde entonces fallaba en todos lados menos en una carpeta que ya no existe,
+# y la línea base lo tapaba como «ya fallaba antes».
+#
+# Va en modo integración y no en modo tarea a propósito: un test con ruta absoluta que ya
+# estaba en el tronco no lo escribió esta tarea, y ponerle rojo por eso es acusar a quien
+# no lo hizo. El método corre siempre desde la raíz del proyecto, así que una ruta absoluta
+# nunca hace falta.
+if [ -z "${TAREA:-}" ]; then
+  CLAVADAS="$(grep -rnE "['\"](/(Users|home|private|tmp|var)/[^'\"]{4,})['\"]" \
+              --include='test_*.py' --include='*_test.py' --include='*.test.ts' \
+              --include='*.test.tsx' --include='*.spec.ts' . 2>/dev/null \
+              | grep -vE 'node_modules|\.venv' || true)"
+  if [ -n "$CLAVADAS" ]; then
+    rojo "hay tests con una ruta absoluta clavada: sólo pasan en la máquina donde se escribieron"
+    echo "$CLAVADAS" | head -5 | sed 's/^/     /'
+    echo "     La suite corre desde la raíz del proyecto: usá rutas relativas a ella."
+  else
+    verde "ningún test clava una ruta absoluta"
+  fi
+fi
 if grep -rnE "\bTODO\b" src/ --exclude-dir=__pycache__ 2>/dev/null | grep -qv '^\s*$'; then rojo "quedaron TODO en src/: $(grep -rn 'TODO' src/ | head -2 | tr '\n' ' ')"; else verde "sin TODO sueltos"; fi
 if ! python3 -m compileall -q src/ >/dev/null 2>&1; then rojo "src/ no compila"; else verde "src/ compila"; fi
 # Apagar una señal es más barato que arreglar la causa, y no deja rastro en los tests.

@@ -795,6 +795,34 @@ réplica admite 8 a la vez**, y es el valor por defecto. Pasado ahí el throughp
 subir. Tabla en [INFRAESTRUCTURA.md](INFRAESTRUCTURA.md); con otro backend, medilo con
 `colabhive/scripts/concurrencia.py`.
 
+### Nadie cruza los tests contra el plan
+
+El gate compara la **implementación contra los tests**. `validar-plan.py` compara el
+**plan contra las tareas**. Nadie compara **los tests contra el plan**, y por ese hueco
+entró el defecto más caro que encontramos:
+
+El agente que escribió los tests de la migración inventó otro esquema. El plan cierra
+`precio_centavos`, `creado_en`, `actualizado_en`, `clave_hash`, `clave_salt`; el test
+afirmaba `precio`, `created_at`, `updated_at`, `password` —nombres en inglés que el plan
+nunca tuvo—, justo lo que la tarea pedía en negrita no hacer. La implementación era
+**correcta** y el test la reprobaba.
+
+Lo que ese hueco produce es peor que un rojo: un test equivocado **empuja al agente a
+implementar el esquema equivocado**, y si lo logra, el gate da verde. Las 26 tareas que
+dependen de ese esquema heredan el error con el sello del método puesto.
+
+Síntomas de que estás en este caso, los tres que vimos:
+
+- Un test falla por una diferencia de **nombres**, no de comportamiento.
+- El test afirma cosas que el plan **nunca cerró** (una restricción `UNIQUE`, un tipo
+  exacto, el orden de unas columnas).
+- El test clava una **ruta absoluta**: nació mirando un worktree, no el contrato.
+
+Mientras no haya un cruce automático, la lectura humana del test contra el plan es un paso
+de G0 que no se saltea. Y cuando un test y una implementación se contradicen, **la pregunta
+no es cuál arreglar sino cuál de los dos dice lo que dice el plan** — la respuesta no
+siempre es el test.
+
 ### El vigilante tiene que perder la carrera
 
 Cualquier reloj que mate a una herramienta —un timeout, un vigilante de inactividad, un

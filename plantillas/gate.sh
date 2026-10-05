@@ -309,6 +309,29 @@ else
   echo "$SAL_SUP"
   case "$RC_SUP" in 1) FALLOS=$((FALLOS+1)) ;; 2) VACIOS=$((VACIOS+1)) ;; esac
 fi
+# Una ruta absoluta dentro de un test no es un test: es una foto del directorio de una
+# máquina. Pasó y tardó dos semanas en verse: el agente de T03 escribió la ruta de su
+# PROPIO worktree temporal (`/Users/.../tests-T03/...`), adentro pasaba, el gate lo aceptó
+# y se mergeó. Desde entonces fallaba en todos lados menos en una carpeta que ya no existe,
+# y la línea base lo tapaba como «ya fallaba antes».
+#
+# Va en modo integración y no en modo tarea a propósito: un test con ruta absoluta que ya
+# estaba en el tronco no lo escribió esta tarea, y ponerle rojo por eso es acusar a quien
+# no lo hizo. El método corre siempre desde la raíz del proyecto, así que una ruta absoluta
+# nunca hace falta.
+if [ -z "${TAREA:-}" ]; then
+  CLAVADAS="$(grep -rnE "['\"](/(Users|home|private|tmp|var)/[^'\"]{4,})['\"]" \
+              --include='test_*.py' --include='*_test.py' --include='*.test.ts' \
+              --include='*.test.tsx' --include='*.spec.ts' . 2>/dev/null \
+              | grep -vE 'node_modules|\.venv' || true)"
+  if [ -n "$CLAVADAS" ]; then
+    rojo "hay tests con una ruta absoluta clavada: sólo pasan en la máquina donde se escribieron"
+    echo "$CLAVADAS" | head -5 | sed 's/^/     /'
+    echo "     La suite corre desde la raíz del proyecto: usá rutas relativas a ella."
+  else
+    verde "ningún test clava una ruta absoluta"
+  fi
+fi
 if grep -rnE "\bTODO\b" "$CODIGO" --exclude-dir=__pycache__ 2>/dev/null | grep -q .; then rojo "quedaron TODO sueltos en $CODIGO/"; else verde "sin TODO sueltos"; fi
 
 # ── 4. ¿Los tests distinguen? (sólo en modo tarea)
