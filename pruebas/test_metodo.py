@@ -669,6 +669,52 @@ class TestPlataformaCaida(unittest.TestCase):
                       "un stream cortado por la plataforma no es culpa del agente")
 
 
+class TestElCalentadorSigueALaConfig(unittest.TestCase):
+    """`warm.sh` tenía la lista de modelos escrita a mano. En cuanto los agentes cambiaron
+    de modelo, siguió calentando los viejos —incluido el que devuelve basura— y dejó frío
+    al que la corrida iba a usar.
+
+    Lo que eso produce no se parece a la causa: el modelo nuevo arranca en frío (~253s), la
+    sonda de plataforma lo consulta con 45s de tope, se come un timeout, y la corrida se
+    niega a empezar diciendo **«la plataforma de modelos no responde»** — con la plataforma
+    perfectamente arriba, contestando `/models` en 2,3s y el 27B en 3,4s.
+
+    Es la declaración doble de siempre: qué modelo usa cada agente está en opencode.json, y
+    había una segunda copia a mano en otro archivo. La regla del método es cruzarlas; acá
+    directamente se borra la copia.
+    """
+
+    def test_warm_no_tiene_su_propia_lista_de_modelos(self):
+        import json, re
+        warm = (RAIZ / "colabhive" / "scripts" / "warm.sh").read_text()
+        uuids = set(re.findall(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+                               warm))
+        if not uuids:
+            return   # no mantiene lista propia: lee la config, que es lo que se quiere
+        cfg = json.loads((RAIZ / "colabhive" / "config" / "opencode.json").read_text())
+        usados = {v["model"].split("/")[-1] for v in cfg.get("agent", {}).values()
+                  if isinstance(v, dict) and v.get("model")}
+        huerfanos = sorted(uuids - usados)
+        self.assertEqual(
+            huerfanos, [],
+            f"warm.sh calienta modelos que ningún agente usa: {huerfanos}. Mantener la "
+            f"lista a mano garantiza que quede vieja; que la lea de opencode.json")
+
+    def test_warm_calienta_todos_los_que_los_agentes_usan(self):
+        import json, re
+        warm = (RAIZ / "colabhive" / "scripts" / "warm.sh").read_text()
+        if not re.search(r"[0-9a-f]{8}-[0-9a-f]{4}", warm):
+            return
+        cfg = json.loads((RAIZ / "colabhive" / "config" / "opencode.json").read_text())
+        usados = {v["model"].split("/")[-1] for v in cfg.get("agent", {}).values()
+                  if isinstance(v, dict) and v.get("model")}
+        faltan = sorted(m for m in usados if m not in warm)
+        self.assertEqual(
+            faltan, [],
+            f"hay agentes cuyo modelo warm.sh no calienta: {faltan}. Van a arrancar en "
+            f"frío (~253s sin imprimir nada) y el vigilante o la sonda los va a leer mal")
+
+
 class TestUnTestNoPuedeClavarUnaRutaAbsoluta(unittest.TestCase):
     """Un test con una ruta absoluta no es un test: es una foto del directorio de una
     máquina en un momento.

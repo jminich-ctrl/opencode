@@ -9,13 +9,37 @@ set -uo pipefail
 BASE="${COLABHIVE_BASE_URL:-https://api.colabhive.com/v1}"
 BUILDER="${COLABHIVE_BUILDER_URL:-https://api.colabhive.com/api/builder/v1}"
 
-# id de endpoint : nombre legible — los 3 del equipo, ver config/opencode.json.
+# Los modelos salen de la config de OpenCode, NO de una lista acá. Tenerla a mano
+# garantiza que quede vieja: cuando los agentes pasaron a Devstral, este archivo siguió
+# calentando el Qwen3-Coder-30B —el que devuelve basura— y dejó frío al que la corrida iba
+# a usar. El modelo frío arranca en ~253s, la sonda de plataforma lo consulta con 45s de
+# tope, se come el timeout, y la corrida se niega a empezar diciendo «la plataforma no
+# responde» con la plataforma arriba. El diagnóstico no se parecía en nada a la causa.
+#
 # Calentar uno que no se usa no es gratis: tarda, y despertar un modelo desaloja a otro.
-MODELS=(
-  "1af07b1f-5832-4451-a61c-76d1fe43115a:Qwen3.8-27B (arquitecto, plan, reviewer, seguridad)"
-  "f5d76140-5b4d-41c0-88da-dad6d11f341a:Qwen3-Coder-30B (ejecutor y los suyos)"
-  "5d21e32a-3bbb-4040-9c34-3b06c4415b84:gpt-oss-20b (title, summary, explore)"
+# Por eso se calienta exactamente lo que los agentes declaran, ni más ni menos.
+CONFIG_OC="${CONFIG_OC:-$HOME/.config/opencode/opencode.json}"
+[ -f "$CONFIG_OC" ] || CONFIG_OC="$(dirname "${BASH_SOURCE[0]}")/../config/opencode.json"
+[ -f "$CONFIG_OC" ] || { echo "✗ no encuentro la config de opencode ($CONFIG_OC)" >&2; exit 1; }
+MODELS=()
+while IFS= read -r linea; do
+  [ -n "$linea" ] && MODELS+=("$linea")
+done < <(python3 - "$CONFIG_OC" <<'PYLISTA'
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+modelos = cfg.get("provider", {}).get("colabhive", {}).get("models", {})
+usos = {}
+for agente, v in (cfg.get("agent") or {}).items():
+    mid = (v or {}).get("model")
+    if mid:
+        usos.setdefault(mid.split("/")[-1], []).append(agente)
+for mid, agentes in usos.items():
+    nombre = (modelos.get(mid) or {}).get("name", mid[:8])
+    print(f"{mid}:{nombre.split('·')[0].strip()} ({', '.join(sorted(agentes))})")
+PYLISTA
 )
+[ "${#MODELS[@]}" -gt 0 ] || { echo "✗ la config no asigna ningún modelo a ningún agente" >&2; exit 1; }
+echo "→ ${#MODELS[@]} modelo(s) que los agentes usan, según $CONFIG_OC"
 
 auth() { printf 'X-API-Key: %s\n' "$COLABHIVE_API_KEY"; }
 
