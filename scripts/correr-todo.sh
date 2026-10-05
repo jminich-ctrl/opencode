@@ -84,6 +84,18 @@ for etapa in "${ETAPAS[@]}"; do
     continue
   fi
 
+  # 0.a Los modelos calientes, antes de medir nada contra ellos. `min_replicas: 1` no es
+  # autocurativo —configurado 1, corriendo 0— así que un modelo evacuado tarda ~253s en
+  # arrancar y durante ese arranque el agente no imprime NADA. El vigilante de inactividad
+  # corta a los 45s, así que sin calentar primero mataríamos arranques legítimos y lo
+  # informaríamos como cuelgue. Es la misma trampa de siempre: el umbral sólo es válido si
+  # la condición que mide es la que uno cree.
+  if command -v oc >/dev/null 2>&1; then
+    con_limite 240 oc --warm >/dev/null 2>&1 \
+      && echo "· modelos calientes" \
+      || echo "⊘ no pude calentar los modelos: si alguno está frío, su arranque se va a ver como un cuelgue"
+  fi
+
   # 0. El entorno, antes de gastar una llamada al modelo. La etapa anterior pudo agregar
   # dependencias, y el gate —con razón— pone ROJO si falta el corredor de tests. Ese rojo
   # no sería del agente: sería nuestro.
