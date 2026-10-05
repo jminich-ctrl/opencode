@@ -175,8 +175,10 @@ con_limite() {
     # trabaja escribe todo el tiempo. Con un solo reloj total hay que elegir entre cortar
     # rápido y no cortar a quien está trabajando; con el de inactividad no hay que elegir.
     #
-    # Medido en esta corrida: los cuelgues se detectan en ~90s en vez de 420s, y un agente
-    # que tardó 163s escribiendo no se toca.
+    # Medido: el tiempo al primer byte del modelo con un prompt real es de 0,7s y opencode
+    # imprime su encabezado en ~1s, así que 45s de silencio TOTAL ya es patológico —y como
+    # la salida se transmite token por token, también lo es a mitad de camino—. Con 45 en
+    # vez de 90, cada cuelgue cuesta la mitad y un agente que escribe no se toca.
     local t=0 quieto=0 tam_anterior=-1 tam
     while [ "$t" -lt "$segundos" ]; do
       sleep 15; t=$((t+15))
@@ -185,11 +187,11 @@ con_limite() {
         tam="$(wc -c < "$LOG_VIGILADO" 2>/dev/null || echo 0)"
         if [ "$tam" = "$tam_anterior" ]; then
           quieto=$((quieto+15))
-          if [ "$quieto" -ge "${INACTIVIDAD:-90}" ]; then
+          if [ "$quieto" -ge "${INACTIVIDAD:-45}" ]; then
             # Qué reloj cortó: el mensaje de un corte tiene que decirlo, o se informa "no
             # respondió en 1200s" cuando en realidad se lo cortó a los 90 por silencio, y
             # el próximo que lo lea va a buscar un problema de lentitud que no existe.
-            [ -n "${LOG_VIGILADO:-}" ] && echo "inactividad ${INACTIVIDAD:-90}s" > "$LOG_VIGILADO.corte"
+            [ -n "${LOG_VIGILADO:-}" ] && echo "inactividad ${INACTIVIDAD:-45}s" > "$LOG_VIGILADO.corte"
             break
           fi
         else

@@ -103,7 +103,7 @@ for id in "$@"; do
   log="$wt/.tests.log"
   # El reloj que detecta el cuelgue es el de inactividad sobre este log: el agente que
   # trabaja escribe todo el tiempo, el colgado no escribe nada.
-  export LOG_VIGILADO="$log" INACTIVIDAD="${INACTIVIDAD:-90}"
+  export LOG_VIGILADO="$log" INACTIVIDAD="${INACTIVIDAD:-45}"
   echo "▶ $id · $AGENTE escribe $ruta::$clase"
   (
     cd "$wt/$PROYECTO" || exit 1

@@ -91,7 +91,7 @@ lanzar() {
     inicio="$(date +%s)"
     # Igual que en escribir-tests.sh: lo que distingue un cuelgue de un agente lento es el
     # silencio, no el tiempo total.
-    export LOG_VIGILADO="$log" INACTIVIDAD="${INACTIVIDAD:-90}"
+    export LOG_VIGILADO="$log" INACTIVIDAD="${INACTIVIDAD:-45}"
     {
       echo "=== $id · $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
       # --agent ejecutor: primario con el harness mínimo (6 herramientas en vez de 10).
