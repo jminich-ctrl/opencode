@@ -63,6 +63,9 @@ y no te lo contamos como error.
   monta solo. Si seis tareas tuvieran que agregar su `include_router`, seis tareas
   editarían el mismo archivo y el paralelismo del plan se cae.
 
+- **Las claves se hashean con `hashlib.scrypt`**, de la biblioteca estándar. No `passlib`,
+  no `bcrypt`, no `argon2`: está cerrado en `PLAN.md` desde G0. Un agente ya intentó
+  `passlib` y la tarea se cayó por una dependencia que nadie declaró.
 - **Precios en centavos, entero.** Nada de flotantes para dinero.
 - **Esquema de tablas**: el de `PLAN.md`, tal cual. Si una tarea necesita una columna que
   no está, eso es un cambio de plan: pará y decilo.

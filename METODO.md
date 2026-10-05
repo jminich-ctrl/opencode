@@ -403,6 +403,142 @@ de brew de esta máquina está instalado y **no arranca**, y arreglarlo pide `su
 tarball propio en `.mysql/dist`, datadir y puerto propios, el proyecto es autosuficiente y
 no deja rastro. `--no-defaults` en todo, porque el `my.cnf` del sistema se cuela.
 
+#### El plan tiene huecos que ninguna tarea puede cerrar
+
+Cuatro veces, en un plan de 27 tareas revisado y firmado, apareció **algo que muchas tareas
+necesitan y ninguna tiene asignado**:
+
+| Lo que faltaba | Cómo se manifestó |
+|---|---|
+| el módulo de conexión a la base | ocho tareas de `datos/` iban a inventarse una cada una |
+| `backend/app/main.py` | el agente lo creó solo y el alcance lo reprobó |
+| el corredor de tests (vitest, pytest, httpx, sass) | «el test está mal» cuando faltaba el corredor |
+| aplicar la migración | un 500 en vez de un 401, porque la tabla no existía |
+
+Los cuatro tienen la misma forma y ninguno es del agente. Y se parten en dos clases con
+dueños distintos:
+
+- **Lo que es del producto** —el módulo de conexión, el `main.py`— es una **tarea que falta
+  en el plan**. Se agrega como tarea, con su contrato, y las demás dependen de ella.
+- **Lo que es del andamiaje** —el corredor de tests, el servidor de base, aplicar
+  migraciones— es **del método**. La tarea declara la dependencia en su manifiesto;
+  instalarla, levantarla y aplicarla es nuestro (`preparar-entorno.sh`, y
+  `scripts/entorno.sh` para los servicios del proyecto).
+
+La pregunta para G0, que no estaba y ahora sí: **¿qué necesita la primera tarea de datos
+que ninguna tarea construye?** Y la misma para la primera de rutas, la primera de frontend
+y la primera que corre un test.
+
+#### Tests-first vuelve rojo al tronco por diseño
+
+Al empezar una etapa el tronco tiene los tests de todas sus tareas y la implementación de
+ninguna. Eso no es un problema a resolver: es cómo funciona el método. Lo que sí es un
+problema es que **cada chequeo nuevo tiene que decidir explícitamente qué hace con eso**, y
+el que no lo decide se lo cobra a quien no corresponde. Pasó tres veces en un día:
+
+| Chequeo | A quién reprobaba |
+|---|---|
+| suite entera en verde | a todas: ninguna tarea podía cerrar |
+| imports declarados | a las de backend, por el test de frontend de otra tarea |
+| falta el corredor | a las de backend, porque vitest llega con la tarea de frontend |
+
+La herramienta es la **línea base**: el runner anota qué falla antes de que el agente
+empiece y el gate exige lo que la tarea sí controla —que sus tests pasen y que no rompa
+nada que andaba—. Es la misma regla que `integrar.sh` ya usaba para los merges, un nivel
+más abajo.
+
+Y el corolario, que vale para la arquitectura: **una capa que todavía no llegó no es una
+ausencia.** Exigir el grafo completo en cada merge bloquea todos los merges tempranos; si
+una de las dos capas no tiene ningún módulo, la dependencia requerida no se puede verificar
+y eso es ⊘.
+
+#### Un chequeo sin material no da falso verde: da falso rojo
+
+La vacuidad tiene un espejo que no vi venir. El chequeo de imports de JS, acotado a lo que
+la tarea tocó, para una tarea de backend queda sin archivos que mirar — y
+
+```bash
+grep -rhoE "vitest" ${VACIO}     # sin rutas, lee la ENTRADA ESTÁNDAR
+```
+
+dentro de un heredoc lee **el propio script**, así que encontró «vitest» en sus comentarios
+y lo informó como un import no declarado. Verificado:
+
+```
+$ F=""; grep -rhoE "vitest" ${F} </dev/null
+(nada)
+$ F=""; grep -rhoE "vitest" ${F}        # con stdin del script
+vitest
+```
+
+Un falso rojo es tan corrosivo como un falso verde: enseña a desconfiar del gate, y un gate
+en el que no se confía no se lee.
+
+#### El cuelgue no es lentitud: es silencio
+
+`opencode run` se quedó 31 minutos con el log en 0 bytes mientras la API del modelo
+respondía en 3 segundos. **Un error se reintenta; un cuelgue no se nota**, y para un método
+que se vende como autónomo es el peor modo de falla.
+
+Con un solo reloj total hay que elegir entre cortar rápido y no cortar a quien trabaja. Pero
+el cuelgue tiene firma propia: el log deja de crecer. Entonces dos relojes —el total como
+red de seguridad y uno de inactividad sobre el log— y el segundo es el que detecta. Medido
+en los dos sentidos, que es lo que lo hace confiable:
+
+- un proceso callado se corta a los 45s con umbral de 30 (el total era 300);
+- un proceso que escribe cada 10s con umbral de 25 llega a terminar, intacto.
+
+El segundo caso importa más que el primero: sin él, bajar el umbral hasta que «funcione»
+mataría a los agentes lentos y el método lo informaría como cuelgue. Y el umbral se eligió
+midiendo: **tiempo al primer byte con un prompt real, 0,7 segundos.**
+
+Un corte por tiempo tampoco cuenta como punto muerto: la regla de «falló dos veces por lo
+mismo» es correcta para una falla del modelo y equivocada para un cuelgue intermitente de la
+herramienta.
+
+#### Una medición que cambia sola no es una medición
+
+`requirements-dev.txt` decía `httpx`, sin versión. httpx 0.28 sacó el atajo
+`Client(app=...)` que usa el `TestClient` de la starlette que trae fastapi 0.104, así que
+**todos los tests de endpoints del plan quedaron rotos por la fecha en que se instaló el
+entorno**, y el método lo informó como «el test no pasa ni con la implementación del propio
+agente».
+
+Las dependencias se declaran con versión fija. Sin eso, el veredicto del gate depende del
+día, y toda la medición que sostiene el método —tasa de captura, mutantes, línea base— mide
+algo que no se puede reproducir mañana. Es «el juez es un comando, no el modelo» un nivel
+más abajo: **el comando también tiene que ser el mismo comando.**
+
+#### Lo que el plan le dice al agente, el agente lo hace
+
+Tres fallas del día no fueron del modelo: fueron de cómo estaba escrita la tarea.
+
+- **Prosa que parece código se copia como código.** Pedí «configurar
+  `test.environment = "jsdom"`», que no es sintaxis válida de Vite, y el agente escribió un
+  test que verifica que el archivo *contenga esa cadena*: imposible de pasar por
+  construcción. Si una tarea nombra un valor de configuración, lo da en la sintaxis del
+  archivo, o mejor, dice cuál es la **conducta observable**.
+- **Un contrato que dice «N/A» es una tarea sin criterio de terminado.** T13 entregaba
+  SCSS y su contrato decía «N/A (solo archivos de estilo)», así que al test no le quedaba
+  nada que verificar más que texto. Pero el SCSS compila: eso es su conducta, y verificarla
+  es que el CSS compilado tenga la regla esperada con los valores resueltos.
+- **Una licencia escrita al pasar se usa.** En T06 escribí «el precio es que un módulo que
+  no exponga `router` queda montado en silencio» y el agente lo citó, literal, en el
+  comentario de un `except Exception: pass` que se comía los errores de import. Escribí la
+  vacuidad en la especificación.
+
+#### La convención se declara donde se usa
+
+Dos veces el agente adivinó una convención que el método tenía escrita en otra parte:
+
+- el agrupador de un test (`class X` en Python, `describe('X')` en TypeScript) estaba en la
+  cabeza de quien escribió el validador, y el prompt no lo decía;
+- el directorio de trabajo de los tests estaba en el `AGENTS.md` del proyecto, y el agente
+  escribe el test leyendo **el prompt de `escribir-tests.sh`**.
+
+Las dos veces hizo algo razonable con la información que tenía. Un invariante declarado
+lejos del lugar donde se usa es un invariante que se adivina.
+
 #### El paso 4 es grueso; mutar es fino
 
 El paso 4 revierte **todo** el cambio: atrapa el test vacuo grosero y deja pasar el fino

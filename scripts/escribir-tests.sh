@@ -165,6 +165,20 @@ No toques ningún otro archivo." 2>&1
     *.test.ts|*.test.tsx|*.test.js|*.test.jsx) DECLARA="describe" ;;
     *)                                    DECLARA="$clase" ;;
   esac
+  # Los imports, antes de correr nada. Un paquete que el proyecto no declara se tiene que
+  # diagnosticar como eso: el agente de T04 usó `passlib` donde el plan cerró `hashlib.scrypt`
+  # y el método lo informó como «el test no pasa ni con la implementación del propio agente»,
+  # que manda a mirar el test en vez del contrato.
+  if [ "$fallos" -eq 0 ] && [ -f scripts/_imports.py ]; then
+    PY_TOCADOS="$(echo "$TOCADOS" | grep -E '\.py$' | tr '\n' ' ')"
+    if [ -n "$PY_TOCADOS" ]; then
+      SAL_I="$("${PY_PROYECTO:-python3}" scripts/_imports.py ${PY_TOCADOS} 2>&1)"
+      if [ $? -eq 1 ]; then
+        malo "$(echo "$SAL_I" | sed -n 's/^  ✗ //p' | head -1)"
+      fi
+    fi
+  fi
+
   if [ "$fallos" -eq 0 ] && { [ ! -f "$ruta" ] \
        || ! grep -q "$DECLARA" "$ruta" 2>/dev/null \
        || ! grep -q "$clase" "$ruta" 2>/dev/null; }; then
