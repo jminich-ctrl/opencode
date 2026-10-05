@@ -944,6 +944,80 @@ class TestPaso5PorElGate(CasoBase):
         self.assertIn("divergencia", r.stdout, "y tiene que decir por qué")
 
 
+class TestHuecosQueEncontraronLosMutantes(CasoBase):
+    """Cuatro ramas del gate que ninguna caso ejercitaba, encontradas midiendo.
+
+    Tercera medición de la tasa de captura con una semilla nueva: 10 de 20, igual que las
+    dos anteriores. Pero de los diez sobrevivientes, cinco son **áridos** —quitar un
+    `|| true` en una asignación, un `sort -u` que sólo ordena la lista que se imprime,
+    `-ge 0` donde sumaba cero— y no pueden cambiar ningún veredicto. Sobre los quince
+    productivos la tasa es 10 de 15.
+
+    Los otros cuatro son huecos reales, y los cuatro son ramas que **yo mismo escribí hoy
+    sin un caso que las toque**. Eso es lo que la medición compra: no encuentra los bugs
+    que uno imagina, encuentra los que uno acaba de escribir.
+    """
+
+    def test_sin_el_ayudante_de_senales_el_gate_da_rojo(self):
+        """La guarda la agregué hoy —«un chequeo que no está no es un chequeo que pasó»— y
+        no la probé. El mutante que la convertía en verde sobrevivió."""
+        (self.p.dir / "scripts" / "_suprimidas.py").unlink()
+        self.p.implementar()
+        self.assertRojo(self.p.gate("T01"), "sin el ayudante no se puede buscar nada",
+                        motivo="falta scripts/_suprimidas.py")
+
+    def test_una_tarea_sin_test_declarado_marca_vacuo_en_el_paso_4(self):
+        """El paso 4 compara contra la clase que la tarea declara. Si no declara ninguna,
+        sólo puede mirar la suite entera, y eso es ⊘ y no un pase."""
+        # La implementación tiene que existir en HEAD para que el paso 4 pueda revertirla;
+        # si es nueva, el paso 4 se marca ⊘ por otra razón y no llega a esta rama.
+        self.p.implementar("def f():\n    return 0\n")
+        t = self.p.dir / "tareas" / "T01-cosa.md"
+        t.write_text(t.read_text().replace(
+            "Archivo: `tests/test_cosa.py`, clase `TestCosa`.", "Sin declarar todavía."))
+        self.p.git("add -A"); self.p.git('commit -qm "sin test declarado"')
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertIn("no nombra archivo y clase de test", r.stdout,
+                      f"tiene que decir que sólo pudo mirar la suite entera\n{r.stdout}")
+        self.assertIn("⊘", r.stdout.split("── 4.")[1], "y marcarlo como no verificado")
+
+    def test_sin_vacios_el_veredicto_no_habla_de_vacios(self):
+        """`[ "$VACIOS" -gt 0 ]` → `-ge 0` hacía que TODO gate verde dijera «con 0
+        chequeo/s que no pudieron correr». El invariante de contabilidad no lo veía porque
+        0 == 0. Un veredicto que menciona vacíos cuando no hay ninguno es ruido que enseña
+        a ignorar la parte que sí importa.
+
+        Para llegar a un gate sin un solo ⊘ hay que armar el caso completo: la
+        implementación ya en HEAD pero mal, así que el test de la tarea falla en la línea
+        base, y la tarea la arregla. Ahí los seis pasos tienen algo que decir."""
+        self.p.implementar("def f():\n    return 0\n")      # mal, y commiteada
+        self.p.git("add -A"); self.p.git('commit -qm "implementación equivocada"')
+        r0 = correr("bash scripts/correr-suite.sh --fallas", self.p.dir)
+        (self.p.dir / ".tests-base").write_text(r0.stdout)
+        self.assertIn("test_cosa", r0.stdout, "la línea base tiene que traer la falla")
+        self.p.implementar()                                   # la tarea la arregla
+        r = self.p.gate("T01")
+        self.assertVerde(r, "arregló lo que la línea base tenía roto")
+        vacios = [l for l in r.stdout.splitlines() if l.startswith("  ⊘ ")]
+        self.assertEqual(vacios, [], f"este caso no debería tener ningún ⊘\n{r.stdout}")
+        self.assertNotIn("no pudieron correr", r.stdout,
+                         "sin ⊘, el veredicto no puede mencionarlos")
+
+    def test_la_rama_de_linea_base_vacia_es_para_un_caso_degenerado(self):
+        """Documenta un hallazgo, no una conducta: con tests-first la línea base de una
+        tarea **nunca** está vacía —sus tests están en el tronco y fallan—, así que el
+        mensaje «y nada más falla» es para el caso en que alguien corre el gate a mano sobre
+        un árbol limpio. Dos mutantes sobrevivieron ahí y no es un hueco de cobertura: es
+        una rama casi inalcanzable. Queda anotado para que nadie la persiga."""
+        self.p.implementar("def f():\n    return 0\n")
+        self.p.git("add -A"); self.p.git('commit -qm base')
+        r = correr("bash scripts/correr-suite.sh --fallas", self.p.dir)
+        self.assertNotEqual(r.stdout.strip(), "",
+                            "con el test en el tronco y la implementación mal, algo falla: "
+                            "eso es tests-first, y por eso la línea base nunca está vacía")
+
+
 class TestContratoDeLaSuite(CasoBase):
     """El gate frente a cada código de salida de `correr-suite.sh`.
 
