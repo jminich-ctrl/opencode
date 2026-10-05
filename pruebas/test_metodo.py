@@ -669,6 +669,43 @@ class TestPlataformaCaida(unittest.TestCase):
                       "un stream cortado por la plataforma no es culpa del agente")
 
 
+class TestLaCuraEstaConectadaAlProceso(unittest.TestCase):
+    """El método tenía la cura y nadie la aplicaba.
+
+    `sync_limits.py` existe desde hace semanas, sincroniza los `limit.context` con el
+    `max_model_len` real de la plataforma, y `INFRAESTRUCTURA.md` hasta lo nombra como la
+    respuesta exacta al síntoma: *400 «maximum context length» → sync_limits.py --write*.
+    Pero era un paso manual de un runbook, así que no se corrió, y el día que declaré a
+    mano `"context": 128000` para un modelo servido con **5312**, la etapa entera murió con
+    un 400 que el método informó como «el agente no escribió el test».
+
+    Una cura que depende de que alguien se acuerde no es parte del método: es documentación.
+    """
+
+    def test_correr_todo_verifica_los_limites_de_contexto(self):
+        texto = (SCRIPTS / "correr-todo.sh").read_text()
+        self.assertIn(
+            "sync_limits", texto,
+            "correr-todo.sh no verifica el drift de limit.context antes de arrancar. "
+            "Declarar un contexto mayor que el real hace que CADA tarea muera con un 400 "
+            "que no se parece a su causa")
+
+    def test_el_400_de_contexto_se_atribuye_a_la_plataforma(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-ctx-"))
+        self.addCleanup(shutil.rmtree, str(d), True)
+        log = d / ".tarea.log"
+        log.write_text('=== T06\n> ejecutor\nError: {"message":"vLLM error: {\\"error\\":'
+                       '{\\"message\\":\\"This model\'s maximum context length is 5312 '
+                       'tokens. However, you requested 0 output tokens and your prompt '
+                       'contains 6195 input tokens\\"}}","type":"api_error"}\n'
+                       '=== gate ===\nx\n=== rc=1\n=== fin T06 · hoy\n')
+        r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; error_del_agente "{log}"', RAIZ)
+        self.assertIn("context", r.stdout.lower(),
+                      "un 400 por contexto es de la configuración, no del agente: "
+                      "informarlo como «no escribió el test» manda a buscar al lugar "
+                      f"equivocado. Dijo: {r.stdout!r}")
+
+
 class TestElCalentadorSigueALaConfig(unittest.TestCase):
     """`warm.sh` tenía la lista de modelos escrita a mano. En cuanto los agentes cambiaron
     de modelo, siguió calentando los viejos —incluido el que devuelve basura— y dejó frío

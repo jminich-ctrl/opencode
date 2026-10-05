@@ -28,7 +28,7 @@
           "reasoning": true,
           "temperature": true,
           "limit": {
-            "context": 69000,
+            "context": 116000,
             "output": 8625
           }
         },
@@ -48,8 +48,8 @@
           "reasoning": false,
           "temperature": true,
           "limit": {
-            "context": 205000,
-            "output": 16384
+            "context": 35000,
+            "output": 4375
           }
         },
         "9a1f0c77-4b2e-4d3a-8f6b-0c2e5a7d120b": {
@@ -68,8 +68,8 @@
           "reasoning": true,
           "temperature": true,
           "limit": {
-            "context": 200000,
-            "output": 16384
+            "context": 101000,
+            "output": 12625
           }
         },
         "d7750d6c-2a00-40d0-99e2-a3c0b0ffffd4": {
@@ -78,8 +78,8 @@
           "reasoning": false,
           "temperature": true,
           "limit": {
-            "context": 128000,
-            "output": 16384
+            "context": 4000,
+            "output": 2048
           }
         }
       }
@@ -102,7 +102,7 @@
       }
     },
     "build": {
-      "model": "colabhive/d7750d6c-2a00-40d0-99e2-a3c0b0ffffd4",
+      "model": "colabhive/1af07b1f-5832-4451-a61c-76d1fe43115a",
       "temperature": 0.2,
       "description": "Implementa los cambios ya decididos.",
       "prompt": "{file:./prompts/build.md}",
@@ -132,7 +132,7 @@
       "mode": "primary"
     },
     "compaction": {
-      "model": "colabhive/d7750d6c-2a00-40d0-99e2-a3c0b0ffffd4",
+      "model": "colabhive/1af07b1f-5832-4451-a61c-76d1fe43115a",
       "mode": "primary"
     },
     "reviewer": {
@@ -154,7 +154,7 @@
     },
     "tester": {
       "mode": "subagent",
-      "model": "colabhive/d7750d6c-2a00-40d0-99e2-a3c0b0ffffd4",
+      "model": "colabhive/1af07b1f-5832-4451-a61c-76d1fe43115a",
       "temperature": 0.2,
       "description": "Escribe y corre tests para un cambio concreto.",
       "prompt": "{file:./prompts/tester.md}",
@@ -212,7 +212,7 @@
     },
     "devops": {
       "mode": "subagent",
-      "model": "colabhive/d7750d6c-2a00-40d0-99e2-a3c0b0ffffd4",
+      "model": "colabhive/1af07b1f-5832-4451-a61c-76d1fe43115a",
       "temperature": 0.2,
       "description": "Prepara el despliegue: Dockerfiles, CI, scripts de deploy y rollback. NO despliega a producción.",
       "prompt": "{file:./prompts/devops.md}",
@@ -233,7 +233,7 @@
     },
     "migrador": {
       "mode": "subagent",
-      "model": "colabhive/d7750d6c-2a00-40d0-99e2-a3c0b0ffffd4",
+      "model": "colabhive/1af07b1f-5832-4451-a61c-76d1fe43115a",
       "temperature": 0.1,
       "description": "Escribe migraciones de base, cada una con su reversa probada. NO las corre en producción.",
       "prompt": "{file:./prompts/migrador.md}",
@@ -253,7 +253,7 @@
       }
     },
     "ejecutor": {
-      "model": "colabhive/d7750d6c-2a00-40d0-99e2-a3c0b0ffffd4",
+      "model": "colabhive/1af07b1f-5832-4451-a61c-76d1fe43115a",
       "temperature": 0.2,
       "description": "Implementa una tarea con el harness mínimo. El que usa el runner.",
       "prompt": "{file:./prompts/build.md}",

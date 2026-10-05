@@ -104,7 +104,7 @@ parte_del_agente() {
 # —aunque eso el gate ya lo dice con «no hay ningún cambio: la tarea no se hizo»—.
 error_del_agente() {
   parte_del_agente "$1" \
-    | grep -m1 -oE 'inference timed out[^"]*|database is locked|el agente no respondió[^"]*|upstream stream ended[^"]*|Bad Gateway|Service Unavailable|Internal Server Error|50[0234] '
+    | grep -m1 -oE 'inference timed out[^"]*|database is locked|el agente no respondió[^"]*|upstream stream ended[^"]*|maximum context length is [0-9]*[^\\"]*|Bad Gateway|Service Unavailable|Internal Server Error|50[0234] '
 }
 
 # ¿Responde la plataforma? Un 502 de nginx no es una falla de la tarea ni del agente, y

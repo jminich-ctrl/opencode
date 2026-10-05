@@ -42,6 +42,26 @@ if [ "$SOLO_VER" != "1" ]; then
   plataforma_responde || exit 1
 fi
 
+# Y los contextos declarados tienen que ser los reales. Declarar `limit.context` más
+# grande que el `max_model_len` del servido hace que CADA tarea muera con un 400 que no se
+# parece a su causa: el método lo informaba como «el agente no escribió el test». Pasó con
+# un modelo servido con 5312 tokens cuya ficha nominal dice 128000 — la ficha del modelo no
+# es el contrato del endpoint.
+#
+# `sync_limits.py` existía desde hacía semanas y hasta estaba nombrado en INFRAESTRUCTURA.md
+# como la respuesta exacta a ese 400, pero era un paso manual de un runbook. Una cura que
+# depende de que alguien se acuerde no es parte del método: es documentación.
+if [ "$SOLO_VER" != "1" ] && [ -f "$AQUI/../colabhive/scripts/sync_limits.py" ]; then
+  DRIFT="$(python3 "$AQUI/../colabhive/scripts/sync_limits.py" 2>/dev/null | grep -E '^  →' || true)"
+  if [ -n "$DRIFT" ]; then
+    echo "✗ los contextos declarados no son los que sirve la plataforma:" >&2
+    echo "$DRIFT" | head -6 | sed 's/^/  /' >&2
+    echo "  Cada tarea moriría con un 400 que no se parece a su causa. Corregilo con:" >&2
+    echo "    python3 $AQUI/../colabhive/scripts/sync_limits.py --write" >&2
+    exit 1
+  fi
+fi
+
 # El tronco tiene que estar limpio ANTES de arrancar, no al integrar. `integrar.sh` ya lo
 # exige —mergear encima mezcla el trabajo de quien edita con el del agente— pero lo
 # descubría al final: la etapa 1 de clasificados gastó 13 minutos y cuatro intentos, llegó
