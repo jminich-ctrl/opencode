@@ -40,7 +40,11 @@ REINTENTOS_TESTS="${REINTENTOS_TESTS:-2}"
 # un cuelgue intermitente sí se va —el mismo prompt anduvo seis de seis veces aislado—, así
 # que reintentar es la respuesta correcta y no un gasto. Con los dos en la misma cuenta,
 # dos cuelgues seguidos agotaban el presupuesto de una tarea que nunca llegó a fallar.
-CORTES_MAX="${CORTES_MAX:-5}"
+# Doce, no cinco. Con el cuelgue de arranque cortado a los 20s, doce cortes son cuatro
+# minutos de sobrecarga en el peor caso —barato comparado con una corrida detenida— y el
+# cuelgue es de la herramienta, no de la tarea: insistir es la respuesta correcta. T06 se
+# quedó sin presupuesto con cinco y nunca llegó a producir un test.
+CORTES_MAX="${CORTES_MAX:-12}"
 
 # Diagnostica y deja el motivo anotado para el reintento.
 malo() { echo "  ✗ $1"; MOTIVO_TESTS="$1"; fallos=1; }
