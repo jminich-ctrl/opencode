@@ -270,6 +270,14 @@ No toques ningún otro archivo." 2>&1
     cp "$ruta" "$BASE/$ruta"
     echo "  ✓ $id: $ruta aceptado y copiado al tronco (la implementación se descarta)"
     cd "$RAIZ" || true
+    # El worktree de validación ya no hace falta: el test está en el tronco y la
+    # implementación de referencia se descarta a propósito. Se queda sólo cuando FALLA, que
+    # es cuando alguien va a querer mirarlo.
+    #
+    # Dejarlos todos acumulados no es gratis: una corrida de un día dejó doce worktrees
+    # registrados y doce ramas, y cada herramienta que recorre el repo los recorre.
+    git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
+    git -C "$RAIZ" branch -D "tests/$id" >/dev/null 2>&1
     break
   fi
 
@@ -311,4 +319,5 @@ done
 echo
 echo "Los tests aceptados están en el tronco sin commitear. Revisalos y commiteá:"
 echo "  git -C $RAIZ diff --stat && git -C $RAIZ add -A && git -C $RAIZ commit -m 'tests de <tareas>'"
-echo "Los worktrees de validación se pueden tirar: git worktree remove ../tests-TNN"
+echo "Los worktrees de los tests ACEPTADOS ya se tiraron. Quedan los que fallaron,"
+echo "que es donde hay algo que mirar: git worktree list"
