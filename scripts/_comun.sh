@@ -78,10 +78,17 @@ parte_del_agente() {
        END { n = g ? g - 1 : NR; for (i = 1; i <= n; i++) print l[i] }' "$1"
 }
 
-# Un error de OpenCode manda aunque el gate dé verde: si el agente no llegó a trabajar,
-# el gate solo ve el repo intacto. Se busca sólo en la parte del agente, no en los tests.
+# Una falla de la HERRAMIENTA, que es distinta de un error que el agente haya impreso al
+# correr un comando. El patrón decía `^Error: .*` y atrapaba la salida de npm o de vite:
+# T07 quedó informada como «ERROR del agente» con el gate en VERDE, que es exactamente lo
+# contrario de lo que el método dice que hay que hacer.
+#
+# Y no manda sobre el gate: si el gate pudo decidir, decide el gate (P2). Esto sirve para
+# explicar un rojo, o para distinguir «el agente no llegó a trabajar» de «trabajó mal»
+# —aunque eso el gate ya lo dice con «no hay ningún cambio: la tarea no se hizo»—.
 error_del_agente() {
-  parte_del_agente "$1" | grep -m1 -oE '^Error: .*|inference timed out[^"]*|database is locked'
+  parte_del_agente "$1" \
+    | grep -m1 -oE 'inference timed out[^"]*|database is locked|el agente no respondió[^"]*'
 }
 
 # Registro de intentos: una línea por corrida, para que las métricas lean datos y no

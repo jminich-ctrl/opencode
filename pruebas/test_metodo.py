@@ -540,6 +540,48 @@ class TestPortabilidadBash32(unittest.TestCase):
                           "revisá si el chequeo estático sigue haciendo falta")
 
 
+class TestElGateManda(unittest.TestCase):
+    """P2 en el mensaje, no sólo en el veredicto.
+
+    T06, T07 y T27 cerraron en verde y se integraron, y la pantalla decía «✗ ERROR del
+    agente» por una línea que el agente había impreso al correr npm. El veredicto estaba
+    bien; el mensaje decía lo contrario. Un método que predica «el juez es un comando» y
+    después informa un error del modelo por encima del comando se contradice donde una
+    persona lo lee, y eso erosiona lo único que el método necesita: que el veredicto se crea.
+    """
+
+    def log(self, parte_del_agente, rc):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-log-"))
+        self.addCleanup(shutil.rmtree, str(d), True)
+        p = d / ".tarea.log"
+        p.write_text(f"=== T01\n{parte_del_agente}\n=== gate ===\nsalida\n=== rc={rc}\n"
+                     f"=== fin T01 · hoy\n")
+        return p
+
+    def consultar(self, p, funcion):
+        return correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; {funcion} "{p}"', RAIZ).stdout.strip()
+
+    def test_un_error_que_imprimio_un_comando_no_es_falla_de_la_herramienta(self):
+        p = self.log("Error: Cannot find native binding. npm has a bug...", rc=0)
+        self.assertEqual(self.consultar(p, "error_del_agente"), "",
+                         "es la salida de npm, no una falla de la herramienta")
+        self.assertEqual(self.consultar(p, "veredicto"), "VERDE")
+
+    def test_una_falla_real_de_la_herramienta_si_se_reconoce(self):
+        for linea in ("inference timed out after 600s",
+                      "database is locked",
+                      "el agente no respondió: inactividad 90s"):
+            with self.subTest(linea=linea):
+                p = self.log(linea, rc=1)
+                self.assertNotEqual(self.consultar(p, "error_del_agente"), "",
+                                    f"«{linea}» sí es una falla de la herramienta")
+
+    def test_el_gate_verde_manda_sobre_el_ruido_del_log(self):
+        p = self.log("inference timed out after 600s", rc=0)
+        self.assertEqual(self.consultar(p, "veredicto"), "VERDE",
+                         "si el gate pudo decidir, decide el gate (P2)")
+
+
 class TestLimiteDeTiempo(unittest.TestCase):
     """Un agente colgado detiene la corrida para siempre, y eso es peor que un error: un
     error se reintenta, un cuelgue no se nota. Pasó: `opencode run` se quedó 31 minutos con

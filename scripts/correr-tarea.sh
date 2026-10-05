@@ -119,9 +119,18 @@ lanzar() {
                    "$(( $(date +%s) - inicio ))" \
                    "$(grep -m1 -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}' "$log" | cut -c1-8)" \
                    "$log"
-    if [ -n "$error" ]; then echo "✗ $id ERROR del agente: $error"
-    elif [ "$rc" -eq 0 ]; then echo "✓ $id gate VERDE"
-    else echo "✗ $id gate ROJO"; fi
+    # El gate primero, siempre. Antes esto miraba el error del agente ANTES del código del
+    # gate, así que una tarea verde e integrada se informaba como «ERROR del agente» —y el
+    # método predica que el juez es el comando—. El ruido del log es una nota, no un
+    # veredicto.
+    if [ "$rc" -eq 0 ]; then
+      echo "✓ $id gate VERDE"
+      [ -n "$error" ] && echo "   (nota: la herramienta informó «$error», y el gate pasó igual)"
+    elif [ -n "$error" ]; then
+      echo "✗ $id gate ROJO, y la herramienta falló: $error"
+    else
+      echo "✗ $id gate ROJO"
+    fi
   ) &
 }
 
