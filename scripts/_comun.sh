@@ -238,7 +238,7 @@ con_limite() {
     #
     # El costo de aflojar es real —cada cuelgue verdadero cuesta 90s en vez de 45— y es
     # barato al lado de un día de diagnóstico contra evidencia que uno mismo borró.
-    local t=0 quieto=0 tam_anterior=-1 tam
+    local t=0 quieto=0 tam_anterior=-1 tam conex=0
     while [ "$t" -lt "$segundos" ]; do
       sleep 15; t=$((t+15))
       kill -0 "$pid" 2>/dev/null || exit 0
@@ -252,10 +252,20 @@ con_limite() {
         if [ "$tam" = "$tam_anterior" ]; then
           quieto=$((quieto+15))
           if [ "$quieto" -ge "$limite_quieto" ]; then
+            # Callado no es lo mismo que colgado. Antes de matar, se mira si el grupo
+            # todavía tiene una conexión abierta: si la tiene, está esperando al modelo
+            # —generar un archivo largo son minutos sin imprimir una letra— y se reinicia
+            # el reloj del silencio. El límite total sigue siendo el techo, así que esto
+            # no puede esperar para siempre.
+            conex="$(conexiones_del_grupo "$pid")"
+            if [ "$conex" != "SIN_LSOF" ] && [ "${conex:-0}" -gt 0 ]; then
+              quieto=0
+              continue
+            fi
             # Qué reloj cortó: el mensaje de un corte tiene que decirlo, o se informa "no
             # respondió en 1200s" cuando en realidad se lo cortó a los 90 por silencio, y
             # el próximo que lo lea va a buscar un problema de lentitud que no existe.
-            [ -n "${LOG_VIGILADO:-}" ] && echo "inactividad ${limite_quieto}s (lo cortamos nosotros: si la herramienta tenía un error que no llegó a imprimir, no lo vamos a ver)$([ "${tam:-0}" -lt "$UMBRAL_ARRANQUE" ] && echo ' · el log no pasó del encabezado')" > "$LOG_VIGILADO.corte"
+            [ -n "${LOG_VIGILADO:-}" ] && echo "inactividad ${limite_quieto}s y $([ "$conex" = "SIN_LSOF" ] && echo 'sin poder mirar si había conexión abierta (⊘)' || echo 'sin ninguna conexión abierta') — lo cortamos nosotros: si la herramienta tenía un error que no llegó a imprimir, no lo vamos a ver$([ "${tam:-0}" -lt "$UMBRAL_ARRANQUE" ] && echo ' · el log no pasó del encabezado')" > "$LOG_VIGILADO.corte"
             break
           fi
         else
@@ -278,6 +288,24 @@ con_limite() {
   # 143 = SIGTERM, 137 = SIGKILL: los dos son "lo cortamos nosotros". Se normalizan a 142
   # para que quien lo llama tenga un solo código que mirar.
   case "$rc" in 143|137) return 142 ;; *) return "$rc" ;; esac
+}
+
+# ¿El grupo de procesos tiene alguna conexión TCP abierta? Es la señal de vida que el
+# silencio no da: medido, un `opencode` colgado tiene CERO conexiones y el hilo principal
+# parado en `kevent64`, mientras uno que trabaja mantiene dos abiertas de punta a punta
+# —muestreado cada 5s durante cuatro minutos, a través de silencios de hasta 40s—.
+#
+# Imprime el número, o SIN_LSOF si no se pudo mirar. Esa distinción importa: un chequeo
+# que no pudo correr no dice «está vivo». Si lo dijera, en una máquina sin `lsof` un
+# cuelgue no se cortaría nunca, que es peor que el problema que vino a resolver.
+#
+# Lo que NO cubre, y conviene saberlo: opencode mantiene la conexión viva entre peticiones,
+# así que un cuelgue POSTERIOR a conectarse no baja el contador. Para ésos quedan el
+# límite total y `error_del_agente`.
+conexiones_del_grupo() {
+  local lsof_bin="${LSOF:-lsof}"
+  command -v "$lsof_bin" >/dev/null 2>&1 || { echo "SIN_LSOF"; return; }
+  "$lsof_bin" -nP -g "$1" 2>/dev/null | grep -c ESTABLISHED
 }
 
 # Por qué se cortó el último `con_limite`: "inactividad 90s" o "límite total 1200s".

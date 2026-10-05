@@ -826,6 +826,31 @@ Tres consecuencias prácticas:
 La regla hermana de la vacuidad: *un chequeo que no pudo correr no es un chequeo que pasó*.
 Ésta dice *un sujeto al que callaste no es un sujeto que no tenía nada que decir*.
 
+**Y el corolario, que costó dos arreglos más.** Subimos la ventana de 45s a 90s y el
+vigilante siguió matando obreros: cortó a un modelo que ya había hecho **22 llamadas a
+herramientas**. Medido después sobre un agente real, muestreando cada 5 segundos: estuvo
+**145 segundos callado** y terminó con 32 KB de salida. No hay umbral que sirva, porque
+**la variable observada no separa los dos estados**: un agente generando un archivo largo y
+uno colgado se ven exactamente igual desde la salida estándar.
+
+Lo que sí los separa apareció mirando el proceso colgado: tenía **cero conexiones TCP** y el
+hilo principal parado en `kevent64`, mientras el que trabajaba mantenía dos abiertas de
+punta a punta. Así que el vigilante corta por **callado Y sin conexión**, no por callado. Y
+si no puede mirar las conexiones —sin `lsof`, sin permisos— eso es ⊘ y corta igual: si
+tratara «no pude mirar» como «está vivo», un cuelgue no se cortaría nunca.
+
+La forma general, que vale para cualquier chequeo y no sólo para un vigilante: **antes de
+elegir el umbral, preguntá si la variable que estás mirando distingue los dos casos.** Si
+no los distingue, ningún umbral la va a arreglar y vas a pasar el día moviendo el número.
+
+Dos trampas que nos comimos al medir esto, las dos en el instrumento y no en el sujeto:
+
+- El primer test pasó enseguida… porque el proceso de prueba terminaba a los 25s y el
+  vigilante decidía a los 30. **Pasaba por llegar tarde, no por acertar.** Un test cuyo
+  sujeto no sobrevive al momento de la decisión no prueba la decisión.
+- El segundo falló por el fixture: abría la conexión pero soltaba el socket aceptado, así
+  que quedaba en `CLOSE_WAIT` y no en `ESTABLISHED`. La implementación estaba bien.
+
 ### El método no depende de la IA
 
 Todo lo que decide es un comando, así que **una persona puede ejecutar el método completo

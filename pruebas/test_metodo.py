@@ -669,6 +669,70 @@ class TestPlataformaCaida(unittest.TestCase):
                       "un stream cortado por la plataforma no es culpa del agente")
 
 
+class TestLaSeñalDeVidaNoEsElSilencio(unittest.TestCase):
+    """El silencio no distingue a un agente que trabaja de uno colgado, a ningún umbral.
+
+    Historia completa, porque el número se movió tres veces y las tres estuvieron mal:
+    45s cortaba antes de que la plataforma informara su error; 90s dejó entrar el error
+    pero igual cortó a un modelo que ya había hecho **22 llamadas a herramientas**. Un
+    agente callado dos minutos puede estar generando un archivo largo: no hay umbral que
+    separe las dos cosas, porque la variable observada no las separa.
+
+    La que sí las separa la encontramos mirando el proceso colgado: tenía **cero
+    conexiones TCP** y el hilo principal parado en `kevent64`, mientras uno que trabaja
+    mantiene la conexión abierta esperando al modelo. Así que se corta por «callado **Y**
+    sin conexión», no por callado.
+
+    Y el chequeo de conexión puede no poder correr (sin `lsof`, sin permisos). Eso es ⊘:
+    no se puede leer como «está vivo», porque entonces un cuelgue no se corta nunca.
+    """
+
+    def correr_vigilado(self, agente, inactividad=15, total=70, entorno=None):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-vida-"))
+        self.addCleanup(shutil.rmtree, str(d), True)
+        log = d / "vigilado.log"
+        log.write_text("x" * 2000)   # pasa el umbral de arranque: ventana larga
+        extra = " ".join(f"{k}={v}" for k, v in (entorno or {}).items())
+        return correr(
+            f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+            f'LOG_VIGILADO="{log}" INACTIVIDAD={inactividad} ARRANQUE={inactividad} '
+            f'{extra} con_limite {total} {agente}; echo "rc=$?"', RAIZ)
+
+    # Un agente callado que mantiene una conexión abierta y sigue vivo MUCHO después del
+    # momento en que el vigilante decidiría cortar (~30s con INACTIVIDAD=15). Si durara
+    # menos, el test pasaría porque el proceso terminó antes, no porque lo respetaran:
+    # la primera versión de este test duraba 25s y pasaba con el vigilante viejo.
+    # OJO con el fixture: la primera versión lanzaba `srv.accept` en un hilo y soltaba el
+    # socket aceptado, así que el server lo cerraba y lsof informaba CLOSE_WAIT, no
+    # ESTABLISHED. El test fallaba y la culpa parecía de la implementación. Hay que
+    # guardar el socket aceptado para que la conexión siga viva.
+    CON_CONEXION = (
+        "python3 -c \"import socket,threading,time;"
+        "srv=socket.socket();srv.bind(('127.0.0.1',0));srv.listen(1);vivos=[];"
+        "threading.Thread(target=lambda: vivos.append(srv.accept()),daemon=True).start();"
+        "c=socket.create_connection(srv.getsockname());time.sleep(55)\"")
+
+    def test_un_agente_callado_con_conexion_abierta_no_se_corta(self):
+        r = self.correr_vigilado(self.CON_CONEXION)
+        self.assertIn("rc=0", r.stdout,
+                      "estuvo 55s callado pero con la conexión abierta: estaba esperando "
+                      f"al modelo, no colgado. Salida: {r.stdout!r} {r.stderr[-300:]!r}")
+
+    def test_un_agente_callado_sin_conexion_si_se_corta(self):
+        r = self.correr_vigilado("sleep 60")
+        self.assertIn("rc=142", r.stdout,
+                      "callado y sin ninguna conexión abierta: eso es un cuelgue y hay "
+                      "que cortarlo")
+
+    def test_si_no_se_puede_mirar_la_conexion_se_corta_igual(self):
+        """⊘ aplicado al vigilante: un chequeo que no pudo correr no dice «está vivo».
+        Si lo dijera, un cuelgue en una máquina sin `lsof` no se cortaría nunca."""
+        r = self.correr_vigilado("sleep 60", entorno={"LSOF": "/no/existe/lsof"})
+        self.assertIn("rc=142", r.stdout,
+                      "sin poder mirar conexiones hay que volver a la regla del silencio, "
+                      "no suponer que está trabajando")
+
+
 class TestElComparadorNoSeCuelga(unittest.TestCase):
     """`comparar-modelos.sh` existe para elegir modelo midiendo, y lo primero que uno le
     pide a un candidato nuevo es que capaz esté roto. Lanzaba los agentes en paralelo
