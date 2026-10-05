@@ -319,7 +319,8 @@ línea de estado trae una ayuda que menciona el propio `✅ hecha`.
 
 #### Toda cosa declarada dos veces hay que cruzarla
 
-Apareció cinco veces en un día, siempre igual: dos declaraciones de lo mismo, dos lectores
+Apareció cinco veces en un día dentro del plan, y otras cinco fuera de él. Siempre igual:
+dos declaraciones de lo mismo, dos lectores
 distintos, y una divergencia que no rompe nada hasta que rompe todo.
 
 | Lo declarado | Lo lee | Y también lo lee |
@@ -338,6 +339,32 @@ y una tarea ya integrada se relanzaba porque sólo se marcó en un lado.
 Vale también para el sentido inverso: cuando una declaración es la **abreviatura** de la
 otra —la tabla dice `laberinto.py` donde la tarea dice `src/pacman/laberinto.py`— el cruce
 tiene que aceptarla, o produce ruido y el ruido se ignora.
+
+**Y la misma enfermedad fuera del plan, que costó un día entero.** Las cinco de arriba son
+declaraciones sobre el trabajo. Éstas son sobre el **entorno**, y son peores porque el
+síntoma nunca señala la causa:
+
+| Lo declarado | Dónde estaba duplicado | Qué se veía cuando divergió |
+|---|---|---|
+| la config de OpenCode | el repo la llama «el archivo real» y el symlink apunta a otro repo | el repo describía algo que no corría |
+| qué modelo usa cada agente | `opencode.json`, y a mano en `warm.sh`, `anclar.sh` y la sonda | **«la plataforma no responde»** con la plataforma arriba |
+| el contexto de cada modelo | `limit.context`, y el `max_model_len` que sirve el endpoint | **«el agente no escribió el test»** con un 400 que el agente nunca vio |
+| cómo se corre la suite | el gate y el validador, cada uno con el suyo | tests imposibles de pasar, culpa al agente |
+| el esquema de la base | `PLAN.md`, y lo que afirmaba un test | reprobaba una implementación correcta |
+
+Tres reglas que salen de ahí, en orden de cuánto costaron:
+
+1. **La ficha del modelo no es el contrato del endpoint.** Declaré 128.000 de contexto
+   copiando la ficha nominal; el endpoint servía **5.312**. Lo que vale es lo que informa la
+   plataforma, y se pregunta, no se supone.
+2. **Un id de modelo escrito en un script es una copia que va a quedar vieja.** Estaba en
+   tres archivos a la vez y los tres siguieron apuntando al modelo anterior.
+3. **Una cura que depende de que alguien se acuerde no es parte del método.**
+   `sync_limits.py` existía, hacía exactamente falta, y hasta estaba nombrado en el runbook
+   como la respuesta a ese 400 — pero era un paso manual, así que nadie lo corrió. Ahora lo
+   corre `correr-todo.sh` antes de gastar una llamada.
+
+El patrón común de las tres: **el método sabía la respuesta y el proceso no la usaba.**
 
 #### Un solo comando para correr la suite
 
