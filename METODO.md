@@ -795,6 +795,37 @@ réplica admite 8 a la vez**, y es el valor por defecto. Pasado ahí el throughp
 subir. Tabla en [INFRAESTRUCTURA.md](INFRAESTRUCTURA.md); con otro backend, medilo con
 `colabhive/scripts/concurrencia.py`.
 
+### El vigilante tiene que perder la carrera
+
+Cualquier reloj que mate a una herramienta —un timeout, un vigilante de inactividad, un
+límite de reintentos— **tiene que ser más largo que lo que esa herramienta tarda en informar
+su propio error.** Si corta antes, no observa el sistema: lo fabrica. Y lo que fabrica es la
+peor clase de evidencia, porque se parece exactamente a lo que uno fue a buscar: silencio.
+
+Nos costó un día. El vigilante cortaba a los 45 segundos de silencio (20 mientras el log no
+pasara del encabezado). La plataforma tarda **68,4 segundos** en informar que cortó el
+stream a mitad de la generación. Durante todo ese día el diagnóstico correcto —`upstream
+stream ended without a complete EOS handshake`— estuvo a 23 segundos de imprimirse y no se
+imprimió **ni una sola vez**. Sobre ese silencio construí tres explicaciones, las tres
+falsas: que opencode nunca mandaba la petición, que era la longitud del prompt, que era un
+cuelgue de arranque. Cada una tenía su medición y su A/B.
+
+Tres consecuencias prácticas:
+
+- **El valor por omisión se declara en un solo lugar**, no enterrado en una expansión
+  (`${INACTIVIDAD:-45}` adentro de la función). Un test que quiso comprobarlo terminó
+  escribiendo el 45 él también, o sea comprobando su propia copia.
+- **El mensaje del corte confiesa.** Dice «lo cortamos nosotros: si la herramienta tenía un
+  error que no llegó a imprimir, no lo vamos a ver». Sin esa línea, el que lee el log cree
+  que no había nada que leer.
+- **Un grabador que registra al terminar no registra lo que se murió en vuelo.** Nuestro
+  proxy anotaba cada petición recién cuando llegaba la respuesta, así que las peticiones que
+  el vigilante mataba a mitad desaparecían de su registro — y de ahí salió la conclusión de
+  que «opencode nunca manda la petición». El mismo error con otro mecanismo.
+
+La regla hermana de la vacuidad: *un chequeo que no pudo correr no es un chequeo que pasó*.
+Ésta dice *un sujeto al que callaste no es un sujeto que no tenía nada que decir*.
+
 ### El método no depende de la IA
 
 Todo lo que decide es un comando, así que **una persona puede ejecutar el método completo

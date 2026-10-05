@@ -100,25 +100,56 @@ eso no es de la plataforma, es una decisión de asignación nuestra que hay que 
 
 ---
 
-## Apéndice: el cuelgue de opencode no llega a la plataforma
+## Apéndice: el cuelgue era la plataforma cortando el stream
 
-Durante estas mediciones, `opencode run` se colgaba con frecuencia. Monté un proxy que
-graba lo que opencode manda y lo reenvía a la API, y el resultado es concluyente:
+**Esta sección estuvo mal escrita dos veces el mismo día, y las dos veces por la misma
+causa: un instrumento que mataba al sujeto antes de que hablara.**
+
+Lo que decía antes: «el cuelgue de opencode no llega a la plataforma», apoyado en que un
+proxy grabador sólo registró `GET /models` y ninguna petición de completado. Y lo que
+decía después: «es la longitud del prompt», apoyado en un A/B de 8 contra 8.
+
+Las dos conclusiones eran artefactos. Lo que pasa de verdad, medido corriendo tres agentes
+**sin vigilante de inactividad**:
 
 ```
-#1 GET /models · 0B → {'codigo': 200, 'bytes': 22239, 'segundos': 2.29}
+t=  2.0s  silencio=  2.0s     4B
+t=  2.0s  silencio=  0.0s    57B   ← el encabezado de opencode
+t= 70.3s  silencio= 68.4s   108B   ← Error: {"message":"upstream stream ended
+                                      without a complete EOS handshake"}
 ```
 
-**Una sola petición: el listado de modelos.** Cuando se cuelga, opencode **nunca manda la
-petición de completado** — su propio log dice `stream` y `llm runtime selected`, pero nada
-sale del proceso—. O sea que el cuelgue es local y está antes de la red.
+**La plataforma corta el stream a mitad de la generación y tarda 68,4 segundos en
+informarlo.** Dos de las tres corridas murieron así, con el mismo tiempo al decimal. La
+tercera siguió trabajando más de diez minutos sin un solo problema.
 
-Mientras eso pasaba, la plataforma atendía peticiones realistas sin problema: **5 de 5**
-con 20 KB de prompt y definiciones de herramientas, TTFB 0,6 s y total ~7 s. Nada que
-pedirle a la plataforma por esto.
+Por qué nunca lo vimos:
 
-Un dato más, sin causalidad probada: después de `npm i -g @ai-sdk/openai-compatible` —el
-paquete de proveedor que la config declara y que no estaba en el disco— la tasa pasó a
-**7 de 8**. No afirmo que sea la causa: la tasa de cuelgue varía sola a lo largo del día y
-no tengo una medición de control del mismo momento. Queda como pista para reportarlo
-aguas arriba.
+| El instrumento | Cortaba a los | El error llega a los | Qué quedaba en el log |
+|---|---|---|---|
+| ventana de arranque (<1 KB) | 20 s | 68,4 s | 61 bytes: el encabezado |
+| ventana larga | 45 s | 68,4 s | 61 bytes: el encabezado |
+| proxy grabador | — | — | sólo el `GET /models` |
+
+El proxy merece su propio renglón porque falla por lo mismo con otro mecanismo: **graba la
+petición recién cuando la respuesta termina.** Una petición de completado que estaba en
+vuelo cuando el vigilante mató el proceso no se graba nunca. O sea que «sólo llegó el
+listado de modelos» no era un hallazgo sobre opencode: era el eco del mismo corte.
+
+El error `upstream stream ended without a complete EOS handshake` **no aparece ni una sola
+vez en ningún log de todo el día.** No porque no pasara: porque lo borrábamos 23 segundos
+antes de que se imprimiera.
+
+### Lo que hay que pedirle a la plataforma
+
+Que el stream de `/chat/completions` termine con su EOS. Se corta a mitad de generación,
+de forma intermitente y simultánea entre peticiones concurrentes —dos de tres cayeron en el
+mismo segundo—, lo que apunta a algo del lado del servidor o del gateway y no del cliente.
+Dato útil para buscarlo: el cliente se queda 68 segundos esperando antes de recibir el
+error, así que hay un temporizador de ~70s en algún lado del camino.
+
+### Y lo que nos dejó a nosotros
+
+La regla está ahora en METODO.md y tiene un test que la sostiene: **un vigilante tiene que
+perder siempre la carrera contra el error que la herramienta vigilada sabe imprimir.** Si
+corta antes, no observa el sistema: lo fabrica.

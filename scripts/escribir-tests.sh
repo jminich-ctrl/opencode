@@ -113,22 +113,7 @@ for id in "$@"; do
     cd "$wt/$PROYECTO" || exit 1
     export XDG_DATA_HOME="$wt/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
     con_limite "${LIMITE_AGENTE:-1200}" opencode run --agent "$AGENTE" \
-      "${MOTIVO_TESTS:+Un intento anterior falló así: $MOTIVO_TESTS. No repitas ese camino. }Leé tareas/$(basename \"$archivo\"). Hacé la tarea completa: la implementación Y sus tests.
-
-Dos cosas, las dos con la herramienta write:
-
-1. La implementación, en los archivos que la tarea declara en 'Archivos que podés tocar'.
-2. '$ruta', con '$clase' como agrupador —si es un archivo .py, una clase 'class $clase'; si es .test.ts, un bloque describe('$clase', ...)—, que verifique el criterio de terminado. Cada test tiene que fallar si la implementación no hace lo que dice el alcance, y tiene que DISTINGUIR: un assert que pasaría igual con el código de antes no sirve de nada. Nada de 'assertTrue(len(x) > 0)'.
-
-De tu trabajo nos vamos a quedar SÓLO con los tests: la implementación la va a escribir otro agente desde cero. Así que los tests son el entregable, y tienen que ser buenos.
-
-Si para verificar algo necesitás un archivo de prueba —un módulo de ejemplo, un fixture en disco—, creálo DENTRO del test y borralo en un finally. No lo agregues al repo: el entregable es el test, y cualquier otro archivo que quede cae fuera del alcance de la tarea.
-
-Los tests corren con el directorio de trabajo en la RAÍZ del proyecto, no en la carpeta del archivo de test. Toda ruta que abras se escribe desde ahí: 'backend/app/x.py', 'frontend/package.json'. Nunca 'package.json' ni '../package.json'.
-
-Antes de decir que terminaste, corré 'bash scripts/correr-suite.sh $ruta::$clase' y mostrá su salida real. Tienen que pasar: si tu test no pasa contra tu propia implementación, uno de los dos está mal y lo tenés que arreglar vos, no nosotros. Ese es el comando con el que te vamos a juzgar, así que no uses otro.
-
-No toques ningún otro archivo." 2>&1
+      "${MOTIVO_TESTS:+Un intento anterior falló así: $MOTIVO_TESTS. No repitas ese camino. }Leé tareas/$(basename \"$archivo\") y hacé la tarea completa: la implementación Y sus tests, las dos cosas con la herramienta write. El archivo de test es '$ruta' y su agrupador se llama '$clase'. Las reglas de cómo escribir tests están en AGENTS.md: leelas. Al terminar corré 'bash scripts/correr-suite.sh $ruta::$clase' y mostrá su salida real." 2>&1
   ) > "$log" 2>&1
   RC_AGENTE=$?
 

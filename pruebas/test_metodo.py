@@ -653,6 +653,65 @@ class TestPlataformaCaida(unittest.TestCase):
         self.assertIn("Bad Gateway", r.stdout,
                       "un 502 es una falla de la plataforma, no del test")
 
+    def test_el_stream_cortado_a_la_mitad_se_reconoce(self):
+        """El cuelgue del día entero era esto, y tardé el día entero en verlo porque el
+        vigilante lo tapaba: la plataforma corta el stream a mitad de la generación y
+        devuelve `upstream stream ended without a complete EOS handshake`. Es una falla de
+        la plataforma —el agente ya estaba trabajando— y no tiene que gastar intentos."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-eos-"))
+        self.addCleanup(shutil.rmtree, str(d), True)
+        log = d / ".tarea.log"
+        log.write_text('=== T06\n> ejecutor\nError: {"message":"upstream stream ended '
+                       'without a complete EOS handshake","type":"api_error"}\n'
+                       '=== gate ===\nx\n=== rc=1\n=== fin T06 · hoy\n')
+        r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; error_del_agente "{log}"', RAIZ)
+        self.assertIn("stream", r.stdout.lower(),
+                      "un stream cortado por la plataforma no es culpa del agente")
+
+
+class TestElVigilanteNoTapaLaEvidencia(unittest.TestCase):
+    """La regla que costó un día entero.
+
+    El vigilante de inactividad cortaba a los 45s de silencio. La plataforma tarda **68,4s**
+    (medido, tres corridas) en informar que cortó el stream. O sea que durante todo un día
+    el vigilante mató el proceso 23 segundos antes de que la herramienta imprimiera el
+    diagnóstico, y el error `upstream stream ended without a complete EOS handshake` no
+    aparece ni una vez en ningún log del día. Yo no estaba diagnosticando un cuelgue: estaba
+    destruyendo la prueba de qué era.
+
+    De ahí la regla general: **un vigilante tiene que perder siempre la carrera contra el
+    informe de error de la herramienta que vigila.** Si corta antes, no observa un sistema:
+    lo fabrica.
+    """
+
+    MARGEN = 20  # sobre los 68,4s medidos
+
+    def test_la_ventana_de_inactividad_deja_hablar_a_la_herramienta(self):
+        r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; echo "${{INACTIVIDAD:-45}}"', RAIZ)
+        ventana = int(r.stdout.strip() or 0)
+        self.assertGreaterEqual(
+            ventana, 68 + self.MARGEN,
+            f"la ventana es {ventana}s y la plataforma tarda 68,4s en informar un stream "
+            f"cortado: con esta ventana el error nunca se imprime y el cuelgue queda sin "
+            f"causa para siempre")
+
+    def test_un_corte_por_silencio_avisa_que_puede_haber_tapado_un_error(self):
+        """Aunque la ventana sea generosa, cortar sigue siendo destruir evidencia. El
+        mensaje tiene que decirlo, o el que lo lea va a creer que no había nada que leer."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-tapa-"))
+        self.addCleanup(shutil.rmtree, str(d), True)
+        log = d / "vigilado.log"
+        log.write_text("x")
+        r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                   f'LOG_VIGILADO="{log}" INACTIVIDAD=15 UMBRAL_ARRANQUE=0 '
+                   f'con_limite 120 sleep 90; motivo_del_corte "{log}"', RAIZ)
+        self.assertIn("inactividad", r.stdout,
+                      "el motivo tiene que decir que cortó el silencio, no el límite total")
+        self.assertRegex(
+            r.stdout, r"sin ver|pudo haber|no llegó",
+            "el corte tiene que avisar que la herramienta puede no haber alcanzado a "
+            f"informar su propio error; dijo: {r.stdout!r}")
+
 
 class TestLimiteDeTiempo(unittest.TestCase):
     """Un agente colgado detiene la corrida para siempre, y eso es peor que un error: un

@@ -1,6 +1,22 @@
 # Funciones compartidas por correr-tarea.sh, estado.sh y comparar-modelos.sh.
 # Se carga con `.`; no se ejecuta sola. Compatible con el bash 3.2 de macOS.
 
+# Las perillas del vigilante, declaradas acá y en ningún otro lado. Estaban enterradas en
+# una expansión adentro de con_limite (`${INACTIVIDAD:-45}`), que es un valor que nadie
+# puede leer ni testear sin leer el cuerpo de la función: un test que quería comprobar el
+# valor por omisión terminó escribiéndolo él también, y entonces no comprobaba nada.
+#
+#   INACTIVIDAD  segundos de silencio que se toleran. Tiene que ser MAYOR que lo que tarda
+#                la herramienta vigilada en informar su propio error —medido: la plataforma
+#                tarda 68,4s en decir «upstream stream ended»—, o el vigilante tapa la
+#                causa del cuelgue que vino a detectar.
+#   ARRANQUE     igual, mientras el log no pase de UMBRAL_ARRANQUE. Se deja como perilla,
+#                pero por omisión NO es más corta: un log de 61 bytes no distingue
+#                «colgado al arrancar» de «el stream ya murió y todavía no lo informaron».
+: "${INACTIVIDAD:=90}"
+: "${ARRANQUE:=90}"
+: "${UMBRAL_ARRANQUE:=1024}"
+
 # Ubica el proyecto: el repo git del directorio actual (no el de estos scripts), así el
 # mismo runner sirve para tu proyecto y para ejemplo-pacman. Deja RAIZ, PROYECTO y BASE.
 #   RAIZ      el worktree principal del repo: correr esto desde adentro de un
@@ -88,7 +104,7 @@ parte_del_agente() {
 # —aunque eso el gate ya lo dice con «no hay ningún cambio: la tarea no se hizo»—.
 error_del_agente() {
   parte_del_agente "$1" \
-    | grep -m1 -oE 'inference timed out[^"]*|database is locked|el agente no respondió[^"]*|Bad Gateway|Service Unavailable|Internal Server Error|50[0234] '
+    | grep -m1 -oE 'inference timed out[^"]*|database is locked|el agente no respondió[^"]*|upstream stream ended[^"]*|Bad Gateway|Service Unavailable|Internal Server Error|50[0234] '
 }
 
 # ¿Responde la plataforma? Un 502 de nginx no es una falla de la tarea ni del agente, y
@@ -200,39 +216,46 @@ con_limite() {
   "$@" &
   pid=$!
   set +m
-  ( # Dos relojes, y el que importa es el segundo.
+  ( # Dos relojes. El total ($segundos) es la red de seguridad; el de INACTIVIDAD sobre el
+    # log es el que detecta, porque un agente que trabaja escribe y uno trabado no.
     #
-    # El límite total ($segundos) es la red de seguridad. El que detecta de verdad es el de
-    # INACTIVIDAD sobre el log: el cuelgue de opencode no es lentitud, es silencio —su
-    # propio log termina en `init` y no escribe nada más—, mientras que un agente que
-    # trabaja escribe todo el tiempo. Con un solo reloj total hay que elegir entre cortar
-    # rápido y no cortar a quien está trabajando; con el de inactividad no hay que elegir.
+    # LO QUE COSTÓ UN DÍA ENTERO. Acá decía 45s de silencio, y 20s mientras el log no
+    # pasara del encabezado, con el argumento de que «un proceso con menos de 1 KB y veinte
+    # segundos sin escribir una letra está colgado, no pensando».
     #
-    # Medido: el tiempo al primer byte del modelo con un prompt real es de 0,7s y opencode
-    # imprime su encabezado en ~1s, así que 45s de silencio TOTAL ya es patológico —y como
-    # la salida se transmite token por token, también lo es a mitad de camino—. Con 45 en
-    # vez de 90, cada cuelgue cuesta la mitad y un agente que escribe no se toca.
+    # Falso, y la medición lo dio vuelta: sin vigilante, lo que pasa de verdad es que la
+    # plataforma corta el stream a mitad de la generación y tarda **68,4 segundos** (tres
+    # corridas, idéntico) en informarlo con `upstream stream ended without a complete EOS
+    # handshake`. Durante todo ese rato el log sigue en 61 bytes —el encabezado—, o sea que
+    # las DOS ventanas mataban el proceso antes del diagnóstico: la de arranque por 48
+    # segundos, la larga por 23. Ese error no aparece ni una sola vez en ningún log del día.
+    #
+    # El «cuelgue de arranque» que esas ventanas creían detectar ERA este error, tapado por
+    # ellas. Por eso ahora hay una sola ventana y es más larga que el informe de la
+    # herramienta: **un vigilante tiene que perder siempre la carrera contra el error que
+    # la herramienta vigilada sabe imprimir**. Si corta antes, no observa el sistema: lo
+    # fabrica, y deja un cuelgue sin causa que nadie puede diagnosticar.
+    #
+    # El costo de aflojar es real —cada cuelgue verdadero cuesta 90s en vez de 45— y es
+    # barato al lado de un día de diagnóstico contra evidencia que uno mismo borró.
     local t=0 quieto=0 tam_anterior=-1 tam
     while [ "$t" -lt "$segundos" ]; do
       sleep 15; t=$((t+15))
       kill -0 "$pid" 2>/dev/null || exit 0
       if [ -n "${LOG_VIGILADO:-}" ]; then
         tam="$(wc -c < "$LOG_VIGILADO" 2>/dev/null || echo 0)"
-        # Ventana más corta mientras la salida siga siendo sólo el encabezado. Todos los
-        # cuelgues observados son de ARRANQUE: el proxy mostró que opencode no manda ni una
-        # petición de completado —sólo el GET /models— y el log se queda entre 61 y 272
-        # bytes. Como el primer token del modelo llega en 0,6s y la salida se transmite
-        # token por token, un proceso con menos de 1 KB y veinte segundos sin escribir una
-        # letra está colgado, no pensando. Cada cuelgue cuesta 20s en vez de 45.
-        local limite_quieto="${INACTIVIDAD:-45}"
-        [ "${tam:-0}" -lt "${UMBRAL_ARRANQUE:-1024}" ] && limite_quieto="${ARRANQUE:-20}"
+        local limite_quieto="$INACTIVIDAD"
+        # La ventana de arranque existe sólo como perilla; por omisión es la misma, porque
+        # un log corto no distingue «colgado al arrancar» de «la plataforma todavía no
+        # contó que cortó el stream»: medido, en ese caso el log queda en 61 bytes.
+        [ "${tam:-0}" -lt "$UMBRAL_ARRANQUE" ] && limite_quieto="$ARRANQUE"
         if [ "$tam" = "$tam_anterior" ]; then
           quieto=$((quieto+15))
           if [ "$quieto" -ge "$limite_quieto" ]; then
             # Qué reloj cortó: el mensaje de un corte tiene que decirlo, o se informa "no
             # respondió en 1200s" cuando en realidad se lo cortó a los 90 por silencio, y
             # el próximo que lo lea va a buscar un problema de lentitud que no existe.
-            [ -n "${LOG_VIGILADO:-}" ] && echo "inactividad ${limite_quieto}s$([ "${tam:-0}" -lt "${UMBRAL_ARRANQUE:-1024}" ] && echo ' (sin pasar del encabezado: cuelgue de arranque)')" > "$LOG_VIGILADO.corte"
+            [ -n "${LOG_VIGILADO:-}" ] && echo "inactividad ${limite_quieto}s (lo cortamos nosotros: si la herramienta tenía un error que no llegó a imprimir, no lo vamos a ver)$([ "${tam:-0}" -lt "$UMBRAL_ARRANQUE" ] && echo ' · el log no pasó del encabezado')" > "$LOG_VIGILADO.corte"
             break
           fi
         else
