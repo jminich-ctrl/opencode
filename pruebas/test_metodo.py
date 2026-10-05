@@ -669,6 +669,49 @@ class TestPlataformaCaida(unittest.TestCase):
                       "un stream cortado por la plataforma no es culpa del agente")
 
 
+class TestLasReglasEstanDondeElAgenteLasBusca(unittest.TestCase):
+    """`escribir-tests.sh` le dice al agente «las reglas de cómo escribir tests están en
+    AGENTS.md: leelas». El agente corre con el directorio de trabajo en el PROYECTO, así
+    que lee `<proyecto>/AGENTS.md` — no el de la raíz del repo.
+
+    Lo rompí yo el mismo día: al recortar el prompt moví esas reglas al AGENTS.md de la
+    raíz, que el agente no ve. Desde entonces el prompt lo mandaba a leer una convención
+    que no estaba donde buscaba, y los intentos fallaban por no declarar el agrupador con
+    el nombre pedido — que era justo una de las reglas que moví.
+
+    Mismo patrón que todo el día: una declaración se mudó y el lector no la siguió.
+    """
+
+    def seccion_del_prompt(self):
+        texto = (SCRIPTS / "escribir-tests.sh").read_text()
+        return "AGENTS.md" in texto
+
+    def test_cada_proyecto_tiene_las_reglas_en_su_propio_agents(self):
+        if not self.seccion_del_prompt():
+            self.skipTest("⊘ el prompt ya no manda a leer AGENTS.md")
+        MARCA = "Si te toca escribir los tests"
+        faltan = []
+        for proyecto in sorted(RAIZ.glob("ejemplo-*")):
+            if not (proyecto / "tareas").is_dir():
+                continue
+            agents = proyecto / "AGENTS.md"
+            if not agents.exists() or MARCA not in agents.read_text():
+                faltan.append(str(agents.relative_to(RAIZ)))
+        self.assertEqual(
+            faltan, [],
+            f"el prompt manda al agente a leer AGENTS.md y estos no tienen la sección: "
+            f"{faltan}. El agente lee el del proyecto, no el de la raíz del repo")
+
+    def test_la_plantilla_tambien(self):
+        """Un proyecto nuevo arrancado de la plantilla tiene que nacer con la sección, o
+        repite este defecto desde el día uno."""
+        plantilla = RAIZ / "plantillas" / "AGENTS.md"
+        if not plantilla.exists():
+            self.skipTest("⊘ no hay plantillas/AGENTS.md")
+        self.assertIn("Si te toca escribir los tests", plantilla.read_text(),
+                      "la plantilla de AGENTS.md no trae las reglas de escritura de tests")
+
+
 class TestLaCuraEstaConectadaAlProceso(unittest.TestCase):
     """El método tenía la cura y nadie la aplicaba.
 
