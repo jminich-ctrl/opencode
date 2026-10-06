@@ -952,6 +952,45 @@ class TestElArchivoDeTareaNoSeContradiceConLaFase(unittest.TestCase):
             "el prompt no le dice al agente que en esta fase los tests todavía no existen")
 
 
+class TestLasReglasDurasLleganAlAgente(unittest.TestCase):
+    """Las reglas que el método llama innegociables vivían SÓLO en el AGENTS.md de la raíz,
+    y el agente lee el del proyecto.
+
+    Tres violaciones del mismo día, las tres prohibidas en un archivo que el agente no abre:
+
+    - T08 editó su propio archivo de test. Prohibido en «Reglas duras»: *no toques un test
+      para que pase*.
+    - T06c hizo lo mismo.
+    - Y antes, un agente declaró haber escrito un test que nunca escribió. Prohibido en
+      «Antes de decir que terminaste»: *nunca digas que corriste algo que no corriste*.
+
+    Las tres son faltas que el método considera graves, y ninguna de las tres le había sido
+    comunicada. Culpar al modelo por incumplir una regla que no recibió es el mismo error
+    que vengo cometiendo todo el día con otros nombres.
+    """
+
+    INNEGOCIABLES = ("## Reglas duras", "## Antes de decir que terminaste")
+
+    def test_cada_proyecto_tiene_las_reglas_duras(self):
+        faltan = []
+        for proyecto in sorted(RAIZ.glob("ejemplo-*")):
+            if not (proyecto / "tareas").is_dir():
+                continue
+            texto = (proyecto / "AGENTS.md").read_text() if (proyecto / "AGENTS.md").exists() else ""
+            for s in self.INNEGOCIABLES:
+                if s not in texto:
+                    faltan.append(f"{proyecto.name}: falta «{s}»")
+        self.assertEqual(
+            faltan, [],
+            f"el agente lee el AGENTS.md del PROYECTO, no el de la raíz: {faltan}")
+
+    def test_la_plantilla_tambien(self):
+        texto = (RAIZ / "plantillas" / "AGENTS.md").read_text()
+        for s in self.INNEGOCIABLES:
+            self.assertIn(s, texto,
+                          f"un proyecto nuevo nacería sin «{s}»")
+
+
 class TestLasReglasEstanDondeElAgenteLasBusca(unittest.TestCase):
     """`escribir-tests.sh` le dice al agente «las reglas de cómo escribir tests están en
     AGENTS.md: leelas». El agente corre con el directorio de trabajo en el PROYECTO, así

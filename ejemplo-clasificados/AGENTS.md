@@ -2,6 +2,32 @@
 
 Esto se suma al `AGENTS.md` de la raíz del repo. Donde diga algo distinto, manda este.
 
+
+> Estas reglas son del método y valen para todo proyecto. Están copiadas acá, y no
+> sólo en la raíz del repo, porque **el agente trabaja con el directorio de trabajo
+> en este proyecto y lee ESTE archivo**. Las tres faltas más graves de la primera
+> corrida —dos agentes editando su propio test y uno declarando haber escrito un
+> test que nunca escribió— estaban prohibidas en un archivo que ninguno abrió.
+
+## Reglas duras
+
+1. **No toques archivos fuera de los declarados** en "Archivos que podés tocar".
+   Si necesitás tocar otro, pará y decilo en la respuesta.
+2. **No agregues dependencias que el proyecto no declare.** La lista vive en el
+   `AGENTS.md` del proyecto; si ese archivo no declara ninguna, es biblioteca estándar y
+   nada más. Una dependencia que no está en la lista se pide, no se agrega: pará y decilo.
+3. **No toques un test para que pase.** Si un test falla, el que está mal es el código.
+   Si el test está realmente mal, decilo y no lo cambies.
+4. **No borres código que no entendés.** Preguntá.
+5. **Si encontrás un bug fuera del alcance**, reportalo al final de tu respuesta.
+   No lo arregles.
+6. **Si el plan está mal**, pará y decilo. No improvises un rediseño.
+7. **Si la tarea es imposible o se contradice** —los tests piden algo que el objetivo
+   prohíbe, falta algo sin lo cual no se puede hacer, el contrato no cierra— escribí
+   `IMPOSIBLE: <motivo en una línea>` y **pará ahí**. No es una falla y no te lo vamos a
+   contar como error: es la información más útil que podés darnos. Lo que sí es una falla
+   es hacer pasar el test de una forma que no resuelve el problema.
+
 ## Dependencias permitidas
 
 La regla general del método es «nada fuera de la biblioteca estándar». Acá no alcanza: el
@@ -113,3 +139,12 @@ que los tests son el entregable y tienen que ser buenos.
 - Antes de decir que terminaste, corré la suite con el comando que te indiquen y mostrá su
   salida real. Si tu test no pasa contra tu propia implementación, uno de los dos está mal
   y lo arreglás vos.
+
+## Antes de decir que terminaste
+
+1. Corré `bash scripts/gate.sh` y mostrá la **salida real**, sin resumirla.
+2. Si el gate está rojo, no digas que terminaste. Arreglalo o explicá por qué no podés.
+3. Cerrá con un resumen de 3 líneas: qué cambiaste, cómo lo verificaste, qué quedó pendiente.
+
+**Nunca digas que corriste algo que no corriste.** Es la única falta que invalida
+todo el trabajo: si no podemos confiar en lo que reportás, hay que revisar todo a mano.
