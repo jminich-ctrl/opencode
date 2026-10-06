@@ -822,6 +822,32 @@ réplica admite 8 a la vez**, y es el valor por defecto. Pasado ahí el throughp
 subir. Tabla en [INFRAESTRUCTURA.md](INFRAESTRUCTURA.md); con otro backend, medilo con
 `colabhive/scripts/concurrencia.py`.
 
+### Nombrar la cosa no alcanza: hay que nombrar dónde vive
+
+Tres tareas seguidas gastaron sus reintentos por la misma clase de ambigüedad, y en las
+tres el agente hizo lo razonable:
+
+| La tarea decía | El agente entendió | Lo que costó |
+|---|---|---|
+| «función `filterAdsByCategory` disponible y usada» | la puso en `lib/utils.ts` | 2 intentos, fuera de alcance |
+| «estilos SCSS aplicados» | creó `pages/AdsList.scss` | 1 intento, path equivocado |
+| «las monta sobre la propia `app`» | `app = FastAPI()` dentro del test | 2 intentos, el test no podía pasar nunca |
+
+Ninguno es un error del modelo: en los tres casos la tarea nombraba **qué** y no **dónde**,
+y el lugar que el agente eligió es el que elegiría cualquiera. El tercero es el peor,
+porque el test quedaba bien formado —respetaba el alcance y fallaba sin la implementación—
+y era **imposible de pasar**: una `FastAPI()` nueva no tiene los manejadores que la tarea
+registra.
+
+**Un criterio de terminado que nombra una función, una clase, un estilo o un objeto tiene
+que nombrar su archivo; y si el test lo importa, el import exacto.** Cuesta una línea
+escribirlo y cuesta dos intentos de agente no escribirlo.
+
+El síntoma para reconocerlo: el agente falla por **ubicación**, no por comportamiento —el
+alcance reprueba un archivo que no está en la lista, o el test no ve lo que la
+implementación hace—. Si el agente escribió algo correcto en el lugar equivocado, el
+defecto es de la tarea.
+
 ### Nadie cruza los tests contra el plan
 
 El gate compara la **implementación contra los tests**. `validar-plan.py` compara el

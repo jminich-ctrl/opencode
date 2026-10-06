@@ -45,8 +45,34 @@ No entra:
 Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando vos**. Archivo: `backend/tests/test_errores.py`, clase `TestErrores`.
 
 Para probarlo hace falta una ruta que valide un cuerpo y otra que levante `HTTPException`.
-Las dos las monta el test sobre la propia `app` con `app.post(...)` / `app.get(...)`
-**dentro del test**: no hace falta crear archivos en `rutas/` ni recargar nada.
+Las dos se montan **sobre la app del proyecto**, la que importás con
+`from app.main import app`. **No crees una `FastAPI()` nueva dentro del test**: una app
+nueva no tiene los manejadores que esta tarea registra, así que el test no podría pasar
+nunca —y eso ya pasó, por culpa de cómo estaba redactado esto—.
+
+```python
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+from pydantic import BaseModel
+from app.main import app          # ← LA del proyecto, con sus manejadores
+
+class Cuerpo(BaseModel):
+    nombre: str
+    precio: int
+
+@app.post("/__prueba_validacion")   # rutas de sonda, con nombre que no choca
+def _sonda_validacion(c: Cuerpo):
+    return {"ok": True}
+
+@app.get("/__prueba_404")
+def _sonda_404():
+    raise HTTPException(404, "no existe")
+
+cliente = TestClient(app)
+```
+
+Las rutas de sonda se montan al importar el módulo de test y no hace falta limpiarlas: el
+worktree es desechable y al tronco sólo llega el archivo de test.
 
 ## Criterio de terminado
 
