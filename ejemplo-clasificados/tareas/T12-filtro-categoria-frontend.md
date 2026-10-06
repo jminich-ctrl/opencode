@@ -1,6 +1,6 @@
 # T12 — Filtro por categoría en listado
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T08
 **Archivos que podés tocar:** frontend/src/pages/AdsList.jsx, frontend/src/design/_filters.scss
 **Prohibido tocar:** 
