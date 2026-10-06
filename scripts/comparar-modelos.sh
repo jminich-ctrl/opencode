@@ -95,9 +95,14 @@ for modelo in "$@"; do
   delib="$(parte_del_agente "$log" 2>/dev/null | wc -l | xargs)"
   # Archivos: del commit que deja el runner al dar verde. Contar los sin commitear da 0
   # desde que el runner commitea (una mejora en un lado rompió la medición en el otro).
-  archivos="$(git -C "$wt" diff --name-only HEAD~1 HEAD -- "$PROYECTO" 2>/dev/null | wc -l | xargs)"
-  [ "${archivos:-0}" = "0" ] && archivos="$(git -C "$wt" status --short -- "$PROYECTO" 2>/dev/null \
-              | grep -vc '\.opencode-data\|\.tarea\.log\|\.segundos' | xargs)"
+  # Los archivos QUE EL AGENTE tocó, sin la infraestructura que prepara el método. Antes
+  # miraba HEAD~1..HEAD, que incluye el commit de preparación del entorno: informaba 11
+  # archivos para los tres modelos cuando ninguno había escrito uno solo. Una columna que
+  # da el mismo número para quien trabajó y para quien no, no mide nada.
+  INFRA_CMP='\.opencode-data|\.tarea\.log|\.segundos|\.base-ref|\.tests-base|\.venv|\.entorno|node_modules|package-lock\.json|\.mysql'
+  archivos="$( { git -C "$wt" diff --name-only HEAD -- "$PROYECTO" 2>/dev/null; \
+                 git -C "$wt" ls-files --others --exclude-standard -- "$PROYECTO" 2>/dev/null; } \
+               | grep -vE "$INFRA_CMP" | sort -u | grep -c . | xargs)"
   printf '%-3s %-26s %-8s %6s %6s %6s %s\n' "$n" "$(echo "$modelo" | cut -c1-26)" "$gate" "$segs" "${tools:-0}" "$delib" "$archivos"
 done
 echo

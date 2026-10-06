@@ -72,3 +72,36 @@ logits rotos. Conviene alinearlas antes que nada.
 ```
 
 y contar los `!` de la respuesta.
+
+
+---
+
+## Apéndice del mismo día: el clúster está lleno, y puede ser la causa común
+
+Horas después, intentando levantar `GLM-4.7-Flash`, la plataforma devolvió el estado real
+de las placas:
+
+```
+No se pudo alocar 3 GPU(s) de 22667MB c/u — disponible:
+  GPU0:  1950/32656MB free (6.0%)    GPU3:  2348MB (7.2%)
+  GPU1:  2348MB (7.2%)               GPU4:  4260MB (13.0%)
+  GPU2:  2348MB (7.2%)               GPU5: 32559MB (99.7%)
+```
+
+**Cinco de seis placas al 87–94% de ocupación.** Con una sola causa se explican cuatro
+síntomas que veníamos tratando por separado:
+
+| Síntoma | Lectura con el clúster lleno |
+|---|---|
+| `GLM-4.7-Flash` no arranca | pide 3 placas y hay una libre |
+| `Devstral-Small-2-24B` servido con **5.312** tokens de contexto | es lo que queda para KV cache cuando no hay VRAM, no una característica del modelo |
+| modelos que se enfrían y hay que recalentar | desalojo por presión de memoria |
+| el `30B-A3B` devolviendo un token repetido | **hipótesis, no verificada**: un modelo cargado a presión en memoria insuficiente |
+
+La última es la que más nos importa y es la que no podemos comprobar desde afuera. Si el
+token repetido desaparece sirviendo ese modelo con las placas libres, la causa no era la
+cuantización sino la presión de memoria — y eso cambia qué hay que arreglar.
+
+**Pedido:** correr la reproducción de arriba (5 peticiones, `temperature 0`) contra
+`f5d76140` servido en un nodo con VRAM holgada. Son cinco minutos y distingue dos causas
+que piden arreglos opuestos.
