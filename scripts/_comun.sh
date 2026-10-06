@@ -212,9 +212,22 @@ huella_de_falla() {
   [ -f "$log" ] || return 0
   err="$(error_del_agente "$log")"
   if [ -n "$err" ]; then echo "agente: $err" | cut -c1-90; return 0; fi
+  # El primer rojo CON su detalle. El gate imprime la categoría en la línea del ✗ y el dato
+  # —qué archivo, qué test, qué import— en las líneas sangradas que siguen. Quedarse con la
+  # primera línea daba motivos como «✗ tocó archivos intocables (tests o el propio gate):»,
+  # con los dos puntos y nada detrás: el reintento no sabía QUÉ había tocado y repetía.
+  # Pasó con T08 y terminó en punto muerto por eso.
+  #
+  # Y además la huella sirve para decidir si hay punto muerto: sin el dato, tocar dos
+  # archivos distintos daba la misma huella y el método lo leía como la misma falla.
+  #
+  # `escribir-tests.sh` ya tenía esta lección escrita; este camino no la había aprendido.
   awk '{ l[NR] = $0; if ($0 == "=== gate ===") g = NR }
        END { for (i = g + 1; i <= NR; i++) print l[i] }' "$log" \
-    | grep -m1 '✗' | sed 's/^ *//; s/[0-9]\{2,\}/N/g' | cut -c1-90
+    | awk '/✗/ && !vi { vi = 1; print; next }
+           vi && /^ +[^ ]/ && !/^ *[✗✓⊘·]/ && n < 3 { print; n++; next }
+           vi { exit }' \
+    | sed 's/^ *//; s/[0-9]\{2,\}/N/g' | tr '\n' ' ' | sed 's/  */ /g; s/ $//' | cut -c1-220
 }
 
 # Corre un comando con límite de tiempo. macOS no trae `timeout`, y perl sí está siempre.

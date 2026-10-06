@@ -669,6 +669,54 @@ class TestPlataformaCaida(unittest.TestCase):
                       "un stream cortado por la plataforma no es culpa del agente")
 
 
+class TestLaHuellaLlevaElDatoNoLaCategoria(unittest.TestCase):
+    """El motivo que recibe el reintento tiene que decir QUÉ falló, no de qué tipo fue.
+
+    T08 tocó su propio archivo de test, el gate lo frenó —bien— y el reintento recibió
+    sólo «✗ tocó archivos intocables (tests o el propio gate):», con los dos puntos y nada
+    detrás. El gate imprime cuál archivo en la línea siguiente y la huella la descartaba.
+    Le dijimos «tocaste algo intocable» sin decirle qué, y repitió exactamente lo mismo.
+
+    `escribir-tests.sh` ya tenía esta lección escrita en un comentario —«el motivo lleva el
+    fallo real, no su categoría… se vio: T02 falló dos veces por lo mismo recibiendo sólo
+    *el test está mal*»— y el otro camino no la había aprendido.
+    """
+
+    def test_la_huella_incluye_el_detalle_del_gate(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-huella-"))
+        self.addCleanup(shutil.rmtree, str(d), True)
+        log = d / ".tarea.log"
+        log.write_text(
+            "=== T08\nalgo\n=== gate ===\n"
+            "── 0. Integridad\n"
+            "  ✗ tocó archivos intocables (tests o el propio gate):\n"
+            "     frontend/tests/test_ads_frontend.test.ts\n"
+            "GATE ROJO (2 fallo/s)\n=== rc=1\n=== fin T08 · hoy\n")
+        r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; huella_de_falla "{log}"', RAIZ)
+        self.assertIn(
+            "test_ads_frontend", r.stdout,
+            "la huella se queda con la categoría y tira el dato: el reintento no sabe qué "
+            f"archivo tocó. Dijo: {r.stdout!r}")
+
+    def test_dos_fallas_distintas_dan_huellas_distintas(self):
+        """Y el dato tiene que distinguir: si la próxima vez toca OTRO archivo, es otra
+        falla y el reintento vale la pena. Con la categoría sola, todo es la misma."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-huella2-"))
+        self.addCleanup(shutil.rmtree, str(d), True)
+        huellas = []
+        for archivo in ("frontend/tests/uno.test.ts", "backend/tests/otro.py"):
+            log = d / f"{archivo.replace('/', '_')}.log"
+            log.write_text(f"=== T08\n=== gate ===\n"
+                           f"  ✗ tocó archivos intocables (tests o el propio gate):\n"
+                           f"     {archivo}\nGATE ROJO\n=== rc=1\n")
+            huellas.append(correr(
+                f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; huella_de_falla "{log}"',
+                RAIZ).stdout.strip())
+        self.assertNotEqual(huellas[0], huellas[1],
+                            "tocar dos archivos distintos da la misma huella: el método "
+                            "lo va a leer como punto muerto cuando no lo es")
+
+
 class TestNingunaTareaPendienteTieneSuCodigoHecho(unittest.TestCase):
     """Una tarea pendiente cuyo código ya está commiteado no puede cerrar, y el método no
     lo detectaba: lo descubría el agente, a los veinte minutos, y lo informaba mal.
