@@ -36,8 +36,12 @@ Los tests de esta tarea se escriben **antes** que la implementación, en una cor
 ## Criterio de terminado
 
 - [ ] UI de filtro implementada en AdsList.jsx.
-- [ ] Función `filterAdsByCategory` disponible y usada.
-- [ ] Estilos SCSS aplicados.
+- [ ] Función `filterAdsByCategory` **definida y exportada desde
+      `frontend/src/pages/AdsList.jsx`**, y usada ahí mismo. No va en un módulo aparte: el
+      alcance de esta tarea no incluye ningún otro archivo de código, y un helper suelto en
+      `lib/` o `utils/` queda fuera y el gate lo reprueba —con razón—.
+- [ ] Estilos en **`frontend/src/design/_filters.scss`**, que es el único archivo de estilos
+      del alcance. No crear un `.scss` al lado de la página.
 - [ ] `bash scripts/gate.sh` en verde.
 
 ## Verificación

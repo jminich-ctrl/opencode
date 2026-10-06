@@ -735,6 +735,23 @@ class TestNingunaTareaPendienteTieneSuCodigoHecho(unittest.TestCase):
     `git ls-files`.
     """
 
+    def test_no_acusa_a_una_tarea_que_modifica_lo_que_otra_creo(self):
+        """Y el chequeo no puede ser más estricto que la realidad: una tarea que MODIFICA
+        un archivo que otra tarea ya terminada creó es el caso normal, no un problema.
+
+        La primera versión de este chequeo acusaba a T11, T12 y T18 por `AdsList.jsx`,
+        que existe porque T08 —✅ hecha— lo creó. Eso habría frenado el plan entero por un
+        falso rojo, que es exactamente la clase de defecto que este chequeo vino a evitar.
+
+        La distinción: el archivo es un problema sólo si **ninguna tarea terminada lo
+        declara**. Si una hecha lo declara, su existencia está explicada.
+        """
+        texto = (SCRIPTS / "validar-plan.py").read_text()
+        self.assertRegex(
+            texto, r"hecha|terminada|declarad[oa] por",
+            "el chequeo de código-ya-commiteado no exime a los archivos que una tarea ya "
+            "terminada declara: va a acusar a toda tarea que modifique trabajo anterior")
+
     def test_el_validador_del_plan_lo_detecta(self):
         texto = (SCRIPTS / "validar-plan.py").read_text()
         self.assertIn(

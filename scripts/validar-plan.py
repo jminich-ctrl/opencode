@@ -377,11 +377,20 @@ if _trackeados is None:
     avisos.append("⊘ no pude listar los archivos de git: no se pudo comprobar si alguna "
                   "tarea pendiente ya tiene su código commiteado")
 else:
+    # Un archivo que una tarea YA TERMINADA declara está explicado: la que viene lo
+    # modifica, que es el caso normal. Sin esta exención el chequeo acusaba a las tres
+    # tareas que tocan AdsList.jsx después de que T08 lo creara — un falso rojo que habría
+    # frenado el plan entero, justo la clase de defecto que este chequeo vino a evitar.
+    _de_tareas_hechas = set()
+    for _t, _d in tareas.items():
+        if _d.get("hecha"):
+            _de_tareas_hechas.update(a.strip() for a in str(_d.get("archivos", "")).split(","))
     for tid, datos in sorted(tareas.items()):
         if datos.get("hecha"):
             continue
         ya = [a.strip() for a in str(datos.get("archivos", "")).split(",")
-              if a.strip() and a.strip() in _trackeados]
+              if a.strip() and a.strip() in _trackeados
+              and a.strip() not in _de_tareas_hechas]
         if ya:
             errores.append(
                 f"{tid} está pendiente pero su código ya está commiteado: "
