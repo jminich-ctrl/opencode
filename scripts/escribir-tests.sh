@@ -91,6 +91,18 @@ for id in "$@"; do
   intento=1; cortes=0; MOTIVO_TESTS=""; HUELLA_ANTERIOR=""
   while :; do
   wt="$RAIZ/../tests-$id"
+  # El transcript del intento anterior, ANTES de borrar el worktree. Es el único lugar
+  # donde está escrito por qué falló, y recrear el worktree lo borraba: hoy lo perdí cuatro
+  # veces y cada vez tuve que reproducir la corrida a mano, veinte minutos por vez, para
+  # leer una línea. Cuando por fin leí una, la causa estaba ahí entera.
+  #
+  # Es el mismo defecto que un vigilante que corta antes del error, con otro mecanismo: el
+  # método destruyendo la evidencia de sus propias fallas.
+  if [ -f "$wt/.tests.log" ]; then
+    FALLIDOS="$RAIZ/../fallidos-$id"; mkdir -p "$FALLIDOS"
+    cp "$wt/.tests.log" "$FALLIDOS/intento-$(date +%H%M%S).log" 2>/dev/null \
+      && echo "     (transcript del intento guardado en $FALLIDOS)"
+  fi
   rm -rf "$wt"
   git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
   git -C "$RAIZ" branch -D "tests/$id" 2>/dev/null

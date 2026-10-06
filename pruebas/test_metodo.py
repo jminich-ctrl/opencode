@@ -669,6 +669,29 @@ class TestPlataformaCaida(unittest.TestCase):
                       "un stream cortado por la plataforma no es culpa del agente")
 
 
+class TestElTranscriptDelFalloSeConserva(unittest.TestCase):
+    """El worktree se borra y se recrea en cada reintento, y con él se va el transcript del
+    intento que falló — que es el único lugar donde está escrito POR QUÉ falló.
+
+    Hoy lo perdí cuatro veces. Cada vez que quise saber qué había hecho el agente tuve que
+    reproducirlo a mano en un worktree aparte, veinte minutos por vez. Y cuando por fin
+    conseguí leer uno, la causa estaba ahí en una sola línea: el modelo decía que la tarea
+    se contradecía con el pedido.
+
+    Es el mismo defecto que el del vigilante que cortaba antes del error, con otro
+    mecanismo: **el método destruye la evidencia de sus propias fallas.** El log del intento
+    fallido se guarda antes de recrear el worktree, y el mensaje dice dónde quedó.
+    """
+
+    def test_escribir_tests_guarda_el_log_antes_de_recrear_el_worktree(self):
+        texto = (SCRIPTS / "escribir-tests.sh").read_text()
+        self.assertRegex(
+            texto, r"fallidos|\.intento-|guardar_log|conservar",
+            "escribir-tests.sh borra el worktree en cada reintento sin conservar el "
+            "transcript del intento anterior: la única constancia de por qué falló se "
+            "pierde justo cuando hace falta")
+
+
 class TestElArchivoDeTareaNoSeContradiceConLaFase(unittest.TestCase):
     """El MISMO archivo de tarea lo leen dos fases, y decía algo cierto sólo en una.
 
