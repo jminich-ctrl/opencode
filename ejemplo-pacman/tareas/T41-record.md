@@ -22,6 +22,10 @@ No entra:
 
 ## Tests (los escribe el tester)
 
+> **Si te toca IMPLEMENTAR, esta sección no es trabajo tuyo.** El archivo de test ya
+> existe en el repo y **no podés tocarlo** —el gate lo verifica—. Lo que sigue es para
+> quien escribió los tests, y está acá sólo para que puedas leer contra qué te juzgan.
+
 Archivo: `tests/test_record.py`, clase `TestRecord`.
 
 ## Criterio de terminado

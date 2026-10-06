@@ -952,6 +952,36 @@ class TestElArchivoDeTareaNoSeContradiceConLaFase(unittest.TestCase):
             "el prompt no le dice al agente que en esta fase los tests todavía no existen")
 
 
+class TestLaSeccionDeTestsNoEsTrabajoDelQueImplementa(unittest.TestCase):
+    """Material de una fase en un documento que leen las dos: el mismo defecto que la
+    contradicción de «los tests ya existen», con otra forma.
+
+    A T06b y T06c les puse un esqueleto de código de test en la sección «Tests» —helpers de
+    recarga, rutas de sonda— para ahorrarle al agente el razonamiento caro. Funcionó para
+    quien escribe los tests. Pero el archivo de tarea lo lee también quien IMPLEMENTA, y
+    para él un bloque de código bajo «Tests» se lee como trabajo pendiente: lo escribió en
+    el archivo de test, que tiene prohibido tocar, y el gate lo reprobó tres veces.
+
+    Agregar la regla a AGENTS.md fue necesario y no suficiente: mientras el documento le
+    muestre código que parece faltarle, la instrucción implícita gana.
+    """
+
+    def test_la_seccion_tests_avisa_de_qué_fase_es(self):
+        faltan = []
+        for proyecto in sorted(RAIZ.glob("ejemplo-*")):
+            d = proyecto / "tareas"
+            if not d.is_dir():
+                continue
+            for f in sorted(d.glob("*.md")):
+                texto = f.read_text()
+                if "## Tests" in texto and "no es trabajo tuyo" not in texto:
+                    faltan.append(str(f.relative_to(RAIZ)))
+        self.assertEqual(
+            faltan[:5], [],
+            f"{len(faltan)} tarea(s) tienen una sección «Tests» que no aclara de qué fase "
+            f"es: quien implementa la lee como trabajo pendiente. Primeras: {faltan[:5]}")
+
+
 class TestLasReglasDurasLleganAlAgente(unittest.TestCase):
     """Las reglas que el método llama innegociables vivían SÓLO en el AGENTS.md de la raíz,
     y el agente lee el del proyecto.
