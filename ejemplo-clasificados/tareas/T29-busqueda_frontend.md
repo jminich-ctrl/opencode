@@ -1,6 +1,6 @@
 # T29 — Búsqueda frontend (UI y servicio)
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T08
 **Archivos que podés tocar:** frontend/src/components/SearchBar.jsx, frontend/src/services/search.ts
 **Prohibido tocar:** Ninguno

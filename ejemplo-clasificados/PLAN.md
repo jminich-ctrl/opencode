@@ -97,8 +97,7 @@ vez de la aplicación.
 | T26 | Registro backend (creación de cuenta) | T03, T06c | backend/app/rutas/register.py, backend/app/servicios/register.py, backend/app/datos/users_register.py | pendiente |
 | T27 | Registro frontend (página y servicio) | T31 | frontend/src/pages/Register.jsx, frontend/src/services/register.ts | ✅ hecha |
 | T28 | Búsqueda backend (texto y categoría) | T05, T06c | backend/app/rutas/search.py, backend/app/servicios/search.py, backend/app/datos/search_ads.py | pendiente |
-| T29 | Búsqueda frontend (UI y servicio) | T08 | frontend/src/components/SearchBar.jsx, frontend/src/services/search.ts | pendiente |
-
+| T29 | Búsqueda frontend (UI y servicio) | T08 | frontend/src/components/SearchBar.jsx, frontend/src/services/search.ts | ✅ hecha |
 > Las etapas **no se declaran acá**: se deducen de la tabla de arriba, que es lo que
 > respeta las dependencias y los choques de archivo sin que nadie tenga que acordarse.
 > Verlas: `SOLO_ETAPAS=1 bash $AGENTES/scripts/correr-plan.sh`
