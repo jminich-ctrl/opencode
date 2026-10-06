@@ -91,6 +91,30 @@ ETAPAS=()
 while IFS= read -r l; do [ -n "$l" ] && ETAPAS+=("$l"); done <<< "$ETAPAS_TXT"
 echo "══ ${#ETAPAS[@]} etapa(s); empezando en la $DESDE"
 
+# Los números de etapa NO son estables entre corridas. Las etapas se deducen del grafo de
+# dependencias sobre las tareas PENDIENTES, así que en cuanto una cierra, las que siguen se
+# corren un lugar. Pasó: la etapa 1 era «T06a T08» y la 2 «T06b T12 T29»; al cerrar la 1, la
+# 2 pasó a ser la 1, y retomar con `correr-todo.sh 2` salteó tres tareas sin un solo aviso.
+#
+# El argumento existe para retomar después de arreglar algo, y eso es legítimo. Lo que no
+# puede es saltar trabajo callado.
+if [ "$DESDE" -gt 1 ] 2>/dev/null; then
+  SALTEADAS=""
+  i=0
+  for etapa in "${ETAPAS[@]}"; do
+    i=$((i+1)); [ "$i" -lt "$DESDE" ] || break
+    SALTEADAS="$SALTEADAS $etapa"
+  done
+  if [ -n "$(echo "$SALTEADAS" | tr -d ' ')" ]; then
+    echo "✗ Al empezar en la etapa $DESDE se saltean tareas que siguen pendientes:$SALTEADAS" >&2
+    echo "  Los números de etapa se recalculan en cada corrida: al cerrar una etapa, las" >&2
+    echo "  que siguen se corren un lugar. El número que anotaste ya no significa lo mismo." >&2
+    echo "  Corré sin argumento —arranca en la primera etapa con trabajo pendiente—:" >&2
+    echo "    bash $AQUI/correr-todo.sh" >&2
+    exit 1
+  fi
+fi
+
 parar() {
   echo
   echo "⏸  Se detuvo en la etapa $1: $2"

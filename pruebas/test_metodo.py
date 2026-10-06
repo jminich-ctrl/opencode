@@ -669,6 +669,34 @@ class TestPlataformaCaida(unittest.TestCase):
                       "un stream cortado por la plataforma no es culpa del agente")
 
 
+class TestRetomarPorNumeroNoSaltaTrabajo(unittest.TestCase):
+    """Los números de etapa NO son estables entre corridas, y retomar por número saltaba
+    trabajo en silencio.
+
+    Las etapas se deducen del grafo de dependencias sobre las tareas **pendientes**. En
+    cuanto una etapa cierra, las que siguen se corren un lugar. Pasó: la etapa 1 era
+    «T06a T08» y la 2 «T06b T12 T29»; al cerrar la 1, la 2 pasó a ser la 1 y «T06c» a ser
+    la 2. Retomé con `correr-todo.sh 2` creyendo que seguía donde había quedado y salté
+    T06b, T12 y T29 **sin un solo aviso**.
+
+    El argumento existe para retomar después de arreglar algo, que es legítimo. Lo que no
+    puede es saltar tareas pendientes callado: si las etapas que se saltean tienen trabajo
+    sin hacer, hay que decirlo y parar.
+    """
+
+    def test_correr_todo_avisa_si_saltea_tareas_pendientes(self):
+        texto = (SCRIPTS / "correr-todo.sh").read_text()
+        # Específico a propósito: la primera versión de este test matcheaba un comentario
+        # sobre G3 que ya estaba, así que pasaba sin que hubiera chequeo alguno. Un test
+        # que pasa contra el código sin arreglar no prueba nada — es la falla que el propio
+        # método persigue en los tests que escriben los agentes.
+        self.assertIn(
+            "SALTEADAS", texto,
+            "correr-todo.sh N no comprueba si las etapas anteriores a N tienen tareas "
+            "pendientes: los números se recalculan en cada corrida y saltar trabajo en "
+            "silencio es la peor forma de fallar")
+
+
 class TestLaHuellaLlevaElDatoNoLaCategoria(unittest.TestCase):
     """El motivo que recibe el reintento tiene que decir QUÉ falló, no de qué tipo fue.
 
