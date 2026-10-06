@@ -70,7 +70,7 @@ vez de la aplicación.
 | T01 | Scaffolding del proyecto | — | backend/, frontend/, backend/requirements.txt, frontend/package.json | ✅ hecha |
 | T02 | Conexión a MySQL | T01 | backend/app/datos/conexion.py | ✅ hecha |
 | T03 | Primera migración (usuarios y anuncios) | T01 | backend/migraciones/001_initial.sql, backend/migraciones/001_initial_down.sql | ✅ hecha |
-| T06a | Aplicación FastAPI (la instancia y /salud) | T02 | backend/app/main.py | pendiente |
+| T06a | Aplicación FastAPI (la instancia y /salud) | T02 | backend/app/main.py | ✅ hecha |
 | T06b | Montaje automático de routers | T06a | backend/app/main.py | pendiente |
 | T06c | Normalizar los errores al contrato del plan | T06b | backend/app/main.py | pendiente |
 | T04 | Auth backend (login, sesión) | T02, T03, T06c | backend/app/rutas/auth.py, backend/app/servicios/auth.py, backend/app/datos/users.py | pendiente |
