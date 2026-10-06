@@ -1,7 +1,7 @@
 # T04 — Auth backend (login, sesión)
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
-**Depende de:** T02, T03, T06
+**Depende de:** T02, T03, T06c
 **Archivos que podés tocar:** backend/app/rutas/auth.py, backend/app/servicios/auth.py, backend/app/datos/users.py
 **Prohibido tocar:** 
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`, que usa el runner, no puede elegir un subagente

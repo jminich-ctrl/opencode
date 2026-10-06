@@ -54,7 +54,7 @@ if not requisitos:
 
 # Sólo las filas de la tabla de tareas: título y archivos.
 plan = PLAN.read_text()
-filas = normalizar("\n".join(re.findall(r"^\|\s*T\d+\s*\|.*$", plan, re.M)))
+filas = normalizar("\n".join(re.findall(r"^\|\s*T\d+[a-z]?\s*\|.*$", plan, re.M)))
 
 faltan = []
 for clave, texto in requisitos:

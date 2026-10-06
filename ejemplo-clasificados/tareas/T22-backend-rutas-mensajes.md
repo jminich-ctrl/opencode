@@ -1,7 +1,7 @@
 # T22 — Backend rutas mensajes
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
-**Depende de:** T21, T06
+**Depende de:** T21, T06c
 **Archivos que podés tocar:** backend/app/rutas/messages.py
 **Prohibido tocar:** 
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`

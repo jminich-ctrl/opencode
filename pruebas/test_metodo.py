@@ -669,6 +669,36 @@ class TestPlataformaCaida(unittest.TestCase):
                       "un stream cortado por la plataforma no es culpa del agente")
 
 
+class TestUnaTareaSePuedePartir(unittest.TestCase):
+    """Partir una tarea en T06a / T06b / T06c no estaba soportado: todo el método deduce
+    el id con `T\\d+`, sólo dígitos, así que las tres colapsaban en «T06» y el validador
+    informaba «T06 tiene más de un archivo» y «T04 depende de una tarea que no está».
+
+    Importa porque **partir una tarea es la respuesta correcta a un defecto real**: la
+    nuestra tenía 114 líneas y 7 criterios contra las 44–87 y 2–4 de todas las que cerraron,
+    y el agente gastaba el presupuesto entero deliberando sin escribir. Si el método no
+    soporta partir, la única salida que deja es renumerar el plan entero o escribir el test
+    a mano — las dos peores que la correcta.
+    """
+
+    def test_el_sufijo_de_letra_es_parte_del_id(self):
+        import re
+        malos = []
+        for f in sorted(list(SCRIPTS.glob("*.py")) + list(SCRIPTS.glob("*.sh"))):
+            texto = f.read_text()
+            for n, linea in enumerate(texto.split("\n"), 1):
+                if linea.lstrip().startswith("#"):
+                    continue
+                # Un patrón de id que no acepta sufijo de letra parte las subtareas.
+                if re.search(r"T\\d\+(?!\[a-z\])", linea) or re.search(r"T\[0-9\]\+(?!\[a-z\])", linea):
+                    malos.append(f"{f.name}:{n}")
+        self.assertEqual(
+            malos, [],
+            f"estos patrones de id no aceptan subtareas (T06a): {malos}. Partir una tarea "
+            f"grande es la respuesta correcta a un defecto del plan, y el método tiene que "
+            f"poder expresarla")
+
+
 class TestElTranscriptDelFalloSeConserva(unittest.TestCase):
     """El worktree se borra y se recrea en cada reintento, y con él se va el transcript del
     intento que falló — que es el único lugar donde está escrito POR QUÉ falló.

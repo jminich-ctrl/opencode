@@ -17,7 +17,7 @@ texto = open(os.environ.get("PLAN", "PLAN.md")).read()
 
 tareas = OrderedDict()
 # Una fila entera de la tabla, para no perder la columna de estado (donde va el ✅).
-for linea in re.findall(r"^\|\s*T\d+\s*\|.*$", texto, re.M):
+for linea in re.findall(r"^\|\s*T\d+[a-z]?\s*\|.*$", texto, re.M):
     celdas = [c.strip() for c in linea.strip("|").split("|")]
     tid = celdas[0]
     # Un plan puede tener más de una tabla indexada por tarea (la de tareas y, por ejemplo,
@@ -26,7 +26,7 @@ for linea in re.findall(r"^\|\s*T\d+\s*\|.*$", texto, re.M):
     if tid in tareas or len(celdas) < 4:
         continue
     # Por posición, no por texto suelto: | # | Tarea | Depende de | Archivos | Estado |
-    deps = set(re.findall(r"T\d+", celdas[2]))
+    deps = set(re.findall(r"T\d+[a-z]?", celdas[2]))
     deps.discard(tid)
     # Con o sin backticks: el plan de Pacman los usaba y el de clasificados no, y por eso
     # los choques de archivo no se detectaban — dos tareas que escriben el mismo archivo

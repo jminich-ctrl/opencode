@@ -41,7 +41,7 @@ if ARREGLAR:
     original = texto
     vistas, salida, quitadas = set(), [], 0
     for linea in texto.split("\n"):
-        m = re.match(r"^\|\s*(T\d+)\s*\|.*\|\s*\S+\s*\|\s*$", linea)
+        m = re.match(r"^\|\s*(T\d+[a-z]?)\s*\|.*\|\s*\S+\s*\|\s*$", linea)
         if m and len(linea.strip("|").split("|")) >= 4:
             if m.group(1) in vistas:
                 quitadas += 1
@@ -70,7 +70,7 @@ if ARREGLAR:
 
 # ── La tabla de tareas: la primera tabla cuyas filas tienen 5 columnas.
 filas = []
-for linea in re.findall(r"^\|\s*(T\d+)\s*\|(.*)$", texto, re.M):
+for linea in re.findall(r"^\|\s*(T\d+[a-z]?)\s*\|(.*)$", texto, re.M):
     celdas = [c.strip() for c in linea[1].strip("|").split("|")]
     if len(celdas) >= 4:
         filas.append((linea[0], celdas))
@@ -84,7 +84,7 @@ for tid, celdas in filas:
     if tid in tareas:
         duplicadas.append(tid)
         continue
-    tareas[tid] = {"titulo": celdas[0], "deps": set(re.findall(r"T\d+", celdas[1])) - {tid},
+    tareas[tid] = {"titulo": celdas[0], "deps": set(re.findall(r"T\d+[a-z]?", celdas[1])) - {tid},
                    "archivos": celdas[2], "hecha": "✅" in celdas[-1]}
 if duplicadas:
     errores.append(f"filas repetidas en la tabla: {' '.join(sorted(set(duplicadas)))}")
@@ -100,7 +100,7 @@ dir_tareas = RAIZ / "tareas"
 en_disco = {}
 if dir_tareas.is_dir():
     for f in sorted(dir_tareas.glob("T*.md")):
-        m = re.match(r"(T\d+)", f.name)
+        m = re.match(r"(T\d+[a-z]?)", f.name)
         if m:
             en_disco.setdefault(m.group(1), []).append(f)
 
@@ -153,7 +153,7 @@ for tid in sorted(set(tareas) & set(en_disco)):
 
     m_dep = re.search(r"^\*\*Depende de:\*\* *(.*)$", cuerpo, re.M)
     if m_dep:
-        del_archivo = set(re.findall(r"T\d+", m_dep.group(1)))
+        del_archivo = set(re.findall(r"T\d+[a-z]?", m_dep.group(1)))
         if del_archivo != tareas[tid]["deps"]:
             errores.append(
                 f"{f.name} declara «Depende de: {' '.join(sorted(del_archivo)) or '—'}» y la "
@@ -227,7 +227,7 @@ if gate.exists():
 # divergían: la tabla decía `backend/tests/test_auth_backend.py` y 23 de 27 archivos de
 # tarea decían otra cosa (`tests/...`, `tests/backend/...`). El agente busca el test donde
 # le dicen, no lo encuentra, y la tarea se cae por una razón que no es la suya.
-FILA_TEST = re.compile(r"^\|\s*(T\d+)\s*\|\s*`?([^|`]+?)`?\s*\|\s*`?([A-Za-z_][\w]*)`?\s*\|\s*$", re.M)
+FILA_TEST = re.compile(r"^\|\s*(T\d+[a-z]?)\s*\|\s*`?([^|`]+?)`?\s*\|\s*`?([A-Za-z_][\w]*)`?\s*\|\s*$", re.M)
 tests_plan = {}
 for tid, ruta, clase in FILA_TEST.findall(texto):
     # La tabla de tareas tiene 5 columnas y no matchea este patrón de 3; igual chequeamos
