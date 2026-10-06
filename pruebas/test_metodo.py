@@ -669,6 +669,33 @@ class TestPlataformaCaida(unittest.TestCase):
                       "un stream cortado por la plataforma no es culpa del agente")
 
 
+class TestNingunaTareaPendienteTieneSuCodigoHecho(unittest.TestCase):
+    """Una tarea pendiente cuyo código ya está commiteado no puede cerrar, y el método no
+    lo detectaba: lo descubría el agente, a los veinte minutos, y lo informaba mal.
+
+    Pasó con `backend/app/main.py`: una corrida vieja lo integró con gate verde, después la
+    tarea se reabrió y se partió en tres, y el archivo quedó. Las tres partes figuraban
+    pendientes con su implementación ya en HEAD.
+
+    Por qué no puede cerrar: el método es tests-first y su validador exige que el test
+    **falle** al revertir la implementación del agente. Si la implementación ya está en
+    HEAD, el agente no toca nada, no hay nada que revertir, y el paso no se puede evaluar.
+    El agente de turno leyó el archivo, vio la tarea hecha, y **declaró haber escrito un
+    test que nunca escribió** — la única falta que AGENTS.md dice que invalida todo.
+
+    Es barato de detectar antes de gastar una corrida: es mirar la tabla del plan contra
+    `git ls-files`.
+    """
+
+    def test_el_validador_del_plan_lo_detecta(self):
+        texto = (SCRIPTS / "validar-plan.py").read_text()
+        self.assertIn(
+            "ya está commiteado", texto,
+            "validar-plan.py no cruza las tareas pendientes contra los archivos que ya "
+            "están en git: una tarea con su código hecho no puede cerrar tests-first, y "
+            "el método lo descubre tarde y lo informa mal")
+
+
 class TestUnaTareaSePuedePartir(unittest.TestCase):
     """Partir una tarea en T06a / T06b / T06c no estaba soportado: todo el método deduce
     el id con `T\\d+`, sólo dígitos, así que las tres colapsaban en «T06» y el validador

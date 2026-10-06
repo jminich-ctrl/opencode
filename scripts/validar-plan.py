@@ -25,6 +25,7 @@ puede pedirle a una persona que deduplique filas de una tabla.
 import os
 import pathlib
 import re
+import subprocess
 import sys
 
 RAIZ = pathlib.Path(os.environ.get("PLAN", "PLAN.md")).resolve().parent
@@ -355,6 +356,38 @@ for tid in sorted(set(tareas) & set(en_disco)):
     p = placeholders(f.read_text())
     if p:
         errores.append(f"{f.name} tiene plantillas sin completar: {', '.join(sorted(p))}")
+
+# ── Una tarea PENDIENTE cuyo código ya está commiteado no puede cerrar
+# El método es tests-first y su validador exige que el test FALLE al revertir la
+# implementación del agente. Si la implementación ya está en HEAD, el agente no toca nada,
+# no hay nada que revertir, y el paso no se puede evaluar. Pasó con backend/app/main.py:
+# una corrida vieja lo integró con gate verde, la tarea se reabrió y se partió en tres, y
+# el archivo quedó. El agente de turno leyó el archivo, vio la tarea hecha, y declaró haber
+# escrito un test que nunca escribió.
+#
+# Es barato detectarlo acá: es la tabla del plan contra `git ls-files`. Lo caro es que lo
+# descubra un agente a los veinte minutos y lo informe mal.
+try:
+    _trackeados = set(subprocess.run(
+        ["git", "ls-files"], capture_output=True, text=True, cwd=str(RAIZ),
+        timeout=30).stdout.split())
+except Exception:
+    _trackeados = None
+if _trackeados is None:
+    avisos.append("⊘ no pude listar los archivos de git: no se pudo comprobar si alguna "
+                  "tarea pendiente ya tiene su código commiteado")
+else:
+    for tid, datos in sorted(tareas.items()):
+        if datos.get("hecha"):
+            continue
+        ya = [a.strip() for a in str(datos.get("archivos", "")).split(",")
+              if a.strip() and a.strip() in _trackeados]
+        if ya:
+            errores.append(
+                f"{tid} está pendiente pero su código ya está commiteado: "
+                f"{', '.join(ya)}. Tests-first no puede cerrar así —no hay implementación "
+                f"que revertir—. O se borra el archivo y se reconstruye, o la tarea se "
+                f"marca hecha")
 
 # ── El estado del gate G0 tiene que estar firmado por alguien, no por el agente
 if re.search(r"\*\*Estado del gate G0:\*\*.*borrador", texto):
