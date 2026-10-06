@@ -227,7 +227,9 @@ huella_de_falla() {
     | awk '/✗/ && !vi { vi = 1; print; next }
            vi && /^ +[^ ]/ && !/^ *[✗✓⊘·]/ && n < 3 { print; n++; next }
            vi { exit }' \
-    | sed 's/^ *//; s/[0-9]\{2,\}/N/g' | tr '\n' ' ' | sed 's/  */ /g; s/ $//' | cut -c1-220
+    | sed -E 's/^ +//' | sed -E 's/(^|[^A-Za-z0-9])[0-9]{2,}/\1N/g'   # los números sueltos se normalizan para que dos fallas iguales con contadores
+    # distintos den la misma huella; «T06c» NO, porque el 06 va pegado a una letra y
+    # mutilarlo deja mensajes como «los tests de TNc siguen fallando» | tr '\n' ' ' | sed 's/  */ /g; s/ $//' | cut -c1-220
 }
 
 # Corre un comando con límite de tiempo. macOS no trae `timeout`, y perl sí está siempre.

@@ -33,6 +33,15 @@ n=0
 for modelo in "$@"; do
   n=$((n+1))
   wt="$RAIZ/../comparar-$TAREA-$n"
+  # El transcript del intento anterior, ANTES de borrar el worktree. Es el único lugar
+  # donde está escrito por qué falló. Lo agregué primero a escribir-tests.sh y no acá, y
+  # volví a perder un log en este camino: arreglar un lado y no el otro es el patrón que
+  # este repo repite.
+  if [ -f "$wt/.tarea.log" ]; then
+    FALLIDOS="$RAIZ/../fallidos-${TAREA:-comparar}-$n"; mkdir -p "$FALLIDOS"
+    cp "$wt/.tarea.log" "$FALLIDOS/intento-$(date +%H%M%S).log" 2>/dev/null \
+      && echo "     (transcript del intento guardado en $FALLIDOS)"
+  fi
   rm -rf "$wt"
   git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
   git -C "$RAIZ" branch -D "comparar/$TAREA-$n" 2>/dev/null

@@ -819,6 +819,62 @@ class TestUnaTareaSePuedePartir(unittest.TestCase):
             f"poder expresarla")
 
 
+class TestElGateDicePorQueFallaNoSoloCual(unittest.TestCase):
+    """Tercera aparición de la misma lección, en un tercer lugar del método.
+
+    El gate informaba «los tests de T06c siguen fallando: ERROR test_errores.py» — qué
+    falla, nunca por qué. El reintento recibía eso y volvía a escribir el mismo código. La
+    causa real era de una línea: `from fastapi import RequestValidationError`, cuando vive
+    en `fastapi.exceptions`. Dos intentos gastados por un dato que estaba en la salida de
+    la suite y el gate no mostraba.
+
+    Ya estaba aprendida en `escribir-tests.sh` («el motivo lleva el fallo real, no su
+    categoría») y en `huella_de_falla` (el detalle del gate). Esta es la tercera copia del
+    mismo defecto en otro camino.
+    """
+
+    def test_el_veredicto_incluye_el_error_real(self):
+        for gate in [RAIZ / "plantillas" / "gate.sh"] + sorted(RAIZ.glob("ejemplo-*/scripts/gate.sh")):
+            self.assertRegex(
+                gate.read_text(), r"PRIMER_ERROR|primer error|por qué falla",
+                f"{gate.relative_to(RAIZ)} informa qué tests fallan y no por qué: el "
+                f"reintento no tiene nada nuevo con lo que trabajar")
+
+    def test_la_normalizacion_no_mutila_el_id_de_la_tarea(self):
+        """«T06c» salía como «TNc» en el mensaje que lee el agente. La normalización de
+        números existe para que dos fallas iguales con contadores distintos den la misma
+        huella; no para romper los identificadores."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-norm-"))
+        self.addCleanup(shutil.rmtree, str(d), True)
+        log = d / ".tarea.log"
+        log.write_text("=== T06c\n=== gate ===\n"
+                       "  ✗ los tests de T06c siguen fallando:\n"
+                       "     ERROR backend/tests/test_errores.py\n"
+                       "GATE ROJO\n=== rc=1\n")
+        r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; huella_de_falla "{log}"', RAIZ)
+        self.assertIn("T06c", r.stdout,
+                      f"la huella mutila el id de la tarea. Dijo: {r.stdout!r}")
+
+
+class TestNoSeEditanScriptsConUnaCorridaActiva(unittest.TestCase):
+    """El método lo tiene escrito en «Tres cosas que muerden»: nunca edites un script de
+    bash mientras corre. Bash lee el archivo por posición mientras ejecuta, así que
+    insertar líneas en un script en curso le puede hacer ejecutar basura.
+
+    Lo rompí yo, con la regla a la vista, editando `correr-tarea.sh` mientras ese mismo
+    script corría una tarea. Una regla que vive sólo en un documento es una regla que se
+    incumple: si el método puede detectarlo, tiene que detectarlo.
+    """
+
+    def test_hay_un_chequeo_que_lo_impide(self):
+        texto = (SCRIPTS / "correr-todo.sh").read_text()
+        self.assertIn(
+            "corrida activa", texto,
+            "nada impide lanzar una corrida nueva ni avisa que hay una en curso: dos "
+            "corridas sobre los mismos worktrees se pisan, y editar un script mientras "
+            "corre le hace ejecutar basura")
+
+
 class TestElTranscriptDelFalloSeConserva(unittest.TestCase):
     """El worktree se borra y se recrea en cada reintento, y con él se va el transcript del
     intento que falló — que es el único lugar donde está escrito POR QUÉ falló.
@@ -833,13 +889,21 @@ class TestElTranscriptDelFalloSeConserva(unittest.TestCase):
     fallido se guarda antes de recrear el worktree, y el mensaje dice dónde quedó.
     """
 
-    def test_escribir_tests_guarda_el_log_antes_de_recrear_el_worktree(self):
-        texto = (SCRIPTS / "escribir-tests.sh").read_text()
-        self.assertRegex(
-            texto, r"fallidos|\.intento-|guardar_log|conservar",
-            "escribir-tests.sh borra el worktree en cada reintento sin conservar el "
-            "transcript del intento anterior: la única constancia de por qué falló se "
-            "pierde justo cuando hace falta")
+    def test_todo_script_que_recrea_un_worktree_guarda_el_log(self):
+        """Generalizado: lo arreglé en escribir-tests.sh y no en correr-tarea.sh, y volví a
+        perder el transcript de un fallo en el otro camino. Arreglar un lado y no el otro
+        es el patrón que este repo repite; el test tiene que cubrir los dos."""
+        culpables = []
+        for s in sorted(SCRIPTS.glob("*.sh")):
+            texto = s.read_text()
+            recrea = "worktree add" in texto and ("rm -rf" in texto or "worktree remove" in texto)
+            if recrea and "fallidos-" not in texto:
+                culpables.append(s.name)
+        self.assertEqual(
+            culpables, [],
+            f"{culpables} recrean el worktree sin conservar el transcript del intento "
+            f"anterior: la única constancia de por qué falló se pierde justo cuando hace "
+            f"falta")
 
 
 class TestElArchivoDeTareaNoSeContradiceConLaFase(unittest.TestCase):

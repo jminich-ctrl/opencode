@@ -91,6 +91,21 @@ ETAPAS=()
 while IFS= read -r l; do [ -n "$l" ] && ETAPAS+=("$l"); done <<< "$ETAPAS_TXT"
 echo "══ ${#ETAPAS[@]} etapa(s); empezando en la $DESDE"
 
+# Una sola corrida a la vez. Dos sobre los mismos worktrees se pisan —cada tarea borra y
+# recrea el suyo—, y mientras una corre nadie puede editar los scripts: bash lee el archivo
+# por posición mientras ejecuta, así que insertar líneas en un script en curso le hace
+# ejecutar basura. Está escrito en METODO.md «Tres cosas que muerden» y lo incumplí igual,
+# con la regla a la vista. Una regla que vive sólo en un documento es una regla que se
+# incumple.
+OTRA="$(pgrep -f "correr-todo\.sh" | grep -v "^$$\$" | head -1 || true)"
+if [ -n "$OTRA" ] && [ "$SOLO_VER" != "1" ]; then
+  echo "✗ Ya hay una corrida activa (pid $OTRA)." >&2
+  echo "  Dos corridas se pisan: cada tarea borra y recrea su worktree. Y mientras una" >&2
+  echo "  corre, editar un script le hace ejecutar basura —bash lo lee por posición—." >&2
+  echo "  Esperá a que termine, o cortala: kill $OTRA" >&2
+  exit 1
+fi
+
 # Los números de etapa NO son estables entre corridas. Las etapas se deducen del grafo de
 # dependencias sobre las tareas PENDIENTES, así que en cuanto una cierra, las que siguen se
 # corren un lugar. Pasó: la etapa 1 era «T06a T08» y la 2 «T06b T12 T29»; al cerrar la 1, la

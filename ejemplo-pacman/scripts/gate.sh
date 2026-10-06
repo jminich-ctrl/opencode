@@ -86,6 +86,15 @@ veredicto_con_linea_base() {
   if [ -n "$mios" ]; then
     rojo "los tests de $TAREA siguen fallando:"
     printf '%s\n' "$mios" | head -5 | sed 's/^/     /'
+    # Y POR QUÉ fallan, no sólo cuáles. Sin esta línea el reintento recibía «ERROR
+    # test_errores.py» y volvía a escribir el mismo código: la causa real era de una línea
+    # —`from fastapi import RequestValidationError`, que vive en `fastapi.exceptions`— y
+    # estaba en la salida de la suite, que el gate no mostraba. Dos intentos por un dato
+    # que ya teníamos. Es la tercera vez que esta lección aparece en otro lugar del método.
+    PRIMER_ERROR="$(printf '%s\n' "$SALIDA" \
+      | grep -m2 -E '^E +|(Import|Module|Attribute|Type|Name|Assertion|Value)Error|^ *>? *assert ' \
+      | sed 's/^ *//' | tr '\n' ' ' | cut -c1-200)"
+    [ -n "$PRIMER_ERROR" ] && echo "     por qué falla: $PRIMER_ERROR"
     return
   fi
   if [ -n "$nuevas" ]; then
