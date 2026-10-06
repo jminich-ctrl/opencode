@@ -1,6 +1,6 @@
 # T06b — Montaje automático de routers
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T06a
 **Archivos que podés tocar:** backend/app/main.py
 **Prohibido tocar:** `scripts/` y `*/tests/` (el paso 0 del gate los verifica)
