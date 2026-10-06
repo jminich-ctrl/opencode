@@ -160,7 +160,7 @@ case "$RC" in
      testigo "scripts/correr-suite.sh, el mismo comando que valida los tests" ;;
   2) rojo "la suite no corrió ningún test: sin tests no hay gate"
      echo "$SALIDA" | tail -5 | sed 's/^/     /' ;;
-  3) if [ -n "${TAREA:-}" ] && [ -f .tests-base ] && grep -q FALTA_CORREDOR .tests-base; then
+  3) if [ -z "${TAREA:-}" ] && [ -f .tests-base ] && grep -q FALTA_CORREDOR .tests-base; then
        # Ya faltaba antes de esta tarea: es la línea base, no su culpa. Pasa por la misma
        # regla que el resto, que además exige que SUS tests pasen.
        veredicto_con_linea_base

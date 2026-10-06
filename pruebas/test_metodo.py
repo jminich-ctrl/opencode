@@ -952,6 +952,72 @@ class TestElArchivoDeTareaNoSeContradiceConLaFase(unittest.TestCase):
             "el prompt no le dice al agente que en esta fase los tests todavía no existen")
 
 
+class TestElMetodoSabeReplanificar(unittest.TestCase):
+    """Cuando una tarea falla por cómo está escrita, el método dice «se repiensa la tarea»
+    y para esperando a una persona. Esa persona fui yo, y reescribí tres enunciados hasta
+    que el agente pudo: así el número de autonomía no mide el método, mide cuánto lo
+    empujé.
+
+    El método tiene un agente `arquitecto` justamente para planificar y ningún camino que
+    lo use. Esto es ese camino: toma la tarea fallada y su transcript, se lo da al
+    arquitecto, y **sólo acepta el resultado si el plan sigue validando** — el juez es un
+    comando, igual que en todo lo demás (P2).
+
+    Lo que NO puede hacer es ablandar la tarea para que pase: los criterios de terminado y
+    el archivo de test que declara el plan no se tocan.
+    """
+
+    def test_existe_el_camino_de_replanificacion(self):
+        s = SCRIPTS / "replanificar.sh"
+        self.assertTrue(s.exists(),
+                        "no hay scripts/replanificar.sh: cuando una tarea falla por su "
+                        "enunciado, el método depende de que una persona lo reescriba")
+
+    def test_el_resultado_pasa_por_el_validador(self):
+        s = (SCRIPTS / "replanificar.sh").read_text() if (SCRIPTS / "replanificar.sh").exists() else ""
+        self.assertIn("validar-plan.py", s,
+                      "replanificar.sh acepta lo que escriba el arquitecto sin cruzarlo "
+                      "contra el plan: el juez tiene que ser un comando")
+
+    def test_no_informa_exito_si_no_cambio_nada(self):
+        """Un verde vacuo en el script escrito para mejorar el método.
+
+        Los tres chequeos que puse —criterios, archivo de test, plan válido— pasan
+        TRIVIALMENTE cuando el arquitecto no escribe nada. Y eso fue lo que pasó: leyó,
+        razonó bien, nunca llamó a write, y el script informó «✓ T04 replanificada y el
+        plan sigue validando» sobre cero líneas de diff.
+
+        Es la falla que el método entero existe para atrapar —un chequeo que no puede
+        fallar no es un chequeo— cometida en el chequeo mismo. Tercera vez en el día.
+        """
+        s = (SCRIPTS / "replanificar.sh").read_text() if (SCRIPTS / "replanificar.sh").exists() else ""
+        self.assertRegex(
+            s, r"no cambió|sin cambios|diff --quiet|cmp -s",
+            "replanificar.sh informa éxito aunque el arquitecto no haya escrito nada: "
+            "los tres chequeos pasan trivialmente sobre un archivo intacto")
+
+    def test_el_motivo_sale_de_la_ultima_falla_y_dice_la_fase(self):
+        """El arquitecto replanificó dos tareas con un diagnóstico falso porque le pasé
+        todos los ✗ de todos los transcripts, incluidos los de hace horas. Se enganchó con
+        uno obsoleto. Y le faltaba el dato que lo habría orientado: QUÉ fase falló — si fue
+        la que escribe los tests, el archivo de test no existe y el enunciado dice que sí,
+        porque está escrito para la fase siguiente."""
+        s = (SCRIPTS / "replanificar.sh").read_text() if (SCRIPTS / "replanificar.sh").exists() else ""
+        self.assertIn("ls -t", s,
+                      "el motivo junta todos los transcripts en vez del último: le da al "
+                      "arquitecto señales viejas que ya no aplican")
+        self.assertIn("FASE", s,
+                      "el motivo no dice en qué fase falló, y el estado del mundo es "
+                      "distinto en cada una")
+
+    def test_no_puede_ablandar_los_criterios(self):
+        s = (SCRIPTS / "replanificar.sh").read_text() if (SCRIPTS / "replanificar.sh").exists() else ""
+        self.assertRegex(
+            s, r"criterios|Criterio de terminado",
+            "nada impide que el arquitecto achique los criterios de terminado para que la "
+            "tarea pase: replanificar no puede ser bajar la vara")
+
+
 class TestLaSeccionDeTestsNoEsTrabajoDelQueImplementa(unittest.TestCase):
     """Material de una fase en un documento que leen las dos: el mismo defecto que la
     contradicción de «los tests ya existen», con otra forma.
