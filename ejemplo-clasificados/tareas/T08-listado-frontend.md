@@ -1,6 +1,6 @@
 # T08 — Listado y detalle de avisos frontend
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T07
 **Archivos que podés tocar:** frontend/src/pages/AdsList.jsx, frontend/src/pages/AdDetail.jsx, frontend/src/services/ads.ts
 **Prohibido tocar:** 
