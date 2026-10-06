@@ -1,6 +1,6 @@
 # T06c — Normalizar los errores al contrato del plan
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T06b
 **Archivos que podés tocar:** backend/app/main.py
 **Prohibido tocar:** `scripts/` y `*/tests/` (el paso 0 del gate los verifica)
