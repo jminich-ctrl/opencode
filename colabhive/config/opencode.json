@@ -81,6 +81,46 @@
             "context": 4000,
             "output": 2048
           }
+        },
+        "4fb55ab3-823d-4ac6-b46d-7fa97a9e383e": {
+          "name": "CodeScout-14B · candidato a ejecutor",
+          "tool_call": true,
+          "reasoning": false,
+          "temperature": true,
+          "limit": {
+            "context": 37000,
+            "output": 16384
+          }
+        },
+        "cc2f4c65-54e9-48c3-b43c-5e3138bf384b": {
+          "name": "CodeScout-4B · candidato rápido",
+          "tool_call": true,
+          "reasoning": false,
+          "temperature": true,
+          "limit": {
+            "context": 32000,
+            "output": 16384
+          }
+        },
+        "669dce01-ebb7-4131-946b-cf18100b3e34": {
+          "name": "CodeScout-1.7B · candidato mínimo",
+          "tool_call": true,
+          "reasoning": false,
+          "temperature": true,
+          "limit": {
+            "context": 37000,
+            "output": 16384
+          }
+        },
+        "66a57a2b-7a5c-4e1b-bb71-79a5926bdde6": {
+          "name": "openhands-lm-32b-v0.1 · arnés OpenHands",
+          "tool_call": true,
+          "reasoning": false,
+          "temperature": true,
+          "limit": {
+            "context": 30000,
+            "output": 16384
+          }
         }
       }
     }

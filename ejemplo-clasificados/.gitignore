@@ -1,2 +1,9 @@
 .entorno
 .mysql/
+
+# Entornos que un agente perdido puede crear con otro nombre. `.venv` ya estaba; esto
+# apareció cuando un arquitecto se puso a explorar y dejó `venv/` sin punto: 1923 archivos
+# y 695.000 líneas entraron en un commit mío con `git add -A`.
+venv/
+pytest-install/
+*-install/

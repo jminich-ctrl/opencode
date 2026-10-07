@@ -67,8 +67,13 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
   (
     cd "$BASE" || exit 1
     export XDG_DATA_HOME="$BASE/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
-    con_limite "${LIMITE_AGENTE:-1800}" opencode run --agent arquitecto \
-      "La tarea tareas/$(basename "$archivo") falló al ejecutarse, y el motivo es cómo está escrita, no el agente que la intentó. Esto es lo que falló: $MOTIVO. Leé la tarea, leé PLAN.md, y reescribí SOLO el archivo de tarea con la herramienta write para que el defecto no pueda repetirse. Reglas que no podés romper: (1) no cambies el archivo de test ni el nombre de su clase, los declara el plan; (2) no saques ni ablandes ningún criterio de terminado — si hace falta, agregá; (3) si el problema es que la tarea necesita algo que ninguna tarea del plan entrega, decilo con la palabra HUECO y explicá qué falta, en vez de inventarlo. Lo más útil que podés hacer es decir DÓNDE vive cada cosa que la tarea nombra: archivo exacto, import exacto." 2>&1
+    # MODELO= permite comparar candidatos en el papel de arquitecto sin tocar la config.
+    # Hace falta: el perfil del planificador —mucha deliberación, pocas herramientas— no se
+    # puede evaluar con un banco de seis preguntas, y la única prueba real es si replanifica
+    # una tarea que falló de verdad.
+    if [ -n "${MODELO:-}" ]; then COMO=(--model "colabhive/$MODELO"); else COMO=(--agent arquitecto); fi
+    con_limite "${LIMITE_AGENTE:-1800}" opencode run "${COMO[@]}" \
+      "Mirá SOLO el archivo de la tarea, PLAN.md y, si hace falta, los archivos que la tarea nombra. NO explores .venv, node_modules, .git ni ningún directorio de dependencias: no tienen nada que ver con el enunciado y hay decenas de miles de archivos ahí. La tarea tareas/$(basename \"$archivo\") falló al ejecutarse, y el motivo es cómo está escrita, no el agente que la intentó. Esto es lo que falló: $MOTIVO. Leé la tarea, leé PLAN.md, y reescribí SOLO el archivo de tarea con la herramienta write para que el defecto no pueda repetirse. Reglas que no podés romper: (1) no cambies el archivo de test ni el nombre de su clase, los declara el plan; (2) no saques ni ablandes ningún criterio de terminado — si hace falta, agregá; (3) si el problema es que la tarea necesita algo que ninguna tarea del plan entrega, decilo con la palabra HUECO y explicá qué falta, en vez de inventarlo. Lo más útil que podés hacer es decir DÓNDE vive cada cosa que la tarea nombra: archivo exacto, import exacto." 2>&1
   ) > "$LOG_VIGILADO" 2>&1
   RC=$?
 
@@ -76,16 +81,28 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
     echo "  ✗ el arquitecto no respondió: $(motivo_del_corte "$LOG_VIGILADO")"
     mv "$archivo.previo" "$archivo"; continue
   fi
-  if grep -q "HUECO" "$LOG_VIGILADO" 2>/dev/null; then
+  if grep -qE '^[ \t]*[*#>-]*[ \t]*HUECO\b' "$LOG_VIGILADO" 2>/dev/null; then
     echo "  ⃠ el arquitecto dice que falta algo que ninguna tarea entrega:"
-    grep -A3 "HUECO" "$LOG_VIGILADO" | head -6 | sed 's/^/     /'
+    grep -A3 -E '^[ \t]*[*#>-]*[ \t]*HUECO\b' "$LOG_VIGILADO" | head -6 | sed 's/^/     /'
     echo "     Eso lo decide una persona: es un hueco del plan, no de la tarea."
     mv "$archivo.previo" "$archivo"; continue
   fi
 
   # ── Los tres chequeos. Cualquiera que falle descarta el cambio entero.
+  # ANTES del no-op: ¿falló la herramienta o la plataforma? Un stream cortado a mitad deja
+  # el archivo intacto, y sin este chequeo se informa «el arquitecto no cambió nada» —que
+  # acusa al modelo de no querer escribir cuando lo mataron mientras trabajaba—. Pasó con
+  # el 32B: leyó la tarea, leyó el plan, y lo cortó un «upstream stream ended».
+  ERR_PLAT="$(error_del_agente "$LOG_VIGILADO" 2>/dev/null)"
+  if [ -n "$ERR_PLAT" ]; then
+    echo "  ✗ no se pudo replanificar: $ERR_PLAT"
+    echo "     Es de la plataforma o la herramienta, no del arquitecto. Reintentá."
+    mv "$archivo.previo" "$archivo"
+    continue
+  fi
+
   mal=""
-  # ANTES que nada: ¿cambió algo? Los tres chequeos de abajo pasan trivialmente sobre un
+  # ¿cambió algo? Los tres chequeos de abajo pasan trivialmente sobre un
   # archivo intacto, así que sin esto el script informa «replanificada» cuando el arquitecto
   # leyó, razonó y no escribió. Pasó con T04 y T26: cero líneas de diff, dos verdes.
   # Un chequeo que no puede fallar no es un chequeo — y éste estaba en el script escrito

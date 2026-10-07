@@ -952,6 +952,41 @@ class TestElArchivoDeTareaNoSeContradiceConLaFase(unittest.TestCase):
             "el prompt no le dice al agente que en esta fase los tests todavía no existen")
 
 
+class TestLaMemoriaEsParteDelEquipo(unittest.TestCase):
+    """Medido sobre nuestras propias fallas, cuatro modelos, diseño A/B/C:
+
+        A sin memoria        6/24  (25%)
+        B memoria correcta  18/24  (75%)
+        C memoria de otra    6/24  (25%)   ← mismo largo, compra CERO
+
+    C ≡ A dice que lo que sube es el contenido y no el texto. Y el dato que cambia la
+    economía del método: **CodeScout-1.7B pasa de 1/6 a 5/6 con memoria correcta, y supera
+    al 30B sin memoria (2/6)**. Veníamos eligiendo entre modelos que se mueven de 2 a 3
+    sobre 6, cuando la variable que mueve de 1 a 5 era otra.
+
+    La memoria que funciona es la **verificada**: la que lleva el veredicto de un comando
+    que puede reprobar. Memoria equivocada no es apenas inútil —en el experimento de
+    opt-cf los errores confiados no bajaron con memoria mezclada—. Y eso el método ya lo
+    produce en cada corrida y lo tira.
+
+    Dos mitades, y faltan las dos: EMITIR el registro y ENTREGÁRSELO al agente.
+    """
+
+    def test_el_metodo_emite_el_registro(self):
+        hay = any("memoria" in s.read_text() for s in SCRIPTS.glob("*.sh"))
+        self.assertTrue(
+            hay, "ningún script escribe el registro de la falla y su arreglo: el veredicto "
+                 "se imprime en un log y se tira, que es tirar la única memoria que mide "
+                 "bien (B 75% contra A 25%)")
+
+    def test_el_registro_llega_al_agente(self):
+        texto = (SCRIPTS / "correr-tarea.sh").read_text()
+        self.assertIn(
+            "memoria", texto,
+            "correr-tarea.sh no le entrega al agente los registros de fallas anteriores "
+            "sobre los archivos que va a tocar: una memoria que no llega es como no tenerla")
+
+
 class TestElMetodoSabeReplanificar(unittest.TestCase):
     """Cuando una tarea falla por cómo está escrita, el método dice «se repiensa la tarea»
     y para esperando a una persona. Esa persona fui yo, y reescribí tres enunciados hasta

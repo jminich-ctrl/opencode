@@ -353,6 +353,62 @@ motivo_del_corte() {
   cat "$f"; rm -f "$f"
 }
 
+# ── MEMORIA DEL MÉTODO ───────────────────────────────────────────────────────────────
+# Medido sobre nuestras propias fallas, cuatro modelos, diseño A/B/C:
+#     A sin memoria        6/24  (25%)
+#     B memoria correcta  18/24  (75%)
+#     C memoria de OTRA    6/24  (25%)   ← mismo largo de prompt, compra CERO
+# C ≡ A dice que lo que sube es el CONTENIDO, no el texto. Y el dato que cambia la economía
+# del método: CodeScout-1.7B pasa de 1/6 a 5/6 con memoria correcta y supera al 30B sin
+# memoria. Veníamos eligiendo entre modelos que se mueven de 2 a 3 sobre 6.
+#
+# La memoria que funciona es la VERIFICADA: la que lleva el veredicto de un comando que
+# puede reprobar. El método la produce en cada corrida y la tiraba al log.
+
+# Anota una falla con su arreglo, cuando la tarea pasa a verde después de haber fallado.
+# El registro es el trío que el método ya tiene: qué se pidió, qué falló, qué lo arregló.
+recordar_falla() {
+  local id="$1" motivo="$2" arreglo="$3"
+  [ -n "$motivo" ] || return 0
+  local dir="$BASE/memoria"; mkdir -p "$dir"
+  local f="$dir/${id}.md"
+  # Una tarea puede fallar varias veces; cada registro es una entrada, no un reemplazo.
+  {
+    echo "## $(date -u '+%Y-%m-%d %H:%M UTC') · $id"
+    echo
+    echo "**Falló así:** $motivo"
+    echo
+    echo "**Quedó en verde al:** $arreglo"
+    echo
+  } >> "$f"
+  echo "  · registrado en memoria/${id}.md"
+}
+
+# Los registros que le sirven a una tarea: los de las tareas que tocaron ALGUNO de sus
+# archivos. No todos —un prompt lleno de memoria ajena es el caso C, que compra cero— ni
+# sólo los propios, porque la falla suele estar en el archivo compartido.
+memoria_para() {
+  local id="$1" archivo dir="$BASE/memoria"
+  [ -d "$dir" ] || return 0
+  archivo="$(ls "$BASE/tareas/${id}"-*.md 2>/dev/null | head -1)"
+  [ -n "$archivo" ] || return 0
+  local mios otros_id otros_arch
+  mios="$(sed -n 's/^\*\*Archivos que podés tocar:\*\* *//p' "$archivo" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep . || true)"
+  [ -n "$mios" ] || return 0
+  for f in "$dir"/*.md; do
+    [ -f "$f" ] || continue
+    otros_id="$(basename "$f" .md)"
+    [ "$otros_id" = "$id" ] && { cat "$f"; continue; }
+    otros_arch="$(ls "$BASE/tareas/${otros_id}"-*.md 2>/dev/null | head -1)"
+    [ -n "$otros_arch" ] || continue
+    # ¿Comparten algún archivo? Entonces su falla puede repetirse acá.
+    if sed -n 's/^\*\*Archivos que podés tocar:\*\* *//p' "$otros_arch" 2>/dev/null \
+       | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -qxF -f <(printf '%s\n' "$mios") 2>/dev/null; then
+      cat "$f"
+    fi
+  done
+}
+
 # Cierra una tarea integrada: la marca hecha en su archivo (es lo que lee estado.sh),
 # saca el worktree y borra la rama. Sin esto la tarea figura "verde" para siempre y nadie
 # se entera de que está mergeada — o peor, de que no lo está.

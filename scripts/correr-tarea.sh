@@ -109,7 +109,11 @@ lanzar() {
       # --agent ejecutor: primario con el harness mínimo (6 herramientas en vez de 10).
       # Medido: el cuerpo del request baja de 39.548 a 17.423 caracteres. Se puede cambiar
       # con AGENTE=build si hace falta delegar en subagentes desde la tarea.
-      con_limite "${LIMITE_AGENTE:-1200}" opencode run --agent "${AGENTE:-ejecutor}" "${MOTIVO:+Un intento anterior falló así: $MOTIVO. No repitas ese camino. }Implementá la tarea descrita en $archivo. Leela completa antes de empezar. Respetá los archivos permitidos y prohibidos. Al terminar corré 'bash scripts/gate.sh' y mostrá su salida real." 2>&1
+      # La memoria de fallas verificadas sobre los archivos que esta tarea toca. Medido:
+      # con memoria correcta 75% contra 25% sin ella, y memoria AJENA compra cero —así que
+      # se entregan sólo los registros de tareas que comparten archivos, no todos—.
+      MEM="$(memoria_para "$id" 2>/dev/null | head -c 4000)"
+      con_limite "${LIMITE_AGENTE:-1200}" opencode run --agent "${AGENTE:-ejecutor}" "${MEM:+Fallas YA verificadas en estos archivos, de corridas anteriores. No las repitas: $MEM }${MOTIVO:+Un intento anterior falló así: $MOTIVO. No repitas ese camino. }Implementá la tarea descrita en $archivo. Leela completa antes de empezar. Respetá los archivos permitidos y prohibidos. Al terminar corré 'bash scripts/gate.sh' y mostrá su salida real." 2>&1
       # 142 = SIGALRM: cortado por tiempo. Se deja escrito en el log con la forma que
       # `error_del_agente` reconoce, así el intento queda como ERROR del agente y no como
       # "la tarea no se hizo", que es el diagnóstico equivocado.
@@ -125,6 +129,14 @@ lanzar() {
     local error
     error="$(error_del_agente "$log")"
     cerrar_con_gate "$log" "$id"
+    # Si llegó a verde DESPUÉS de haber fallado, el par (qué falló, qué lo arregló) es
+    # memoria verificada: el veredicto lo dio un comando que puede reprobar. Es lo único
+    # que el experimento A/B/C muestra que sirve, y lo estábamos tirando al log.
+    if [ "$(veredicto "$log")" = "VERDE" ] && [ -n "${MOTIVO:-}" ]; then
+      recordar_falla "$id" "$MOTIVO" \
+        "$(git -C "$wt" diff --name-only HEAD~1 HEAD -- "$PROYECTO" 2>/dev/null \
+           | grep -v '^$' | tr '\n' ' ' | cut -c1-200)"
+    fi
     local rc=$?
     # Una línea por intento en el registro: las métricas leen datos, no adivinan del texto.
     anotar_intento "$id" "$([ -n "$error" ] && echo ERROR || veredicto "$log")" \
