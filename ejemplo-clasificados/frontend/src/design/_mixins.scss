@@ -1,0 +1,18 @@
+// Mixin para sombras
+@mixin shadow-box($shadow: 0 2px 4px rgba(0, 0, 0, 0.1)) {
+  box-shadow: $shadow;
+}
+
+// Mixin para botones básicos
+@mixin button-base($bg-color, $text-color: white) {
+  background-color: $bg-color;
+  color: $text-color;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  
+  &:hover {
+    opacity: 0.9;
+  }
+}
