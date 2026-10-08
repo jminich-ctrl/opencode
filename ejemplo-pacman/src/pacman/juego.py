@@ -4,11 +4,14 @@ Orquesta el `tick` y decide qué pasa cuando Pacman y un fantasma se encuentran.
 No imprime nada: `render` se encarga de mostrar lo que acá se decide.
 """
 
-from .laberinto import PODER, PUNTO
+from .laberinto import PODER, PUNTO, VACIO
 
 PUNTOS_POR_PUNTO = 10
 PUNTOS_POR_PASTILLA = 50
 PUNTOS_PRIMER_FANTASMA = 200
+PUNTOS_FRUTA = 100
+UMBRAL_FRUTA = 300
+TURNOS_FRUTA = 50
 TICKS_ASUSTADO = 20
 VIDAS_INICIALES = 3
 
@@ -24,6 +27,9 @@ class Juego:
         self.asustado_restante = 0
         self.vidas = VIDAS_INICIALES
         self._comidos_en_este_modo = 0
+        self.fruta = None
+        self._turnos_fruta = 0
+        self._fruta_usada = False
 
     def comer_en(self, pos: tuple[int, int]) -> str:
         """Come lo que haya en `pos`, suma el puntaje y devuelve qué comió.
@@ -32,6 +38,12 @@ class Juego:
         Deja en `ultima_pastilla` si lo comido fue una pastilla, que es lo que
         dispara el modo asustado (T05).
         """
+        if self.fruta is not None and pos == self.fruta:
+            self.puntaje += PUNTOS_FRUTA
+            self.fruta = None
+            self.ultima_pastilla = False
+            return "fruta"
+
         comido = self.laberinto.comer(pos)
         if comido == PUNTO:
             self.puntaje += PUNTOS_POR_PUNTO
@@ -44,9 +56,33 @@ class Juego:
         return comido
 
     def tick(self) -> None:
-        """Avanza un turno: descuenta el modo asustado si está activo."""
+        """Avanza un turno: descuenta el modo asustado y la vida de la fruta."""
         if self.asustado_restante > 0:
             self.asustado_restante -= 1
+
+        if self.fruta is not None:
+            self._turnos_fruta -= 1
+            if self._turnos_fruta <= 0:
+                self.fruta = None
+        elif not self._fruta_usada and self.puntaje >= UMBRAL_FRUTA:
+            self.fruta = self._donde_poner_la_fruta()
+            self._turnos_fruta = TURNOS_FRUTA
+            self._fruta_usada = True
+
+    def _donde_poner_la_fruta(self):
+        """Primera celda libre y sin punto, recorriendo desde el centro hacia afuera.
+
+        Regla fija en vez de azar: los tests dependen de que sea determinista.
+        """
+        lab = self.laberinto
+        centro = (lab.alto // 2, lab.ancho // 2)
+        candidatas = sorted(
+            ((f, c) for f in range(lab.alto) for c in range(lab.ancho)),
+            key=lambda p: (abs(p[0] - centro[0]) + abs(p[1] - centro[1]), p))
+        for pos in candidatas:
+            if not lab.es_pared(pos) and lab.contenido(pos) == VACIO:
+                return pos
+        return None
 
     @property
     def asustados(self) -> bool:
