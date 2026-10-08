@@ -1,13 +1,21 @@
 import pytest
 import os
 
+# Rutas relativas a la raíz del proyecto, que es desde donde el método corre siempre la
+# suite (scripts/correr-suite.sh). La primera versión de este archivo clavaba la ruta
+# absoluta del worktree temporal donde el agente lo escribió, así que pasaba ahí adentro
+# y fallaba en todos lados a partir del merge.
+MIGRACIONES = os.path.join('backend', 'migraciones')
+INICIAL = os.path.join(MIGRACIONES, '001_initial.sql')
+REVERSA = os.path.join(MIGRACIONES, '001_initial_down.sql')
+
 class TestMigracion:
     """Tests para la migración inicial de la base de datos."""
     
     def test_archivos_migracion_existen(self):
         """Verifica que los archivos de migración existen."""
-        initial_file = '/Users/jose/tests-T03/ejemplo-clasificados/backend/migraciones/001_initial.sql'
-        down_file = '/Users/jose/tests-T03/ejemplo-clasificados/backend/migraciones/001_initial_down.sql'
+        initial_file = INICIAL
+        down_file = REVERSA
         
         assert os.path.exists(initial_file), "El archivo de migración inicial no existe"
         assert os.path.exists(down_file), "El archivo de reversa no existe"
@@ -18,7 +26,7 @@ class TestMigracion:
         
     def test_esquema_correcto(self):
         """Verifica que el esquema contiene las tablas requeridas."""
-        initial_file = '/Users/jose/tests-T03/ejemplo-clasificados/backend/migraciones/001_initial.sql'
+        initial_file = INICIAL
         
         with open(initial_file, 'r') as f:
             content = f.read()
@@ -31,22 +39,40 @@ class TestMigracion:
         assert 'CREATE TABLE mensajes' in content
         assert 'CREATE TABLE sesiones' in content
         
-        # Verificar que tiene las columnas requeridas
-        assert 'id INT AUTO_INCREMENT PRIMARY KEY' in content
-        assert 'nombre VARCHAR(255) NOT NULL' in content
-        assert 'email VARCHAR(255) UNIQUE NOT NULL' in content
-        assert 'password VARCHAR(255) NOT NULL' in content
-        assert 'precio INT NOT NULL' in content
-        assert 'created_at DATETIME DEFAULT CURRENT_TIMESTAMP' in content
-        assert 'updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP' in content
-        
+        # Las columnas que PLAN.md cierra en G0, con los nombres del plan.
+        #
+        # Esta sección afirmaba OTRO esquema: `precio`, `created_at`, `updated_at`,
+        # `password` — nombres en inglés que el plan nunca tuvo. El plan dice
+        # `precio_centavos`, `creado_en`, `actualizado_en`, `clave_hash`, `clave_salt`, y
+        # la tarea T03 lo pedía en negrita: «No inventes columnas ni cambies nombres».
+        # O sea que el test contradecía el plan que venía a codificar, y reprobaba una
+        # migración correcta. El gate no podía verlo: compara la implementación contra los
+        # tests, nunca los tests contra el plan.
+        for columna in (
+            'id INT AUTO_INCREMENT PRIMARY KEY',
+            'email VARCHAR(255) UNIQUE NOT NULL',   # usuarios
+            'clave_hash', 'clave_salt',
+            'nombre VARCHAR(255) UNIQUE NOT NULL',  # categorias
+            'orden',
+            'precio_centavos INT NOT NULL',         # anuncios
+            'titulo', 'descripcion', 'foto_url',
+            'creado_en DATETIME DEFAULT CURRENT_TIMESTAMP',
+            'actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+            'de_usuario_id', 'a_usuario_id', 'cuerpo',   # mensajes
+            'token VARCHAR(255) PRIMARY KEY', 'expira_en',  # sesiones
+        ):
+            assert columna in content, f"falta la columna del plan: {columna}"
+
+        # Clave compuesta en favoritos, que el plan cierra explícitamente.
+        assert 'PRIMARY KEY (usuario_id, anuncio_id)' in content
+
         # Verificar que tiene las claves foráneas
         assert 'FOREIGN KEY (categoria_id) REFERENCES categorias(id) ON DELETE CASCADE' in content
         assert 'FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE' in content
-        
+
     def test_reversa_correcta(self):
         """Verifica que el script de reversa tiene el orden correcto."""
-        down_file = '/Users/jose/tests-T03/ejemplo-clasificados/backend/migraciones/001_initial_down.sql'
+        down_file = REVERSA
         
         with open(down_file, 'r') as f:
             lines = [line.strip() for line in f.readlines() if line.strip() and not line.strip().startswith('--')]

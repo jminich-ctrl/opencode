@@ -71,13 +71,29 @@ SALIDA="$(bash scripts/correr-suite.sh 2>&1)"; RC=$?
 #   · ningún test que andaba antes dejó de andar.
 # La línea base la escribe el runner al crear el worktree, antes de que el agente toque
 # nada. Misma regla que `integrar.sh` usa para los merges, un nivel más abajo.
+# Qué archivo y clase de test declara la tarea. UN solo lector para UNA sola declaración:
+# antes el paso 1 la leía con un patrón y el paso 4 con otro (o no la leía). La declaración
+# canónica, en el marcador de fase del archivo de tarea:
+#     Archivo: `<ruta>`, clase `<Clase>`.
+# Devuelve «ruta clase», o vacío si la tarea no la declara.
+test_de_la_tarea() {
+  # Sin anclar en «Archivo:»: la declaración aparece en dos formas en el repo,
+  #     Archivo: `backend/tests/test_errores.py`, clase `TestErrores`.
+  #     (`tests/test_juego.py`, clase `TestFruta`)
+  # y lo que la identifica es la ruta y la clase juntas, no el prefijo. Anclar en «Archivo:»
+  # perdía T16; anclar en `tests/` perdía las 31 de clasificados, cuyas rutas son
+  # `backend/tests/` y `frontend/tests/`. Con esto: 34 de 50 tareas acotables, contra 3.
+  sed -n 's/.*`\([^`]*\)`, *clase `\([A-Za-z0-9_]*\)`.*/\1 \2/p' \
+    "tareas/${TAREA}"-*.md 2>/dev/null | head -1
+}
+
 veredicto_con_linea_base() {
   local base_f ahora mios nuevas esperado ruta_t
   ahora="$(bash scripts/correr-suite.sh --fallas 2>/dev/null | sort -u)"
   base_f="$(sort -u .tests-base 2>/dev/null)"
   nuevas="$(comm -13 <(printf '%s\n' "$base_f") <(printf '%s\n' "$ahora") | grep . || true)"
 
-  esperado="$(sed -n 's/.*Archivo: `\([^`]*\)`.*/\1/p' "tareas/${TAREA}"-*.md 2>/dev/null | head -1)"
+  esperado="$(test_de_la_tarea | cut -d' ' -f1)"
   ruta_t="${esperado:-}"
   # Los ids vienen en dos formatos según el corredor: pytest nombra el archivo
   # (`FAILED backend/tests/test_x.py::TestX::test_y`) y unittest nombra el módulo
@@ -94,6 +110,15 @@ veredicto_con_linea_base() {
   if [ -n "$mios" ]; then
     rojo "los tests de $TAREA siguen fallando:"
     printf '%s\n' "$mios" | head -5 | sed 's/^/     /'
+    # Y POR QUÉ fallan, no sólo cuáles. Sin esta línea el reintento recibía «ERROR
+    # test_errores.py» y volvía a escribir el mismo código: la causa real era de una línea
+    # —`from fastapi import RequestValidationError`, que vive en `fastapi.exceptions`— y
+    # estaba en la salida de la suite, que el gate no mostraba. Dos intentos por un dato
+    # que ya teníamos. Es la tercera vez que esta lección aparece en otro lugar del método.
+    PRIMER_ERROR="$(printf '%s\n' "$SALIDA" \
+      | grep -m2 -E '^E +|(Import|Module|Attribute|Type|Name|Assertion|Value)Error|^ *>? *assert ' \
+      | sed 's/^ *//' | tr '\n' ' ' | cut -c1-200)"
+    [ -n "$PRIMER_ERROR" ] && echo "     por qué falla: $PRIMER_ERROR"
     return
   fi
   if [ -n "$nuevas" ]; then
@@ -111,7 +136,12 @@ veredicto_con_linea_base() {
 }
 
 case "$RC" in
-  0) RESUMEN="$(echo "$SALIDA" | grep -oE '[0-9]+ (passed|tests?)[^ ]*' | tail -1)"
+  0) # TODAS las cuentas, no la última: con dos mitades, `tail -1` mostraba "3 passed"
+     # del frontend y escondía los 13 del backend. Un resumen que informa una parte del
+     # trabajo como si fuera todo es la clase de dato que hace confiar de más.
+     RESUMEN="$(echo "$SALIDA" \
+                | grep -oE '^[0-9]+ (passed|failed)[^,]*|^Ran [0-9]+ tests?[^,]*|Tests +[0-9]+ passed' \
+                | sed 's/  */ /g' | tr '\n' ';' | sed 's/;/ · /g; s/ · $//')"
      verde "${RESUMEN:-$(echo "$SALIDA" | grep -E '^Ran |^OK' | tail -1)}"
      testigo "scripts/correr-suite.sh, el mismo comando que valida los tests" ;;
   2) rojo "la suite no corrió ningún test: sin tests no hay gate"
@@ -176,11 +206,37 @@ else
     if [ -n "$FUERA" ]; then
       rojo "archivos fuera del alcance de $TAREA:$FUERA"
       echo "     permitidos: $(echo "$PERMITIDOS" | tr '\n' ' ')"
+      # Si lo que se fue del alcance parece andamiaje de un test, lo más probable es que el
+      # criterio de terminado lo esté pidiendo y el alcance no lo permita: la tarea se
+      # contradice a sí misma y el agente hizo lo que le pedían.
+      if echo "$FUERA" | grep -qE '(^| )[^ ]*(/|^)(test_[^ /]*|[^ /]*_test)\.[a-z]+'; then
+        echo "     OJO: eso parece andamiaje de un test. Revisá el criterio de terminado de"
+        echo "     $TAREA: si pide crear algo que el alcance no permite, la tarea se contradice"
+        echo "     y el defecto es del plan. Un archivo que un test necesita lo crea el test."
+      fi
     else verde "todo dentro del alcance declarado"; fi
   fi
 fi
 
 echo "── 3. Higiene"
+# Lo mismo del lado de Python. Lo dejé sin hacer un rato porque pensé que pedía mantener a
+# mano la lista de módulos de la stdlib; `sys.stdlib_module_names` la trae, así que el
+# chequeo que parecía caro costaba una línea. Lo habría atrapado al toque: el agente de T04
+# importó `mysql.connector` donde el proyecto declara `pymysql`, y el síntoma fue un
+# ModuleNotFoundError dentro del test que el método informó como "el test está mal".
+if [ -f scripts/_imports.py ]; then
+  if [ -n "${TAREA:-}" ]; then
+    PY_IMPORT="$(echo "$CAMBIADOS" | grep -E '\.py$' | tr '\n' ' ')"
+  else
+    PY_IMPORT="--todo backend/app backend/tests"
+  fi
+  SAL_IMP="$("${PY_PROYECTO:-python3}" scripts/_imports.py ${PY_IMPORT} 2>&1)"; RC_IMP=$?
+  echo "$SAL_IMP"
+  case "$RC_IMP" in
+    1) FALLOS=$((FALLOS+1)) ;;
+    2) VACIOS=$((VACIOS+1)) ;;
+  esac
+fi
 # Directorios vacíos: **git no versiona directorios**, sólo archivos. Un test que verifica
 # que existe una carpeta pasa en el worktree del agente —donde la carpeta está, recién
 # creada— y falla en el tronco después del merge, porque el merge no la lleva. Pasó con T01
@@ -261,8 +317,48 @@ EOF
   fi
 fi
 if grep -rqE 'tailwind' frontend/ --include=*.json --include=*.js --include=*.ts 2>/dev/null; then rojo "apareció Tailwind: el diseño es propio"; else verde "sin librerías de diseño"; fi
-SUP="$(grep -rnEi '# *(noqa|type: *ignore)|except[^:]*: *pass|@ *unittest\.skip|\.skip\(|\|\| *true|eslint-disable' backend/app frontend/src 2>/dev/null || true)"
-if [ -n "$SUP" ]; then rojo "hay señales suprimidas:"; echo "$SUP" | head -3 | sed 's/^/     /'; else verde "sin señales suprimidas"; fi
+# Por árbol sintáctico y no por grep de línea: la forma más común de apagar una señal
+# en Python ocupa tres líneas (`except X:` / comentario / `pass`) y un grep por línea no
+# la ve. Pasó en serio, y el agente citó mi propio texto de la tarea para justificarla.
+if [ ! -f scripts/_suprimidas.py ]; then
+  rojo "falta scripts/_suprimidas.py: el gate no puede buscar señales suprimidas"
+  echo "     Copialo de plantillas/_suprimidas.py. Esto es del método, no del código juzgado."
+else
+  # En modo tarea, sólo lo que ESTA tarea tocó: una señal suprimida que ya estaba en el
+  # tronco no es de esta tarea. Es el mismo error que cometí con los imports y con el
+  # corredor faltante — tests-first deja el tronco con defectos de etapas en vuelo.
+  if [ -n "${TAREA:-}" ]; then
+    ARG_SUP="$(echo "$CAMBIADOS" | grep -E '\.(py|ts|tsx|js|jsx)$' | tr '\n' ' ')"
+  else
+    ARG_SUP="backend/app frontend/src"
+  fi
+  SAL_SUP="$("${PY_PROYECTO:-python3}" scripts/_suprimidas.py ${ARG_SUP} 2>&1)"; RC_SUP=$?
+  echo "$SAL_SUP"
+  case "$RC_SUP" in 1) FALLOS=$((FALLOS+1)) ;; 2) VACIOS=$((VACIOS+1)) ;; esac
+fi
+# Una ruta absoluta dentro de un test no es un test: es una foto del directorio de una
+# máquina. Pasó y tardó dos semanas en verse: el agente de T03 escribió la ruta de su
+# PROPIO worktree temporal (`/Users/.../tests-T03/...`), adentro pasaba, el gate lo aceptó
+# y se mergeó. Desde entonces fallaba en todos lados menos en una carpeta que ya no existe,
+# y la línea base lo tapaba como «ya fallaba antes».
+#
+# Va en modo integración y no en modo tarea a propósito: un test con ruta absoluta que ya
+# estaba en el tronco no lo escribió esta tarea, y ponerle rojo por eso es acusar a quien
+# no lo hizo. El método corre siempre desde la raíz del proyecto, así que una ruta absoluta
+# nunca hace falta.
+if [ -z "${TAREA:-}" ]; then
+  CLAVADAS="$(grep -rnE "['\"](/(Users|home|private|tmp|var)/[^'\"]{4,})['\"]" \
+              --include='test_*.py' --include='*_test.py' --include='*.test.ts' \
+              --include='*.test.tsx' --include='*.spec.ts' . 2>/dev/null \
+              | grep -vE 'node_modules|\.venv' || true)"
+  if [ -n "$CLAVADAS" ]; then
+    rojo "hay tests con una ruta absoluta clavada: sólo pasan en la máquina donde se escribieron"
+    echo "$CLAVADAS" | head -5 | sed 's/^/     /'
+    echo "     La suite corre desde la raíz del proyecto: usá rutas relativas a ella."
+  else
+    verde "ningún test clava una ruta absoluta"
+  fi
+fi
 if grep -rnE "\bTODO\b" backend/app frontend/src --exclude-dir=__pycache__ 2>/dev/null | grep -q .; then rojo "quedaron TODO sueltos"; else verde "sin TODO sueltos"; fi
 
 # ── 4. ¿Los tests distinguen? (sólo en modo tarea)
@@ -280,10 +376,37 @@ if [ -n "${TAREA:-}" ]; then
   if [ -z "$IMPL" ]; then vacuo "no hay implementación que revertir"
   elif [ -z "$REVERTIDOS" ]; then vacuo "archivos nuevos (no existían en HEAD): nada que revertir"
   else
+    # Qué tests tienen que fallar, no sólo que «algo» falle. Esto decía
+    # `verde "la suite falla al revertir"` con la suite ENTERA como testigo, y el tronco
+    # está rojo por diseño mientras una etapa está en vuelo (tests-first): la suite ya
+    # devolvía distinto de cero ANTES de revertir, así que el paso imprimía ✓ siempre.
+    # Era un falso verde en el único chequeo de que los tests distinguen.
+    ESPERADO="$(test_de_la_tarea)"
     if bash scripts/correr-suite.sh >/dev/null 2>&1; then
       rojo "los tests PASAN con la implementación vieja: no verifican el cambio"
       echo "     revertí:$REVERTIDOS y la suite siguió verde"
-    else verde "la suite falla al revertir$REVERTIDOS"; fi
+    elif [ -n "$ESPERADO" ]; then
+      RUTA_T="$(echo "$ESPERADO" | cut -d' ' -f1)"
+      CLASE="$(echo "$ESPERADO" | cut -d' ' -f2)"
+      # El contrato de códigos de correr-suite.sh, igual que el paso 1: 0 pasa, 1 falla,
+      # 2 no corrió ningún test, 3 es del método, 127 falta el corredor. Esto decía
+      # `if bash ... ; then … else verde …; fi`, o sea leía TODO lo distinto de cero como
+      # «los tests fallan» — y entonces un corredor ausente (127) o una suite vacía (2) se
+      # informaban como «los tests distinguen». Un chequeo que no pudo correr no es un
+      # chequeo que pasó, y acá era peor: era un ✓.
+      bash scripts/correr-suite.sh "$RUTA_T::$CLASE" >/dev/null 2>&1; RC_T4=$?
+      case "$RC_T4" in
+        0) rojo "la suite falla, pero NO por los tests de esta tarea ($CLASE pasa con el código viejo)"
+           echo "     o los tests de $TAREA no verifican el cambio, o rompiste otra cosa" ;;
+        1) verde "fallan los tests de la tarea ($CLASE) al revertir$REVERTIDOS"
+           testigo "$RUTA_T::$CLASE, revirtiendo$REVERTIDOS" ;;
+        2) vacuo "$CLASE no corrió ningún test: no distingue nada" ;;
+        3) vacuo "el corredor falló por el entorno, no por el código ($CLASE)" ;;
+        *) vacuo "no pude correr $RUTA_T::$CLASE (código $RC_T4)" ;;
+      esac
+    else
+      vacuo "la tarea no declara «Archivo: \`ruta\`, clase \`Clase\`»: no puedo saber si SUS tests distinguen"
+    fi
     for f in $REVERTIDOS; do cp "$TMP/$(echo "$f" | tr / _)" "$f"; done
   fi
   rm -rf "$TMP"
@@ -294,6 +417,10 @@ if [ -z "${TAREA:-}" ] && [ -f scripts/_arquitectura.py ]; then
   echo "── 5. Coherencia"
   if OUT="$("$PY_PROYECTO" scripts/_arquitectura.py 2>&1)"; then echo "$OUT"
   else echo "$OUT"; FALLOS=$((FALLOS+1)); fi
+  # Los ⊘ que imprime el chequeo son vacíos del gate: si no se cuentan, el veredicto dice
+  # "GATE VERDE" a secas cuando en realidad hubo cosas que no pudieron verificarse.
+  N_VACUOS_ARQ="$(printf '%s\n' "$OUT" | grep -c '⊘' || true)"
+  [ "${N_VACUOS_ARQ:-0}" -gt 0 ] && VACIOS=$((VACIOS+N_VACUOS_ARQ))
 fi
 
 # ── 6. La suite reservada (sólo en modo integración)
