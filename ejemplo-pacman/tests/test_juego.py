@@ -260,3 +260,50 @@ class TestFruta(unittest.TestCase):
         for _ in range(60):
             self.juego.tick()
         self.assertIsNone(self.juego.fruta)   # no reaparece sola
+
+
+class TestCruceFalsosPositivos(unittest.TestCase):
+    """Un fantasma que camina a la celda que Pacman dejó NO es un cruce.
+
+    Bug que encontró @reviewer y 92 tests no vieron: la detección miraba sólo si el
+    fantasma quedó en la celda previa de Pacman, sin verificar que viniera de donde
+    Pacman está ahora. Resultado: Pacman perdía vidas sin que nadie lo tocara.
+
+    Tests escritos antes del arreglo (METODO.md P2).
+    """
+
+    def setUp(self):
+        self.juego = Juego(Laberinto(MAPA))
+        self.vidas = self.juego.vidas
+
+    def test_seguir_a_pacman_por_atras_no_es_cruce(self):
+        # Pacman fue de (1,1) a (1,2); el fantasma venía de (2,1) y entra a (1,1).
+        # Se movieron en la misma dirección: nunca se tocaron.
+        fantasma = FantasmaFalso((2, 1))
+        fantasma.pos = (1, 1)
+        resultado = self.juego.colision((1, 2), [fantasma], (1, 1), {id(fantasma): (2, 1)})
+        self.assertEqual(resultado, "nada")
+        self.assertEqual(self.juego.vidas, self.vidas)
+
+    def test_cruce_de_verdad_sigue_contando(self):
+        # Intercambio real: Pacman (1,1)->(1,2) y el fantasma (1,2)->(1,1)
+        fantasma = FantasmaFalso((1, 2))
+        fantasma.pos = (1, 1)
+        resultado = self.juego.colision((1, 2), [fantasma], (1, 1), {id(fantasma): (1, 2)})
+        self.assertEqual(resultado, "perdio")
+        self.assertEqual(self.juego.vidas, self.vidas - 1)
+
+    def test_cruce_en_modo_asustado_come_igual(self):
+        self.juego.comer_en((1, 2))          # pastilla: activa el modo
+        fantasma = FantasmaFalso((1, 3))
+        fantasma.pos = (1, 1)
+        antes = self.juego.puntaje
+        resultado = self.juego.colision((1, 3), [fantasma], (1, 1), {id(fantasma): (1, 3)})
+        self.assertEqual(resultado, "comio")
+        self.assertEqual(self.juego.puntaje, antes + 200)
+
+    def test_fantasma_quieto_en_otra_celda_no_es_cruce(self):
+        fantasma = FantasmaFalso((3, 3))
+        resultado = self.juego.colision((1, 2), [fantasma], (1, 1), {id(fantasma): (3, 3)})
+        self.assertEqual(resultado, "nada")
+        self.assertEqual(self.juego.vidas, self.vidas)
