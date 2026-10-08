@@ -1,0 +1,32 @@
+# Ítem congelado: ejemplo-clasificados T08
+proyecto: ejemplo-clasificados
+tarea: T08
+selector: frontend/tests/test_ads_frontend.test.ts::TestAdsFrontend
+base: c7c76f0      # rc=1 (1 = los tests de la tarea fallan)
+testigo: 00fb548   # rc=0 (0 = pasan con la implementación)
+commit_original: d259bf4
+implementación: ejemplo-clasificados/frontend/src/pages/AdDetail.jsx ejemplo-clasificados/frontend/src/pages/AdsList.jsx ejemplo-clasificados/frontend/src/services/ads.ts 
+congelado: 2026-10-08T12:09:46Z
+instrumento: 40f69a6 +sin-commitear
+
+## salida sobre base (tiene que ser rojo atribuible a la tarea)
+ ❯ tests/test_ads_frontend.test.ts  (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/test_ads_frontend.test.ts [ tests/test_ads_frontend.test.ts ]
+Error: Failed to resolve import "../src/services/ads" from "frontend/tests/test_ads_frontend.test.ts". Does the file exist?
+ ❯ formatError ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:44066:46
+ ❯ TransformContext.error ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:44062:19
+ ❯ normalizeUrl ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:41845:33
+ ❯ ../async file:/Users/jose/metodo-agentes/ejemplo-clasificados/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:41999:47
+ ❯ TransformContext.transform ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:41915:13
+ ❯ Object.transform ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:44356:30
+ ❯ loadAndTransform ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:55088:29
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  09:09:45
+   Duration  311ms (transform 13ms, setup 0ms, collect 0ms, tests 0ms, environment 156ms, prepare 46ms)
