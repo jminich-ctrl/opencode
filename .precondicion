@@ -1,0 +1,32 @@
+# Ítem congelado: ejemplo-clasificados T13
+proyecto: ejemplo-clasificados
+tarea: T13
+selector: frontend/tests/test_design_system_frontend.test.ts::TestDesignSystemFrontend
+base: e1c0d26      # rc=1 (1 = los tests de la tarea fallan)
+testigo: 28c86e2   # rc=0 (0 = pasan con la implementación)
+commit_original: 3487d79
+implementación: ejemplo-clasificados/frontend/src/design/_mixins.scss ejemplo-clasificados/frontend/src/design/_variables.scss ejemplo-clasificados/frontend/src/design/main.scss 
+congelado: 2026-10-08T12:09:53Z
+instrumento: 40f69a6 +sin-commitear
+
+## salida sobre base (tiene que ser rojo atribuible a la tarea)
+Unknown Error: frontend/src/design/main.scss: no such file or directory
+ ❯ Object.wrapException ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/sass/sass.dart.js:2317:47
+ ❯ Object._systemErrorToFileSystemException0 ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/sass/sass.dart.js:29319:17
+ ❯ Object._readFile0 ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/sass/sass.dart.js:29272:16
+ ❯ Object.readFile0 ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/sass/sass.dart.js:29260:32
+ ❯ FilesystemImporter0.load$1 ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/sass/sass.dart.js:111011:34
+ ❯ ImportCache_importCanonical_closure0.call$0 ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/sass/sass.dart.js:112437:33
+ ❯ JsLinkedHashMap.putIfAbsent$2 ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/sass/sass.dart.js:38078:24
+ ❯ ImportCache0.importCanonical$3$originalUrl ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/sass/sass.dart.js:112399:46
+ ❯ Object.compile ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/sass/sass.dart.js:25884:26
+ ❯ Object.compile0 ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/sass/sass.dart.js:25423:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { dartException: { message: 'no such file or directory', path: '/Users/jose/banco-wt-T13/ejemplo-clasificados/frontend/src/design/main.scss', 'toString$0': 'Function<toString$0>', 'get$message': 'Function<get$message>', constructor: 'Function<FileSystemException0>', '$isFileSystemException0': 'Function<FileSystemException0>', '$isObject': 'Function<Object>', '$eq': 'Function<$eq>', 'get$hashCode': 'Function<get$hashCode>', 'noSuchMethod$1': 'Function<noSuchMethod$1>', 'get$runtimeType': 'Function<get$runtimeType>', toString: 'Function<toString>' } }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  09:09:51
+   Duration  414ms (transform 19ms, setup 0ms, collect 104ms, tests 18ms, environment 150ms, prepare 41ms)
