@@ -1,0 +1,32 @@
+# Ítem congelado: ejemplo-clasificados T12
+proyecto: ejemplo-clasificados
+tarea: T12
+selector: frontend/tests/test_filters_frontend.test.ts::TestFiltersFrontend
+base: 787c491      # rc=1 (1 = los tests de la tarea fallan)
+testigo: 1490d3e   # rc=0 (0 = pasan con la implementación)
+commit_original: 4634569
+implementación: ejemplo-clasificados/frontend/src/design/_filters.scss ejemplo-clasificados/frontend/src/pages/AdsList.jsx 
+congelado: 2026-10-08T12:09:49Z
+instrumento: 40f69a6 +sin-commitear
+
+## salida sobre base (tiene que ser rojo atribuible a la tarea)
+     29|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  tests/test_filters_frontend.test.ts > TestFiltersFrontend > filterAdsByCategory > should return all ads when category is empty string
+TypeError: filterAdsByCategory is not a function
+ ❯ tests/test_filters_frontend.test.ts:32:22
+     30| 
+     31|     it('should return all ads when category is empty string', () => {
+     32|       const result = filterAdsByCategory(mockAds, '');
+       |                      ^
+     33|       expect(result).toHaveLength(0);
+     34|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  09:09:48
+   Duration  325ms (transform 28ms, setup 0ms, collect 27ms, tests 3ms, environment 149ms, prepare 41ms)
