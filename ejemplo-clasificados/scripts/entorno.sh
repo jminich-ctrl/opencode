@@ -31,14 +31,50 @@ export MYSQL_SOCKET=$SOCKET
 EOF
 }
 
-vivo() { mysqladmin --protocol=TCP -h 127.0.0.1 -P "$PUERTO" -u root ping >/dev/null 2>&1; }
+aplicar_migraciones() {
+  local dir="$PROY/backend/migraciones" f nombre
+  [ -d "$dir" ] || return 0
+  ls "$dir"/*.sql >/dev/null 2>&1 || return 0
+  mysql --no-defaults --default-character-set=utf8mb4 --protocol=TCP \
+        -h 127.0.0.1 -P "$PUERTO" -u root "$BASE_DATOS" \
+        -e "CREATE TABLE IF NOT EXISTS _migraciones (nombre VARCHAR(255) PRIMARY KEY,
+             aplicada_en DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB" 2>/dev/null
+  for f in "$dir"/*.sql; do
+    nombre="$(basename "$f")"
+    case "$nombre" in *_down.sql) continue ;; esac   # la reversa no se aplica sola
+    if mysql --no-defaults --protocol=TCP -h 127.0.0.1 -P "$PUERTO" -u root "$BASE_DATOS" \
+             -N -B -e "SELECT 1 FROM _migraciones WHERE nombre='$nombre'" 2>/dev/null | grep -q 1
+    then continue; fi
+    echo "· aplicando migración $nombre"
+    # Sin pipe: `if cmd | head; then` prueba el estado de `head`, que sale 0 siempre, así
+    # que una migración fallida quedaba registrada como aplicada. Verificado:
+    #   $ if false | head -3; then echo "dio verdadero"; fi  → dio verdadero
+    SALIDA_MIG="$(mysql --no-defaults --default-character-set=utf8mb4 --protocol=TCP \
+                        -h 127.0.0.1 -P "$PUERTO" -u root "$BASE_DATOS" < "$f" 2>&1)"
+    if [ $? -eq 0 ]; then
+      mysql --no-defaults --protocol=TCP -h 127.0.0.1 -P "$PUERTO" -u root "$BASE_DATOS" \
+            -e "INSERT INTO _migraciones (nombre) VALUES ('$nombre')" 2>/dev/null
+    else
+      echo "✗ la migración $nombre falló: el esquema queda incompleto y el gate lo va a decir"
+      echo "$SALIDA_MIG" | head -5 | sed 's/^/     /'
+      return 1
+    fi
+  done
+}
+
+vivo() { mysqladmin --no-defaults --protocol=TCP -h 127.0.0.1 -P "$PUERTO" -u root ping >/dev/null 2>&1; }
 
 # ¿Este proyecto ya necesita la base? Mientras no haya capa de datos no hay nada que
 # conectar, y exigir el servidor pararía las etapas de andamiaje por una razón que todavía
 # no existe. La condición es la que se puede verificar: si hay código en `datos/`, hace falta.
+# Un `__init__.py` vacío no usa la base: lo crea el andamiaje. La condición es que haya
+# un módulo de datos de verdad, o una migración.
 HACE_FALTA=0
-ls "$PROY"/backend/app/datos/*.py >/dev/null 2>&1 && HACE_FALTA=1
-ls "$PROY"/backend/migraciones/*.sql >/dev/null 2>&1 && HACE_FALTA=1
+for f in "$PROY"/backend/app/datos/*.py; do
+  case "$f" in */__init__.py|*'*.py') continue ;; esac
+  [ -s "$f" ] && HACE_FALTA=1
+done
+for f in "$PROY"/backend/migraciones/*.sql; do [ -s "$f" ] && HACE_FALTA=1; done
 
 aviso_o_falla() {
   if [ "$HACE_FALTA" = "1" ]; then
@@ -51,49 +87,102 @@ aviso_o_falla() {
   exit 0
 }
 
+# El cliente, antes de cualquier uso: el del proyecto si está, el del sistema si no. Mezclar
+# un cliente del sistema con un servidor propio es cómo aparecen errores de protocolo.
+if [ -x "$PROY/.mysql/dist/bin/mysql" ]; then PATH="$PROY/.mysql/dist/bin:$PATH"; fi
+
 if vivo; then
-  mysql --protocol=TCP -h 127.0.0.1 -P "$PUERTO" -u root \
+  mysql --no-defaults --default-character-set=utf8mb4 --protocol=TCP \
+        -h 127.0.0.1 -P "$PUERTO" -u root \
         -e "CREATE DATABASE IF NOT EXISTS \`$BASE_DATOS\` CHARACTER SET utf8mb4" >/dev/null 2>&1
   escribir_entorno
   echo "· MySQL del proyecto ya está arriba en 127.0.0.1:$PUERTO"
+  # Y las migraciones TAMBIÉN acá: ésta es la rama normal —el servidor queda levantado
+  # entre etapas— y salía antes de llegar a aplicarlas, así que el esquema no se creaba
+  # nunca por el método. Las tablas existían por accidente, creadas por algún agente.
+  aplicar_migraciones || exit 1
   exit 0
 fi
 
 # El servidor tiene que poder arrancar. Si el binario está roto —acá lo estaba, por un
 # icu4c que una actualización de brew se llevó— no lo arreglamos nosotros: tocar el MySQL
 # del sistema es una decisión de la persona dueña de la máquina, no del runner.
-if ! command -v mysqld >/dev/null 2>&1; then
-  echo "⊘ no hay mysqld y OBJETIVO.md pide MySQL 8."
-  echo "   Decide una persona: instalarlo (brew install mysql) o cambiar el encargo."
-  aviso_o_falla
+# Qué mysqld usamos. Orden: el propio del proyecto si ya está, el del sistema si arranca,
+# y si no, nos traemos uno. El del sistema puede estar instalado y **no arrancar** —acá una
+# actualización de brew se llevó el icu4c que linkea mysql 8.0.30— y arreglarlo pide
+# actualizar las Command Line Tools, que es `sudo` y no es decisión del runner.
+DIST="$PROY/.mysql/dist"
+MYSQLD=""
+if [ -x "$DIST/bin/mysqld" ] && "$DIST/bin/mysqld" --version >/dev/null 2>&1; then
+  MYSQLD="$DIST/bin/mysqld"
+elif command -v mysqld >/dev/null 2>&1 && VER="$(mysqld --version 2>&1)"; then
+  MYSQLD="$(command -v mysqld)"
+else
+  if command -v mysqld >/dev/null 2>&1; then
+    echo "· el mysqld del sistema está instalado y no arranca:"
+    echo "${VER:-}" | head -2 | sed 's/^/     /'
+  else
+    echo "· no hay mysqld en el sistema"
+  fi
+  # Versión fija y con checksum: un servidor que cambia de versión solo es un servidor que
+  # puede romper la corrida de mañana sin que nadie haya tocado nada.
+  TARBALL="mysql-8.0.39-macos14-$(uname -m).tar.gz"
+  URL="https://cdn.mysql.com/archives/mysql-8.0/$TARBALL"
+  echo "· bajando MySQL propio del proyecto a .mysql/dist (no instala nada en el sistema)"
+  echo "    $URL"
+  mkdir -p "$PROY/.mysql"
+  if ! curl -fsSL -o "$PROY/.mysql/$TARBALL" "$URL"; then
+    echo "⊘ no pude bajar $TARBALL."
+    echo "   Decide una persona: arreglar el mysqld del sistema o cambiar el encargo."
+    aviso_o_falla
+  fi
+  rm -rf "$DIST"; mkdir -p "$DIST"
+  tar -xzf "$PROY/.mysql/$TARBALL" -C "$DIST" --strip-components=1 \
+    || { echo "✗ el tarball no se pudo descomprimir"; aviso_o_falla; }
+  rm -f "$PROY/.mysql/$TARBALL"
+  if ! "$DIST/bin/mysqld" --version >/dev/null 2>&1; then
+    echo "⊘ el mysqld que bajamos tampoco arranca:"
+    "$DIST/bin/mysqld" --version 2>&1 | head -3 | sed 's/^/     /'
+    aviso_o_falla
+  fi
+  MYSQLD="$DIST/bin/mysqld"
+  echo "· MySQL propio listo: $("$MYSQLD" --version | sed 's/.*Ver //;s/ for .*//')"
 fi
-# `mysqld --version` en un subshell con la salida capturada: si el binario aborta por una
-# biblioteca que falta, el mensaje de dyld es lo único que explica qué pasó.
-if ! VER="$(mysqld --version 2>&1)"; then
-  echo "⊘ mysqld está instalado pero no arranca:"
-  echo "$VER" | head -3 | sed 's/^/     /'
-  echo "   Es el MySQL del sistema, no del proyecto: arreglarlo es una decisión tuya."
-  echo "   Lo más probable: brew reinstall mysql"
-  aviso_o_falla
-fi
+
+# Los clientes (mysql, mysqladmin) salen del mismo lugar que el servidor: mezclar un
+# cliente del sistema con un servidor propio es cómo aparecen errores de protocolo.
+BIN="$(dirname "$MYSQLD")"
+PATH="$BIN:$PATH"
 
 mkdir -p "$PROY/.mysql"
 if [ ! -d "$DATADIR/mysql" ]; then
   echo "· inicializando una instancia de MySQL propia del proyecto en .mysql/"
-  mysqld --initialize-insecure --datadir="$DATADIR" --log-error="$LOG" >/dev/null 2>&1 \
+  "$MYSQLD" --no-defaults --initialize-insecure --datadir="$DATADIR" --log-error="$LOG" >/dev/null 2>&1 \
     || { echo "✗ no pude inicializar el datadir; mirá $LOG"; exit 1; }
 fi
 
 echo "· levantando MySQL del proyecto en 127.0.0.1:$PUERTO"
-mysqld --datadir="$DATADIR" --port="$PUERTO" --socket="$SOCKET" \
+nohup "$MYSQLD" --no-defaults --datadir="$DATADIR" --port="$PUERTO" --socket="$SOCKET" \
        --log-error="$LOG" --skip-mysqlx --bind-address=127.0.0.1 >/dev/null 2>&1 &
+disown 2>/dev/null || true
 for _ in $(seq 1 40); do vivo && break; sleep 1; done
 if ! vivo; then
   echo "✗ MySQL no respondió en 40s. Últimas líneas de $LOG:"
   tail -10 "$LOG" 2>/dev/null | sed 's/^/     /'
   exit 1
 fi
-mysql --protocol=TCP -h 127.0.0.1 -P "$PUERTO" -u root \
+mysql --no-defaults --default-character-set=utf8mb4 --protocol=TCP -h 127.0.0.1 -P "$PUERTO" -u root \
       -e "CREATE DATABASE IF NOT EXISTS \`$BASE_DATOS\` CHARACTER SET utf8mb4" >/dev/null 2>&1
 escribir_entorno
 echo "· base \`$BASE_DATOS\` lista; credenciales en .entorno"
+
+# ── Las migraciones. Aplicarlas es del método, no de la tarea: el esquema tiene que existir
+# para que un test de datos verifique algo, y ninguna tarea del plan lo tiene asignado —T03
+# escribe el `.sql` y nadie lo corre—. Fue el cuarto hueco de la misma forma: pasó que el
+# endpoint de login devolvía 500 en vez de 401 porque la tabla `usuarios` no existía, y el
+# método lo informaba como "el test no pasa ni con la implementación del propio agente".
+#
+# Se lleva registro en `_migraciones` para no reaplicar: los `.sql` del plan usan
+# `CREATE TABLE` sin `IF NOT EXISTS` —y está bien que así sea, una migración se aplica una
+# vez— así que reaplicar a ciegas sería un error disfrazado de idempotencia.
+aplicar_migraciones || exit 1
