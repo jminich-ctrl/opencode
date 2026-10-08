@@ -52,13 +52,30 @@ correr_backend() {
   "$PY" -c "import pytest" >/dev/null 2>&1 || { echo "falta pytest en $PY"; return 8; }
   # PYTHONPATH=backend: los tests importan `app.x`, y el paquete vive ahí. Sin esto el
   # import falla y el diagnóstico que sale es "el test está mal".
-  PYTHONPATH="$PWD/backend" "$PY" -m pytest -q "$sel" 2>&1
+  local salida_pytest
+  salida_pytest="$(PYTHONPATH="$PWD/backend" "$PY" -m pytest -q "$sel" 2>&1)"
   rc=$?
-  # Los códigos de pytest, traducidos al contrato. 4 es "usage error" (el archivo que le
-  # pedimos no existe) y 5 es "no collected": las dos son "no corrió ningún test".
+  printf '%s\n' "$salida_pytest"
+  # Los códigos de pytest, traducidos al contrato. 5 es "no collected" = no corrió nada.
+  #
+  # El 4 es ambiguo y ahí estaba el defecto: pytest lo usa tanto para «el archivo que me
+  # pediste no existe» (⊘ de verdad) como para «lo encontré y NO PUDE COLECTARLO porque su
+  # import falla» — que con un selector acotado a UN archivo es exactamente la señal que se
+  # busca: la implementación no está. Mapear los dos a ⊘ hacía que un ítem cuya
+  # implementación es un archivo nuevo nunca pudiera establecer su estado rojo.
+  # Medido al congelar el banco: dos ítems caían por esto.
+  #
+  # El discriminador es la salida: «ERROR <ruta>» con un error de colección significa que el
+  # archivo está y falló; «file or directory not found» significa que no está.
+  if [ "$rc" = "4" ]; then
+    if echo "$salida_pytest" | grep -qE '^ERROR [^ ]+\.py|error[s]? in [0-9.]+s'; then
+      return 1        # lo encontró y falló al colectar: es una falla, no un ⊘
+    fi
+    return 9          # no lo encontró: no se pudo medir
+  fi
   case "$rc" in
     0) return 0 ;;
-    4|5) return 9 ;;
+    5) return 9 ;;
     *) return 1 ;;
   esac
 }
@@ -94,6 +111,43 @@ correr_frontend() {
                ${archivo:+"$archivo"} ${filtro:+-t "$filtro"} 2>&1 )"
   rc=$?
   echo "$salida"
+  # Un archivo de test que FALLÓ es una falla (1), no un «no pude medir» (9) — aunque vitest
+  # diga «Tests  no tests» en la misma salida.
+  #
+  # Pasó así: sin la implementación, vitest no puede transformar el archivo de test porque su
+  # import no resuelve, y entonces imprime `Test Files  1 failed (1)` Y `Tests  no tests`. El
+  # grep de abajo matcheaba «no tests» ANTES de mirar si algo falló, así que la señal más
+  # fuerte que existe —la implementación no está— se informaba como ⊘. Medido al congelar el
+  # banco: siete ítems de frontend cayeron por esto, y en el gate el paso 4 habría dado ⊘
+  # donde correspondía un rojo que distingue.
+  #
+  # El orden importa: primero «¿falló algo?», después «¿corrió algo?».
+  # Antes que nada: ¿falló el CORREDOR o fallaron los TESTS? Un toolchain roto no es un
+  # defecto del código que se juzga, y mezclarlos se lo cobra al agente.
+  #
+  # Medido: el mismo selector da 0 desde una shell y «no corrió ningún test» desde un
+  # subproceso, porque esbuild está instalado para otra arquitectura (`@esbuild/darwin-arm64`
+  # presente y el node de turno necesita `darwin-x64`). vitest no llega ni a cargar su config,
+  # y eso salía como 2: «la suite no corrió nada», culpando al proyecto.
+  if echo "$salida" | grep -qE 'failed to load config|installed esbuild for another platform|Cannot find module|ERR_MODULE_NOT_FOUND'; then
+    echo "     ⊘ el corredor del frontend no pudo arrancar: es del entorno, no del código"
+    return 8
+  fi
+  echo "$salida" | grep -qE '^ *Test Files +[0-9]+ failed|[0-9]+ failed \(' && return 1
+  # Y si NINGÚN test se ejecutó, no se verificó nada — aunque vitest salga con 0.
+  #
+  # Éste era el peor: con `-t <nombre>` que no matchea nada, vitest SALTEA todo y sale 0, así
+  # que el corredor devolvía 0 = «los tests pasan». Una clase inexistente se informaba como
+  # suite verde. En el paso 4 del gate eso da «los tests PASAN con la implementación vieja»
+  # —culpando al test— y en el validador de escribir-tests.sh, «pasa con la implementación».
+  # La salida lo dice: `Tests  3 skipped (3)`, sin un solo «passed».
+  #
+  # La regla, en una línea: la línea `Tests` tiene que decir «passed». Si dice sólo «skipped»
+  # o «no tests», no corrió nada y es ⊘.
+  if ! echo "$salida" | grep -qE '^ *Tests +.*[0-9]+ passed'; then
+    echo "     ⊘ ningún test se ejecutó con ese selector: no se verificó nada"
+    return 9
+  fi
   # Una suite que no corrió nada no es una suite verde, y vitest lo dice con texto.
   echo "$salida" | grep -qE 'No test files found|No test found|no tests' && return 9
   [ "$rc" = "0" ] && return 0
