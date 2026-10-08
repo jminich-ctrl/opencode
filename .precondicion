@@ -1,0 +1,28 @@
+# Ítem congelado: ejemplo-clasificados T02
+proyecto: ejemplo-clasificados
+tarea: T02
+selector: backend/tests/test_conexion.py::TestConexion
+base: 235dae3      # rc=1 (1 = los tests de la tarea fallan)
+testigo: 92582ee   # rc=0 (0 = pasan con la implementación)
+commit_original: 989773f
+implementación: ejemplo-clasificados/backend/app/datos/conexion.py 
+congelado: 2026-10-08T12:09:25Z
+instrumento: 40f69a6 +sin-commitear
+
+## salida sobre base (tiene que ser rojo atribuible a la tarea)
+ERROR: found no collectors for /Users/jose/banco-wt-T02/ejemplo-clasificados/backend/tests/test_conexion.py::TestConexion
+
+
+==================================== ERRORS ====================================
+_______________ ERROR collecting backend/tests/test_conexion.py ________________
+ImportError while importing test module '/Users/jose/banco-wt-T02/ejemplo-clasificados/backend/tests/test_conexion.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/local/Cellar/python@3.12/3.12.3/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+backend/tests/test_conexion.py:7: in <module>
+    from app.datos.conexion import conexion, configuracion
+E   ModuleNotFoundError: No module named 'app.datos.conexion'
+=========================== short test summary info ============================
+ERROR backend/tests/test_conexion.py
+1 error in 0.19s
