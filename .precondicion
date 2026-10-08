@@ -1,0 +1,32 @@
+# Ítem congelado: ejemplo-clasificados T06c
+proyecto: ejemplo-clasificados
+tarea: T06c
+selector: backend/tests/test_errores.py::TestErrores
+base: 9c736c3      # rc=1 (1 = los tests de la tarea fallan)
+testigo: 1b5abd4   # rc=0 (0 = pasan con la implementación)
+commit_original: 18600bc
+implementación: ejemplo-clasificados/backend/app/main.py 
+congelado: 2026-10-08T12:09:40Z
+instrumento: 40f69a6 +sin-commitear
+
+## salida sobre base (tiene que ser rojo atribuible a la tarea)
+    def test_http_exception_conserva_codigo(self):
+        """Un HTTPException sale con su código de estado y error en lugar de detail"""
+        respuesta = cliente.get("/__prueba_404")
+        assert respuesta.status_code == 404
+>       assert "error" in respuesta.json()
+E       AssertionError: assert 'error' in {'detail': 'no existe'}
+E        +  where {'detail': 'no existe'} = json()
+E        +    where json = <Response [404 Not Found]>.json
+
+backend/tests/test_errores.py:37: AssertionError
+=============================== warnings summary ===============================
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:690
+  /Users/jose/metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:690: DeprecationWarning: The 'app' shortcut is now deprecated. Use the explicit style 'transport=WSGITransport(app=...)' instead.
+    warnings.warn(message, DeprecationWarning)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED backend/tests/test_errores.py::TestErrores::test_validacion_responde_400
+FAILED backend/tests/test_errores.py::TestErrores::test_http_exception_conserva_codigo
+2 failed, 1 warning in 0.34s
