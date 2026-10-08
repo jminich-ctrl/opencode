@@ -1,32 +1,11 @@
 import importlib
 import os
-from fastapi import FastAPI, Request
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
-from fastapi import HTTPException
+from fastapi import FastAPI
 
 app = FastAPI()
 
 # Lista para almacenar los routers montados
 app.state.routers_montados = []
-
-# Manejador para RequestValidationError (validación de datos)
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    # Devolvemos un error 400 con el formato esperado
-    return JSONResponse(
-        status_code=400,
-        content={"error": "Datos de entrada inválidos"}
-    )
-
-# Manejador para HTTPException
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    # Conservamos el código de estado y reescribimos el cuerpo
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"error": exc.detail}
-    )
 
 # Función para cargar routers automáticamente
 def _cargar_routers():
