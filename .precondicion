@@ -1,0 +1,33 @@
+# Ítem congelado: ejemplo-pacman T16
+proyecto: ejemplo-pacman
+tarea: T16
+selector: tests/test_juego.py::TestFruta
+base: 0d543f0      # rc=1 (1 = los tests de la tarea fallan)
+testigo: ae38577   # rc=0 (0 = pasan con la implementación)
+commit_original: bb44804
+aviso: la tarea tiene 4 commits «gate verde»; se usó el más nuevo
+implementación: ejemplo-pacman/src/pacman/juego.py 
+congelado: 2026-10-08T12:09:12Z
+instrumento: 623057f +sin-commitear
+
+## salida sobre base (tiene que ser rojo atribuible a la tarea)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jose/banco-wt-T16/ejemplo-pacman/tests/test_juego.py", line 225, in test_no_hay_fruta_al_empezar
+    self.assertIsNone(self.juego.fruta)
+                      ^^^^^^^^^^^^^^^^
+AttributeError: 'Juego' object has no attribute 'fruta'
+
+======================================================================
+ERROR: test_solo_aparece_una_vez_por_umbral (tests.test_juego.TestFruta.test_solo_aparece_una_vez_por_umbral)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jose/banco-wt-T16/ejemplo-pacman/tests/test_juego.py", line 259, in test_solo_aparece_una_vez_por_umbral
+    self.juego.comer_en(self.juego.fruta)
+                        ^^^^^^^^^^^^^^^^
+AttributeError: 'Juego' object has no attribute 'fruta'
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.002s
+
+FAILED (errors=6)
