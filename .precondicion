@@ -1,0 +1,32 @@
+# Ítem congelado: ejemplo-pacman T40
+proyecto: ejemplo-pacman
+tarea: T40
+selector: tests/test_pausa.py::TestPausa
+base: df4cfb9      # rc=1 (1 = los tests de la tarea fallan)
+testigo: 472b788   # rc=0 (0 = pasan con la implementación)
+commit_original: 007734e
+implementación: ejemplo-pacman/src/pacman/juego.py 
+congelado: 2026-10-08T12:20:36Z
+instrumento: 623057f +sin-commitear
+
+## salida sobre base (tiene que ser rojo atribuible a la tarea)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jose/banco-wt-T40/ejemplo-pacman/tests/test_pausa.py", line 26, in test_arranca_sin_pausa
+    self.assertFalse(Juego(Laberinto(MAPA)).pausado)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Juego' object has no attribute 'pausado'
+
+======================================================================
+ERROR: test_en_pausa_el_tick_no_avanza_el_modo_asustado (tests.test_pausa.TestPausa.test_en_pausa_el_tick_no_avanza_el_modo_asustado)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jose/banco-wt-T40/ejemplo-pacman/tests/test_pausa.py", line 39, in test_en_pausa_el_tick_no_avanza_el_modo_asustado
+    juego.alternar_pausa()
+    ^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Juego' object has no attribute 'alternar_pausa'
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.002s
+
+FAILED (errors=3)
