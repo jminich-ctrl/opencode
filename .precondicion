@@ -1,0 +1,32 @@
+# Ítem congelado: ejemplo-clasificados T06b
+proyecto: ejemplo-clasificados
+tarea: T06b
+selector: backend/tests/test_montaje.py::TestMontaje
+base: 942c85f      # rc=1 (1 = los tests de la tarea fallan)
+testigo: 0576902   # rc=0 (0 = pasan con la implementación)
+commit_original: 7dd844e
+implementación: ejemplo-clasificados/backend/app/main.py 
+congelado: 2026-10-08T12:09:37Z
+instrumento: 40f69a6 +sin-commitear
+
+## salida sobre base (tiene que ser rojo atribuible a la tarea)
+    
+            limpiar = _sembrar("helper", helper_content)
+    
+            try:
+                # Recargamos el módulo
+                mod = _recargar()
+    
+                # Verificamos que el helper no esté en los routers montados
+>               assert hasattr(mod.app.state, 'routers_montados')
+E               AssertionError: assert False
+E                +  where False = hasattr(<starlette.datastructures.State object at 0x10e368380>, 'routers_montados')
+E                +    where <starlette.datastructures.State object at 0x10e368380> = <fastapi.applications.FastAPI object at 0x10e368170>.state
+E                +      where <fastapi.applications.FastAPI object at 0x10e368170> = <module 'app.main' from '/Users/jose/banco-wt-T06b/ejemplo-clasificados/backend/app/main.py'>.app
+
+backend/tests/test_montaje.py:106: AssertionError
+=========================== short test summary info ============================
+FAILED backend/tests/test_montaje.py::TestMontaje::test_router_nuevo_se_monta
+FAILED backend/tests/test_montaje.py::TestMontaje::test_modulo_rotulo_hace_fallar_import
+FAILED backend/tests/test_montaje.py::TestMontaje::test_helper_no_se_monta - ...
+3 failed in 0.30s
