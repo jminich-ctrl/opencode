@@ -1,0 +1,32 @@
+# Ítem congelado: ejemplo-pacman T41
+proyecto: ejemplo-pacman
+tarea: T41
+selector: tests/test_record.py::TestRecord
+base: d649209      # rc=1 (1 = los tests de la tarea fallan)
+testigo: 816108e   # rc=0 (0 = pasan con la implementación)
+commit_original: 23c65eb
+implementación: ejemplo-pacman/src/pacman/juego.py 
+congelado: 2026-10-08T12:09:15Z
+instrumento: 623057f +sin-commitear
+
+## salida sobre base (tiene que ser rojo atribuible a la tarea)
+Traceback (most recent call last):
+  File "/Users/jose/banco-wt-T41/ejemplo-pacman/tests/test_record.py", line 63, in test_record_no_baja_al_perder_vida
+    self.assertEqual(self.juego.record, record_guardado)
+                     ^^^^^^^^^^^^^^^^^
+AttributeError: 'Juego' object has no attribute 'record'
+
+======================================================================
+ERROR: test_record_se_actualiza_al_subir_puntaje (tests.test_record.TestRecord.test_record_se_actualiza_al_subir_puntaje)
+El record se actualiza cuando el puntaje supera el record actual.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jose/banco-wt-T41/ejemplo-pacman/tests/test_record.py", line 27, in test_record_se_actualiza_al_subir_puntaje
+    self.assertEqual(self.juego.record, 10)
+                     ^^^^^^^^^^^^^^^^^
+AttributeError: 'Juego' object has no attribute 'record'
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.001s
+
+FAILED (errors=3)
