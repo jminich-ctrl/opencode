@@ -1,0 +1,32 @@
+# Ítem congelado: ejemplo-clasificados T29
+proyecto: ejemplo-clasificados
+tarea: T29
+selector: frontend/tests/test_search_frontend.test.ts::TestSearchFrontend
+base: ae46f28      # rc=1 (1 = los tests de la tarea fallan)
+testigo: 35ecda7   # rc=0 (0 = pasan con la implementación)
+commit_original: 0a1ed9a
+implementación: ejemplo-clasificados/frontend/src/components/SearchBar.jsx ejemplo-clasificados/frontend/src/services/search.ts 
+congelado: 2026-10-08T12:10:00Z
+instrumento: 40f69a6 +sin-commitear
+
+## salida sobre base (tiene que ser rojo atribuible a la tarea)
+ ❯ tests/test_search_frontend.test.ts  (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/test_search_frontend.test.ts [ tests/test_search_frontend.test.ts ]
+Error: Failed to resolve import "../src/services/search" from "frontend/tests/test_search_frontend.test.ts". Does the file exist?
+ ❯ formatError ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:44066:46
+ ❯ TransformContext.error ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:44062:19
+ ❯ normalizeUrl ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:41845:33
+ ❯ ../async file:/Users/jose/metodo-agentes/ejemplo-clasificados/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:41999:47
+ ❯ TransformContext.transform ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:41915:13
+ ❯ Object.transform ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:44356:30
+ ❯ loadAndTransform ../../../metodo-agentes/ejemplo-clasificados/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:55088:29
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  09:09:59
+   Duration  343ms (transform 18ms, setup 0ms, collect 0ms, tests 0ms, environment 153ms, prepare 48ms)
