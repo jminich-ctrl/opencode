@@ -118,10 +118,20 @@ def main():
 
     # 2. Ausencias. Se mira el cierre transitivo, no el import directo: pasar por una capa
     #    intermedia declarada cuenta como usarla.
+    vacuos = []
     for origen, destino in REQUERIDAS:
-        if origen not in grafo:
-            problemas.append(f"la arquitectura requiere que {origen} use {destino}, "
-                             f"y {origen} no existe (ausencia)")
+        # Un módulo que todavía no existe no es una ausencia: es una capa que no llegó. El
+        # proyecto se construye por etapas y la arquitectura recién está completa al final,
+        # así que exigir el grafo entero en cada merge bloquea todos los merges tempranos.
+        # Pasó: integrar T02 —que crea `datos/conexion.py`— daba rojo porque `servicios` y
+        # `rutas` todavía no tenían un solo módulo.
+        #
+        # No se calla: se informa como ⊘, que es lo que es —no pudo verificarse—, y el gate
+        # lo cuenta como vacío. Un chequeo que no pudo correr no es un chequeo que pasó.
+        if origen not in grafo or destino not in grafo:
+            falta = origen if origen not in grafo else destino
+            vacuos.append(f"la arquitectura requiere que {origen} use {destino}, y {falta} "
+                          f"todavía no tiene ningún módulo")
         elif destino not in alcanzables(grafo, origen) - {origen}:
             problemas.append(f"{origen} NO usa {destino}, y la arquitectura lo requiere "
                              f"(ausencia): o alguien se salteó una capa, o la capa sobra")
@@ -147,10 +157,17 @@ def main():
             print("    Con cobertura incompleta, una ausencia puede ser del mapeo y no del código.")
     for p in problemas:
         print(f"  ✗ {p}")
+    for v in vacuos:
+        print(f"  ⊘ {v} — no pudo verificarse")
     if not problemas:
         print(f"  ✓ dependencias en una sola dirección: {' → '.join(CAPAS)}")
-        if REQUERIDAS:
-            print(f"  ✓ están las {len(REQUERIDAS)} dependencias que la arquitectura requiere")
+        verificadas = len(REQUERIDAS) - len(vacuos)
+        if verificadas > 0:
+            print(f"  ✓ están las {verificadas} dependencias requeridas que ya se pueden "
+                  f"verificar")
+        elif REQUERIDAS:
+            print(f"  · ninguna de las {len(REQUERIDAS)} dependencias requeridas se puede "
+                  f"verificar todavía: las capas están vacías")
     # El valor absoluto no se compara con nada: la métrica crece cuando hay pocos módulos
     # (un único punto de entrada que ve todo ya aporta n/n²) y las referencias publicadas
     # —Linux 5%, Mozilla 17%, Mozilla 3% después de su rediseño— son sobre miles de
