@@ -1,0 +1,32 @@
+# Ítem congelado: ejemplo-clasificados T03
+proyecto: ejemplo-clasificados
+tarea: T03
+selector: backend/tests/test_migracion.py::TestMigracion
+base: 71ba78f      # rc=1 (1 = los tests de la tarea fallan)
+testigo: 5bf6d06   # rc=0 (0 = pasan con la implementación)
+commit_original: 7a9a14d
+implementación: ejemplo-clasificados/backend/migraciones/001_initial.sql ejemplo-clasificados/backend/migraciones/001_initial_down.sql 
+congelado: 2026-10-08T12:09:30Z
+instrumento: 40f69a6 +sin-commitear
+
+## salida sobre base (tiene que ser rojo atribuible a la tarea)
+E       FileNotFoundError: [Errno 2] No such file or directory: 'backend/migraciones/001_initial.sql'
+
+backend/tests/test_migracion.py:31: FileNotFoundError
+_____________________ TestMigracion.test_reversa_correcta ______________________
+
+self = <tests.test_migracion.TestMigracion object at 0x10caf0770>
+
+    def test_reversa_correcta(self):
+        """Verifica que el script de reversa tiene el orden correcto."""
+        down_file = REVERSA
+    
+>       with open(down_file, 'r') as f:
+E       FileNotFoundError: [Errno 2] No such file or directory: 'backend/migraciones/001_initial_down.sql'
+
+backend/tests/test_migracion.py:77: FileNotFoundError
+=========================== short test summary info ============================
+FAILED backend/tests/test_migracion.py::TestMigracion::test_archivos_migracion_existen
+FAILED backend/tests/test_migracion.py::TestMigracion::test_esquema_correcto
+FAILED backend/tests/test_migracion.py::TestMigracion::test_reversa_correcta
+3 failed in 0.03s
