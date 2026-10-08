@@ -1,0 +1,33 @@
+# Ítem congelado: ejemplo-clasificados T01
+proyecto: ejemplo-clasificados
+tarea: T01
+selector: backend/tests/test_scaffolding.py::TestScaffolding
+base: b8a2523      # rc=1 (1 = los tests de la tarea fallan)
+testigo: 45ebf09   # rc=0 (0 = pasan con la implementación)
+commit_original: 1c30998
+aviso: la tarea tiene 2 commits «gate verde»; se usó el más nuevo
+implementación: ejemplo-clasificados/backend/app/datos/__init__.py ejemplo-clasificados/backend/app/rutas/__init__.py ejemplo-clasificados/backend/app/servicios/__init__.py 
+congelado: 2026-10-08T12:09:20Z
+instrumento: 40f69a6 +sin-commitear
+
+## salida sobre base (tiene que ser rojo atribuible a la tarea)
+
+    def test_estructura_carpetas_backend(self):
+        """Verifica que se hayan creado las carpetas requeridas en backend/app"""
+        expected_dirs = [
+            "backend/app/datos",
+            "backend/app/servicios",
+            "backend/app/rutas"
+        ]
+    
+        for dir_path in expected_dirs:
+>           self.assertTrue(
+                os.path.exists(dir_path),
+                f"No se encontró el directorio {dir_path}"
+            )
+E           AssertionError: False is not true : No se encontró el directorio backend/app/datos
+
+backend/tests/test_scaffolding.py:16: AssertionError
+=========================== short test summary info ============================
+FAILED backend/tests/test_scaffolding.py::TestScaffolding::test_estructura_carpetas_backend
+1 failed, 2 passed in 0.03s
