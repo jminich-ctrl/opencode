@@ -1,0 +1,32 @@
+# Ítem congelado: ejemplo-clasificados T31
+proyecto: ejemplo-clasificados
+tarea: T31
+selector: frontend/tests/test_entrypoint_frontend.test.ts::TestEntrypointFrontend
+base: 9eefed9      # rc=1 (1 = los tests de la tarea fallan)
+testigo: bc6e427   # rc=0 (0 = pasan con la implementación)
+commit_original: 2969ad3
+implementación: ejemplo-clasificados/frontend/src/App.jsx ejemplo-clasificados/frontend/src/main.tsx 
+congelado: 2026-10-08T12:10:07Z
+instrumento: 40f69a6 +sin-commitear
+
+## salida sobre base (tiene que ser rojo atribuible a la tarea)
+
+ FAIL  tests/test_entrypoint_frontend.test.ts > TestEntrypointFrontend > debería tener contenido válido en frontend/src/App.jsx
+Error: ENOENT: no such file or directory, open '/Users/jose/banco-wt-T31/ejemplo-clasificados/frontend/src/App.jsx'
+ ❯ Proxy.readFileSync ../node:fs:448:20
+ ❯ tests/test_entrypoint_frontend.test.ts:39:24
+     37|     
+     38|     const appPath = path.join(process.cwd(), 'frontend', 'src', 'App.j…
+     39|     const content = fs.readFileSync(appPath, 'utf-8');
+       |                        ^
+     40|     
+     41|     // Debería tener un componente básico de React
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: -2, code: 'ENOENT', syscall: 'open', path: '/Users/jose/banco-wt-T31/ejemplo-clasificados/frontend/src/App.jsx' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  09:10:06
+   Duration  301ms (transform 19ms, setup 0ms, collect 11ms, tests 7ms, environment 147ms, prepare 41ms)
