@@ -30,12 +30,47 @@ No entra:
 
 ## Contrato
 
+Tres archivos, y los tres los importa el test — no son opcionales:
+
 ```python
+# backend/app/datos/users_register.py
+def insert_user(email: str, password_hash: str) -> int:
+    """Inserta la fila y devuelve el id nuevo. Lanza si el email ya existe.
+    Recibe el hash YA calculado: el hasheo es del servicio, no de la capa de datos."""
+
+# backend/app/servicios/register.py
 def crear_usuario(email: str, password: str) -> int:
-    """Crea un usuario y devuelve su id.
-    Lanza excepción si el email ya existe.
-    """
+    """Valida, hashea con el mismo esquema que `auth.py` y delega en
+    `users_register.insert_user`. Devuelve el id."""
+
+# backend/app/rutas/register.py
+router  # APIRouter con POST /register — main.py monta solo los módulos de rutas/ que
+        # tengan un atributo `router`, así que sin ese nombre el endpoint no existe
 ```
+
+**Tres cosas que el test impone y que no se deducen leyéndolo rápido:**
+
+1. **La costura para aislar MySQL es `insert_user`, y el test la mockea por su nombre
+   completo:** `@patch('backend.app.datos.users_register.insert_user')`. Es la misma forma
+   que usa `backend/tests/test_auth_backend.py` con `users.read_user_by_email`.
+   **No mockees la conexión.** El escritor de tests inventó
+   `users_register.get_db_connection` tres corridas seguidas —un nombre que no está en
+   ninguna parte del repo— y el test falló contra la implementación del propio agente con
+   `AttributeError: module ... does not have the attribute 'get_db_connection'`. El
+   enunciado pedía un test de algo que todavía no existe sin decir por dónde cortarlo, así
+   que el agente eligió por nosotros. Quien abre conexiones de verdad es
+   `backend/app/datos/conexion.py` (`conexion()`, un context manager), y `insert_user` es
+   el único que la usa en esta tarea.
+
+2. **`insert_user` se llama como ATRIBUTO del módulo**: `users_register.insert_user(...)`
+   con `from backend.app.datos import users_register`. Con
+   `from backend.app.datos.users_register import insert_user` el servicio se queda con su
+   propia referencia, el `@patch` del test no aplica, la consulta va a la base de verdad y
+   el rojo no se parece a su causa. Misma trampa que documenta T04.
+
+3. **El hash es `sha256` hex del password, sin sal** — lo mismo que verifica `login` en
+   `backend/app/servicios/auth.py`. El test tiene que comparar contra
+   `hashlib.sha256(password.encode()).hexdigest()`.
 
 ## Tests
 

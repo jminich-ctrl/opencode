@@ -334,6 +334,14 @@ for tid in sorted(set(tareas) & set(en_disco)):
                      for a in re.split(r"[,\s]+", otro["archivos"]) if a.strip().strip("`")}
         if cubierto(r, asignados):
             continue
+        # Y un archivo que YA EXISTE no es un archivo que alguien tenga que escribir. El
+        # chequeo usa la sección como aproximación a «te pido que lo escribas», que es
+        # razonable pero no distingue «escribí esto» de «leé esto». La existencia sí: T26
+        # tiene que nombrar `backend/tests/test_auth_backend.py` para decir «el patch se hace
+        # así», y ese test está en el repo desde T04. El alcance lo sigue cuidando el paso 2
+        # del gate, que reprueba tocar lo que no es tuyo.
+        if (RAIZ / r).exists():
+            continue
         errores.append(f"{arch.name} le pide escribir «{r}», y no está en su alcance ni en "
                        f"el de ninguna otra tarea: nadie lo va a escribir")
 
