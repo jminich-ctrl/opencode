@@ -3002,6 +3002,110 @@ class TestNoSeTiraElMaterialDeUnIntento(CasoBase):
                          + ", ".join(huerfanos))
 
 
+class TestElBrazoNuloDelValidadorDeTests(unittest.TestCase):
+    """Los tres pasos del validador preguntan «¿este test distingue ESTE cambio?». Faltaba el
+    anterior: **¿distingue algo de nada?**
+
+    El test aceptado de T04b tenía cinco pruebas y las cinco negativas —token inválido, vacío,
+    nulo, mal formado, id inexistente— y ninguna verificaba que un token válido devolviera el
+    id, que era el criterio de la tarea. Pasó los tres pasos: falla sin la implementación (por
+    `ImportError`), pasa con la del agente, y los mutantes mueren sobre la lógica de ésa. Pero
+    `def usuario_desde_token(token): return None` pasaba los cinco.
+
+    `experimentos/README.md` ya exige un brazo nulo para los experimentos por este mismo
+    motivo: «el sujeto reemplazado por un no-op, rojo obligatorio en todos».
+    """
+
+    VACIAR = SCRIPTS / "vaciar.py"
+
+    def vaciar(self, d, *archivos):
+        return correr(f"python3 {self.VACIAR} " + " ".join(archivos), d)
+
+    def test_vacia_el_cuerpo_y_deja_todo_lo_que_el_import_necesita(self):
+        """Si lo que rompe es el import, el rojo no distingue nada: es el mismo rojo del paso
+        1. Así que firma, imports, clases y constantes de módulo se conservan."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-vaciar-"))
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "m.py").write_text(
+            "import hashlib\n\n"
+            "CONSTANTE = 42\n\n"
+            "def f(x: int) -> int | None:\n"
+            '    """Lo que hace."""\n'
+            "    return x * 2\n\n"
+            "class C:\n"
+            "    def g(self):\n"
+            "        return 'algo'\n")
+        r = self.vaciar(d, "m.py")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        salida = (d / "m.py").read_text()
+        for conservado in ("import hashlib", "CONSTANTE = 42", "def f(x: int)", "class C",
+                           "Lo que hace"):
+            self.assertIn(conservado, salida, f"se perdió «{conservado}»")
+        self.assertNotIn("x * 2", salida, "no vació el cuerpo de f")
+        self.assertNotIn("'algo'", salida, "no vació el método g")
+        # Y el original se guarda, para poder volver.
+        self.assertTrue((d / "m.py.vaciar-original").exists(), "no guardó el original")
+        r = correr(f"python3 {self.VACIAR} --restaurar", d)
+        self.assertIn("x * 2", (d / "m.py").read_text(), "no restauró")
+
+    def test_un_test_de_puros_casos_negativos_pasa_con_los_cuerpos_vacios(self):
+        """El caso real que lo motivó, reproducido: el test de T04b tal como fue aceptado."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-vacuo-"))
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "impl.py").write_text(
+            "PREFIJO = 'tok-'\n\n"
+            "def usuario_desde_token(token):\n"
+            "    if not token or not isinstance(token, str):\n"
+            "        return None\n"
+            "    if not token.startswith(PREFIJO):\n"
+            "        return None\n"
+            "    return int(token[len(PREFIJO):])\n")
+        # Cinco casos y los cinco negativos: es el test que fue aceptado.
+        (d / "test_impl.py").write_text(
+            "from impl import usuario_desde_token\n\n"
+            "def test_invalido(): assert usuario_desde_token('nada') is None\n"
+            "def test_vacio(): assert usuario_desde_token('') is None\n"
+            "def test_nulo(): assert usuario_desde_token(None) is None\n")
+        suite = f"python3 -m pytest -q test_impl.py"
+        self.assertEqual(correr(suite, d).returncode, 0,
+                         "el test tiene que pasar con la implementación de verdad")
+        self.vaciar(d, "impl.py")
+        r = correr(suite, d)
+        self.assertEqual(r.returncode, 0,
+                         "este test es vacuo a propósito: TIENE que pasar con los cuerpos "
+                         "vacíos, y por eso el brazo nulo lo reprueba")
+
+    def test_un_test_con_el_caso_positivo_falla_con_los_cuerpos_vacios(self):
+        """El control del otro lado: el brazo nulo no puede reprobar un test bueno."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-bueno-"))
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "impl.py").write_text(
+            "PREFIJO = 'tok-'\n\n"
+            "def usuario_desde_token(token):\n"
+            "    if not token or not isinstance(token, str):\n"
+            "        return None\n"
+            "    if not token.startswith(PREFIJO):\n"
+            "        return None\n"
+            "    return int(token[len(PREFIJO):])\n")
+        # El mismo test, MÁS el caso positivo: el que faltaba.
+        (d / "test_impl.py").write_text(
+            "from impl import usuario_desde_token\n\n"
+            "def test_valido(): assert usuario_desde_token('tok-7') == 7\n"
+            "def test_invalido(): assert usuario_desde_token('nada') is None\n"
+            "def test_vacio(): assert usuario_desde_token('') is None\n")
+        suite = f"python3 -m pytest -q test_impl.py"
+        self.assertEqual(correr(suite, d).returncode, 0, "tiene que pasar con la implementación")
+        self.vaciar(d, "impl.py")
+        self.assertNotEqual(correr(suite, d).returncode, 0,
+                            "con el caso positivo, los cuerpos vacíos TIENEN que fallar")
+
+    def test_el_validador_corre_el_brazo_nulo(self):
+        f = (SCRIPTS / "escribir-tests.sh").read_text()
+        self.assertIn("vaciar.py", f, "el validador tiene que armar el brazo nulo")
+        self.assertIn("cuerpos VACÍOS", f, "y reprobar el test que lo satisface")
+        self.assertIn("--restaurar", f, "y devolver la implementación después")
+
+
 class TestUnCorteQueTrabajoNoEsUnCorteQueColgo(unittest.TestCase):
     """Dos fallas distintas que compartían un contador, y por eso ninguna decía nada.
 

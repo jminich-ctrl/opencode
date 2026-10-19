@@ -14,12 +14,19 @@ Permitir crear una cuenta de usuario mediante endpoint POST `/register` que alma
 
 Entra:
 - Validación básica de datos (email, password).
-- Hash de la contraseña con `hashlib.scrypt`.
+- Hash de la contraseña **con el mismo esquema que usa `backend/app/servicios/auth.py`
+  para verificarla**. Leé ese archivo: `login` compara contra `password_hash`, y si registro
+  guarda con otro esquema, ningún usuario registrado va a poder entrar.
 - Creación del registro en MySQL.
 
 No entra:
 - Verificación de email.
 - Roles o permisos avanzados.
+- **Cambiar el esquema de hash.** El del ejemplo es un `sha256` sin sal, que es de juguete:
+  migrar a `scrypt` o `bcrypt` toca registro Y login a la vez, así que es una tarea propia con
+  un test que cruce los dos. Acá decía «hash con `hashlib.scrypt`» mientras `login` comparaba
+  `sha256`: las dos tareas pasaban sus tests y juntas rompían el login, porque ninguna prueba
+  cruza registro con login y el paso 5 del gate mira capas, no esquemas.
 
 ## Contrato
 

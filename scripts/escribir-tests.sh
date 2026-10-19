@@ -272,6 +272,31 @@ for id in "$@"; do
           malo "sobreviven mutantes: el test cubre las líneas y no verifica su comportamiento.${SOBREVIVEN:+ Sobrevivió: $SOBREVIVEN}"
           echo "$SOBREVIVEN" | tr ';' '\n' | sed 's/^/     /'
         fi
+        # 4. El BRAZO NULO: con los cuerpos vaciados, el test tiene que FALLAR.
+        #
+        # Los tres pasos de arriba preguntan «¿este test distingue ESTE cambio?». Falta el
+        # anterior: **¿distingue algo de nada?** El test aceptado de T04b tenía cinco pruebas
+        # y las cinco negativas —token inválido, vacío, nulo, mal formado, id inexistente— y
+        # ninguna verificaba que un token válido devolviera el id, que era el criterio de la
+        # tarea. Pasó los tres pasos, y `def usuario_desde_token(token): return None` pasaba
+        # los cinco. El método se enteraba sólo si alguien lo leía.
+        #
+        # `experimentos/README.md` ya exige un brazo nulo para los experimentos por este
+        # mismo motivo. Es el mismo control, en el lugar donde más barato sale.
+        if [ "$fallos" = "0" ]; then
+          if python3 "$AQUI/vaciar.py" $impl 2>/dev/null | grep -q "vaciada"; then
+            if eval "$prueba" >/dev/null 2>&1; then
+              malo "el test pasa con los cuerpos VACÍOS: verifica que el símbolo exista, no lo que hace"
+              echo "     Un stub que devuelve None lo satisface. Mirá si falta el caso positivo:"
+              echo "     un test de puros casos negativos no puede cubrir un criterio que afirma algo."
+            else
+              echo "  ✓ el brazo nulo falla: el test distingue algo de nada"
+            fi
+            python3 "$AQUI/vaciar.py" --restaurar >/dev/null 2>&1
+          else
+            echo "  ⊘ no pude armar el brazo nulo: no había funciones que vaciar"
+          fi
+        fi
       else
         # El motivo lleva el fallo real, no su categoría: el nombre del test que falla y el
         # mensaje del assert. Sin eso el reintento no tiene nada nuevo con lo que trabajar,
