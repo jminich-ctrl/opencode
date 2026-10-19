@@ -81,6 +81,20 @@ fi
 echo "══ verificando el plan antes de arrancar"
 (cd "$BASE" && PLAN=PLAN.md python3 "$AQUI/validar-plan.py") || {
   echo "✗ El plan no valida. Arreglalo antes de lanzar 27 tareas sobre él." >&2; exit 1; }
+# Y el cruce ENTRE tareas, que `validar-plan.py` no hace: mira una tarea a la vez.
+# Los dos defectos más caros del 2026-10-19 eran de a dos tareas — una exigía autorización sin
+# dar el medio, otra pedía un hash que el login no puede verificar— y las dos pasaban sus
+# propios tests. Cuesta un segundo acá y costó una hora de agente no tenerlo.
+if [ -f "$AQUI/coherencia.py" ]; then
+  if ! PROYECTO="$BASE" python3 "$AQUI/coherencia.py"; then
+    echo
+    echo "✗ el plan se contradice entre tareas. Una tarea que importa algo que nadie provee no"
+    echo "  es ejecutable: el agente lo va a inventar, y después va a iterar contra su propio"
+    echo "  ImportError hasta agotar el tiempo. Eso lo decide quien planifica, no el agente."
+    exit 1
+  fi
+fi
+
 (cd "$BASE" && ENCARGO="${ENCARGO:-OBJETIVO.md}" PLAN=PLAN.md python3 "$AQUI/cobertura.py") || {
   echo "✗ El plan no cubre el encargo. Eso se decide arriba, no acá." >&2; exit 1; }
 
