@@ -2266,6 +2266,56 @@ class TestUnContadorQueCuentaDosExperimentos(unittest.TestCase):
                       "sin inicializarlo por tarea, una tarea hereda la huella de la anterior")
 
 
+class TestUnaLlamadaEmitidaComoTextoNoEsUnaFallaDeLaTarea(unittest.TestCase):
+    """El ejecutor escribió `<tool_call>` en el CONTENIDO en vez de pedir la herramienta por
+    su canal: nadie la ejecuta, el modelo no recibe resultado y la corrida muere sin tocar un
+    archivo. El gate dice «no hay ningún cambio: la tarea no se hizo» —cierto, y no se parece
+    a su causa—. Es un fallo de protocolo entre modelo y harness, y contarlo como falla de la
+    tarea corrompe la comparación entre modelos: un inválido anotado como reprobado.
+
+    Cadáver real: `fallidos-T26/intento-…Z.log`, T26 del 2026-10-19 con el ejecutor
+    `f5d76140`, después de que el mismo modelo escribiera bien el test de esa misma tarea."""
+
+    def error(self, cuerpo):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-proto-"))
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        log = d / "intento.log"
+        log.write_text(cuerpo + "=== gate ===\nGATE ROJO (2 fallo/s)\n")
+        return correr("bash -c " + shlex.quote(
+            f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; error_del_agente {shlex.quote(str(log))}'),
+            RAIZ).stdout.strip()
+
+    def test_una_llamada_cruda_se_declara_fallo_de_protocolo(self):
+        e = self.error("Voy a revisar el archivo de rutas:\n\n"
+                       "<tool_call>\n<function/read>\n"
+                       "<parameter=filePath>\nbackend/app/rutas/auth.py\n</parameter>\n"
+                       "</function>\n</tool_call>\n")
+        self.assertIn("protocolo", e, "una llamada emitida como texto tiene que declararse")
+        self.assertIn("no de la tarea", e, "y tiene que decir de quién NO es la falla")
+
+    def test_mencionarla_en_prosa_no_cuenta(self):
+        """Brazo nulo: si matcheara en cualquier lugar del texto, un agente que NOMBRE
+        `<tool_call>` quedaría marcado como error. Un detector que marca a todos no distingue
+        a ninguno — es el mismo defecto que el ⊘ que tapa un resultado real, al revés."""
+        e = self.error("El modelo a veces emite <tool_call> en el texto; lo evito.\n")
+        self.assertEqual(e, "", f"falso positivo: marcó un error donde sólo se lo menciona: {e!r}")
+
+    def test_un_error_de_infraestructura_sigue_saliendo(self):
+        """Y el chequeo nuevo no puede tapar los que ya salían: va antes en la función."""
+        e = self.error("Error: inference timed out after 60s\n")
+        self.assertIn("inference timed out", e)
+
+    def test_el_transcript_preservado_se_nombra_en_UTC(self):
+        """El log se encabeza en UTC y el archivo se nombraba en hora local: leí «16:38 UTC»
+        adentro de `intento-133855` y concluí que el transcript se había perdido. Comparé dos
+        relojes y por un rato creí que el método destruía su propia evidencia."""
+        for s in ((SCRIPTS / "_comun.sh").read_text(), (SCRIPTS / "escribir-tests.sh").read_text()):
+            for linea in [l for l in s.split("\n")
+                          if ("intento-$(date" in l or "parche-$(date" in l)]:
+                self.assertIn("date -u", linea,
+                              f"nombre en hora local contra un log en UTC: {linea.strip()!r}")
+
+
 class TestValidarPlan(CasoBase):
     def validar(self, extra=""):
         return correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py {extra}", self.p.dir)

@@ -163,6 +163,16 @@ existía para detectar.
 Y la tasa de inválidos se informa **siempre, al lado del puntaje**. Un 70 % con 30 % de
 inválidos no es un 70 %.
 
+**Un inválido que se anota como reprobado es el mismo agujero por el otro lado.** Medido el
+2026-10-19: el ejecutor escribió `<tool_call>` en el contenido en vez de pedir la herramienta
+por su canal. Nadie la ejecutó, no recibió resultado, y la corrida murió sin tocar un archivo.
+El gate dijo lo único que podía —«no hay ningún cambio: la tarea no se hizo»— y eso, en la
+columna de `comparar-modelos.sh`, se cuenta como que **el modelo no pudo con la tarea**. Es un
+fallo de protocolo entre el modelo y el arnés, y el mismo modelo había escrito bien el test de
+esa misma tarea veinte minutos antes. Lo detecta `error_del_agente` en `scripts/_comun.sh`, y
+está anclado a principio de línea a propósito: un detector que marca también a quien sólo
+*menciona* `<tool_call>` marca a todos, y entonces no distingue a ninguno.
+
 ### Y los de casa: tres números que no podían fallar
 
 La sección de arriba habla de medir modelos. El mismo día encontramos tres números del
