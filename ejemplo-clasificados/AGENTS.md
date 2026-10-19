@@ -74,6 +74,37 @@ ahí y un ORM agrega una capa que nadie pidió. La conexión sale de variables d
 (`MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DB`), nunca de valores
 escritos en el código: el runner levanta un servidor propio del proyecto y las exporta.
 
+**Cómo se abre una conexión, exactamente.** No la abras con `pymysql.connect` ni inventes un
+ayudante: ya existe uno y es el único.
+
+```python
+from backend.app.datos.conexion import conexion
+
+with conexion() as conn:
+    with conn.cursor() as cur:          # los cursores devuelven DICCIONARIOS
+        cur.execute("SELECT id FROM users WHERE email = %s", (email,))
+        fila = cur.fetchone()
+```
+
+`conexion()` es un context manager: hace `commit` al salir sin error, `rollback` si hubo
+excepción, y cierra siempre. **`get_db_connection` NO EXISTE.** Lo inventaron los agentes de
+tres tareas distintas —T04, T15 y T26— y las tres corridas murieron contra su propio
+`AttributeError` o `ImportError`. Si buscás ese nombre y no lo encontrás, no es que falte:
+es que el ayudante se llama `conexion`.
+
+**Cómo se aísla MySQL en un test.** Mockeá la función de la CAPA DE DATOS por su ruta
+completa, nunca la conexión:
+
+```python
+with patch('backend.app.datos.favorites.toggle_favorite') as mock_toggle:
+```
+
+Y para que el `patch` aplique, el servicio tiene que llamarla como ATRIBUTO del módulo
+(`from backend.app.datos import favorites` … `favorites.toggle_favorite(...)`). Con
+`from backend.app.datos.favorites import toggle_favorite` el servicio se queda con su propia
+referencia, el mock no se aplica, la consulta va a la base de verdad y el rojo no se parece a
+su causa.
+
 **Sin librerías de diseño.** Ni Tailwind, ni Bootstrap, ni componentes de terceros: el CSS
 es propio y en SCSS. El gate lo verifica (`sin librerías de diseño`), así que agregarlo da
 rojo.
