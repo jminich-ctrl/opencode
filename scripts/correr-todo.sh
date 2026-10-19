@@ -221,7 +221,10 @@ for etapa in "${ETAPAS[@]}"; do
   # una tarea roja sin causa visible en su log, y la cuenta de intentos duplicada en el
   # registro. correr-plan.sh ya llama a correr-tarea.sh: es el motor de reintentos.
   echo "── 2/3 tareas"
-  SOLO_UNA=1 bash "$AQUI/correr-plan.sh" "$n" || true
+  # Por NOMBRE, no por índice: correr-plan.sh re-deduce las etapas y el mismo número
+  # nombraba grupos distintos en los dos lados. Salteó T05 el 2026-10-19 — ver el comentario
+  # largo en correr-plan.sh.
+  SOLO_UNA=1 bash "$AQUI/correr-plan.sh" "${tareas[@]}" || true
 
   rojas=(); imposibles=()
   for t in "${tareas[@]}"; do

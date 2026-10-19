@@ -2300,6 +2300,33 @@ class TestUnaLlamadaEmitidaComoTextoNoEsUnaFallaDeLaTarea(unittest.TestCase):
         e = self.error("El modelo a veces emite <tool_call> en el texto; lo evito.\n")
         self.assertEqual(e, "", f"falso positivo: marcó un error donde sólo se lo menciona: {e!r}")
 
+    def test_un_error_nuevo_de_la_plataforma_se_reconoce_por_el_SOBRE(self):
+        """La función enumeraba MENSAJES: reconocía «Failed to start inference server» y
+        «upstream stream ended» porque estaban en la lista, y dejaba pasar
+        `memory_delivery_unavailable`, que el 2026-10-19 mató T11 y T20 en la misma etapa.
+        Los dos quedaron anotados como «la tarea no se hizo», o sea contra el modelo. Una
+        lista de mensajes envejece con cada error nuevo, y lo que envejece calla."""
+        e = self.error('Error: {"message":"memory_delivery_unavailable","type":"api_error"}\n')
+        self.assertIn("memory_delivery_unavailable", e,
+                      "un error de plataforma que no está en la lista tiene que salir igual")
+
+    def test_el_sobre_se_reconoce_aunque_venga_con_colores(self):
+        """El log guarda la salida de opencode con escapes ANSI: la línea real es
+        `\\e[91m\\e[1mError: \\e[0m{...}`, así que `^Error:` no ancla nunca. Lo descubrí
+        verificando contra una copia del log que yo mismo había limpiado para leerla."""
+        e = self.error('\033[91m\033[1mError: \033[0m'
+                       '{"message":"memory_delivery_unavailable","type":"api_error"}\n')
+        self.assertIn("memory_delivery_unavailable", e,
+                      "con los colores puestos no lo reconoce, y así viene el log de verdad")
+
+    def test_un_json_de_api_error_citado_en_prosa_no_cuenta(self):
+        """Brazo nulo: anclado a `^Error: {`. Si matcheara en cualquier parte, un agente que
+        escriba un test CON ese JSON adentro quedaría marcado como error de plataforma —y hay
+        tests del método que lo contienen—. Un detector que marca a todos no distingue a
+        ninguno."""
+        e = self.error('escribí un caso con {"message":"x","type":"api_error"} adentro\n')
+        self.assertEqual(e, "", f"falso positivo sobre una cita: {e!r}")
+
     def test_un_error_de_infraestructura_sigue_saliendo(self):
         """Y el chequeo nuevo no puede tapar los que ya salían: va antes en la función."""
         e = self.error("Error: inference timed out after 60s\n")
@@ -2412,6 +2439,66 @@ class TestElInstrumentoNoMandaAlHumanoAHacerLoQueNoVa(unittest.TestCase):
         d = d[:d.index("\n}")]
         self.assertIn('${3:-}', d, "parar() no acepta un comando preciso")
         self.assertIn("NO uses", d, "y tiene que avisar de lo que NO hay que correr")
+
+
+class TestElIndiceDeEtapaNoPuedeSignificarDosCosas(CasoBase):
+    """`correr-todo.sh` le pasaba su `$n` a `correr-plan.sh`, que **re-deduce** las etapas por
+    su cuenta. El 2026-10-19 la fase de tests corrió «ETAPA 2/8: T05» y la de tareas,
+    re-deduciendo con T04b y T26 ya hechas, tomó su etapa 2 —T14 T20 T11 T28— y SALTEÓ T05,
+    que quedó con su test rojo en el tronco y sin implementación. Nadie se enteró hasta que
+    alguien leyó dos líneas del log que decían 8 etapas y 7.
+
+    `correr-plan.sh` ya documentaba que los números no son estables entre corridas, y
+    `correr-todo.sh` tenía un guardia para el `--desde` del humano: el arreglo estaba de un
+    lado y no del otro."""
+
+    def dos_etapas(self):
+        """T01 y después T02, que depende de ella: la etapa 1 es T01 y la 2 es T02."""
+        self.p.escribir_tarea("T02", "src/otra.py")
+        plan = self.p.dir / "PLAN.md"
+        plan.write_text(plan.read_text().rstrip("\n") +
+                        "\n| T02 | Otra cosa | T01 | src/otra.py | pendiente |\n")
+
+    def etapas(self, *args):
+        return correr("bash " + str(SCRIPTS / "correr-plan.sh") + " " + " ".join(args),
+                      self.p.dir, SOLO_ETAPAS="1")
+
+    def test_nombrar_la_tarea_corre_ESA_y_no_la_que_caiga_en_ese_indice(self):
+        self.dos_etapas()
+        r = self.etapas("T02")
+        self.assertIn("ETAPA 1: T02", r.stdout,
+                      f"nombré T02 y no es lo que va a correr:\n{r.stdout}{r.stderr}")
+        self.assertNotIn("T01", r.stdout.split("Plan con")[-1],
+                         "nombrar una tarea no puede arrastrar las otras etapas")
+        self.assertIn("1 etapa", r.stdout, "lo nombrado es UNA etapa, no un punto de partida")
+
+    def test_por_indice_sigue_deduciendo(self):
+        """Brazo nulo: el uso humano `correr-plan.sh 2` no puede volverse una lista de tareas,
+        o el guardia de `--desde` de correr-todo.sh se queda sin nada que guardar."""
+        self.dos_etapas()
+        r = self.etapas("1")
+        self.assertIn("ETAPA 1: T01", r.stdout, f"dejó de deducir:\n{r.stdout}{r.stderr}")
+        self.assertIn("ETAPA 2: T02", r.stdout, "con un índice se listan TODAS las etapas")
+
+    def test_mezclar_indice_y_tareas_se_rechaza(self):
+        """Si aceptara la mezcla habría que adivinar qué quiso decir, y adivinar es lo que
+        produjo el salteo."""
+        r = self.etapas("2", "T01")
+        self.assertNotEqual(r.returncode, 0, "la mezcla tiene que fallar, no elegir una")
+        self.assertIn("no las dos cosas", r.stdout + r.stderr)
+
+    def test_correr_todo_le_pasa_los_nombres(self):
+        """Chequeo de forma del cableado: la conducta pide una corrida de agente entera."""
+        s = (SCRIPTS / "correr-todo.sh").read_text()
+        # La que EJECUTA, no la que lista: correr-todo.sh también llama a correr-plan.sh con
+        # SOLO_ETAPAS para enterarse de las etapas, y ahí no va ninguna tarea. La primera
+        # versión de este test miraba la primera aparición y reprobaba esa línea legítima.
+        ejecuta = [l for l in s.split("\n") if "correr-plan.sh" in l and "SOLO_UNA" in l]
+        self.assertEqual(len(ejecuta), 1, f"esperaba una sola llamada que ejecute: {ejecuta}")
+        self.assertIn('"${tareas[@]}"', ejecuta[0],
+                      f"sigue pasando un índice a correr-plan.sh: {ejecuta[0].strip()!r}")
+        self.assertNotIn('correr-plan.sh" "$n"', s,
+                         "quedó una llamada por índice: el número significa otra cosa allá")
 
 
 class TestValidarPlan(CasoBase):
