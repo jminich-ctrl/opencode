@@ -27,7 +27,16 @@
 ubicar_proyecto() {
   git rev-parse --show-toplevel >/dev/null 2>&1 \
     || { echo "✗ Corré esto desde adentro del repo git de tu proyecto" >&2; exit 1; }
-  RAIZ="$(git worktree list --porcelain | sed -n '1s/^worktree //p')"
+  # RAIZ es el repo DEL PROYECTO, y es el worktree en el que estás parado: `--show-toplevel`.
+  # Decía `git worktree list | head -1`, que devuelve el worktree PRINCIPAL. Correr el plan
+  # desde un worktree de desarrollo leía las tareas del tronco, y lo que medías no era el
+  # árbol que estabas editando. Me pasó hoy probando el cableado de coherencia.py: dije «el
+  # import huérfano no se detecta» cuando sí se detectaba — había medido el otro árbol.
+  #
+  # No es `dirname $BASH_SOURCE`: los scripts del método se corren contra el repo del
+  # proyecto, que puede no ser el repo donde viven los scripts. Eso lo probé y rompió tres
+  # tests de métricas, que corren metricas.sh contra un repo temporal.
+  RAIZ="$(git rev-parse --show-toplevel)"
   if [ -z "${PROYECTO:-}" ]; then
     local rel
     rel="$(git rev-parse --show-prefix)"

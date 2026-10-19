@@ -3002,6 +3002,114 @@ class TestNoSeTiraElMaterialDeUnIntento(CasoBase):
                          + ", ".join(huerfanos))
 
 
+class TestNadieCruzabaLasTareasEntreSi(unittest.TestCase):
+    """El gate mira UNA tarea; el paso 5 mira la arquitectura. Nadie miraba si dos tareas se
+    contradicen — y los dos defectos más caros del 2026-10-19 fueron exactamente eso: tareas
+    que pasaban sus propios tests y juntas rompían el sistema.
+
+    **T05** decía «respetando la autorización del usuario», no declaraba con qué, y no podía
+    tocar `servicios/auth.py`. El agente inventó `obtener_usuario_id_desde_token`, cableó tres
+    archivos a ella y se quedó una hora contra su propio `ImportError`.
+
+    **T26** pedía `hashlib.scrypt` mientras `servicios/auth.py` compara `hashlib.sha256`.
+    Registro habría guardado un hash que login no puede verificar, y ninguna prueba cruza
+    registro con login.
+    """
+
+    CHEQUEO = SCRIPTS / "coherencia.py"
+
+    def proyecto_de_juguete(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-coh-"))
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "tareas").mkdir()
+        (d / "app").mkdir()
+        (d / "app" / "auth.py").write_text(
+            "import hashlib\n\n"
+            "def login(email, password):\n"
+            "    return hashlib.sha256(password.encode()).hexdigest()\n")
+        return d
+
+    def tarea(self, d, tid, contrato="", alcance=""):
+        (d / "tareas" / f"{tid}-x.md").write_text(
+            f"# {tid} — una cosa\n\n**Estado:** pendiente\n\n"
+            f"## Alcance\n\nEntra:\n{alcance}\n\n## Contrato\n\n```python\n{contrato}\n```\n")
+
+    def correr(self, d):
+        return correr(f"python3 {self.CHEQUEO}", d)
+
+    def test_un_import_que_nadie_provee_da_rojo(self):
+        """Cadáver 1. El contrato importa un símbolo que no está en el tronco y que ninguna
+        otra tarea declara: la tarea es inejecutable y el agente va a inventarlo."""
+        d = self.proyecto_de_juguete()
+        self.tarea(d, "T05", contrato="from app.auth import usuario_desde_token")
+        r = self.correr(d)
+        self.assertEqual(r.returncode, 1, f"tenía que dar rojo:\n{r.stdout}{r.stderr}")
+        self.assertIn("usuario_desde_token", r.stdout)
+        self.assertIn("ninguna tarea", r.stdout, "y decir que nadie lo provee")
+
+    def test_un_import_que_otra_tarea_declara_no_da_rojo(self):
+        """El control del otro lado: si alguna tarea lo promete en su contrato, está provisto."""
+        d = self.proyecto_de_juguete()
+        self.tarea(d, "T04b", contrato="def usuario_desde_token(token: str) -> int | None:\n    ...")
+        self.tarea(d, "T05", contrato="from app.auth import usuario_desde_token")
+        r = self.correr(d)
+        self.assertEqual(r.returncode, 0, f"T04b lo declara:\n{r.stdout}{r.stderr}")
+
+    def test_un_import_que_ya_esta_en_el_tronco_no_da_rojo(self):
+        d = self.proyecto_de_juguete()
+        self.tarea(d, "T05", contrato="from app.auth import login")
+        self.assertEqual(self.correr(d).returncode, 0, "`login` existe en el tronco")
+
+    def test_la_biblioteca_estandar_no_la_provee_ninguna_tarea(self):
+        """La lista blanca a mano tenía tres nombres y `contextlib` salía como huérfano."""
+        d = self.proyecto_de_juguete()
+        self.tarea(d, "T02", contrato="from contextlib import contextmanager\nimport hashlib")
+        self.assertEqual(self.correr(d).returncode, 0, "contextlib es de la estándar")
+
+    def test_un_algoritmo_que_contradice_al_codigo_avisa(self):
+        """Cadáver 2. El par importa: el enunciado contra el CÓDIGO, no contra otro enunciado
+        — `sha256` vivía en `auth.py` y no en el texto de T04."""
+        d = self.proyecto_de_juguete()
+        self.tarea(d, "T26", alcance="- Hash de la contraseña con `hashlib.scrypt`.")
+        r = self.correr(d)
+        self.assertIn("hashlib.scrypt", r.stdout, f"no avisó:\n{r.stdout}")
+        self.assertIn("hashlib.sha256", r.stdout, "y tiene que decir qué usa el código")
+        self.assertIn("auth.py", r.stdout, "nombrando el archivo")
+        self.assertEqual(r.returncode, 0, "es aviso, no rojo: puede ser legítimo")
+
+    def test_el_plan_no_arranca_si_las_tareas_se_contradicen(self):
+        """No alcanza con informarlo: tiene que frenar antes de gastar una llamada al modelo.
+
+        Chequeo de forma porque la conducta pide una corrida entera, y además `ubicar_proyecto`
+        saca `RAIZ` del PRIMER worktree que lista git —el principal— así que un
+        `correr-todo.sh` lanzado desde un worktree de desarrollo lee el proyecto del tronco y
+        no el de al lado. Lo aprendí midiendo el árbol equivocado."""
+        fuente = (SCRIPTS / "correr-todo.sh").read_text()
+        self.assertIn("coherencia.py", fuente, "el arranque tiene que cruzar las tareas")
+        # Y afuera del bloque de error de validar-plan: adentro, sólo corre cuando ESA falla.
+        i = fuente.index("coherencia.py")
+        antes = fuente[:i]
+        self.assertNotIn("Arreglalo antes de lanzar", antes.split("validar-plan.py")[-1],
+                         "quedó dentro del `|| {` de validar-plan: sólo corre si ésa falla")
+        tramo = fuente[i:i + 900]
+        self.assertIn("exit 1", tramo, "informarlo no alcanza: tiene que frenar")
+
+    def test_lo_que_la_tarea_dice_que_NO_hace_no_cuenta(self):
+        """En este repo cada arreglo documenta su cadáver, así que una tarea corregida CITA el
+        defecto viejo. Un chequeo que lee prosa vería la cita como la declaración, y le pasaría
+        con TODA tarea arreglada."""
+        d = self.proyecto_de_juguete()
+        (d / "tareas" / "T26-x.md").write_text(
+            "# T26 — registro\n\n## Alcance\n\nEntra:\n"
+            "- Hash con el mismo esquema que usa `app/auth.py`.\n\n"
+            "No entra:\n"
+            "- Cambiar el esquema. Acá decía «hash con `hashlib.scrypt`» y era un defecto.\n\n"
+            "## Contrato\n\n```python\ndef crear(email, password) -> int:\n    ...\n```\n")
+        r = self.correr(d)
+        self.assertNotIn("⚠", r.stdout,
+                         f"la cita del defecto viejo no es una declaración:\n{r.stdout}")
+
+
 class TestElBrazoNuloDelValidadorDeTests(unittest.TestCase):
     """Los tres pasos del validador preguntan «¿este test distingue ESTE cambio?». Faltaba el
     anterior: **¿distingue algo de nada?**
@@ -3528,6 +3636,68 @@ class TestElRegistroDiceLaVerdadSobreSiMismo(unittest.TestCase):
         r = correr('f(){ return 7; }; f; if false; then :; fi; echo "rc=$?"', RAIZ)
         self.assertIn("rc=0", r.stdout,
                       "si esto cambia, el test de forma de arriba puede relajarse")
+
+
+class TestLosScriptsOperanSobreElArbolDelQueSalieron(unittest.TestCase):
+    """`RAIZ` salía de `git worktree list | head -1`, que es el worktree PRINCIPAL. Corriendo
+    el plan desde un worktree de desarrollo, los scripts de ese worktree operaban sobre el
+    proyecto del tronco. Hoy me hizo afirmar «el import huérfano no se detecta» cuando sí se
+    detectaba: medí el árbol equivocado y le creí al número. Y hacía fallar a
+    `test_una_memoria_que_no_llega_lo_dice`, que escribe en el `RAIZ` de Python y lee con el
+    de shell: la suite estaba verde sólo porque siempre la corría desde el árbol principal.
+
+    El arreglo es `--show-toplevel`, NO `dirname $BASH_SOURCE`: RAIZ es el repo del proyecto,
+    que puede no ser el repo donde viven los scripts."""
+
+    def _repo_con_dos_worktrees(self):
+        # .resolve() porque en esta Mac mkdtemp devuelve /var/... y `pwd -P` /private/var/...:
+        # sin esto el test compara dos nombres del mismo directorio y falla por el symlink.
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-raiz-")).resolve()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        principal, otro = d / "principal", d / "otro"
+        (principal / "scripts").mkdir(parents=True)
+        (principal / "proy" / "tareas").mkdir(parents=True)
+        (principal / "scripts" / "_comun.sh").write_text((SCRIPTS / "_comun.sh").read_text())
+        # Un archivo adentro de tareas/: git no versiona directorios vacíos, así que sin
+        # esto el worktree nuevo no tiene proy/tareas y el fixture miente (lo vi probándolo:
+        # el brazo arreglado «fallaba» por el fixture, no por el arreglo). Es la trampa de T01.
+        (principal / "proy" / "tareas" / "T01-algo.md").write_text("# T01\n")
+        (principal / "quien-soy").write_text("principal\n")
+        for cmd in (["init", "-q", "-b", "main"], ["add", "-A"],
+                    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"],
+                    ["worktree", "add", "-q", str(otro)]):
+            subprocess.run(["git", *cmd], cwd=principal, check=True,
+                           capture_output=True)
+        (otro / "quien-soy").write_text("otro\n")
+        return principal, otro
+
+    def test_raiz_es_el_worktree_del_script_y_no_el_principal(self):
+        principal, otro = self._repo_con_dos_worktrees()
+        # Se corre el `_comun.sh` DEL worktree «otro», con el cwd adentro de «otro».
+        r = subprocess.run(
+            ["bash", "-c", '. ./scripts/_comun.sh; ubicar_proyecto; echo "RAIZ=$RAIZ"'],
+            cwd=otro, capture_output=True, text=True)
+        self.assertIn(f"RAIZ={otro}", r.stdout,
+                      "los scripts de un worktree operan sobre el árbol de OTRO:\n"
+                      f"  esperaba {otro}\n  salida: {r.stdout}{r.stderr}")
+
+    def test_sin_el_arreglo_el_test_falla(self):
+        """Brazo nulo del chequeo anterior: con la deducción vieja tiene que dar el principal.
+        Si no, el test de arriba pasa por cualquier motivo menos el que dice."""
+        principal, otro = self._repo_con_dos_worktrees()
+        comun = otro / "scripts" / "_comun.sh"
+        texto = comun.read_text()
+        nueva = [l for l in texto.split("\n") if l.strip() == 'RAIZ="$(git rev-parse --show-toplevel)"']
+        self.assertEqual(len(nueva), 1, "cambió la línea de RAIZ; actualizá este brazo nulo")
+        comun.write_text(texto.replace(
+            nueva[0],
+            '  RAIZ="$(git worktree list --porcelain | sed -n \'1s/^worktree //p\')"', 1))
+        r = subprocess.run(
+            ["bash", "-c", '. ./scripts/_comun.sh; ubicar_proyecto; echo "RAIZ=$RAIZ"'],
+            cwd=otro, capture_output=True, text=True)
+        self.assertIn(f"RAIZ={principal}", r.stdout,
+                      "la deducción vieja ya no devuelve el principal, así que el test de "
+                      f"arriba no distingue nada:\n  salida: {r.stdout}{r.stderr}")
 
 
 if __name__ == "__main__":
