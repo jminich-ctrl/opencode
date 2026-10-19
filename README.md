@@ -60,8 +60,8 @@ the gate fail three times. The method, in English:
 
 ## What to expect: the worked example
 
-[`ejemplo-pacman/`](ejemplo-pacman/) is a terminal Pac-Man built this way, with its plan, 12 tasks,
-the gate, 73 tests and a log of every run ([`BITACORA.md`](ejemplo-pacman/BITACORA.md)):
+[`ejemplo-pacman/`](ejemplo-pacman/) is a terminal Pac-Man built this way, with its plan, 19 tasks,
+the gate, 103 tests and a log of every run ([`BITACORA.md`](ejemplo-pacman/BITACORA.md)):
 
 - **First round, 0 of 4 green on the first attempt.** The tasks asked for code and its tests in one
   step, one contradicted the map, and a thinking model used as the executor wrote 300+ lines of
@@ -81,11 +81,13 @@ the tasks pass on the first attempt, the problem is the plan, not the model.
 |---|---|
 | [EMPEZAR.md](EMPEZAR.md) | From zero to the first task run by an agent |
 | [PRUEBAS.md](PRUEBAS.md) | Who verifies the verifiers: the failure class that bit us ten times, and the method's own test suite |
+| [MEDICION.md](MEDICION.md) | Validating the instrument: the measurement that runs clean and measures something else. Eight questions before you run |
 | [METODO.md](METODO.md) | Principles, roles, the gate's six checks, integration, how to run and what to measure |
 | [DESCOMPOSICION.md](DESCOMPOSICION.md) | How to break a big project into tasks a 30B model can execute |
 | [HUMANO.md](HUMANO.md) | The human role: what we decide, approve and judge — and how to intervene little |
 | [PIPELINE.md](PIPELINE.md) | The other half: architect, pre-deploy (G4) and deploy (G5) |
 | [INVESTIGACION.md](INVESTIGACION.md) | What the published record says, what to steal, and where this method is exposed |
+| [experimentos/](experimentos/) | What we still do not know and how we plan to find out: complete designs, none of them run yet |
 | [INFRAESTRUCTURA.md](INFRAESTRUCTURA.md) | Models, context windows, prefix caching, parallelism, traps |
 | [OPENCODE.md](OPENCODE.md) | The OpenCode configuration, field by field, and cold starts |
 | [colabhive/](colabhive/) | Config, prompts, setup and measurement scripts, dated measurements |

@@ -129,6 +129,36 @@ print(m.split("/")[-1] if m else "", end="")
 PYMOD
 }
 
+# ¿Está DECLARADO este id en la config de OpenCode? Un modelo que no está declarado muere
+# en ~2 segundos con un error genérico que parece de plataforma, y lo tomamos tres veces como
+# «ese modelo no sirve». La regla que cierra el agujero vive en MEDICION.md: ninguna corrida
+# de menos de 10 segundos cuenta como fallo del modelo. Esto la detecta antes de correr.
+# Devuelve 0 si está, 1 si no está, 2 si no se pudo averiguar (⊘: no es un no).
+modelo_declarado() {
+  local id="$1" cfg="${CONFIG_OC:-$HOME/.config/opencode/opencode.json}"
+  [ -f "$cfg" ] || return 2
+  command -v python3 >/dev/null 2>&1 || return 2
+  # El veredicto viaja por stdout, no por el código de salida de python: con `|| return 2`
+  # el `sys.exit(1)` de «no está declarado» era indistinguible de un python que se cayó, y
+  # el chequeo contestaba ⊘ —«no pude averiguar»— para el único caso que vino a detectar.
+  # Un ⊘ tapando un «no» es el mismo defecto que este chequeo existe para evitar.
+  local r
+  r="$(python3 - "$cfg" "$id" <<'PYDEC' 2>/dev/null
+import json, sys
+try:
+    cfg = json.load(open(sys.argv[1]))
+except Exception:
+    print("⊘"); sys.exit(0)
+buscado = sys.argv[2].split("/")[-1]
+for prov in (cfg.get("provider") or {}).values():
+    if buscado in (prov.get("models") or {}):
+        print("si"); sys.exit(0)
+print("no")
+PYDEC
+)"
+  case "$r" in si) return 0 ;; no) return 1 ;; *) return 2 ;; esac
+}
+
 plataforma_responde() {
   [ -n "${COLABHIVE_BASE_URL:-}" ] || return 0      # sin configurar, no opinamos
   local codigo modelo
@@ -137,6 +167,17 @@ plataforma_responde() {
     echo "  ⊘ no pude saber qué modelo usa el ejecutor: la sonda de plataforma no corre" >&2
     return 0   # no sabemos: no es excusa para frenar, pero queda dicho
   fi
+  # Antes de preguntarle a la plataforma, preguntarle a nuestra config. Si el id no está
+  # declarado, el 2 segundos que viene después NO es un dato sobre el modelo: es un defecto
+  # nuestro, y hay que decirlo con ese nombre.
+  modelo_declarado "$modelo"
+  case $? in
+    1) echo "✗ el modelo «${modelo}» no está declarado en provider.*.models de ${CONFIG_OC:-$HOME/.config/opencode/opencode.json}" >&2
+       echo "  Es un defecto de configuración, no del modelo: sin declarar, el pedido muere en" >&2
+       echo "  ~2 segundos con un error genérico que parece de plataforma." >&2
+       return 1 ;;
+    2) echo "  ⊘ no pude leer la config de OpenCode: no verifico si «${modelo}» está declarado" >&2 ;;
+  esac
   # Contra `/chat/completions` CON herramientas, no contra `/models`. Listar modelos pasa
   # por otro camino: lo vimos devolver 200 mientras las peticiones reales de un agente
   # —20 KB de prompt y definiciones de herramientas— devolvían 502. Un chequeo que pasa
@@ -162,6 +203,89 @@ plataforma_responde() {
   return 1
 }
 
+# Conserva lo que se puede aprender de un intento ANTES de destruir su worktree.
+#
+# Guardaba sólo el transcript, en tres de los cinco lugares que destruyen worktrees. Lo que
+# faltaba es el CÓDIGO: `recordar_falla` sólo escribe un registro cuando el veredicto es
+# VERDE, así que de un intento que el gate reprobó el método no guardaba nada ejecutable —
+# y el parche de un intento rechazado es exactamente el material que necesita la condición
+# central del experimento de memoria (ver experimentos/memoria-verificada.md §2).
+#
+# Los 16 rechazados que tenemos hoy son un rescate accidental de worktrees de experimento
+# que estaban por borrarse. Sin esto, cada corrida sigue destruyendo material.
+#
+#   conservar_intento <worktree> <id>
+conservar_intento() {
+  local wt="$1" id="${2:-tarea}" dest log
+  [ -d "$wt" ] || return 0
+  dest="$RAIZ/../fallidos-$id"
+  # El log se llama distinto según el camino: .tarea.log en el runner, .tests.log al
+  # escribir tests, .log en los arneses de experimento.
+  for log in "$wt/.tarea.log" "$wt/.tests.log" "$wt/.log"; do
+    [ -f "$log" ] || continue
+    mkdir -p "$dest"
+    cp "$log" "$dest/intento-$(date +%H%M%S).log" 2>/dev/null
+    break
+  done
+  # El parche: lo que el agente escribió, aplicable con `git apply`. Sin los archivos de
+  # infraestructura que prepara el método, que no son trabajo del agente.
+  local infra='\.opencode-data|\.tarea\.log|\.tests\.log|\.log|\.corte|\.base-ref|\.tests-base|\.venv|_env/|\.entorno|node_modules|package-lock\.json|__pycache__|\.oc/'
+  local sucios
+  sucios="$( { git -C "$wt" diff --name-only HEAD 2>/dev/null; \
+               git -C "$wt" ls-files --others --exclude-standard 2>/dev/null; } \
+             | grep -vE "$infra" | sort -u | grep . || true)"
+  if [ -n "$sucios" ]; then
+    mkdir -p "$dest"
+    { git -C "$wt" diff HEAD -- $sucios 2>/dev/null
+      # Los archivos nuevos no salen en `diff HEAD`: van con /dev/null como origen.
+      for f in $sucios; do
+        git -C "$wt" ls-files --error-unmatch "$f" >/dev/null 2>&1 && continue
+        [ -f "$wt/$f" ] || continue
+        git -C "$wt" diff --no-index -- /dev/null "$f" 2>/dev/null
+      done
+    } > "$dest/parche-$(date +%H%M%S).diff"
+    echo "     (intento conservado en $dest: transcript y parche de $(echo "$sucios" | grep -c .) archivo/s)"
+  fi
+}
+
+# ¿Se movió el brazo de control respecto de su línea base?
+#
+#   control_se_movio <clave> <herramientas_ahora> <veredicto_ahora>
+#     0 = no se movió, la tanda es válida
+#     1 = se movió: se movió el arnés, la tanda se descarta ENTERA
+#     2 = primera corrida: queda como línea base, el criterio aplica desde la segunda
+#
+# Está acá y no dentro del comparador por el mismo motivo que la regla de mayoría del banco:
+# **una regla que decide el resultado tiene que poder ejercitarse sin correr la campaña.**
+#
+# El criterio es CONTINUO y sobre lo que tiene varianza baja (llamadas a herramientas), no un
+# conteo binomial de gate sobre doce ítems. La banda de ±2 ítems que proponía el diseño estaba
+# calculada con p=0,83, que es la tasa de tool-call; la tasa de VERDE del control, medida, es
+# 0,42 por corrida, y con ésa ±2 descarta el 29% de los bloques buenos. Un conteo de 12 con
+# banda ±5 ya no controla nada: ésa es la señal de que no puede ser el control.
+control_se_movio() {
+  local clave="$1" tools="$2" gate="${3:-?}" base prev t_prev g_prev movio=""
+  base="$RAIZ/.metricas/control-base.csv"
+  mkdir -p "$(dirname "$base")"
+  prev="$(grep -F "$clave|" "$base" 2>/dev/null | tail -1)"
+  if [ -z "$prev" ]; then
+    echo "$clave|$tools|$gate|$(date -u +%FT%TZ)" >> "$base"
+    return 2
+  fi
+  t_prev="$(echo "$prev" | cut -d'|' -f3)"; g_prev="$(echo "$prev" | cut -d'|' -f4)"
+  # Herramientas a la mitad o menos: dejó de actuar. Es el modo de falla medido — el modelo de
+  # un partner daba 0 de 6 llamadas por un defecto del arnés, no del modelo.
+  case "$t_prev" in ''|*[!0-9]*) t_prev=0 ;; esac
+  case "$tools" in ''|*[!0-9]*) tools=0 ;; esac
+  [ "$t_prev" -gt 0 ] && [ "$((tools * 2))" -lt "$t_prev" ] \
+    && movio="las llamadas a herramientas cayeron de $t_prev a $tools"
+  [ "$g_prev" != "?" ] && [ "$gate" != "?" ] && [ "$gate" != "$g_prev" ] \
+    && movio="${movio:+$movio; }el veredicto del control pasó de $g_prev a $gate"
+  if [ -n "$movio" ]; then echo "$movio"; return 1; fi
+  echo "$clave|$tools|$gate|$(date -u +%FT%TZ)" >> "$base"
+  return 0
+}
+
 # Registro de intentos: una línea por corrida, para que las métricas lean datos y no
 # adivinen del texto de las tareas. Vive fuera del árbol versionado del proyecto.
 anotar_intento() {
@@ -169,10 +293,62 @@ anotar_intento() {
   local reg="$RAIZ/.metricas/intentos.csv" motivo=""
   # El motivo va al registro porque "falló" no se puede analizar y "falló por esto" sí. Es
   # la misma huella que usa el runner para decidir si reintentar: una sola fuente.
-  [ -n "$log" ] && motivo="$(huella_de_falla "$log" 2>/dev/null | tr ',;"' '   ' | cut -c1-80)"
+  # `tr` también sobre saltos de línea y retornos: la huella devolvía varias líneas y cada
+  # salto partía la fila en dos, dejando filas huérfanas de un campo. Sanear acá además de
+  # arreglar la huella es a propósito: el registro no puede depender de que quien lo
+  # alimenta se porte bien.
+  [ -n "$log" ] && motivo="$(huella_de_falla "$log" 2>/dev/null | tr ',;"\n\r' '     ' | cut -c1-80)"
   mkdir -p "$(dirname "$reg")"
-  [ -f "$reg" ] || echo "fecha,proyecto,tarea,veredicto,segundos,modelo,motivo" > "$reg"
-  echo "$(date -u +%FT%TZ),${PROYECTO:-.},$id,$ver,$segs,$modelo,$motivo" >> "$reg"
+  # `concurrencia`: corridas de agente vivas al arrancar ésta. Va como COLUMNA y no como nota
+  # al pie porque es lo que decide si la fila sirve para medir tiempo: el mismo modelo pasa de
+  # 16,3 a 122 tok/s según la ocupación, y `correr-tarea.sh` corre con PARALELAS=8 por omisión.
+  # Toda fila con concurrencia > 1 queda fuera del análisis de tiempo POR CONSTRUCCIÓN, no por
+  # criterio de quien analiza.
+  # Sin `|| echo 1`: `grep -c .` imprime «0» Y sale distinto de cero cuando no hay nada, así
+  # que el `||` agregaba otra línea y la variable quedaba con DOS valores («0\n1»). Es el
+  # mismo defecto que dejaba el mensaje «HTTP 000000» en la sonda de plataforma. `wc -l` no
+  # falla, así que no hace falta el respaldo.
+  local concurrencia
+  concurrencia="$(pgrep -f "opencode run" 2>/dev/null | wc -l | tr -d ' ')"
+  [ -n "$concurrencia" ] || concurrencia=0
+  # `instrumento`: la huella de los scripts que produjeron la fila. Dos filas con huellas
+  # distintas no se comparan — es el punto 7 de la regla de parada de MEDICION.md, que decía
+  # «cambiaste el instrumento entre dos corridas: no son comparables» y no tenía cómo saberlo.
+  local instrumento
+  instrumento="$(git -C "$RAIZ" rev-parse --short HEAD:scripts 2>/dev/null || echo "?")"
+  local ENCABEZADO="fecha,proyecto,tarea,veredicto,segundos,modelo,motivo,concurrencia,instrumento"
+  if [ ! -f "$reg" ]; then
+    echo "$ENCABEZADO" > "$reg"
+  elif [ "$(head -1 "$reg")" != "$ENCABEZADO" ]; then
+    # El encabezado se escribía SÓLO si el archivo no existía, así que agregar la columna
+    # `motivo` dejó un registro con 6 nombres y filas de 7 campos. `csv.DictReader` manda el
+    # séptimo a la clave None y `metricas.sh` leía `motivo` vacío SIEMPRE: el bloque «motivos
+    # de rojo que se repiten» nunca imprimió nada, con datos de sobra para imprimirlo.
+    # Una columna que nadie puede leer no existe, y el que la escribe no se enteró nunca.
+    # Reescribir SÓLO el encabezado dejaba las filas viejas con menos campos que los nombres,
+    # y `csv.DictReader` manda los que sobran a la clave None o deja los que faltan en None:
+    # las dos formas de una columna ilegible. Así que se rellenan las filas al ancho nuevo.
+    local n_cols
+    n_cols="$(echo "$ENCABEZADO" | tr ',' '\n' | grep -c .)"
+    python3 - "$reg" "$ENCABEZADO" "$n_cols" <<'PYMIG'
+import sys
+ruta, encabezado, n = sys.argv[1], sys.argv[2], int(sys.argv[3])
+lineas = open(ruta).read().rstrip("\n").split("\n")
+salida = [encabezado]
+for l in lineas[1:]:
+    if not l:
+        continue
+    campos = l.split(",")
+    if len(campos) == 1:          # continuación huérfana de un campo con salto de línea
+        salida[-1] += " " + l
+        continue
+    campos += [""] * (n - len(campos))
+    salida.append(",".join(campos[:n]))
+open(ruta, "w").write("\n".join(salida) + "\n")
+PYMIG
+    echo "  (registro migrado a $n_cols columnas: el encabezado no nombraba todas las escritas)" >&2
+  fi
+  echo "$(date -u +%FT%TZ),${PROYECTO:-.},$id,$ver,$segs,$modelo,$motivo,$concurrencia,$instrumento" >> "$reg"
 }
 
 # VERDE / ROJO / IMPOSIBLE si el runner ya cerró el log; vacío si la tarea sigue corriendo.
@@ -227,9 +403,19 @@ huella_de_falla() {
     | awk '/✗/ && !vi { vi = 1; print; next }
            vi && /^ +[^ ]/ && !/^ *[✗✓⊘·]/ && n < 3 { print; n++; next }
            vi { exit }' \
-    | sed -E 's/^ +//' | sed -E 's/(^|[^A-Za-z0-9])[0-9]{2,}/\1N/g'   # los números sueltos se normalizan para que dos fallas iguales con contadores
-    # distintos den la misma huella; «T06c» NO, porque el 06 va pegado a una letra y
-    # mutilarlo deja mensajes como «los tests de TNc siguen fallando» | tr '\n' ' ' | sed 's/  */ /g; s/ $//' | cut -c1-220
+    | sed -E 's/^ +//' \
+    | sed -E 's/(^|[^A-Za-z0-9])[0-9]{2,}/\1N/g' \
+    | tr '\n' ' ' | sed 's/  */ /g; s/ *$//' | cut -c1-220
+  # Los números sueltos se normalizan para que dos fallas iguales con contadores distintos
+  # den la misma huella; «T06c» NO, porque el 06 va pegado a una letra y mutilarlo deja
+  # mensajes como «los tests de TNc siguen fallando».
+  #
+  # El comentario va ACÁ, después del pipe, y no al final de la línea del `sed`. Estaba
+  # pegado con `# …` al final de una línea y seguía en las dos siguientes, así que el
+  # `| tr '\n' ' ' | cut -c1-220` del final quedó DENTRO del comentario: nunca corrió. La
+  # huella devolvía hasta 4 líneas, `anotar_intento` las metía sin comillas en el CSV, y el
+  # registro quedó con filas huérfanas de un solo campo. Un comentario que se come el código
+  # no se ve leyendo: se ve corriendo la función y contando las líneas.
 }
 
 # Corre un comando con límite de tiempo. macOS no trae `timeout`, y perl sí está siempre.
@@ -400,7 +586,19 @@ memoria_para() {
     otros_id="$(basename "$f" .md)"
     [ "$otros_id" = "$id" ] && { cat "$f"; continue; }
     otros_arch="$(ls "$BASE/tareas/${otros_id}"-*.md 2>/dev/null | head -1)"
-    [ -n "$otros_arch" ] || continue
+    # Un registro cuya tarea ya no existe NO se puede emparejar por archivos, y antes se
+    # descartaba callado. Pasa de verdad: T06 se partió en T06a/T06b/T06c y su archivo se
+    # borró, así que un `memoria/T06.md` quedaría inalcanzable para siempre sin que nadie se
+    # entere. Es la clase de falla de PRUEBAS.md —dejar de mirar en vez de fallar— y acá la
+    # consecuencia es una memoria que existe y no llega. Se salta igual (entregar memoria
+    # ajena compra cero y gasta contexto: C ≡ A), pero lo dice.
+    if [ -z "$otros_arch" ]; then
+      # El prefijo `_` es la convención para un registro que NO es de una tarea: lo lee el
+      # replanificador (MEM_PLAN en replanificar.sh), no el ejecutor. Ése se salta callado.
+      case "$otros_id" in _*) continue ;; esac
+      echo "  ⊘ memoria/$otros_id.md: no hay tareas/${otros_id}-*.md, no puedo saber si aplica" >&2
+      continue
+    fi
     # ¿Comparten algún archivo? Entonces su falla puede repetirse acá.
     if sed -n 's/^\*\*Archivos que podés tocar:\*\* *//p' "$otros_arch" 2>/dev/null \
        | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -qxF -f <(printf '%s\n' "$mios") 2>/dev/null; then
@@ -412,6 +610,9 @@ memoria_para() {
 # Cierra una tarea integrada: la marca hecha en su archivo (es lo que lee estado.sh),
 # saca el worktree y borra la rama. Sin esto la tarea figura "verde" para siempre y nadie
 # se entera de que está mergeada — o peor, de que no lo está.
+# NO llama a conservar_intento, y es correcto: esto corre cuando la tarea YA cerró verde y
+# está integrada, así que su código vive en un commit. Lo que hay que conservar es el intento
+# que el gate RECHAZÓ, y de eso se ocupan los otros cuatro sitios.
 marcar_hecha_y_limpiar() {
   local id="$1" rama="$2" archivo
   archivo="$(ls "$BASE/tareas/${id}"-*.md 2>/dev/null | head -1)"
@@ -453,6 +654,7 @@ PYFIN
     git -C "$RAIZ" add "$BASE/PLAN.md" >/dev/null 2>&1
   fi
   git -C "$RAIZ" commit -q -m "$id: hecha" >/dev/null 2>&1 || true
+  # conservar_intento: no-aplica — la tarea cerró verde y su código ya está commiteado.
   git -C "$RAIZ" worktree remove --force "$RAIZ/../trabajo-$id" 2>/dev/null
   git -C "$RAIZ" branch -D "$rama" >/dev/null 2>&1
 }

@@ -66,19 +66,32 @@ for id in "$@"; do
   CRIT_ANTES="$(grep -c '^- \[ \]' "$archivo" || true)"
   TEST_ANTES="$(grep -oE '`[a-zA-Z0-9_/.]*tests?/[a-zA-Z0-9_.]+`.*clase `[A-Za-z0-9_]+`' "$archivo" | head -1)"
   cp "$archivo" "$archivo.previo"
-  # El bloque de criterios, textual. Decirle «no los ablandes» no alcanza: el 14B los
-  # borró los dos a la primera. Se le entrega el bloque y se le pide que lo copie tal cual
-  # —es más fácil copiar que recordar no borrar—, y la guarda lo verifica igual.
-  CRITERIOS="$(sed -n '/^## Criterio de terminado/,/^## /p' "$archivo" | grep '^- \[ \]')"
+  # El que escribe NO reescribe el archivo entero: produce SÓLO las secciones que puede
+  # cambiar, y el arnés reensambla conservando lo intocable textual. Cuatro intentos, cuatro
+  # pérdidas distintas —los criterios, el archivo de test, el encabezado— porque pedirle
+  # «reescribí todo sin perder nada» es pedirle que recuerde no borrar. Es el mismo
+  # principio que el paso 0 del gate: lo intocable no lo decide quien escribe.
+  CAMBIABLE="$BASE/.replan-$id-cuerpo.md"; rm -f "$CAMBIABLE"
   echo "▶ $id · paso 2: reescribe $ESCRIBE"
   export LOG_VIGILADO="$BASE/.relevo-$id-esc.log"
   ( cd "$BASE" || exit 1
     export XDG_DATA_HOME="$BASE/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
     con_limite "${LIMITE_AGENTE:-1800}" opencode run --model "colabhive/$ESCRIBE" \
-      "Mirá SOLO el archivo de la tarea, PLAN.md y, si hace falta, los archivos que la tarea nombra. NO explores .venv, node_modules, .git ni ningún directorio de dependencias: no tienen nada que ver con el enunciado y hay decenas de miles de archivos ahí. Otro agente ya diagnosticó por qué la tarea tareas/$(basename "$archivo") falló. Su diagnóstico está en '.diagnostico-$id.md': leelo y leé la tarea. Tu trabajo es UNO SOLO: reescribir el archivo tareas/$(basename "$archivo") con la herramienta write, aplicando ese diagnóstico. No vuelvas a diagnosticar. Reglas que no podés romper: no cambies el archivo de test ni el nombre de su clase. Y el bloque de «Criterio de terminado» va COPIADO TAL CUAL, sin sacar ni reescribir ninguna línea; podés AGREGAR criterios si el diagnóstico lo pide, nunca quitar. Estos son, textuales, y tienen que aparecer todos en tu versión: $CRITERIOS" 2>&1
+      "Mirá SOLO tareas/$(basename "$archivo") y .diagnostico-$id.md. NO explores .venv, node_modules ni .git. Otro agente ya diagnosticó por qué esta tarea falló; su diagnóstico está en .diagnostico-$id.md. Tu trabajo es UNO SOLO: escribí con la herramienta write el archivo '.replan-$id-cuerpo.md' con las secciones del MEDIO de la tarea ya corregidas —desde '## Objetivo' hasta justo antes de '## Tests'— aplicando ese diagnóstico. No vuelvas a diagnosticar. NO escribas el encabezado, ni la sección Tests, ni los criterios de terminado: ésos los conserva el sistema y no te corresponden. Lo más útil que podés hacer es decir DÓNDE vive cada cosa que la tarea nombra: archivo exacto e import exacto." 2>&1
   ) > "$LOG_VIGILADO" 2>&1
   E="$(error_del_agente "$LOG_VIGILADO" 2>/dev/null)"
   if [ -n "$E" ]; then echo "  ✗ la reescritura no se pudo hacer: $E"; mv "$archivo.previo" "$archivo"; continue; fi
+  if [ ! -s "$CAMBIABLE" ]; then echo "  ✗ $ESCRIBE no escribió el cuerpo nuevo"; mv "$archivo.previo" "$archivo"; continue; fi
+
+  # Reensamblado: encabezado original + cuerpo nuevo + Tests y criterios originales.
+  python3 - "$archivo.previo" "$CAMBIABLE" "$archivo" <<'PYR'
+import sys, pathlib
+orig = pathlib.Path(sys.argv[1]).read_text()
+cuerpo = pathlib.Path(sys.argv[2]).read_text().strip() + "\n"
+i = orig.index("## Objetivo")
+j = orig.index("## Tests")
+pathlib.Path(sys.argv[3]).write_text(orig[:i] + cuerpo + "\n" + orig[j:])
+PYR
 
   mal=""
   cmp -s "$archivo" "$archivo.previo" && mal="no reescribió nada"

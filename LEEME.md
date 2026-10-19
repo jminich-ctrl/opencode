@@ -30,11 +30,13 @@ La idea en tres líneas:
 |---|---|
 | **[EMPEZAR.md](EMPEZAR.md)** | De cero a la primera tarea ejecutada. Empezá por acá |
 | **[PRUEBAS.md](PRUEBAS.md)** | Quién verifica a los verificadores: la clase de falla que más nos mordió, y la suite del método |
+| **[MEDICION.md](MEDICION.md)** | Validación de instrumentos: el instrumento que mide limpio y mide otra cosa. Las ocho preguntas antes de correr |
 | **[METODO.md](METODO.md)** | Principios, roles, los seis pasos del gate, integrar, cómo se ejecuta y qué medir |
 | **[DESCOMPOSICION.md](DESCOMPOSICION.md)** | Cómo bajar un proyecto enorme a tareas ejecutables |
 | **[HUMANO.md](HUMANO.md)** | El rol humano: qué decidimos, aprobamos y juzgamos, y cómo intervenir poco |
 | **[PIPELINE.md](PIPELINE.md)** | La otra mitad: arquitecto, pre-deploy (G4) y deploy (G5) |
 | **[INVESTIGACION.md](INVESTIGACION.md)** | Qué dice el trabajo publicado, qué robar, y dónde estamos expuestos |
+| **[experimentos/](experimentos/)** | Lo que todavía no sabemos y cómo pensamos averiguarlo: diseños completos, sin ejecutar |
 | **[INFRAESTRUCTURA.md](INFRAESTRUCTURA.md)** | Modelos, contexto, caching, paralelismo, trampas |
 | **[OPENCODE.md](OPENCODE.md)** | La config de OpenCode campo por campo, y los principios de warm |
 | **[colabhive/](colabhive/)** | Los archivos reales: config, prompts, scripts y mediciones |
@@ -60,7 +62,7 @@ scripts/estado.sh        en qué anda cada tarea
 ## El ejemplo
 
 [`ejemplo-pacman/`](ejemplo-pacman/) es un proyecto entero llevado con el método:
-12 tareas en dos vueltas, gate ejecutable, 73 tests, y T01 hecha a mano como referencia de
+19 tareas en varias vueltas, gate ejecutable, 103 tests, y T01 hecha a mano como referencia de
 calidad. En la primera vuelta el gate dio verde al primer intento **0 de 4** veces; con las
 lecciones aplicadas, la segunda dio **3 de 4**.
 

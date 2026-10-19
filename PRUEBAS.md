@@ -19,6 +19,10 @@ clase**: un chequeo que, ante una situación que no previó, **deja de mirar en 
 Ninguna falla a gritos. **Todas dejan de mirar**, y eso es indistinguible de "miré y está
 bien".
 
+> El documento hermano es [`MEDICION.md`](MEDICION.md), y cubre la clase complementaria: el
+> instrumento que **no** deja de mirar —corre, mide limpio, informa con tres decimales— y mide
+> otra cosa. Esa clase es más cara, porque no hay nada en el resultado que la delate.
+
 ## Resulta que la clase tiene tres nombres, y nadie los cruza
 
 - **Vacuidad**, en métodos formales, con teoría desde 1997 y detección de pases vacuos.
@@ -43,7 +47,7 @@ con alguna entrada que realmente corrés.**
 ### 1. Una suite para el método: `pruebas/test_metodo.py`
 
 ```bash
-python3 pruebas/test_metodo.py        # 41 casos, ~50 segundos
+python3 -m unittest pruebas.test_metodo   # 173 casos, ~10 minutos
 ```
 
 Cada caso es un bug que de verdad tuvimos. Y dos cosas que aprendimos escribiéndola, las dos
@@ -256,7 +260,7 @@ corrida de control sin él habría costado treinta segundos y habría ahorrado h
 
 ## Y la advertencia que viene con todo esto
 
-> **Que los 41 casos pasen no mide que el gate esté correcto: mide el sesgo de la suite.**
+> **Que la suite entera pase no mide que el gate esté correcto: mide el sesgo de la suite.**
 
 La formulación publicada, sobre generadores de tests: *"un generador alcanza un punto de
 saturación no porque el compilador esté libre de bugs, sino porque el generador contiene

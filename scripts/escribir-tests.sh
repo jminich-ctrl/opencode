@@ -104,6 +104,7 @@ for id in "$@"; do
       && echo "     (transcript del intento guardado en $FALLIDOS)"
   fi
   rm -rf "$wt"
+  conservar_intento "$wt" "${id:-${TAREA:-tests}}"
   git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
   git -C "$RAIZ" branch -D "tests/$id" 2>/dev/null
   git -C "$RAIZ" worktree add -q -b "tests/$id" "$wt" || { echo "✗ $id: no pude crear el worktree"; break; }
@@ -280,6 +281,7 @@ for id in "$@"; do
     #
     # Dejarlos todos acumulados no es gratis: una corrida de un día dejó doce worktrees
     # registrados y doce ramas, y cada herramienta que recorre el repo los recorre.
+  conservar_intento "$wt" "${id:-${TAREA:-tests}}"
     git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
     git -C "$RAIZ" branch -D "tests/$id" >/dev/null 2>&1
     break

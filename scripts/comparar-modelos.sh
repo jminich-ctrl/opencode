@@ -16,6 +16,11 @@
 # líneas de deliberación y archivos tocados. Cada agente corre con límite de tiempo
 # (LIMITE_AGENTE, 1200s por omisión) porque un candidato roto es el caso normal acá.
 set -uo pipefail
+# SERIE=1 por omisión: UN brazo a la vez. La columna de segundos de brazos paralelos no
+# describe al modelo, describe la ocupación de la plataforma en ese minuto: el mismo MoE A3B
+# mide 16,3 tok/s con un usuario y 122 con ocho. Con SERIE=0 los brazos corren en paralelo
+# —más rápido, y GATE/TOOLS/DELIB/ARCHIVOS siguen válidos— pero SEGS se imprime como «—».
+: "${SERIE:=1}"
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$AQUI/_comun.sh"
 ubicar_proyecto   # RAIZ, PROYECTO, BASE: ver _comun.sh
@@ -23,6 +28,29 @@ ubicar_proyecto   # RAIZ, PROYECTO, BASE: ver _comun.sh
 [ $# -ge 2 ] || { echo "uso: $0 TNN {modelo|@agente} {modelo|@agente} [...]" >&2; exit 1; }
 
 TAREA="$1"; shift
+
+# ── El brazo de control, obligatorio ────────────────────────────────────────────────
+# Sin control, un resultado no se puede atribuir: si todos los brazos dan cero, el cero
+# puede ser del arnés y no de los modelos. Nos pasó: cinco fallas limpias y reproducibles
+# del modelo de un partner iban a salir como veredicto sobre el modelo, y lo que lo evitó
+# fue que el control no se había movido —salidas idénticas carácter por carácter en dos
+# tandas separadas por horas—.
+#
+# MEDICION.md §7 afirmaba que «el runner se niega a arrancar si el brazo de control no está
+# declarado». Era falso: no había un solo brazo de control en ningún script. Esto lo vuelve
+# cierto. El control corre SIEMPRE, como un brazo más de la misma tanda — no como una sesión
+# de validación aparte, que es la que no se hace nunca.
+if [ -z "${CONTROL:-}" ]; then
+  echo "✗ declará el brazo de control: CONTROL=<modelo|@agente> $0 ..." >&2
+  echo "  Un número sin control no se cita. El control es el modelo del que ya sabés qué" >&2
+  echo "  tiene que dar; si se mueve, se movió el arnés y la tanda entera se descarta." >&2
+  echo "  Para saltearlo a propósito: CONTROL=ninguno (queda escrito en la tabla)." >&2
+  exit 1
+fi
+if [ "$CONTROL" != "ninguno" ]; then
+  set -- "$@" "$CONTROL"   # último brazo, siempre presente
+fi
+
 archivo="$(ls "$BASE/tareas/${TAREA}"-*.md 2>/dev/null | head -1)"
 [ -n "$archivo" ] || { echo "✗ no existe tareas/${TAREA}-*.md" >&2; exit 1; }
 archivo="tareas/$(basename "$archivo")"
@@ -37,11 +65,7 @@ for modelo in "$@"; do
   # donde está escrito por qué falló. Lo agregué primero a escribir-tests.sh y no acá, y
   # volví a perder un log en este camino: arreglar un lado y no el otro es el patrón que
   # este repo repite.
-  if [ -f "$wt/.tarea.log" ]; then
-    FALLIDOS="$RAIZ/../fallidos-${TAREA:-comparar}-$n"; mkdir -p "$FALLIDOS"
-    cp "$wt/.tarea.log" "$FALLIDOS/intento-$(date +%H%M%S).log" 2>/dev/null \
-      && echo "     (transcript del intento guardado en $FALLIDOS)"
-  fi
+  conservar_intento "$wt" "${TAREA:-comparar}-$n"
   rm -rf "$wt"
   git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
   git -C "$RAIZ" branch -D "comparar/$TAREA-$n" 2>/dev/null
@@ -82,6 +106,9 @@ for modelo in "$@"; do
     cerrar_con_gate "$wt/.tarea.log" "$TAREA"
     echo "$duracion" > "$wt/.segundos"
   ) &
+  # Serializado: esperar a este brazo antes de lanzar el siguiente. Es lo que hace que la
+  # columna de segundos signifique algo.
+  [ "$SERIE" = 1 ] && wait
 done
 wait
 
@@ -96,7 +123,9 @@ for modelo in "$@"; do
   if [ -n "$(error_del_agente "$log" 2>/dev/null)" ]; then gate="✗ error"
   elif [ "$(veredicto "$log")" = "VERDE" ]; then gate="✓ verde"
   else gate="✗ rojo"; fi
-  segs="$(cat "$wt/.segundos" 2>/dev/null || echo '?')"
+  # Un instrumento que no puede medir el tiempo no muestra un número de tiempo.
+  if [ "$SERIE" = 1 ]; then segs="$(cat "$wt/.segundos" 2>/dev/null || echo '?')"
+  else segs='—'; fi
   # Herramientas: contamos las marcas que OpenCode imprime al invocarlas. El patrón
   # anterior dependía de los códigos de escape exactos y contaba 0 siempre.
   tools="$(parte_del_agente "$log" 2>/dev/null \
@@ -115,5 +144,43 @@ for modelo in "$@"; do
   printf '%-3s %-26s %-8s %6s %6s %6s %s\n' "$n" "$(echo "$modelo" | cut -c1-26)" "$gate" "$segs" "${tools:-0}" "$delib" "$archivos"
 done
 echo
+# ── El criterio de validez del control, escrito y aplicado ─────────────────────────
+#
+# MEDICION.md §7 decía que faltaba esto: el comparador corría el control y lo informaba, y
+# QUIÉN decide que se movió demasiado seguía siendo una persona.
+#
+# Y la banda que el diseño proponía —±2 ítems sobre 12— estaba calculada con p=0,83, que es la
+# tasa de TOOL-CALL, no de verde. La tasa de verde del control, medida en `.metricas`, es
+# **0,42 por corrida** (22 de 52). Con ésa, ±2 descarta el 29% de los bloques buenos; ±4 da
+# 5,6% y ±5 da 1,9%. Un conteo binomial de 12 ítems con una banda de ±5 ya no controla nada:
+# la señal de que un conteo así no puede ser un control.
+#
+# Por eso el criterio es CONTINUO y sobre lo que tiene varianza baja: la tasa de herramientas
+# y las líneas de deliberación del control. Si el control deja de llamar herramientas, se
+# movió el arnés — y eso se ve con pocas corridas, no con doce.
+if [ "$CONTROL" = "ninguno" ]; then
+  echo "SIN BRAZO DE CONTROL (CONTROL=ninguno): si todos los brazos dan lo mismo, no podés"
+  echo "saber si eso es de los modelos o del arnés. El resultado no se cita sin eso."
+else
+  WT_C="$RAIZ/../comparar-$TAREA-$n"
+  LOG_C="$WT_C/.tarea.log"
+  T_C="$(parte_del_agente "$LOG_C" 2>/dev/null | grep -cE '(Read|Write|Edit|Glob|Grep|Bash|List) ')"
+  G_C="$(veredicto "$LOG_C" 2>/dev/null)"
+  echo "CONTROL = $CONTROL (último brazo): gate=${G_C:-sin veredicto}, herramientas=$T_C"
+  SALIDA_C="$(control_se_movio "$CONTROL|$TAREA" "$T_C" "${G_C:-?}")"; RC_C=$?
+  case "$RC_C" in
+    2) echo "  · primera corrida de este control en $TAREA: queda como línea base."
+       echo "    El criterio aplica desde la segunda. Un número de esta tanda no tiene con qué"
+       echo "    compararse todavía, y eso hay que decirlo al citarlo." ;;
+    0) echo "  · el control no se movió: la tanda es válida." ;;
+    1) echo
+       echo "✗ EL CONTROL SE MOVIÓ: $SALIDA_C"
+       echo "  Se movió el arnés, no los modelos. **La tanda se descarta ENTERA**, incluidos los"
+       echo "  brazos que dieron bien: si el instrumento estaba mal, su acierto también es"
+       echo "  sospechoso. Arreglá y volvé a correr todo."
+       exit 1 ;;
+  esac
+fi
 echo "TOOLS alto y DELIB bajo = el modelo actúa. Al revés = delibera y no produce."
+[ "$SERIE" = 1 ] || echo "SEGS = — : los brazos corrieron en paralelo y el tiempo medido sería el de la plataforma, no el del modelo. Para medir tiempo: SERIE=1 (por omisión)."
 echo "Diffs en $RAIZ/../comparar-$TAREA-N/  ·  borralos con: git worktree remove <carpeta>"

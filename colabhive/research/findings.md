@@ -91,3 +91,22 @@ ni tiempo. Que *mejore* algo no se puede afirmar con una tarea y una corrida por
 
 Y los dos tiempos de 51 s son con los modelos calientes. Las mediciones anteriores de
 "0,4–2,2 tok/s" eran arranques en frío: 253 s de carga contra 3,6 s en caliente.
+
+## Dos espacios de ids: el de las peticiones y el interno (2026-10-19)
+
+Un fallo de corrida dijo: `Failed to start inference server for da003b52-aa5c-4a90-b746-200556f72991`.
+Ese id **no está** en `provider.colabhive.models` de nuestra config, y la primera lectura fue
+«nuestro id del ejecutor quedó viejo».
+
+Sondeados los dos contra `/chat/completions`:
+
+    f5d76140-5b4d-41c0-88da-dad6d11f341a  → HTTP 200, contesta
+    da003b52-aa5c-4a90-b746-200556f72991  → HTTP 404, «Endpoint not found»
+
+`da003b52` es lo que la API del builder devuelve como `model_id` para
+`hf-Qwen-Qwen3-Coder-30B-A3B-Instruct-FP8`, y es el que aparece en los mensajes de error de
+asignación de GPU. El id que se manda en una petición es el otro.
+
+**Consecuencia práctica:** un error de plataforma que nombra un id desconocido NO significa que
+la config esté vieja. Sondear los dos antes de tocar nada. La causa real de ese fallo era VRAM:
+`GPU0: 2571/24576MB free (10.5%)` con un modelo que pide 2 GPUs de 19000MB.

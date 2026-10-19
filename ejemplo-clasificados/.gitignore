@@ -7,3 +7,11 @@
 venv/
 pytest-install/
 *-install/
+
+# Intermedios de replanificar.sh y replanificar-relevo.sh: el diagnóstico que levanta
+# del transcript y el cuerpo que escribe el segundo agente. Son insumos de una corrida,
+# no entregables del proyecto.
+.diagnostico-*.md
+.replan-*.md
+.replan-*.log
+.relevo-*.log

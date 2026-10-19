@@ -24,8 +24,9 @@ PROY="${PROYECTO:-.}" REGISTRO="$REG" python3 - <<'PY'
 import collections, csv, os, statistics
 
 proyecto = os.environ["PROY"]
-filas = [f for f in csv.DictReader(open(os.environ["REGISTRO"]))
-         if f["proyecto"] == proyecto]
+_lector = csv.DictReader(open(os.environ["REGISTRO"]))
+campos = _lector.fieldnames or []
+filas = [f for f in _lector if f["proyecto"] == proyecto]
 if not filas:
     raise SystemExit(f"No hay intentos registrados para el proyecto '{proyecto}'.")
 
@@ -88,9 +89,38 @@ if imposibles:
     # un problema del plan con un problema del modelo.
     print(f"Declaradas IMPOSIBLES por el agente: {len(imposibles)} "
           f"({', '.join(imposibles)}) — son problemas del plan, no del modelo. Leé el motivo.")
+# El encabezado tiene que nombrar TODAS las columnas que escribe el runner, o DictReader
+# manda las de más a la clave None y las leemos vacías para siempre. Pasó con `motivo`: el
+# bloque de abajo nunca imprimió nada mientras había datos de sobra. Un instrumento que lee
+# por nombre tiene que verificar los nombres.
+ESPERADO = ["fecha", "proyecto", "tarea", "veredicto", "segundos", "modelo", "motivo",
+            "concurrencia", "instrumento"]
+if campos != ESPERADO:
+    print(f"⊘ el encabezado del registro no es el que escribe el runner: {campos}")
+    print(f"  esperado: {ESPERADO} — las columnas que faltan se leen vacías, no ausentes")
+
 if segs:
-    print(f"Tiempo por intento: mediana {statistics.median(segs):.0f}s, "
-          f"máximo {max(segs)}s, total {sum(segs) // 60} min")
+    # Una mediana de tiempos de corridas simultáneas describe la ocupación de la plataforma,
+    # no la tarea: con PARALELAS=8 el mismo modelo pasa de 16,3 a 122 tok/s. Si las corridas
+    # comparten ventana, el número no se muestra. Es la misma regla que SERIE=1 en
+    # comparar-modelos.sh, que estaba arreglada de un lado y no del otro.
+    # La columna `concurrencia` la escribe el runner al arrancar cada corrida. Antes esto
+    # infería el solapamiento comparando timestamps a 60 s, que era un paliativo: dos corridas
+    # pueden arrancar en el mismo segundo sin competir, y dos separadas por minutos pueden
+    # solaparse si la primera duró mucho. El dato lo tiene quien corrió, no quien analiza.
+    serie = [f for f in filas if (f.get("concurrencia") or "").isdigit()
+             and int(f["concurrencia"]) <= 1 and (f.get("segundos") or "").isdigit()]
+    sin_dato = [f for f in filas if not (f.get("concurrencia") or "").isdigit()]
+    segs_serie = [int(f["segundos"]) for f in serie if int(f["segundos"]) > 0]
+    if segs_serie:
+        print(f"Tiempo por intento (sólo serializadas): mediana {statistics.median(segs_serie):.0f}s, "
+              f"máximo {max(segs_serie)}s, sobre {len(segs_serie)} de {len(filas)} corridas")
+    else:
+        print(f"Tiempo por intento: — (0 de {len(filas)} corridas tienen concurrencia 1; "
+              "con tareas en paralelo el tiempo mide la plataforma, no la tarea)")
+    if sin_dato:
+        print(f"  ⊘ {len(sin_dato)} corrida(s) sin columna `concurrencia`: anteriores al "
+              "arreglo, su tiempo no se puede atribuir y no entra en la mediana")
 modelos = collections.Counter(f.get("modelo") or "(sin registrar)" for f in filas)
 print("Modelos usados: " + ", ".join(f"{m} ({n})" for m, n in modelos.items()))
 if modelos.get("(sin registrar)"):

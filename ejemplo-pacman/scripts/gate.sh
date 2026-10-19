@@ -63,13 +63,29 @@ SALIDA="$(bash scripts/correr-suite.sh 2>&1)"; RC=$?
 #   · ningún test que andaba antes dejó de andar.
 # La línea base la escribe el runner al crear el worktree, antes de que el agente toque
 # nada. Misma regla que `integrar.sh` usa para los merges, un nivel más abajo.
+# Qué archivo y clase de test declara la tarea. UN solo lector para UNA sola declaración:
+# antes el paso 1 la leía con un patrón y el paso 4 con otro (o no la leía). La declaración
+# canónica, en el marcador de fase del archivo de tarea:
+#     Archivo: `<ruta>`, clase `<Clase>`.
+# Devuelve «ruta clase», o vacío si la tarea no la declara.
+test_de_la_tarea() {
+  # Sin anclar en «Archivo:»: la declaración aparece en dos formas en el repo,
+  #     Archivo: `backend/tests/test_errores.py`, clase `TestErrores`.
+  #     (`tests/test_juego.py`, clase `TestFruta`)
+  # y lo que la identifica es la ruta y la clase juntas, no el prefijo. Anclar en «Archivo:»
+  # perdía T16; anclar en `tests/` perdía las 31 de clasificados, cuyas rutas son
+  # `backend/tests/` y `frontend/tests/`. Con esto: 34 de 50 tareas acotables, contra 3.
+  sed -n 's/.*`\([^`]*\)`, *clase `\([A-Za-z0-9_]*\)`.*/\1 \2/p' \
+    "tareas/${TAREA}"-*.md 2>/dev/null | head -1
+}
+
 veredicto_con_linea_base() {
   local base_f ahora mios nuevas esperado ruta_t
   ahora="$(bash scripts/correr-suite.sh --fallas 2>/dev/null | sort -u)"
   base_f="$(sort -u .tests-base 2>/dev/null)"
   nuevas="$(comm -13 <(printf '%s\n' "$base_f") <(printf '%s\n' "$ahora") | grep . || true)"
 
-  esperado="$(sed -n 's/.*Archivo: `\([^`]*\)`.*/\1/p' "tareas/${TAREA}"-*.md 2>/dev/null | head -1)"
+  esperado="$(test_de_la_tarea | cut -d' ' -f1)"
   ruta_t="${esperado:-}"
   # Los ids vienen en dos formatos según el corredor: pytest nombra el archivo
   # (`FAILED backend/tests/test_x.py::TestX::test_y`) y unittest nombra el módulo
@@ -300,6 +316,59 @@ else
   SAL_SUP="$("${PY_PROYECTO:-python3}" scripts/_suprimidas.py ${ARG_SUP} 2>&1)"; RC_SUP=$?
   echo "$SAL_SUP"
   case "$RC_SUP" in 1) FALLOS=$((FALLOS+1)) ;; 2) VACIOS=$((VACIOS+1)) ;; esac
+fi
+
+# ── 4. ¿Los tests distinguen? (sólo en modo tarea)
+# Este paso NO EXISTÍA en este gate. El de clasificados y el de la plantilla sí lo tienen, así
+# que las 19 tareas de este proyecto cerraron sin que nadie verificara nunca que sus tests
+# distinguieran — que es el único chequeo de eso en todo el método, y el que sostiene P2.
+if [ -n "${TAREA:-}" ]; then
+  echo "── 4. ¿Los tests distinguen?"
+  IMPL="$(echo "$CAMBIADOS" | grep -E '^src/.*\.py$' || true)"
+  TMP="$(mktemp -d)"; REVERTIDOS=""
+  PREFIJO="$(git rev-parse --show-prefix)"   # vacío si el proyecto es la raíz del repo
+  for f in $IMPL; do
+    # `git cat-file` resuelve rutas desde la raíz del repo: sin el prefijo, todo archivo
+    # parecería «nuevo» y este paso daría verde sin revertir nada.
+    if git cat-file -e "HEAD:${PREFIJO}$f" 2>/dev/null; then
+      cp "$f" "$TMP/$(echo "$f" | tr / _)"
+      git checkout HEAD -- "$f" && REVERTIDOS="$REVERTIDOS $f"
+    fi
+  done
+  if [ -z "$IMPL" ]; then vacuo "no hay implementación que revertir"
+  elif [ -z "$REVERTIDOS" ]; then vacuo "archivos nuevos (no existían en HEAD): nada que revertir"
+  else
+    # Qué tests tienen que fallar, no sólo que «algo» falle: con el tronco rojo por diseño
+    # (tests-first) «la suite entera falla» se cumple antes de revertir y no distingue nada.
+    ESPERADO="$(test_de_la_tarea)"
+    if bash scripts/correr-suite.sh >/dev/null 2>&1; then
+      rojo "los tests PASAN con la implementación vieja: no verifican el cambio"
+      echo "     revertí:$REVERTIDOS y la suite siguió verde"
+    elif [ -n "$ESPERADO" ]; then
+      RUTA_T="$(echo "$ESPERADO" | cut -d' ' -f1)"
+      CLASE="$(echo "$ESPERADO" | cut -d' ' -f2)"
+      # El contrato de códigos de correr-suite.sh, igual que el paso 1: 0 pasa, 1 falla,
+      # 2 no corrió ningún test, 3 es del método, 127 falta el corredor. Esto decía
+      # `if bash ... ; then … else verde …; fi`, o sea leía TODO lo distinto de cero como
+      # «los tests fallan» — y entonces un corredor ausente (127) o una suite vacía (2) se
+      # informaban como «los tests distinguen». Un chequeo que no pudo correr no es un
+      # chequeo que pasó, y acá era peor: era un ✓.
+      bash scripts/correr-suite.sh "$RUTA_T::$CLASE" >/dev/null 2>&1; RC_T4=$?
+      case "$RC_T4" in
+        0) rojo "la suite falla, pero NO por los tests de esta tarea ($CLASE pasa con el código viejo)"
+           echo "     o los tests de $TAREA no verifican el cambio, o rompiste otra cosa" ;;
+        1) verde "fallan los tests de la tarea ($CLASE) al revertir$REVERTIDOS"
+           testigo "$RUTA_T::$CLASE, revirtiendo$REVERTIDOS" ;;
+        2) vacuo "$CLASE no corrió ningún test: no distingue nada" ;;
+        3) vacuo "el corredor falló por el entorno, no por el código ($CLASE)" ;;
+        *) vacuo "no pude correr $RUTA_T::$CLASE (código $RC_T4)" ;;
+      esac
+    else
+      vacuo "la tarea no declara «\`ruta\`, clase \`Clase\`»: no puedo saber si SUS tests distinguen"
+    fi
+    for f in $REVERTIDOS; do cp "$TMP/$(echo "$f" | tr / _)" "$f"; done
+  fi
+  rm -rf "$TMP"
 fi
 
 # ── 5. Coherencia (sólo en modo integración)

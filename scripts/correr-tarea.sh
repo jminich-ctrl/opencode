@@ -41,14 +41,33 @@ lanzar() {
   # donde está escrito por qué falló. Lo agregué primero a escribir-tests.sh y no acá, y
   # volví a perder un log en este camino: arreglar un lado y no el otro es el patrón que
   # este repo repite.
-  if [ -f "$wt/.tarea.log" ]; then
-    FALLIDOS="$RAIZ/../fallidos-${id:-${TAREA:-tarea}}"; mkdir -p "$FALLIDOS"
-    cp "$wt/.tarea.log" "$FALLIDOS/intento-$(date +%H%M%S).log" 2>/dev/null \
-      && echo "     (transcript del intento guardado en $FALLIDOS)"
-  fi
+  # Transcript Y PARCHE. Guardaba sólo el transcript, y el código del intento se iba con el
+  # worktree: de un intento que el gate reprobó no quedaba nada ejecutable.
+  conservar_intento "$wt" "${id:-${TAREA:-tarea}}"
   rm -rf "$wt"
   git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
   git -C "$RAIZ" branch -D "tarea/$id" 2>/dev/null
+  # El worktree sale del árbol COMMITEADO. Un arreglo del contrato o del test que esté sin
+  # commitear NO llega al agente, y no se entera nadie: el agente trabaja contra la versión
+  # vieja, el gate lo juzga contra la vieja, y el rojo que sale no habla de lo que arreglaste.
+  #
+  # Pasó con T04: reescribí su contrato y su test —tres contradicciones, una de ellas un test
+  # que sólo pasaba con un hash falso— y el agente implementó exactamente el contrato viejo,
+  # con razón, porque es el que vio. Una corrida entera por una declaración que el lector no
+  # recibe, que es la forma de falla que este repo repite.
+  SUCIOS_TAREA="$(cd "$RAIZ" && { git diff --name-only HEAD -- "$PROYECTO/tareas/${id}"-*.md 2>/dev/null
+      # Y el archivo de test que la tarea declara: el agente no lo toca, pero el gate lo usa.
+      decl="$(sed -n 's/.*`\([^`]*\)`, *clase `[A-Za-z0-9_]*`.*/\1/p' "$BASE/tareas/${id}"-*.md 2>/dev/null | head -1)"
+      [ -n "$decl" ] && git diff --name-only HEAD -- "$PROYECTO/$decl" 2>/dev/null
+    } | grep . | sort -u || true)"
+  if [ -n "$SUCIOS_TAREA" ]; then
+    echo "✗ $id: estos archivos de la tarea tienen cambios SIN COMMITEAR, y el worktree sale"
+    echo "  del árbol commiteado: el agente trabajaría contra la versión vieja."
+    printf '     %s\n' $SUCIOS_TAREA
+    echo "  Commiteá el contrato y el test antes de lanzar, o el rojo que salga no va a hablar"
+    echo "  de lo que arreglaste."
+    return 1
+  fi
   git -C "$RAIZ" worktree add -q -b "tarea/$id" "$wt" || { echo "✗ $id: no pude crear el worktree"; return 1; }
 
   # Base del diff FIJADA antes de que el agente toque nada. Sin esto, cualquier chequeo
@@ -129,15 +148,20 @@ lanzar() {
     local error
     error="$(error_del_agente "$log")"
     cerrar_con_gate "$log" "$id"
+    # El código del gate se captura ACÁ, pegado a la llamada. Estaba más abajo y en el medio
+    # entró el bloque de memoria: `local rc=$?` pasó a leer el estado del `if`, que vale 0
+    # cuando su condición es falsa, así que el runner imprimía «gate VERDE» SIEMPRE. El
+    # método existe porque un agente dijo «GATE VERDE» con el gate rojo; esto era el arnés
+    # haciendo lo mismo. Cualquier cosa que se inserte entre estas dos líneas lo repite.
+    local rc=$?
     # Si llegó a verde DESPUÉS de haber fallado, el par (qué falló, qué lo arregló) es
     # memoria verificada: el veredicto lo dio un comando que puede reprobar. Es lo único
     # que el experimento A/B/C muestra que sirve, y lo estábamos tirando al log.
-    if [ "$(veredicto "$log")" = "VERDE" ] && [ -n "${MOTIVO:-}" ]; then
+    if [ "$rc" -eq 0 ] && [ -n "${MOTIVO:-}" ]; then
       recordar_falla "$id" "$MOTIVO" \
         "$(git -C "$wt" diff --name-only HEAD~1 HEAD -- "$PROYECTO" 2>/dev/null \
            | grep -v '^$' | tr '\n' ' ' | cut -c1-200)"
     fi
-    local rc=$?
     # Una línea por intento en el registro: las métricas leen datos, no adivinan del texto.
     anotar_intento "$id" "$([ -n "$error" ] && echo ERROR || veredicto "$log")" \
                    "$(( $(date +%s) - inicio ))" \

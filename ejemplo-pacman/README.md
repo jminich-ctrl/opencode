@@ -6,7 +6,7 @@ que salió mal a la vista**: un ejemplo que saliera bien enseñaría menos.
 
 ## Estado
 
-12 tareas en dos vueltas, 73 tests, gate verde. El detalle de cada corrida está en
+19 tareas, 103 tests, gate verde. El detalle de cada corrida está en
 [BITACORA.md](BITACORA.md).
 
 | Vuelta | Tareas | Gate verde al primer intento | Qué cambió |

@@ -21,7 +21,26 @@ BUILDER="${COLABHIVE_BUILDER_URL:-https://api.colabhive.com/api/builder/v1}"
 CONFIG_OC="${CONFIG_OC:-$HOME/.config/opencode/opencode.json}"
 [ -f "$CONFIG_OC" ] || CONFIG_OC="$(dirname "${BASH_SOURCE[0]}")/../config/opencode.json"
 [ -f "$CONFIG_OC" ] || { echo "✗ no encuentro la config de opencode ($CONFIG_OC)" >&2; exit 1; }
+# Con ids por argumento se calienta ESO y nada más. Es un override explícito, no un default:
+# la lista por omisión sigue saliendo de la config por el motivo de arriba. Sirve para calentar
+# candidatos que todavía no tiene asignado ningún agente (los de OpenHands, los CodeScout).
+#
+#   bash warm.sh                          # lo que los agentes declaran
+#   bash warm.sh 66a57a2b-... 4fb55ab3-…  # exactamente esos
 MODELS=()
+if [ "$#" -gt 0 ]; then
+  for arg in "$@"; do
+    nombre="$(python3 - "$CONFIG_OC" "$arg" <<'PYNOM'
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+m = (cfg.get("provider", {}).get("colabhive", {}).get("models", {}) or {}).get(sys.argv[2])
+print((m or {}).get("name", sys.argv[2][:8]).split("·")[0].strip())
+PYNOM
+)"
+    MODELS+=("$arg:${nombre:-${arg:0:8}} (por argumento)")
+  done
+  echo "→ ${#MODELS[@]} modelo(s) pedidos por argumento"
+else
 while IFS= read -r linea; do
   [ -n "$linea" ] && MODELS+=("$linea")
 done < <(python3 - "$CONFIG_OC" <<'PYLISTA'
@@ -38,8 +57,9 @@ for mid, agentes in usos.items():
     print(f"{mid}:{nombre.split('·')[0].strip()} ({', '.join(sorted(agentes))})")
 PYLISTA
 )
-[ "${#MODELS[@]}" -gt 0 ] || { echo "✗ la config no asigna ningún modelo a ningún agente" >&2; exit 1; }
 echo "→ ${#MODELS[@]} modelo(s) que los agentes usan, según $CONFIG_OC"
+fi
+[ "${#MODELS[@]}" -gt 0 ] || { echo "✗ no hay modelos para calentar" >&2; exit 1; }
 
 auth() { printf 'X-API-Key: %s\n' "$COLABHIVE_API_KEY"; }
 
