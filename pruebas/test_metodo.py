@@ -2208,6 +2208,64 @@ class TestElEstadoNoDaUnVeredictoQueNoPuedeFallar(CasoBase):
                          f"el título arrastra el H1 del markdown: {fila[0]!r}")
 
 
+class TestUnContadorQueCuentaDosExperimentos(unittest.TestCase):
+    """El presupuesto de cortes y de reintentos se gasta contra UN enunciado. Arreglé el
+    contrato de T26 a mitad de la etapa y el contador ya estaba en 2 de 2, gastado contra el
+    enunciado roto: lo que iba a frenar la etapa era el contador, no la tarea. Dos
+    experimentos conflados en un número."""
+
+    def huella(self, *args):
+        return correr("bash -c " + shlex.quote(
+            f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; huella_enunciado ' +
+            " ".join(shlex.quote(a) for a in args)), RAIZ)
+
+    def cambio(self, nueva, anterior):
+        r = correr("bash -c " + shlex.quote(
+            f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+            f'el_enunciado_cambio {shlex.quote(nueva)} {shlex.quote(anterior)}'), RAIZ)
+        return r.returncode == 0
+
+    def test_la_huella_sale_del_archivo_que_el_agente_va_a_leer(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-enunciado-"))
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        a, b = d / "viejo.md", d / "nuevo.md"
+        a.write_text("# T26\n\nhasheá con scrypt\n")
+        b.write_text("# T26\n\nhasheá con sha256\n")
+        ha, hb = self.huella(str(a)).stdout.strip(), self.huella(str(b)).stdout.strip()
+        self.assertTrue(ha and hb, "la huella no puede salir vacía con el archivo presente")
+        self.assertNotEqual(ha, hb, "dos enunciados distintos tienen que dar huellas distintas")
+        self.assertEqual(ha, self.huella(str(a)).stdout.strip(), "y la misma tiene que repetir")
+
+    def test_sin_archivo_la_huella_es_vacia_y_no_reinicia(self):
+        """Si el archivo no está, no se sabe nada: una huella inventada reiniciaría los
+        contadores en cada vuelta y el presupuesto no limitaría nada."""
+        vacia = self.huella("/no/existe/esto.md").stdout.strip()
+        self.assertEqual(vacia, "")
+        self.assertFalse(self.cambio("", "abc123"), "sin huella nueva no se reinicia")
+        self.assertFalse(self.cambio("abc123", ""), "en el primer intento no hay nada que reiniciar")
+
+    def test_cuando_cambia_el_enunciado_se_reinicia(self):
+        self.assertTrue(self.cambio("aaa", "bbb"))
+        self.assertFalse(self.cambio("aaa", "aaa"), "el mismo enunciado no reinicia nada")
+
+    def test_el_reinicio_esta_cableado_despues_de_crear_el_worktree(self):
+        """Chequeo de forma: la conducta pide una corrida de agente entera. Lo que pina es
+        que la huella se lea del worktree —el árbol que el agente ve— y que se reinicien
+        TODOS los contadores, incluido el motivo que se le inyecta en el pedido."""
+        s = (SCRIPTS / "escribir-tests.sh").read_text()
+        i = s.index('worktree add -q -b "tests/$id"')
+        j = s.index("el_enunciado_cambio")
+        self.assertLess(i, j, "la huella se lee antes de crear el worktree: leería el anterior")
+        self.assertIn('huella_enunciado "$wt/', s[i:j],
+                      "la huella tiene que salir del worktree, no del árbol que yo tengo abierto")
+        tramo = s[j:j + 700]
+        for v in ("intento=1", "cortes=0", "cortes_total=0", 'MOTIVO_TESTS=""',
+                  'HUELLA_ANTERIOR=""'):
+            self.assertIn(v, tramo, f"el reinicio no toca {v}: queda contando el experimento viejo")
+        self.assertIn('ENUNCIADO_ANTERIOR=""', s,
+                      "sin inicializarlo por tarea, una tarea hereda la huella de la anterior")
+
+
 class TestValidarPlan(CasoBase):
     def validar(self, extra=""):
         return correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py {extra}", self.p.dir)

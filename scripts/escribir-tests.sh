@@ -107,6 +107,7 @@ for id in "$@"; do
   fi
 
   intento=1; cortes=0; cortes_total=0; MOTIVO_TESTS=""; HUELLA_ANTERIOR=""
+  ENUNCIADO_ANTERIOR=""   # por tarea: sin esto la tarea hereda la huella de la anterior
   while :; do
   wt="$RAIZ/../tests-$id"
   # El transcript del intento anterior, ANTES de borrar el worktree. Es el único lugar
@@ -126,6 +127,17 @@ for id in "$@"; do
   git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
   git -C "$RAIZ" branch -D "tests/$id" 2>/dev/null
   git -C "$RAIZ" worktree add -q -b "tests/$id" "$wt" || { echo "✗ $id: no pude crear el worktree"; break; }
+  # El enunciado que el agente va a leer es el de ESTE worktree, recién salido de HEAD. Si
+  # cambió desde el intento anterior, el sujeto es otro y los contadores arrancan de cero:
+  # ver `huella_enunciado` en _comun.sh. MOTIVO_TESTS y HUELLA_ANTERIOR también, porque
+  # «un intento anterior falló así, no repitas ese camino» se le inyecta en el pedido y ese
+  # camino lo había causado el enunciado viejo.
+  ENUNCIADO="$(huella_enunciado "$wt/$PROYECTO/tareas/$(basename "$archivo")")"
+  if el_enunciado_cambio "$ENUNCIADO" "${ENUNCIADO_ANTERIOR:-}"; then
+    echo "  · $id: el enunciado cambió — intentos y cortes vuelven a cero (sujeto nuevo)"
+    intento=1; cortes=0; cortes_total=0; MOTIVO_TESTS=""; HUELLA_ANTERIOR=""
+  fi
+  ENUNCIADO_ANTERIOR="$ENUNCIADO"
   # El worktree es nuevo: no tiene venv ni node_modules. Sin esto, una tarea de frontend
   # se rechaza por falta de corredor, que es un defecto del método y no del test.
   bash "$AQUI/preparar-entorno.sh" "$wt/$PROYECTO" 2>&1 | sed 's/^/  /'

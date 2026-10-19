@@ -24,6 +24,26 @@
 #   PROYECTO  la carpeta con tareas/, relativa a RAIZ. Si no viene en el entorno, la
 #             más cercana hacia arriba desde donde estás parado
 #   BASE      $RAIZ/$PROYECTO
+# El sujeto del experimento es el ENUNCIADO. Si cambia entre intentos, los cortes y los
+# reintentos gastados contra el anterior no cuentan contra éste: son dos experimentos
+# distintos conflados en un número. Pasó con T26: arreglé el contrato a mitad de la etapa y
+# el presupuesto de cortes ya estaba en 2 de 2, gastado contra el enunciado roto, así que lo
+# que iba a frenar la etapa era el contador y no la tarea.
+#
+# La huella se saca del archivo que el agente VA A LEER —el del worktree, que sale del árbol
+# commiteado— y no del que yo tengo abierto: lo que cuenta es lo que recibe el lector.
+huella_enunciado() {
+  [ -f "$1" ] || { echo ""; return 0; }
+  git hash-object "$1" 2>/dev/null || echo ""
+}
+
+# rc=0 (hay que reiniciar) sólo si había una huella anterior y es distinta. Sin huella
+# anterior es el primer intento: no hay nada que reiniciar, y tratarlo como cambio haría que
+# el reinicio no distinga nada.
+el_enunciado_cambio() {
+  [ -n "${2:-}" ] && [ -n "${1:-}" ] && [ "$1" != "$2" ]
+}
+
 ubicar_proyecto() {
   git rev-parse --show-toplevel >/dev/null 2>&1 \
     || { echo "✗ Corré esto desde adentro del repo git de tu proyecto" >&2; exit 1; }
