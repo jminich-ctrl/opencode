@@ -74,7 +74,7 @@ vez de la aplicación.
 | T06b | Montaje automático de routers | T06a | backend/app/main.py | ✅ hecha |
 | T06c | Normalizar los errores al contrato del plan | T06b | backend/app/main.py | ✅ hecha |
 | T04 | Auth backend (login, sesión) | T02, T03, T06c | backend/app/rutas/auth.py, backend/app/servicios/auth.py, backend/app/datos/users.py | ✅ hecha |
-| T04b | Verificar la sesión a partir del token | T04 | backend/app/servicios/auth.py | pendiente |
+| T04b | Verificar la sesión a partir del token | T04 | backend/app/servicios/auth.py | ✅ hecha |
 | T05 | CRUD de avisos backend | T04b, T06c | backend/app/rutas/ads.py, backend/app/servicios/ads.py, backend/app/datos/ads.py | pendiente |
 | T30 | Scaffolding Vite | T01 | frontend/package.json, frontend/vite.config.ts | ✅ hecha |
 | T31 | Punto de entrada frontend | T30 | frontend/src/main.tsx, frontend/src/App.jsx | ✅ hecha |

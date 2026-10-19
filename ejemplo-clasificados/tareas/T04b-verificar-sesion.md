@@ -1,6 +1,6 @@
 # T04b — Verificar la sesión a partir del token
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T04
 **Archivos que podés tocar:** backend/app/servicios/auth.py
 **Prohibido tocar:** 
