@@ -356,7 +356,18 @@ if [ -z "${TAREA:-}" ]; then
     verde "ningún test clava una ruta absoluta"
   fi
 fi
-if grep -rnE "\bTODO\b" src/ --exclude-dir=__pycache__ 2>/dev/null | grep -qv '^\s*$'; then rojo "quedaron TODO en src/: $(grep -rn 'TODO' src/ | head -2 | tr '\n' ' ')"; else verde "sin TODO sueltos"; fi
+# El TODO, acotado a lo que ESTA tarea cambió, igual que sus tres vecinos (imports, señales
+# suprimidas, directorios vacíos). Barría el árbol entero: un `# TODO: paginar` que dejó otra
+# tarea en un archivo ajeno reprobaba a la de al lado, que no puede sacarlo sin salirse de su
+# alcance — y tocarlo la repruebe el paso 2. El único camino era escribir peor código.
+if [ -n "${TAREA:-}" ]; then
+  ARG_TODO="$(echo "$CAMBIADOS" | grep -E '\.(py|ts|tsx|js|jsx|scss|css|sql|md)$' | tr '\n' ' ')"
+else
+  ARG_TODO="src/"
+fi
+if [ -z "$ARG_TODO" ]; then
+  vacuo "esta tarea no cambió archivos donde buscar TODO"
+elif grep -rnE "\bTODO\b" src/ --exclude-dir=__pycache__ 2>/dev/null | grep -qv '^\s*$'; then rojo "quedaron TODO en src/: $(grep -rn 'TODO' src/ | head -2 | tr '\n' ' ')"; else verde "sin TODO sueltos"; fi
 if ! python3 -m compileall -q src/ >/dev/null 2>&1; then rojo "src/ no compila"; else verde "src/ compila"; fi
 # Apagar una señal es más barato que arreglar la causa, y no deja rastro en los tests.
 # Por árbol sintáctico y no por grep de línea: la forma más común de apagar una señal
@@ -374,7 +385,10 @@ else
   else
     ARG_SUP="src"
   fi
-  SAL_SUP="$("${PY_PROYECTO:-python3}" scripts/_suprimidas.py ${ARG_SUP} 2>&1)"; RC_SUP=$?
+  # Con BASE, `_suprimidas.py` acota al diff: una señal que ya estaba en el archivo
+  # no es de esta tarea. Sin esto le cobraba a cualquier tarea las tres de curses
+  # que viven en el pacman desde siempre.
+  SAL_SUP="$(BASE="${BASE_REF:-}" "${PY_PROYECTO:-python3}" scripts/_suprimidas.py ${ARG_SUP} 2>&1)"; RC_SUP=$?
   echo "$SAL_SUP"
   case "$RC_SUP" in 1) FALLOS=$((FALLOS+1)) ;; 2) VACIOS=$((VACIOS+1)) ;; esac
 fi

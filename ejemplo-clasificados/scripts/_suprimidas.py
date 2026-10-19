@@ -20,6 +20,9 @@ Sale 0 si no encontró nada, 1 si encontró, 2 si no había archivos que mirar.
 """
 import ast
 import pathlib
+import os
+import re
+import subprocess
 import sys
 
 PATRONES_TEXTO = (
@@ -50,13 +53,23 @@ def revisar(archivo):
             if aguja in bajo:
                 hallazgos.append((i, f"{nombre}: {linea.strip()[:70]}"))
     if archivo.suffix == ".py":
+        lineas_texto = texto.split("\n")
         try:
             arbol = ast.parse(texto)
         except SyntaxError:
             return hallazgos
         for nodo in ast.walk(arbol):
             # El except que no hace nada, en una línea o en cinco.
-            if isinstance(nodo, ast.ExceptHandler) and vacio(nodo.body):
+            # La forma LEGÍTIMA, nombrada: un `# best-effort` en la línea del handler o
+            # justo arriba. Hoy no había ninguna —`except curses.error: pass` también caía, y
+            # `# noqa` está en la lista de arriba—, así que el único camino era escribir peor
+            # código (`except X: _ = None`). Un chequeo sin salida legítima se esquiva, y
+            # esquivarlo deja el código peor que la señal que el chequeo buscaba.
+            #
+            # Queda auditable: `grep -rn best-effort` muestra todas las excepciones vivas.
+            if isinstance(nodo, ast.ExceptHandler) and vacio(nodo.body) and not any(
+                    "best-effort" in (lineas_texto[k - 1] if 0 < k <= len(lineas_texto) else "")
+                    for k in (nodo.lineno - 1, nodo.lineno, nodo.lineno + 1)):
                 que = ast.unparse(nodo.type) if nodo.type else "todo"
                 hallazgos.append((nodo.lineno,
                                   f"except {que} y no hace nada: la falla se pierde"))
@@ -66,6 +79,45 @@ def revisar(archivo):
                     if "skip" in ast.unparse(d):
                         hallazgos.append((nodo.lineno, f"{nodo.name} está salteado: {ast.unparse(d)}"))
     return hallazgos
+
+
+def lineas_cambiadas(archivo, base):
+    """Las líneas que ESTE cambio agregó o tocó. Devuelve None si no se puede saber.
+
+    El gate pasa los archivos CAMBIADOS y `revisar()` leía cada archivo ENTERO, así que una
+    tarea que toca un archivo se comía las señales que ya estaban. Medido: tres `except
+    Exception: pass` del idiom de curses en `ejemplo-pacman/src/pacman/render.py` y
+    `__main__.py` —best effort al escribir en la última celda de la ventana— reprobaban a
+    cualquier tarea nueva sobre esos archivos, que son el alcance declarado de T07, T08, T11
+    y T12. Y no podía sacarlas sin romper el idiom, ni tocarlas sin que el paso 2 la
+    reprobara por salirse del alcance: el único camino era escribir peor código.
+
+    Es el mismo acote que ya tenían los imports y los directorios vacíos, y el mismo que usa
+    `mutar.py`. Si no se puede saber —no hay base, git falla— no se filtra nada: un chequeo
+    que no puede acotar reporta de más, no de menos.
+    """
+    if not base:
+        return None
+    # Un archivo que NO existe en la base es todo nuevo: no se filtra nada. `git diff` no
+    # muestra lo que no está en la base, así que sin este caso la función devolvía un conjunto
+    # vacío y filtraba TODO — apagando el chequeo justo para los archivos que la tarea CREA,
+    # que son la mayoría. Lo atrapó la suite del método: al acotar un chequeo demasiado ancho
+    # lo volví demasiado angosto, que es el mismo error por el otro lado.
+    existe = subprocess.run(["git", "cat-file", "-e", f"{base}:{archivo}"],
+                            capture_output=True)
+    if existe.returncode != 0:
+        return None
+    r = subprocess.run(["git", "diff", "-U0", base, "--", str(archivo)],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    nums = set()
+    for linea in r.stdout.split("\n"):
+        m = re.match(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))?", linea)
+        if m:
+            ini, cuantas = int(m.group(1)), int(m.group(2) or 1)
+            nums.update(range(ini, ini + cuantas))
+    return nums
 
 
 def main():
@@ -87,9 +139,13 @@ def main():
     if not archivos:
         print("  ⊘ no hay archivos que revisar por señales suprimidas — no pudo verificarse")
         return 2
+    base = os.environ.get("BASE", "")
     todos = []
     for a in sorted(archivos):
+        tocadas = lineas_cambiadas(a, base)
         for ln, que in revisar(a):
+            if tocadas is not None and ln not in tocadas:
+                continue   # ya estaba antes de este cambio: no es de esta tarea
             todos.append(f"{a}:{ln} — {que}")
     if todos:
         print("  ✗ hay señales suprimidas:")
