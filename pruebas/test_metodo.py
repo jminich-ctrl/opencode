@@ -2169,6 +2169,45 @@ class TestAmplitudDePatrones(CasoBase):
                                 motivo="señales suprimidas")
 
 
+class TestElEstadoNoDaUnVeredictoQueNoPuedeFallar(CasoBase):
+    """`estado.sh` decía «tronco: ✗ ROJO» durante toda etapa tests-first, porque los tests
+    de la etapa se aceptan y commitean antes de que exista la implementación. Un veredicto
+    que no puede dar verde mientras eso dure no mide nada —es la regla de MEDICION.md— y yo
+    mismo casi lo leí como una rotura real del repo."""
+
+    def estado(self):
+        return correr(f"bash {SCRIPTS}/estado.sh", self.p.dir)
+
+    def test_el_rojo_de_una_etapa_en_vuelo_se_declara_y_se_nombra(self):
+        # T01 pendiente y `tests/test_cosa.py` ya en el repo: ése es el rojo del tests-first.
+        r = self.estado()
+        self.assertIn("POR DISEÑO", r.stdout,
+                      f"no distingue el rojo de la etapa del rojo de verdad:\n{r.stdout}")
+        self.assertIn("tests/test_cosa.py", r.stdout,
+                      "y tiene que nombrar el test en vuelo, no sólo declarar la categoría")
+
+    def test_un_rojo_que_no_es_de_la_etapa_sigue_diciendo_ROJO(self):
+        """Brazo nulo del anterior: si dijera «por diseño» siempre, el veredicto volvería a
+        no poder fallar —al revés que antes— y el test de arriba pasaría por el motivo
+        equivocado."""
+        self.p.escribir_tarea("T01", "src/cosa.py", estado="✅ hecha")
+        self.p.implementar("def f():\n    return 0\n")   # mergeado y rojo de verdad
+        r = self.estado()
+        self.assertIn("✗ ROJO", r.stdout, f"un rojo real tiene que decirlo:\n{r.stdout}")
+        self.assertNotIn("POR DISEÑO", r.stdout,
+                         "no hay ninguna tarea pendiente con test commiteado: este rojo es real")
+
+    def test_el_titulo_de_una_tarea_con_sufijo_no_arrastra_el_numeral(self):
+        """`sed 's/^# T[0-9]* — //'` no cubre T04b ni T06a, así que la columna salía como
+        «# T04b — …» justo en las tareas partidas, que son las que más se miran."""
+        self.p.escribir_tarea("T04b", "src/otra.py")
+        r = self.estado()
+        fila = [l for l in r.stdout.split("\n") if l.startswith("T04b")]
+        self.assertTrue(fila, f"estado.sh no listó T04b:\n{r.stdout}{r.stderr}")
+        self.assertNotIn("#", fila[0],
+                         f"el título arrastra el H1 del markdown: {fila[0]!r}")
+
+
 class TestValidarPlan(CasoBase):
     def validar(self, extra=""):
         return correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py {extra}", self.p.dir)
@@ -2188,6 +2227,27 @@ class TestValidarPlan(CasoBase):
         p.write_text(p.read_text().replace(fila, fila * 2))
         self.validar("--arreglar")
         self.assertVerde(self.validar(), "después de --arreglar tiene que quedar limpio")
+
+    def test_un_archivo_que_ya_existe_no_lo_tiene_que_escribir_nadie(self):
+        """El chequeo usa la sección (`## Contrato`, `## Alcance`) como aproximación a «te
+        pido que lo escribas», que no distingue «escribí esto» de «leé esto». La existencia
+        sí: T26 tiene que nombrar `backend/tests/test_auth_backend.py` para decir cómo se
+        mockea, y ese test está en el repo desde T04. El alcance lo sigue cuidando el paso 2
+        del gate, que reprueba tocar lo que no es tuyo."""
+        ajeno = self.p.dir / "src" / "ya_esta.py"
+        ajeno.parent.mkdir(parents=True, exist_ok=True)
+        ajeno.write_text("# este archivo ya está en el repo\n")
+        t = self.p.dir / "tareas" / "T01-cosa.md"
+        t.write_text(t.read_text() + "\n## Contrato\n\nSe mockea como en `src/ya_esta.py`.\n")
+        self.assertVerde(self.validar(),
+                         "nombrar un archivo que ya existe no es pedir que lo escriban")
+
+    def test_un_archivo_que_no_existe_y_nadie_tiene_asignado_sigue_dando_rojo(self):
+        """Brazo nulo del anterior: si el chequeo callara para cualquier archivo nombrado, el
+        de arriba pasaría por el motivo equivocado. Era el caso de T03."""
+        t = self.p.dir / "tareas" / "T01-cosa.md"
+        t.write_text(t.read_text() + "\n## Contrato\n\nEscribí `src/nadie_lo_hace.py`.\n")
+        self.assertRojo(self.validar(), "nadie lo va a escribir")
 
     def test_archivo_de_tarea_huerfano_da_rojo(self):
         self.p.escribir_tarea("T99", "src/otra.py")

@@ -864,7 +864,8 @@ el agente va a inventarlo, y va a inventarlo bien — porque es lo razonable.
 
 #### La misma forma, en el método mismo
 
-El patrón no es de los agentes: es de las declaraciones. El mismo día, tres veces:
+El patrón no es de los agentes: es de las declaraciones. El mismo día, **seis veces**, todas
+adentro del método:
 
 - **`ubicar_proyecto` no exportaba `PROYECTO`.** El padre sabía cuál era el proyecto y el hijo
   tenía que re-adivinarlo del cwd. Sale bien mientras el cwd esté adentro del proyecto;
@@ -874,8 +875,19 @@ El patrón no es de los agentes: es de las declaraciones. El mismo día, tres ve
 - **`sync_limits.py` escribía en la copia del repo** mientras la config viva era un symlink a
   otro repo. Y peor: el guardia que detecta la deriva corre ese mismo script, así que el
   arreglo lo dejaba **callado** sobre el defecto real.
+- **`huella_de_falla` tenía su pipe final adentro de un comentario.** Devolvía cuatro líneas
+  donde el registro espera una, y el CSV quedaba corrido: el encabezado nombraba seis
+  columnas y el runner escribía siete, así que `motivo` salía vacío **siempre**.
+- **El veredicto del gate se leía lejos de su llamada.** Inserté el bloque de memoria entre
+  `cerrar_con_gate` y su `local rc=$?`, y un `if` con condición falsa vale 0: el runner
+  imprimió «✓ gate VERDE» SIEMPRE. El método existe porque un agente dijo «GATE VERDE» con
+  el gate rojo, y acá lo hacía el arnés. 162 tests pasaban sin verlo.
+- **`RAIZ` salía del worktree principal** (`git worktree list | head -1`) donde corresponde
+  `--show-toplevel`. Correr el plan desde un worktree de desarrollo leía las tareas del
+  tronco: afirmé «el chequeo nuevo no detecta nada» midiendo el árbol de al lado. Y tenía
+  escondido un test que fallaba, porque la suite se corría siempre desde el árbol principal.
 
-Los tres son el mismo enunciado: *alguien declara algo y el que tiene que recibirlo no lo
+Los seis son el mismo enunciado: *alguien declara algo y el que tiene que recibirlo no lo
 recibe.* Vale como pregunta de revisión para cualquier cambio del método: **¿quién tiene que
 leer esto, y por qué camino le llega?**
 
@@ -883,6 +895,26 @@ El síntoma para reconocerlo: el agente falla por **ubicación**, no por comport
 alcance reprueba un archivo que no está en la lista, o el test no ve lo que la
 implementación hace—. Si el agente escribió algo correcto en el lugar equivocado, el
 defecto es de la tarea.
+
+### Nadie cruzaba las tareas entre sí
+
+`validar-plan.py` cruza el plan contra las tareas, y el gate cruza la implementación contra
+los tests de **su** tarea. Nadie cruzaba una tarea contra otra, y ahí entraron dos defectos
+que ningún gate podía ver, porque **cada tarea pasaba el suyo**:
+
+| el cruce | qué pasaba | cómo se ve |
+|---|---|---|
+| T05 importaba `obtener_usuario_id_desde_token` de un módulo donde no existe y que ninguna tarea declara | el agente lo tomó por real e iteró contra su propio `ImportError` | rojo: nadie provee ese nombre |
+| T26 pedía `hashlib.scrypt` y `login` compara `sha256` | las dos tareas pasan sus tests y **juntas rompen el login** | aviso: puede ser legítimo |
+
+Lo hace `scripts/coherencia.py`, en el arranque de `correr-todo.sh` —antes de gastar una
+llamada al modelo—. Import huérfano es rojo; módulo de hashing en disputa es aviso.
+
+Y una lección sobre chequeos que leen prosa: **la primera versión reprobaba toda tarea
+arreglada**, porque en este repo cada arreglo documenta su cadáver y la tarea CITA el defecto
+viejo en su bloque «No entra». Siete falsos positivos hasta entender que hay que leer lo que
+la tarea dice que **hace**, no todo lo que nombra. Un chequeo de prosa confunde la cita con
+la declaración, y acá las citas abundan a propósito.
 
 ### Nadie cruza los tests contra el plan
 
