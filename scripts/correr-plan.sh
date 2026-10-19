@@ -164,6 +164,8 @@ for etapa in "${ETAPAS[@]}"; do
       if [ -n "$h" ] && [ "$h" = "$anterior" ]; then
         echo "  ✗ $t: punto muerto — falló dos veces por lo mismo:"
         echo "      $h"
+        # Y qué significa, cuando se puede decir: ver `explicar_punto_muerto` en _comun.sh.
+        explicar_punto_muerto "$h" "$t"
         MUERTAS+=("$t")
       else
         [ -n "$anterior" ] && echo "  · $t: falló por otra cosa, reintentando"

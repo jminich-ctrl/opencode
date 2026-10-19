@@ -342,6 +342,37 @@ conservar_intento() {
   fi
 }
 
+# Qué significa un punto muerto, cuando se puede decir.
+#
+#   explicar_punto_muerto <huella>
+#
+# Dos cortes por LÍMITE TOTAL no son «el agente falla igual»: son «trabajó todo el
+# presupuesto y no terminó», dos veces, y eso habla de la TAREA. `escribir-tests.sh` ya lo
+# explicaba en su propio camino y `correr-plan.sh` sólo decía «punto muerto»: el arreglo
+# estaba de un lado y no del hermano, que es la forma que este repo repite.
+#
+# Pasó con T05 el 2026-10-19: dos cortes de 1200s, y el transcript mostraba al agente
+# escribiendo los tres archivos que la tarea pide y quedándose sin tiempo iterando. No era
+# el enunciado —ése ya se había arreglado— ni el modelo: era el presupuesto.
+#
+# No lleva números escritos a mano. Un número en un mensaje envejece y después miente; lo
+# que lleva es el comando que lo calcula, que es la regla P2 del método.
+explicar_punto_muerto() {
+  case "${1:-}" in
+    *"límite total"*)
+      echo "      Eso no es el agente fallando igual: trabajó TODO el presupuesto y no"
+      echo "      terminó, las dos veces. Habla de la TAREA, no del modelo."
+      echo "      Mirá el transcript y decidí con eso:"
+      echo "        · si escribió todo lo que la tarea pide y se cortó iterando, es"
+      echo "          presupuesto. Relanzala sola con más:"
+      echo "            LIMITE_AGENTE=2400 bash \$AGENTES/scripts/correr-plan.sh ${2:-TNN}"
+      echo "        · si iteró contra algo que no existe, es el enunciado: le falta el medio."
+      echo "        · si escribió de más, fuera de su alcance, la tarea es demasiado grande."
+      echo "      Cuánto margen hay entre este presupuesto y el éxito más lento, medido:"
+      echo "        bash \$AGENTES/scripts/metricas.sh" ;;
+  esac
+}
+
 # ¿Se movió el brazo de control respecto de su línea base?
 #
 #   control_se_movio <clave> <herramientas_ahora> <veredicto_ahora>

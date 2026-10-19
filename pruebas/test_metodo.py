@@ -2697,6 +2697,51 @@ class TestImportarDeUnModuloPropioAlgoQueNoDefine(unittest.TestCase):
                              str(g.relative_to(RAIZ)) for g in copias))
 
 
+class TestUnPuntoMuertoDiceQueSignifica(unittest.TestCase):
+    """`correr-plan.sh` decía «punto muerto — falló dos veces por lo mismo» y nada más.
+    Dos cortes por LÍMITE TOTAL no son «el agente falla igual»: son «trabajó todo el
+    presupuesto y no terminó», dos veces, y eso habla de la TAREA. `escribir-tests.sh` ya lo
+    explicaba en su propio camino y éste no — el arreglo de un lado y no del hermano.
+
+    Cadáver: T05 el 2026-10-19, dos cortes de 1200s, con el transcript mostrando al agente
+    escribiendo los tres archivos que la tarea pide y quedándose sin tiempo iterando. Ni el
+    enunciado (ya arreglado) ni el modelo: el presupuesto."""
+
+    def explicar(self, huella, tarea="T05"):
+        return correr("bash -c " + shlex.quote(
+            f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+            f'explicar_punto_muerto {shlex.quote(huella)} {tarea}'), RAIZ).stdout
+
+    def test_dos_cortes_por_limite_total_se_explican(self):
+        s = self.explicar("agente: el agente no respondió: límite total 1200s")
+        self.assertIn("trabajó TODO el presupuesto", s, "tiene que decir qué pasó")
+        self.assertIn("la TAREA", s, "y de qué habla eso")
+        self.assertIn("LIMITE_AGENTE", s, "y cómo relanzarla con más presupuesto")
+        self.assertIn("T05", s, "nombrando la tarea, no un TNN de ejemplo")
+
+    def test_otra_huella_no_recibe_explicacion_inventada(self):
+        """Brazo nulo: si explicara cualquier punto muerto como presupuesto, mandaría a subir
+        el límite de una tarea que falla por otra cosa — y el consejo equivocado es peor que
+        ningún consejo."""
+        s = self.explicar("✗ tocó archivos intocables (tests o el propio gate): tests/x.py")
+        self.assertEqual(s.strip(), "", f"explicó algo que no sabe: {s!r}")
+
+    def test_no_lleva_numeros_escritos_a_mano(self):
+        """Un número en un mensaje envejece y después miente. Lo que lleva es el comando que
+        lo calcula: `metricas.sh`. (El 2400 del ejemplo de relanzamiento es un valor que se
+        pasa, no una medición.)"""
+        s = self.explicar("agente: el agente no respondió: límite total 1200s")
+        self.assertIn("metricas.sh", s, "tiene que apuntar al comando que mide el margen")
+        for n in ("970", "180", "1200s de presupuesto"):
+            self.assertNotIn(n, s, f"«{n}» es una medición escrita a mano: va a envejecer")
+
+    def test_correr_plan_lo_llama(self):
+        s = (SCRIPTS / "correr-plan.sh").read_text()
+        i = s.index("punto muerto — falló dos veces")
+        self.assertIn("explicar_punto_muerto", s[i:i + 400],
+                      "el diagnóstico no se usa donde se detecta el punto muerto")
+
+
 class TestValidarPlan(CasoBase):
     def validar(self, extra=""):
         return correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py {extra}", self.p.dir)
