@@ -135,6 +135,27 @@ veredicto_con_linea_base() {
   fi
 }
 
+# Un test DECLARADO Y AUSENTE es un rojo, no un verde — y va antes del `case` porque no
+# depende de cómo salió la suite: con la suite entera en verde, el caso 0 también pasaba.
+#
+# El veredicto por línea base se mide contra las fallas que MENCIONAN el archivo declarado:
+# si el archivo no existe, no hay fallas que lo mencionen, así que no hay rojo. Y el testigo
+# llegaba a afirmar «y <ruta> en verde», nombrando algo que no está en el árbol: un veredicto
+# que no puede fallar Y que afirma algo falso.
+#
+# Pasó el 2026-10-19 con T14, T20 y T28 de clasificados: un salteo de etapa hizo que se
+# implementaran sin que nadie escribiera sus tests, y las tres cerraron en VERDE e
+# integraron. La de T14 ni se podía importar —`from .conexion import get_db_connection`, que
+# no existe— y nadie se enteró hasta que la tarea siguiente se rompió contra ella.
+RUTA_DECLARADA="$(test_de_la_tarea | cut -d' ' -f1)"
+JUZGABLE=1
+if [ -n "${TAREA:-}" ] && [ -n "$RUTA_DECLARADA" ] && [ ! -f "$RUTA_DECLARADA" ]; then
+  rojo "la tarea declara el test \`$RUTA_DECLARADA\` y no está en el árbol: no hay con qué juzgarla"
+  echo "     Un test declarado y ausente no es un test que pasa. Se escribe primero:"
+  echo "       bash \$AGENTES/scripts/escribir-tests.sh $TAREA"
+  JUZGABLE=0
+fi
+if [ "$JUZGABLE" = 1 ]; then
 case "$RC" in
   0) # TODAS las cuentas, no la última: con dos mitades, `tail -1` mostraba "3 passed"
      # del frontend y escondía los 13 del backend. Un resumen que informa una parte del
@@ -165,6 +186,7 @@ case "$RC" in
        echo "$SALIDA" | tail -15 | sed 's/^/     /'
      fi ;;
 esac
+fi
 
 echo "── 2. Alcance${TAREA:+ (tarea $TAREA)}"
 # La infraestructura del runner no es parte del trabajo de la tarea: se filtra ACÁ y no en

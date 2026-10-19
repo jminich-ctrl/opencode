@@ -68,6 +68,20 @@ for id in "${CANDIDATAS[@]}"; do
   v="$(veredicto "$log" 2>/dev/null)"
   if [ "$v" != "VERDE" ]; then saltadas+=("$id:veredicto=${v:-sin correr}"); continue; fi
 
+  # Y el test que la tarea declara tiene que EXISTIR. El mismo agujero que el paso 1 del
+  # gate, un nivel más arriba: acá el veredicto se mide por «no agregó fallas nuevas sobre la
+  # línea base», y una tarea sin tests no agrega ninguna. El 2026-10-19 integré T14, T20 y
+  # T28 así —invocando este script a mano después de un salteo de etapa que dejó a las tres
+  # sin tests— y el código de T14 ni se podía importar. Hubo que revertir las tres.
+  #
+  # Se lee del archivo de tarea, que es la declaración canónica, igual que en el gate.
+  t_decl="$(sed -n 's/.*`\([^`]*\)`, *clase `[A-Za-z0-9_]*`.*/\1/p' \
+            "$BASE/tareas/${id}"-*.md 2>/dev/null | head -1)"
+  if [ -n "$t_decl" ] && [ ! -f "$BASE/$t_decl" ]; then
+    saltadas+=("$id:declara $t_decl y no está en el árbol")
+    continue
+  fi
+
   pendientes="$(git -C "$RAIZ" log --oneline "$TRONCO..$rama" | wc -l | xargs)"
   if [ "$pendientes" = "0" ]; then
     echo "· $id: ya está en el tronco"

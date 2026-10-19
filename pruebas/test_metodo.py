@@ -252,9 +252,14 @@ class TestGate(CasoBase):
         self.assertRojo(self.p.gate("T01"), "tocó el gate que lo juzga", motivo="intocable")
 
     def test_suite_vacia_da_rojo(self):
-        """`Ran 0 tests` contaba como verde. Una suite vacía pasa siempre."""
+        """`Ran 0 tests` contaba como verde. Una suite vacía pasa siempre.
+
+        El archivo queda PRESENTE y sin tests, no borrado: borrarlo lo atrapa antes el
+        chequeo de «declara un test que no está en el árbol», que es un rojo distinto y más
+        preciso (ver TestUnTestDeclaradoYAusenteNoEsUnTestQuePasa). Con el archivo presente,
+        el escenario ejercita lo que este test dice que ejercita."""
         self.p.implementar()
-        (self.p.dir / "tests" / "test_cosa.py").unlink()
+        (self.p.dir / "tests" / "test_cosa.py").write_text("# el archivo está, tests no hay\n")
         self.assertRojo(self.p.gate("T01"), "no corrió ningún test",
                         motivo="no corrió ningún test")
 
@@ -2499,6 +2504,67 @@ class TestElIndiceDeEtapaNoPuedeSignificarDosCosas(CasoBase):
                       f"sigue pasando un índice a correr-plan.sh: {ejecuta[0].strip()!r}")
         self.assertNotIn('correr-plan.sh" "$n"', s,
                          "quedó una llamada por índice: el número significa otra cosa allá")
+
+
+class TestUnTestDeclaradoYAusenteNoEsUnTestQuePasa(CasoBase):
+    """El veredicto del paso 1 se mide contra las fallas que MENCIONAN el test declarado por
+    la tarea: si el archivo no existe, no hay fallas que lo mencionen, así que no hay rojo —y
+    el testigo llegaba a afirmar «y <ruta> en verde», nombrando algo que no está en el árbol—.
+    Con la suite entera en verde pasaba por el caso 0, sin mirar nada.
+
+    Cadáver: el 2026-10-19 un salteo de etapa hizo que T14, T20 y T28 de clasificados se
+    implementaran sin que nadie escribiera sus tests. Las tres cerraron en VERDE y se
+    integraron. La de T14 ni se podía importar (`from .conexion import get_db_connection`,
+    que no existe) y nadie se enteró hasta que la tarea siguiente se rompió contra ella."""
+
+    def test_sin_el_archivo_de_test_el_gate_es_rojo(self):
+        self.p.implementar()          # la implementación está bien
+        (self.p.dir / "tests" / "test_cosa.py").unlink()   # lo que falta es el test
+        self.assertRojo(self.p.gate("T01"),
+                        "un test declarado y ausente no puede dar verde",
+                        motivo="no está en el árbol")
+
+    def test_con_el_test_presente_sigue_dando_verde(self):
+        """Brazo nulo: si el chequeo disparara siempre, ninguna tarea podría cerrar y el
+        rojo dejaría de significar algo."""
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertNotIn("no está en el árbol", r.stdout,
+                         f"falso positivo con el test presente:\n{r.stdout}")
+        self.assertVerde(r, "con test e implementación el gate tiene que cerrar")
+
+    def test_integrar_tampoco_mergea_una_tarea_sin_su_test(self):
+        """El mismo agujero un nivel más arriba: el veredicto de `integrar.sh` es «no agregó
+        fallas nuevas sobre la línea base», y una tarea sin tests no agrega ninguna. El
+        2026-10-19 integré T14, T20 y T28 así, invocando el script A MANO después del salteo
+        de etapa, y hubo que revertir las tres.
+
+        Chequeo de forma: el arnés de conducta pediría un worktree hermano del repo
+        (`$RAIZ/../trabajo-TNN`), que en el proyecto de juguete cae en el temp compartido y
+        colisionaría entre tests. Lo que pina es la posición: después de leer el veredicto
+        —porque un veredicto que no es VERDE ya corta— y antes del merge."""
+        s = (SCRIPTS / "integrar.sh").read_text()
+        self.assertIn("no está en el árbol", s, "le falta el chequeo del test declarado")
+        i = s.index("no está en el árbol")
+        self.assertLess(s.index('v" != "VERDE"'), i, "va después de leer el veredicto")
+        self.assertLess(i, s.index('merge --no-edit'), "y antes de mergear")
+        tramo = s[s.index("t_decl=", 0) if "t_decl=" in s else 0:i]
+        self.assertIn("clase `[A-Za-z0-9_]*`", tramo,
+                      "tiene que leer la declaración canónica del archivo de tarea, la misma "
+                      "que lee el gate: dos lectores de una declaración se desincronizan")
+
+    def test_el_chequeo_esta_en_las_tres_copias_del_gate(self):
+        """El gate vive copiado en tres lugares y este repo ya se comió el arreglo puesto en
+        uno solo: el paso 4 existía en clasificados y no en pacman."""
+        for g in (PLANTILLAS / "gate.sh",
+                  RAIZ / "ejemplo-clasificados" / "scripts" / "gate.sh",
+                  RAIZ / "ejemplo-pacman" / "scripts" / "gate.sh"):
+            with self.subTest(gate=str(g.relative_to(RAIZ))):
+                s = g.read_text()
+                self.assertIn("no está en el árbol", s, "le falta el chequeo")
+                i, j = s.index("RUTA_DECLARADA="), s.index('case "$RC" in')
+                self.assertLess(i, j, "el chequeo va ANTES del case: con la suite en verde, "
+                                      "el caso 0 pasaba sin mirar el test declarado")
 
 
 class TestValidarPlan(CasoBase):
