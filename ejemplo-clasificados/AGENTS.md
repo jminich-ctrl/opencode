@@ -87,7 +87,22 @@ with conexion() as conn:
 ```
 
 `conexion()` es un context manager: hace `commit` al salir sin error, `rollback` si hubo
-excepción, y cierra siempre. **`get_db_connection` NO EXISTE.** Lo inventaron los agentes de
+excepción, y cierra siempre.
+
+**El id de la fila que acabás de insertar sale de `cur.lastrowid`.**
+
+```python
+with conexion() as conn:
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO anuncios (usuario_id, titulo) VALUES (%s, %s)", (uid, t))
+        return cur.lastrowid
+```
+
+**`INSERT … RETURNING id` NO EXISTE en MySQL**: es sintaxis de PostgreSQL y MySQL contesta
+`(1064, "You have an error in your SQL syntax")`, que no se parece en nada a su causa. Pasó
+con T05 el 2026-10-19, las dos veces que el agente escribió sus tests, y perdió los dos
+intentos por eso. El código que ya anda lo hace bien —`backend/app/datos/users_register.py`
+usa `cur.lastrowid`— pero nadie le dijo al agente que mirara ahí. **`get_db_connection` NO EXISTE.** Lo inventaron los agentes de
 tres tareas distintas —T04, T15 y T26— y las tres corridas murieron contra su propio
 `AttributeError` o `ImportError`. Si buscás ese nombre y no lo encontrás, no es que falte:
 es que el ayudante se llama `conexion`.
