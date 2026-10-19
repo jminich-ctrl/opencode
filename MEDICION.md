@@ -163,6 +163,26 @@ existía para detectar.
 Y la tasa de inválidos se informa **siempre, al lado del puntaje**. Un 70 % con 30 % de
 inválidos no es un 70 %.
 
+### Y los de casa: tres números que no podían fallar
+
+La sección de arriba habla de medir modelos. El mismo día encontramos tres números del
+**propio tablero** con el defecto, y los tres los había escrito yo:
+
+| el número | por qué no podía fallar | cómo se arregló |
+|---|---|---|
+| «✓ gate VERDE» del runner | inserté el bloque de memoria entre `cerrar_con_gate` y su `local rc=$?`, y un `if` con condición falsa vale 0: imprimía VERDE **siempre** | capturar `$?` pegado a la llamada, y un test que reprueba cualquier cosa insertada en el medio |
+| «tronco: ✗ ROJO» de `estado.sh` | durante una etapa tests-first el tronco está rojo por diseño, así que ese veredicto no podía dar **verde** mientras durara la etapa | declara el rojo de la etapa y **nombra** el test en vuelo; si no hay ninguno, el rojo es real y lo dice como antes |
+| el presupuesto de cortes por tarea | seguía contando después de que yo cambiara el enunciado, así que el contador mezclaba dos experimentos y lo que iba a frenar la etapa era él y no la tarea | si cambia la huella del enunciado que el agente va a leer, intentos y cortes vuelven a cero |
+
+Los dos primeros son el mismo defecto en espejo: uno no podía dar rojo, el otro no podía dar
+verde. El tercero es más fino y vale como pregunta propia: **¿este contador sigue hablando del
+mismo sujeto?** Un presupuesto gastado contra un enunciado que ya cambié no limita al que
+corre ahora, limita al que ya no existe.
+
+La pregunta que los atrapa a los tres, y que no es la misma que la del ⊘: **¿hay algún estado
+del mundo en el que este número salga distinto?** Si no lo hay, no es una medición, es una
+constante con disfraz.
+
 ---
 
 ## 5. El régimen: qué va al lado de cada número
