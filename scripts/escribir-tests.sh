@@ -122,10 +122,23 @@ for id in "$@"; do
     cp "$wt/.tests.log" "$FALLIDOS/intento-$(date -u +%Y%m%dT%H%M%SZ).log" 2>/dev/null \
       && echo "     (transcript del intento guardado en $FALLIDOS)"
   fi
-  rm -rf "$wt"
+  # ANTES del `rm -rf`, no después. Estaba al revés, y `conservar_intento` arranca con
+  # `[ -d "$wt" ] || return 0`: era código muerto. El transcript sobrevivía de casualidad por
+  # el `cp` manual de arriba —el arreglo viejo y parcial—, pero el PARCHE se perdía siempre.
+  # Evidencia al descubrirlo: `fallidos-T26` tenía 9 transcripts y 0 parches, mientras
+  # `fallidos-T05`, que pasa por correr-tarea.sh (el hermano que lo hace bien), tenía 3.
+  # O sea que la fábrica de dataset no recogía NADA del camino de tests, que es justo donde
+  # el método mide que el agente falla más: 4 de 15 escribiendo tests, 0 implementando.
   conservar_intento "$wt" "${id:-${TAREA:-tests}}"
+  rm -rf "$wt"
   git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
   git -C "$RAIZ" branch -D "tests/$id" 2>/dev/null
+  # El mismo guardia que correr-tarea.sh, y por la misma razón: el worktree sale de HEAD.
+  # Acá la consecuencia es PEOR —allá se pierde una corrida, acá se acepta y se copia al
+  # tronco el test del enunciado viejo—, porque la validación compara el test del agente
+  # contra la implementación de referencia del propio agente, las dos escritas contra el
+  # enunciado que el agente vio. Los tres pasos pasan y el artefacto equivocado aterriza.
+  tarea_sin_commitear "$id" || break
   git -C "$RAIZ" worktree add -q -b "tests/$id" "$wt" || { echo "✗ $id: no pude crear el worktree"; break; }
   # El enunciado que el agente va a leer es el de ESTE worktree, recién salido de HEAD. Si
   # cambió desde el intento anterior, el sujeto es otro y los contadores arrancan de cero:
@@ -276,13 +289,30 @@ for id in "$@"; do
         if [ "$MUTABLE" != "1" ]; then
           echo "  ⊘ no hay mutador para «${ruta}»: el test pasa los dos primeros pasos y el"
           echo "     tercero (¿distingue?) no pudo verificarse. No es un pase."
-        elif BASE=HEAD~1 CODIGO="$CODIGO" SUITE="$prueba" python3 "$AQUI/mutar.py" >/dev/null 2>&1; then
+        else
+        # El CODIGO sale de lo que ESTA tarea declara, no de un default. Valía `src` y nadie
+        # lo seteaba nunca: en un proyecto cuyo código vive en `backend/app` y `frontend/src`
+        # el filtro de mutar.py no matcheaba un solo archivo, devolvía 0, y esto imprimía
+        # «✓ los mutantes mueren» con la salida silenciada. Todo clasificados, siempre.
+        CODIGO_TAREA="$(for f in $impl; do dirname "$f"; done | sort -u | paste -sd, -)"
+        BASE=HEAD~1 CODIGO="${CODIGO_TAREA:-$CODIGO}" SUITE="$prueba" \
+          python3 "$AQUI/mutar.py" >/dev/null 2>&1
+        RC_MUT=$?
+        if [ "$RC_MUT" = "0" ]; then
           echo "  ✓ los mutantes mueren: el test distingue"
+        elif [ "$RC_MUT" = "2" ]; then
+          # 2 es el ⊘ de mutar.py: no hubo nada que mutar. No es un pase, igual que el caso
+          # de TypeScript de arriba, y se dice con las mismas palabras.
+          echo "  ⊘ no hubo nada que mutar bajo «${CODIGO_TAREA:-$CODIGO}»: el test pasa los dos"
+          echo "     primeros pasos y el tercero (¿distingue?) no pudo verificarse. No es un pase."
+          BASE=HEAD~1 CODIGO="${CODIGO_TAREA:-$CODIGO}" SUITE="$prueba" \
+            python3 "$AQUI/mutar.py" 2>&1 | sed 's/^/     /'
         else
           SOBREVIVEN="$(BASE=HEAD~1 CODIGO="$CODIGO" SUITE="$prueba" python3 "$AQUI/mutar.py" 2>&1 \
                          | grep '→' | head -3 | tr '\n' ' ' | cut -c1-400)"
           malo "sobreviven mutantes: el test cubre las líneas y no verifica su comportamiento.${SOBREVIVEN:+ Sobrevivió: $SOBREVIVEN}"
           echo "$SOBREVIVEN" | tr ';' '\n' | sed 's/^/     /'
+        fi
         fi
         # 4. El BRAZO NULO: con los cuerpos vaciados, el test tiene que FALLAR.
         #

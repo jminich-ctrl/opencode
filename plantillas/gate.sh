@@ -127,6 +127,24 @@ veredicto_con_linea_base() {
   base_f="$(sort -u .tests-base 2>/dev/null)"
   nuevas="$(comm -13 <(printf '%s\n' "$base_f") <(printf '%s\n' "$ahora") | grep . || true)"
 
+  # Si la suite dice ROJO y el extractor no entendió NADA de su salida, juzgar con una lista
+  # vacía es juzgar nada: `mios` y `nuevas` salen vacíos y el veredicto es VERDE. Pasó con
+  # vitest: `fallas()` enumeraba formatos de línea de falla y el de vitest lleva dos espacios
+  # donde el patrón pedía uno, así que las 15 tareas de frontend de clasificados no podían
+  # dar rojo acá. La evidencia es de un log real: en T11 el agente murió sin tocar un archivo
+  # y este paso escribió «✓ los tests de T11 pasan … y <su test> en verde».
+  #
+  # Esto es lo que vuelve durable el arreglo: el patrón se puede volver a quedar corto —toda
+  # lista de formatos envejece—, pero un extractor que devuelve vacío contra una suite en
+  # rojo ya no puede pasar por verde.
+  if [ "${RC:-0}" != "0" ] && [ -z "$(printf '%s' "$ahora" | grep . || true)" ]; then
+    rojo "la suite da rojo y el extractor de fallas no entendió su salida: no hay con qué juzgar"
+    echo "     Un extractor que devuelve vacío con la suite en rojo vuelve VERDE a toda tarea."
+    echo "     Arreglá \`fallas()\` en scripts/correr-suite.sh. Lo que la suite dijo:"
+    printf '%s\n' "$SALIDA" | tail -5 | sed 's/^/       /'
+    return
+  fi
+
   esperado="$(test_de_la_tarea)"
   ruta_t="$(echo "$esperado" | cut -d' ' -f1)"
   # Los ids vienen en dos formatos según el corredor: pytest nombra el archivo
@@ -139,6 +157,27 @@ veredicto_con_linea_base() {
     mios="$(printf '%s\n' "$ahora" | grep -F -e "$ruta_t" -e "$mod_t" || true)"
   else
     mios=""
+  fi
+
+  # ¿Falta el corredor de LA MITAD donde vive el test de esta tarea? Entonces sus tests no
+  # corrieron y no hay con qué juzgarla. La línea base de `FALTA_CORREDOR` no nombra ninguna
+  # ruta de test, así que `mios` queda vacío POR CONSTRUCCIÓN y el veredicto salía:
+  #     ✓ los tests de T02 pasan; sigue fallando sólo lo de la línea base (tests-first)
+  # con CERO tests ejecutados. El comentario de la rama que llega acá afirma «la regla sigue
+  # exigiendo que SUS tests pasen»: no podía, no tenía con qué.
+  #
+  # Y no es rojo a secas: si falta el corredor del frontend, los tests de una tarea de
+  # backend SÍ corrieron. Ése era el cadáver original —el gate reprobando a T02 y T03 porque
+  # el package.json de T30 no había aterrizado—, así que el veredicto depende de la mitad.
+  if [ -n "$ruta_t" ] || true; then
+    local mitad=""
+    case "${ruta_t:-}" in frontend/*) mitad="frontend" ;; backend/*) mitad="backend" ;; esac
+    if printf '%s\n%s\n' "$ahora" "$base_f" | grep -q "FALTA_CORREDOR${mitad:+ $mitad}"; then
+      rojo "falta el corredor de ${mitad:-la suite}${ruta_t:+, que es donde vive $ruta_t}: sus tests no corrieron"
+      echo "     Cero tests de $TAREA se ejecutaron: no hay con qué juzgarla. Un ⊘ no es un pase."
+      echo "     Es del método y no del código: bash \$AGENTES/scripts/preparar-entorno.sh"
+      return
+    fi
   fi
 
   if [ -n "$mios" ]; then
@@ -201,7 +240,14 @@ case "$RC" in
      testigo "scripts/correr-suite.sh, el mismo comando que valida los tests" ;;
   2) rojo "la suite no corrió ningún test: sin tests no hay gate"
      echo "$SALIDA" | tail -5 | sed 's/^/     /' ;;
-  3) if [ -z "${TAREA:-}" ] && [ -f .tests-base ] && grep -q FALTA_CORREDOR .tests-base; then
+  3) # `-n`, no `-z`: la rama de línea base sólo tiene sentido EN modo tarea —imprime «los
+     # tests de $TAREA» y lee `.tests-base`, que vive en el worktree—. La plantilla tenía la
+     # condición dada vuelta, y diez líneas más abajo el caso `*)` del mismo `case` usa `-n`.
+     # Nació bien y la invirtió un commit sobre otra cosa; los dos proyectos la tienen bien.
+     # Con `-z`, en un proyecto nuevo cada tarea de la etapa —incluidas las que no tocaron la
+     # mitad sin corredor— recibe «falta el corredor de tests» y agota sus reintentos contra
+     # un rojo que ninguna puede arreglar.
+     if [ -n "${TAREA:-}" ] && [ -f .tests-base ] && grep -q FALTA_CORREDOR .tests-base; then
        # Ya faltaba antes de esta tarea: es la línea base, no su culpa. Pasa por la misma
        # regla que el resto, que además exige que SUS tests pasen.
        veredicto_con_linea_base

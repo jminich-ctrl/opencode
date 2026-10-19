@@ -35,10 +35,30 @@ fi
 # el tronco está rojo por diseño mientras una etapa está en vuelo —sus tests están
 # commiteados y su implementación no—, así que exigir verde haría el método incompatible
 # consigo mismo. Lo que importa es que el merge no agregue fallas NUEVAS.
+# Las fallas del tronco, UNA POR UNA.
+#
+# Las dos capturas salían de `gate.sh | grep '✗'`, y en modo integración el paso 1 del gate
+# colapsa toda la suite en UNA línea constante: «✗ la suite está en rojo». Así que el
+# `comm -13` entre antes y después comparaba dos listas idénticas de un elemento y siempre
+# salía vacío: «no agregó fallas nuevas» era un veredicto que no podía fallar. Un merge que
+# rompiera veinte tests —incluido un ImportError que aborta la colección entera— pasaba, se
+# marcaba ✅ hecha y se borraba la rama. Así entraron T14, T20 y T28 el 2026-10-19.
+#
+# `correr-suite.sh --fallas` es el MISMO comando que el runner usa para la línea base de cada
+# tarea, y lista las fallas de a una. Cuesta una corrida de suite extra por captura; el
+# veredicto que reemplaza no costaba nada y no medía nada.
+fallas_del_tronco() {
+  ( cd "$BASE" && bash scripts/correr-suite.sh --fallas 2>/dev/null | grep . | sort -u )
+  # Y los chequeos del gate que NO son la suite: ésos sí son una línea por falla. Se saca la
+  # línea resumen de la suite para no mezclar granularidades.
+  ( cd "$BASE" && TAREA= bash scripts/gate.sh 2>&1 ) \
+    | grep '✗' | grep -v 'la suite está en rojo' | sed 's/^ *//' | sort -u
+}
+
 FALLAS_BASE=""
 if [ "$SOLO_VER" != "1" ]; then
   echo "── línea base del tronco"
-  FALLAS_BASE="$( (cd "$BASE" && TAREA= bash scripts/gate.sh 2>&1) | grep '✗' | sort -u || true)"
+  FALLAS_BASE="$(fallas_del_tronco || true)"
   if [ -z "$FALLAS_BASE" ]; then
     echo "  ✓ el tronco está verde: lo que rompa de acá en más es del merge"
   else
@@ -106,7 +126,7 @@ for id in "${CANDIDATAS[@]}"; do
 
   # El gate del tronco, después de cada merge. Diez merges juntos y un tronco rojo no
   # dicen cuál lo rompió.
-  FALLAS_AHORA="$( (cd "$BASE" && TAREA= bash scripts/gate.sh 2>&1) | grep '✗' | sort -u || true)"
+  FALLAS_AHORA="$(fallas_del_tronco || true)"
   NUEVAS_FALLAS="$(comm -13 <(echo "$FALLAS_BASE") <(echo "$FALLAS_AHORA") | grep . || true)"
   if [ -z "$NUEVAS_FALLAS" ]; then
     if [ -z "$FALLAS_AHORA" ]; then echo "  ✓ tronco verde después de $id"
@@ -118,7 +138,7 @@ for id in "${CANDIDATAS[@]}"; do
     # un test inestable. Medido en Google: el 84% de las transiciones pasa→falla son flaky.
     # Si las dos corridas no coinciden, el problema es el test y lo decide una persona:
     # aceptar el verde del segundo intento es exactamente cómo la inestabilidad tapa fallas.
-    FALLAS_REPETIR="$( (cd "$BASE" && TAREA= bash scripts/gate.sh 2>&1) | grep '✗' | sort -u || true)"
+    FALLAS_REPETIR="$(fallas_del_tronco || true)"
     if [ -z "$(comm -13 <(echo "$FALLAS_BASE") <(echo "$FALLAS_REPETIR") | grep . || true)" ]; then
       echo "  ⚠ $id: la segunda corrida no repite las fallas de la primera. Hay un test inestable."
       echo "     No se acepta ni se descarta: arreglá el test. El merge queda hecho y se para acá."

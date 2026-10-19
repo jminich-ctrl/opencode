@@ -76,6 +76,28 @@ SALIDA="$(bash scripts/correr-suite.sh 2>&1)"; RC=$?
 # canónica, en el marcador de fase del archivo de tarea:
 #     Archivo: `<ruta>`, clase `<Clase>`.
 # Devuelve «ruta clase», o vacío si la tarea no la declara.
+# Los archivos que la tarea declara. UN solo lector para UNA sola declaración, igual que
+# `test_de_la_tarea`: el paso 2 y el paso 4 leían la misma línea del archivo de tarea con dos
+# parsers distintos, y el del paso 4 era una lista de extensiones que envejeció.
+archivos_de_la_tarea() {
+  sed -n 's/^\*\*Archivos que podés tocar:\*\* *//p' "tareas/${TAREA:-}"-*.md 2>/dev/null \
+    | tr ',' '\n' | grep -oE '[A-Za-z0-9_./-]+(\.[A-Za-z0-9]+|/)' | sort -u
+}
+
+# ¿Este archivo está dentro de lo que la tarea declara? Mismo criterio que el paso 2: un
+# directorio cubre lo de abajo, un archivo es exacto.
+declarado_por_la_tarea() {
+  local archivo="$1" permitido
+  while read -r permitido; do
+    [ -n "$permitido" ] || continue
+    case "$permitido" in
+      */) case "$archivo" in "$permitido"*) return 0 ;; esac ;;
+      *) [ "$archivo" = "$permitido" ] && return 0 ;;
+    esac
+  done <<< "$(archivos_de_la_tarea)"
+  return 1
+}
+
 test_de_la_tarea() {
   # Sin anclar en «Archivo:»: la declaración aparece en dos formas en el repo,
   #     Archivo: `backend/tests/test_errores.py`, clase `TestErrores`.
@@ -93,6 +115,24 @@ veredicto_con_linea_base() {
   base_f="$(sort -u .tests-base 2>/dev/null)"
   nuevas="$(comm -13 <(printf '%s\n' "$base_f") <(printf '%s\n' "$ahora") | grep . || true)"
 
+  # Si la suite dice ROJO y el extractor no entendió NADA de su salida, juzgar con una lista
+  # vacía es juzgar nada: `mios` y `nuevas` salen vacíos y el veredicto es VERDE. Pasó con
+  # vitest: `fallas()` enumeraba formatos de línea de falla y el de vitest lleva dos espacios
+  # donde el patrón pedía uno, así que las 15 tareas de frontend de clasificados no podían
+  # dar rojo acá. La evidencia es de un log real: en T11 el agente murió sin tocar un archivo
+  # y este paso escribió «✓ los tests de T11 pasan … y <su test> en verde».
+  #
+  # Esto es lo que vuelve durable el arreglo: el patrón se puede volver a quedar corto —toda
+  # lista de formatos envejece—, pero un extractor que devuelve vacío contra una suite en
+  # rojo ya no puede pasar por verde.
+  if [ "${RC:-0}" != "0" ] && [ -z "$(printf '%s' "$ahora" | grep . || true)" ]; then
+    rojo "la suite da rojo y el extractor de fallas no entendió su salida: no hay con qué juzgar"
+    echo "     Un extractor que devuelve vacío con la suite en rojo vuelve VERDE a toda tarea."
+    echo "     Arreglá \`fallas()\` en scripts/correr-suite.sh. Lo que la suite dijo:"
+    printf '%s\n' "$SALIDA" | tail -5 | sed 's/^/       /'
+    return
+  fi
+
   esperado="$(test_de_la_tarea | cut -d' ' -f1)"
   ruta_t="${esperado:-}"
   # Los ids vienen en dos formatos según el corredor: pytest nombra el archivo
@@ -105,6 +145,27 @@ veredicto_con_linea_base() {
     mios="$(printf '%s\n' "$ahora" | grep -F -e "$ruta_t" -e "$mod_t" || true)"
   else
     mios=""
+  fi
+
+  # ¿Falta el corredor de LA MITAD donde vive el test de esta tarea? Entonces sus tests no
+  # corrieron y no hay con qué juzgarla. La línea base de `FALTA_CORREDOR` no nombra ninguna
+  # ruta de test, así que `mios` queda vacío POR CONSTRUCCIÓN y el veredicto salía:
+  #     ✓ los tests de T02 pasan; sigue fallando sólo lo de la línea base (tests-first)
+  # con CERO tests ejecutados. El comentario de la rama que llega acá afirma «la regla sigue
+  # exigiendo que SUS tests pasen»: no podía, no tenía con qué.
+  #
+  # Y no es rojo a secas: si falta el corredor del frontend, los tests de una tarea de
+  # backend SÍ corrieron. Ése era el cadáver original —el gate reprobando a T02 y T03 porque
+  # el package.json de T30 no había aterrizado—, así que el veredicto depende de la mitad.
+  if [ -n "$ruta_t" ] || true; then
+    local mitad=""
+    case "${ruta_t:-}" in frontend/*) mitad="frontend" ;; backend/*) mitad="backend" ;; esac
+    if printf '%s\n%s\n' "$ahora" "$base_f" | grep -q "FALTA_CORREDOR${mitad:+ $mitad}"; then
+      rojo "falta el corredor de ${mitad:-la suite}${ruta_t:+, que es donde vive $ruta_t}: sus tests no corrieron"
+      echo "     Cero tests de $TAREA se ejecutaron: no hay con qué juzgarla. Un ⊘ no es un pase."
+      echo "     Es del método y no del código: bash \$AGENTES/scripts/preparar-entorno.sh"
+      return
+    fi
   fi
 
   if [ -n "$mios" ]; then
@@ -386,7 +447,21 @@ if grep -rnE "\bTODO\b" backend/app frontend/src --exclude-dir=__pycache__ 2>/de
 # ── 4. ¿Los tests distinguen? (sólo en modo tarea)
 if [ -n "${TAREA:-}" ]; then
   echo "── 4. ¿Los tests distinguen?"
-  IMPL="$(echo "$CAMBIADOS" | grep -E '^(backend/app|frontend/src)/.*\.(py|ts|tsx|jsx)$' || true)"
+  # La implementación es LO QUE LA TAREA DECLARA menos su archivo de test, no lo que matchea
+  # una lista de extensiones. La lista decía `(backend/app|frontend/src)/.*\.(py|ts|tsx|jsx)$`
+  # y dejaba afuera `.scss` (T13, T19), `.sql` (T03) y los manifiestos (T30): con IMPL vacío
+  # el paso imprimía «⊘ no hay implementación que revertir» y el gate cerraba VERDE con el
+  # ÚNICO chequeo de que los tests distinguen sin correr. T19 era el caso extremo: su test es
+  # `.test.ts` —invisible para el extractor de fallas— y su implementación `.scss`, así que
+  # ningún paso del gate la verificaba.
+  IMPL=""
+  while read -r f; do
+    [ -n "$f" ] || continue
+    [ "$f" = "${RUTA_DECLARADA:-}" ] && continue
+    declarado_por_la_tarea "$f" && IMPL="$IMPL
+$f"
+  done <<< "$CAMBIADOS"
+  IMPL="$(printf '%s' "$IMPL" | grep . || true)"
   TMP="$(mktemp -d)"; REVERTIDOS=""
   PREFIJO="$(git rev-parse --show-prefix)"   # vacío si el proyecto es la raíz del repo
   for f in $IMPL; do

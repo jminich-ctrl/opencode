@@ -558,11 +558,22 @@ class TestPortabilidadBash32(unittest.TestCase):
             yield from sorted(d.glob("*.sh"))
 
     def test_ninguna_variable_pegada_a_un_caracter_multibyte(self):
+        """Sólo las líneas que bash EJECUTA. Mirando el archivo entero, el chequeo reprueba la
+        prosa: un comentario que escriba «los tests de $TAREA» queda marcado, y bash nunca
+        evalúa un comentario. Pasó el 2026-10-19 con un comentario que explicaba un arreglo.
+        Es la misma forma que el repo viene arreglando todo el día —un chequeo tan ancho que
+        marca a todos— y acá la víctima era la documentación.
+
+        Se saltan las líneas de comentario PURO, no los comentarios al final de una línea de
+        código: ahí todavía puede haber un `$var` pegado que sí importa."""
         malos = []
         for f in self.scripts():
             datos = f.read_bytes()
             for m in self.PEGADA.finditer(datos):
                 linea = datos[:m.start()].count(b"\n") + 1
+                texto = datos.split(b"\n")[linea - 1]
+                if texto.lstrip().startswith(b"#"):
+                    continue
                 malos.append(f"{f.relative_to(RAIZ)}:{linea} — "
                              f"{m.group(0).decode('utf-8', 'replace')}")
         self.assertEqual(malos, [],
@@ -2742,6 +2753,186 @@ class TestUnPuntoMuertoDiceQueSignifica(unittest.TestCase):
                       "el diagnóstico no se usa donde se detecta el punto muerto")
 
 
+class TestLoQueLaAuditoriaEncontro(unittest.TestCase):
+    """Cinco auditorías en paralelo, una por FORMA de defecto, el 2026-10-19. Todo lo de acá
+    salió de ahí y está verificado contra el código o contra logs reales. El resultado grande:
+    el gate estaba parcialmente decorativo. Ver AUDITORIA-20261019.md."""
+
+    # ── 1. Las fallas de vitest eran invisibles al paso 1, por DOS causas independientes
+    def test_el_extractor_ve_las_fallas_de_vitest_y_con_la_ruta_del_plan(self):
+        """Causa A: vitest padea la etiqueta a dos espacios y el patrón pedía uno, con `>`
+        obligatorio. Causa B: corre con `--root frontend`, así que imprime `tests/x.test.ts`
+        mientras la tarea declara `frontend/tests/x.test.ts` — el `grep -F` del gate no podía
+        matchear ni con el patrón arreglado. 15 tareas, 8 ya marcadas hechas."""
+        s = (RAIZ / "ejemplo-clasificados" / "scripts" / "correr-suite.sh").read_text()
+        i = s.index("fallas() {"); cuerpo = s[i:s.index("\n}", i)]
+        self.assertIn("frontend/", cuerpo, "falta el prefijo que empareja con lo que declara el plan")
+        self.assertIn("sed -E", cuerpo, "el `\\|` de BRE no existe en el sed de BSD")
+        # Y la conducta, con las dos formas reales sacadas de logs de este repo:
+        guion = ("printf '%s\\n' ' FAIL  tests/a.test.ts [ tests/a.test.ts ]' "
+                 "' FAIL  tests/b.test.ts > TestB > caso' ' ✓ tests/ok.test.ts (3 tests)' "
+                 "| grep -oE '^ *(FAIL|×)[[:space:]]+[^ ]+' "
+                 "| sed -E 's/^ *//; s/^(FAIL|×)[[:space:]]*//; s/ *$//' | grep . "
+                 "| sed 's#^#frontend/#'")
+        r = correr("bash -c " + shlex.quote(guion), RAIZ)
+        self.assertEqual(sorted(r.stdout.split()),
+                         ["frontend/tests/a.test.ts", "frontend/tests/b.test.ts"])
+
+    def test_un_extractor_vacio_contra_una_suite_roja_es_rojo(self):
+        """Lo que vuelve durable el arreglo: toda lista de formatos envejece, pero juzgar con
+        una lista vacía es juzgar nada. Evidencia de un log real: en T11 el agente murió sin
+        tocar un archivo y el paso 1 escribió «✓ los tests de T11 pasan … y <su test> en
+        verde»."""
+        for g in (PLANTILLAS / "gate.sh",
+                  RAIZ / "ejemplo-clasificados" / "scripts" / "gate.sh",
+                  RAIZ / "ejemplo-pacman" / "scripts" / "gate.sh"):
+            with self.subTest(gate=g.name + ":" + g.parent.name):
+                s = g.read_text()
+                self.assertIn("el extractor de fallas no entendió su salida", s)
+
+    # ── 2. Con el corredor ausente, el paso 1 decía que los tests de la tarea pasaban
+    def test_falta_el_corredor_de_su_mitad_no_es_un_verde(self):
+        """La línea base de `FALTA_CORREDOR` no nombra ninguna ruta de test, así que `mios`
+        quedaba vacío por construcción y el veredicto era verde con CERO tests corridos. Y no
+        alcanza con dar rojo siempre: si falta el corredor del frontend, los tests de una
+        tarea de backend sí corrieron — ése era el cadáver original (T30 contra T02 y T03)."""
+        for g in (PLANTILLAS / "gate.sh",
+                  RAIZ / "ejemplo-clasificados" / "scripts" / "gate.sh",
+                  RAIZ / "ejemplo-pacman" / "scripts" / "gate.sh"):
+            with self.subTest(gate=g.name + ":" + g.parent.name):
+                s = g.read_text()
+                self.assertIn('FALTA_CORREDOR${mitad', s, "no mira la mitad que le toca")
+                i = s.index('FALTA_CORREDOR${mitad')
+                self.assertIn("rojo ", s[i:i + 300], "detectarlo sin reprobar no sirve")
+                self.assertLess(i, s.index('if [ -n "$mios" ]'),
+                                "va antes del verde, o el verde gana")
+
+    # ── 3. integrar.sh comparaba una línea constante
+    def test_integrar_compara_fallas_de_a_una(self):
+        """En modo integración el paso 1 del gate colapsa la suite en UNA línea constante
+        —«✗ la suite está en rojo»—, así que el `comm` entre antes y después comparaba dos
+        listas idénticas de un elemento y siempre salía vacío. Un merge que rompiera veinte
+        tests pasaba y se marcaba ✅ hecha. Así entraron T14, T20 y T28."""
+        s = (SCRIPTS / "integrar.sh").read_text()
+        self.assertIn("fallas_del_tronco", s)
+        self.assertIn("correr-suite.sh --fallas", s, "la granularidad sale del mismo comando "
+                                                     "que usa el runner para la línea base")
+        i = s.index("fallas_del_tronco() {")
+        self.assertIn("la suite está en rojo", s[i:i + 900],
+                      "hay que sacar la línea resumen para no mezclar granularidades")
+        self.assertEqual(s.count("""| grep '✗' | sort -u || true)"""), 0,
+                         "quedó una captura con la comparación vieja")
+
+    # ── 4 y 5. Los dos ⊘ que mutar.py vendía como pase
+    def test_nada_que_mutar_es_un_circulo_y_no_un_pase(self):
+        """`CODIGO` valía `src` por defecto y nadie lo seteaba: en un proyecto cuyo código vive
+        en `backend/app` y `frontend/src`, mutar.py no encontraba un solo archivo, devolvía 0,
+        y escribir-tests.sh imprimía «✓ los mutantes mueren» con la salida silenciada. Era TODO
+        clasificados: 2 de los 4 tests aceptados ese día lo recibieron."""
+        s = (SCRIPTS / "mutar.py").read_text()
+        self.assertIn("return 2", s, "«nada que mutar» tiene que ser un ⊘, no un 0")
+        self.assertEqual(s.count("return 2"), 2,
+                         "los DOS caminos de «nada que mutar» tienen que devolver 2")
+        self.assertIn('split(",")', s, "CODIGO es una lista de prefijos, como dice el contrato")
+        e = (SCRIPTS / "escribir-tests.sh").read_text()
+        self.assertIn('RC_MUT" = "2"', e, "escribir-tests.sh tiene que distinguir el ⊘")
+        i = e.index('RC_MUT" = "2"')
+        self.assertIn("No es un pase", e[i:i + 400])
+        self.assertIn("CODIGO_TAREA", e, "el CODIGO sale de lo que la tarea declara")
+
+    def test_mutar_devuelve_2_cuando_no_hay_nada_bajo_CODIGO(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-mutar-")).resolve()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        (d / "backend").mkdir()
+        (d / "backend" / "x.py").write_text("def f():\n    return 1\n")
+        for cmd in (["init", "-q", "-b", "main"], ["add", "-A"],
+                    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"]):
+            subprocess.run(["git", *cmd], cwd=d, check=True, capture_output=True)
+        (d / "backend" / "x.py").write_text("def f():\n    return 2\n")
+        r = correr(f"BASE=HEAD CODIGO=src SUITE=true python3 {SCRIPTS}/mutar.py", d)
+        self.assertEqual(r.returncode, 2,
+                         f"con CODIGO que no matchea tiene que ser ⊘:\n{r.stdout}{r.stderr}")
+        self.assertIn("No es un pase", r.stdout)
+
+    # ── 6. El material del intento se destruía antes de conservarlo
+    def test_se_conserva_antes_de_destruir_el_worktree(self):
+        """`conservar_intento` arranca con `[ -d "$wt" ] || return 0` y estaba DESPUÉS del
+        `rm -rf`: código muerto. Evidencia al descubrirlo: `fallidos-T26` tenía 9 transcripts
+        y 0 parches, mientras `fallidos-T05` —que pasa por el hermano que lo hace bien— tenía
+        3. La fábrica de dataset no recogía nada del camino donde el agente falla más."""
+        for s_ in (SCRIPTS / "escribir-tests.sh", SCRIPTS / "correr-tarea.sh",
+                   SCRIPTS / "comparar-modelos.sh"):
+            with self.subTest(script=s_.name):
+                s = s_.read_text()
+                if "conservar_intento" not in s or 'rm -rf "$wt"' not in s:
+                    self.skipTest(f"{s_.name} no recrea worktrees así")
+                self.assertLess(s.index("conservar_intento"), s.index('rm -rf "$wt"'),
+                                "destruye el worktree antes de conservarlo: código muerto")
+
+    # ── 7. El guardia del árbol commiteado, en un solo lugar y con dos lectores
+    def test_el_guardia_del_arbol_commiteado_lo_leen_los_dos_runners(self):
+        """Estaba sólo en correr-tarea.sh. En escribir-tests.sh la consecuencia es peor: allá
+        se pierde una corrida, acá se ACEPTA y se copia al tronco el test del enunciado viejo,
+        porque la validación compara el test del agente contra la referencia del propio
+        agente, las dos escritas contra el enunciado que vio."""
+        self.assertIn("tarea_sin_commitear()", (SCRIPTS / "_comun.sh").read_text(),
+                      "una regla copiada en dos lados es una regla que va a divergir")
+        for s_ in (SCRIPTS / "correr-tarea.sh", SCRIPTS / "escribir-tests.sh"):
+            with self.subTest(script=s_.name):
+                s = s_.read_text()
+                self.assertIn('tarea_sin_commitear "$id"', s)
+                self.assertLess(s.index('tarea_sin_commitear "$id"'),
+                                s.index("worktree add"), "el guardia va antes del worktree")
+
+    def test_el_guardia_detecta_la_tarea_sucia_y_no_molesta_si_esta_limpia(self):
+        p = Proyecto()
+        self.addCleanup(shutil.rmtree, p.repo, ignore_errors=True)
+        dentro = (f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; ubicar_proyecto >/dev/null 2>&1; '
+                  'tarea_sin_commitear T01')
+        limpio = correr("bash -c " + shlex.quote(dentro), p.dir)
+        self.assertEqual(limpio.returncode, 0, f"falso positivo con el árbol limpio:\n{limpio.stdout}")
+        (p.dir / "tareas" / "T01-cosa.md").write_text(
+            (p.dir / "tareas" / "T01-cosa.md").read_text() + "\ncambio sin commitear\n")
+        sucio = correr("bash -c " + shlex.quote(dentro), p.dir)
+        self.assertEqual(sucio.returncode, 1, "no vio la tarea sucia")
+        self.assertIn("SIN COMMITEAR", sucio.stdout)
+
+    # ── 8. El paso 4 enumeraba extensiones
+    def test_el_paso_4_lee_el_alcance_declarado_y_no_una_lista_de_extensiones(self):
+        """La lista era `(backend/app|frontend/src)/.*\\.(py|ts|tsx|jsx)$` y dejaba afuera
+        `.scss` (T13, T19), `.sql` (T03) y los manifiestos (T30): con IMPL vacío el paso
+        imprimía ⊘ y el gate cerraba verde con el único chequeo de que los tests distinguen
+        sin correr. T19 era el caso extremo: test `.test.ts` invisible para el extractor de
+        fallas e implementación `.scss` invisible acá — ningún paso la verificaba."""
+        s = (RAIZ / "ejemplo-clasificados" / "scripts" / "gate.sh").read_text()
+        # Sólo las líneas que se EJECUTAN: el comentario del arreglo cita el patrón viejo, y
+        # en este repo cada arreglo documenta su cadáver. La primera versión de este test
+        # miraba el archivo entero y reprobaba su propia explicación — la trampa del día,
+        # cobrada sobre mí.
+        activas = [l for l in s.split("\n") if l.strip() and not l.strip().startswith("#")]
+        self.assertFalse([l for l in activas if ".(py|ts|tsx|jsx)$" in l],
+                         "sigue enumerando extensiones en código vivo")
+        self.assertIn("declarado_por_la_tarea", s)
+        self.assertIn("archivos_de_la_tarea()", s, "UN solo lector para UNA declaración")
+
+    def test_el_paso_4_ve_una_implementacion_scss(self):
+        proy = RAIZ / "ejemplo-clasificados"
+        guion = ('. /dev/stdin <<"SRC"\n'
+                 + "\n".join(l for l in (proy / "scripts" / "gate.sh").read_text().split("\n")
+                              if True)[:0]  # el heredoc se arma abajo
+                 + "SRC\n")
+        # Más simple y menos frágil: se extraen las dos funciones y se las ejercita.
+        fuente = (proy / "scripts" / "gate.sh").read_text()
+        def extraer(nombre):
+            i = fuente.index(f"{nombre}() {{")
+            return fuente[i:fuente.index("\n}", i) + 2]
+        script = (extraer("archivos_de_la_tarea") + "\n" + extraer("declarado_por_la_tarea")
+                  + '\ndeclarado_por_la_tarea "frontend/src/design/_favorites.scss"\n')
+        r = correr("bash -c " + shlex.quote(script), proy, TAREA="T19")
+        self.assertEqual(r.returncode, 0,
+                         f"el paso 4 no vería el .scss de T19:\n{r.stdout}{r.stderr}")
+
+
 class TestValidarPlan(CasoBase):
     def validar(self, extra=""):
         return correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py {extra}", self.p.dir)
@@ -3003,7 +3194,15 @@ class TestMutar(CasoBase):
                            "    return 42\n")
         self.p.git("add -A"); self.p.git("commit -qm aridos")
         r = self.mutar()
-        self.assertVerde(r, "todo lo agregado es árido")
+        # 2, no 0: «no hubo nada que mutar con provecho» es un ⊘ y no un pase. Lo que este
+        # test pina sigue siendo que los nodos áridos NO se mutan —el mensaje lo dice—, pero
+        # el veredicto no puede ser verde: si no se probó un solo mutante, nadie verificó que
+        # el test distinga. El ⊘ no bloquea la aceptación, igual que el de TypeScript; lo que
+        # cambia es que ya no miente.
+        self.assertEqual(r.returncode, 2,
+                         f"nada que mutar es un ⊘, no un verde:\n{r.stdout}{r.stderr}")
+        self.assertIn("No es un pase", r.stdout)
+        self.assertIn("árido", r.stdout, "y tiene que decir que lo agregado era árido")
         self.assertIn("árido", r.stdout)
 
 

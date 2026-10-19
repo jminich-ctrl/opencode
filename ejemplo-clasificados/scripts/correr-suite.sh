@@ -171,9 +171,26 @@ fallas() {
   sb="$(correr_backend 2>&1)"; rb=$?
   sf="$(correr_frontend 2>&1)"; rf=$?
   {
-    printf '%s\n%s\n' "$sb" "$sf" \
-      | grep -oE '^(FAILED|ERROR) [^ ]+|^ *(FAIL|×) [^ ]+ *>[^>]*' \
-      | sed 's/^ *//; s/ *$//'
+    # pytest nombra la ruta desde la raíz del proyecto: se toma tal cual.
+    printf '%s\n' "$sb" | grep -oE '^(FAILED|ERROR) [^ ]+' | sed 's/ *$//'
+    # vitest, dos causas independientes, las dos medidas:
+    #
+    #  1. padea la etiqueta a DOS espacios y no siempre pone el `>`. Las formas reales, de
+    #     logs de este repo: « FAIL  tests/x.test.ts [ tests/x.test.ts ]» y
+    #     « FAIL  tests/x.test.ts > TestX > caso». El patrón viejo pedía un espacio y un `>`
+    #     obligatorio: no capturaba NINGUNA. (Y el sed va con -E: el `\|` de BRE no existe
+    #     en el sed de BSD, que es el de esta Mac — tercera vez en el día que muerde.)
+    #  2. corre con `--root frontend`, así que imprime las rutas RELATIVAS a frontend/
+    #     (`tests/x.test.ts`) mientras la tarea declara `frontend/tests/x.test.ts`. Sin el
+    #     prefijo, el `grep -F "$ruta_t"` del gate no puede matchear nunca.
+    #
+    # Con las dos, las 15 tareas de frontend de clasificados no podían dar rojo en el paso 1
+    # del gate — y 8 de ellas ya están marcadas hechas. El guardia que lo vuelve durable está
+    # en el gate: un extractor vacío contra una suite en rojo ahora es ROJO, no verde.
+    printf '%s\n' "$sf" \
+      | grep -oE '^ *(FAIL|×)[[:space:]]+[^ ]+' \
+      | sed -E 's/^ *//; s/^(FAIL|×)[[:space:]]*//; s/ *$//' \
+      | grep . | sed 's#^#frontend/#'
     # Una mitad que no se puede correr también es una falla de la línea base. Pasó: el test
     # de T30 entró al tronco antes que su package.json con vitest, así que el frontend no
     # tenía corredor, y el gate reprobaba a T02 y T03 —tareas de backend— por eso.

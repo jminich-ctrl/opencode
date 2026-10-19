@@ -342,6 +342,39 @@ conservar_intento() {
   fi
 }
 
+# ¿Los archivos de esta tarea están commiteados?
+#
+#   tarea_sin_commitear <id>     0 = limpio, 1 = sucio (y lo imprime)
+#
+# El worktree sale del árbol COMMITEADO. Un arreglo del contrato o del test que esté sin
+# commitear NO llega al agente y no se entera nadie: trabaja contra la versión vieja, el gate
+# lo juzga contra la vieja, y el rojo que sale no habla de lo que arreglaste.
+#
+# Vive acá y no copiado en los dos runners porque es UNA declaración con DOS lectores, y una
+# regla copiada en dos lados es una regla que va a divergir — la forma que este repo repite.
+# Estaba sólo en `correr-tarea.sh`, y en `escribir-tests.sh` la consecuencia era peor: ahí no
+# se pierde una corrida, se ACEPTA el artefacto equivocado. El validador compara el test del
+# agente contra la implementación de referencia del propio agente, las dos escritas contra el
+# enunciado viejo, así que los tres pasos pasan y el test del contrato viejo se copia al
+# tronco. Lo encontró una auditoría, no una corrida: el defecto estaba latente.
+tarea_sin_commitear() {
+  local id="$1" sucios
+  sucios="$(cd "$RAIZ" && { git diff --name-only HEAD -- "$PROYECTO/tareas/${id}"-*.md 2>/dev/null
+      # Y el archivo de test que la tarea declara: el agente no lo toca, pero el gate lo usa.
+      local decl
+      decl="$(sed -n 's/.*`\([^`]*\)`, *clase `[A-Za-z0-9_]*`.*/\1/p' \
+              "$BASE/tareas/${id}"-*.md 2>/dev/null | head -1)"
+      [ -n "$decl" ] && git diff --name-only HEAD -- "$PROYECTO/$decl" 2>/dev/null
+    } | grep . | sort -u || true)"
+  [ -n "$sucios" ] || return 0
+  echo "✗ $id: estos archivos de la tarea tienen cambios SIN COMMITEAR, y el worktree sale"
+  echo "  del árbol commiteado: el agente trabajaría contra la versión vieja."
+  printf '     %s\n' $sucios
+  echo "  Commiteá el contrato y el test antes de lanzar, o el rojo que salga no va a hablar"
+  echo "  de lo que arreglaste."
+  return 1
+}
+
 # Qué significa un punto muerto, cuando se puede decir.
 #
 #   explicar_punto_muerto <huella>
