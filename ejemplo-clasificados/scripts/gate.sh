@@ -399,7 +399,9 @@ EOF
     fi
   fi
 fi
-if grep -rqE 'tailwind' frontend/ --include=*.json --include=*.js --include=*.ts 2>/dev/null; then rojo "apareció Tailwind: el diseño es propio"; else verde "sin librerías de diseño"; fi
+# Sin node_modules ni los locks: los instala `preparar-entorno.sh`, no el agente, y
+# es la clase de rojo que el filtro INFRA del paso 2 existe para evitar.
+if grep -rqE 'tailwind' frontend/ --exclude-dir=node_modules --exclude=package-lock.json --include=*.json --include=*.js --include=*.ts 2>/dev/null; then rojo "apareció Tailwind: el diseño es propio"; else verde "sin librerías de diseño"; fi
 # Por árbol sintáctico y no por grep de línea: la forma más común de apagar una señal
 # en Python ocupa tres líneas (`except X:` / comentario / `pass`) y un grep por línea no
 # la ve. Pasó en serio, y el agente citó mi propio texto de la tarea para justificarla.
@@ -415,7 +417,10 @@ else
   else
     ARG_SUP="backend/app frontend/src"
   fi
-  SAL_SUP="$("${PY_PROYECTO:-python3}" scripts/_suprimidas.py ${ARG_SUP} 2>&1)"; RC_SUP=$?
+  # Con BASE, `_suprimidas.py` acota al diff: una señal que ya estaba en el archivo
+  # no es de esta tarea. Sin esto le cobraba a cualquier tarea las tres de curses
+  # que viven en el pacman desde siempre.
+  SAL_SUP="$(BASE="${BASE_REF:-}" "${PY_PROYECTO:-python3}" scripts/_suprimidas.py ${ARG_SUP} 2>&1)"; RC_SUP=$?
   echo "$SAL_SUP"
   case "$RC_SUP" in 1) FALLOS=$((FALLOS+1)) ;; 2) VACIOS=$((VACIOS+1)) ;; esac
 fi
@@ -442,7 +447,18 @@ if [ -z "${TAREA:-}" ]; then
     verde "ningún test clava una ruta absoluta"
   fi
 fi
-if grep -rnE "\bTODO\b" backend/app frontend/src --exclude-dir=__pycache__ 2>/dev/null | grep -q .; then rojo "quedaron TODO sueltos"; else verde "sin TODO sueltos"; fi
+# El TODO, acotado a lo que ESTA tarea cambió, igual que sus tres vecinos (imports, señales
+# suprimidas, directorios vacíos). Barría el árbol entero: un `# TODO: paginar` que dejó otra
+# tarea en un archivo ajeno reprobaba a la de al lado, que no puede sacarlo sin salirse de su
+# alcance — y tocarlo la repruebe el paso 2. El único camino era escribir peor código.
+if [ -n "${TAREA:-}" ]; then
+  ARG_TODO="$(echo "$CAMBIADOS" | grep -E '\.(py|ts|tsx|js|jsx|scss|css|sql|md)$' | tr '\n' ' ')"
+else
+  ARG_TODO="backend/app frontend/src"
+fi
+if [ -z "$ARG_TODO" ]; then
+  vacuo "esta tarea no cambió archivos donde buscar TODO"
+elif grep -rnE "\bTODO\b" backend/app frontend/src --exclude-dir=__pycache__ 2>/dev/null | grep -q .; then rojo "quedaron TODO sueltos"; else verde "sin TODO sueltos"; fi
 
 # ── 4. ¿Los tests distinguen? (sólo en modo tarea)
 if [ -n "${TAREA:-}" ]; then

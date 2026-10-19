@@ -2933,6 +2933,127 @@ class TestLoQueLaAuditoriaEncontro(unittest.TestCase):
                          f"el paso 4 no vería el .scss de T19:\n{r.stdout}{r.stderr}")
 
 
+class TestLosChequeosQueReprobabanCodigoLegitimo(unittest.TestCase):
+    """La familia espejo de la auditoría del 2026-10-19: en vez de dejar pasar lo malo,
+    reprueban lo bueno. El resultado es que el chequeo se esquiva —escribiendo peor código— o
+    se aprende a ignorar. Ver AUDITORIA-20261019.md, hallazgos 9, 10 y 14."""
+
+    def test_el_patron_de_secretos_pide_un_literal(self):
+        """`[^a-z]{0,3}[:=]` aceptaba cero caracteres antes del `:`, así que `password: str`
+        matcheaba. Medido sobre el código del ejemplo: **17 de 88 líneas** candidatas daban
+        rojo, todas anotaciones de tipo, campos de Pydantic, un `useState` y hasta
+        `'password': os.environ.get('MYSQL_PASSWORD', '')`, que es lo contrario de un secreto
+        commiteado. El commit que integra el auth ponía G4 en rojo y el deploy no arrancaba."""
+        import re as _re
+        s = (PLANTILLAS / "pre-deploy.sh").read_text()
+        self.assertIn("DEL_ENTORNO", s, "las lecturas del entorno son la forma correcta")
+        self.assertIn("TRIVIAL", s, "falta la exención del literal que lleva el nombre adentro")
+        self.assertIn("PATRON_FLOJO", s,
+                      "el patrón flojo no puede desaparecer: tiene que quedar como aviso")
+        # Y la conducta de los patrones, con las líneas reales de los dos controles.
+        NOMBRE = r"(api[_-]?key|secret|password|passwd|token)"
+        PATRON = _re.compile(NOMBRE + r"""[^a-z]{0,3}[:=] *['"][^'"]{6,}['"]|BEGIN [A-Z ]*PRIVATE KEY""", _re.I)
+        ENT = _re.compile(r"environ|getenv|process\.env|import\.meta\.env", _re.I)
+        TRIV = _re.compile(NOMBRE + r"""[^a-z]{0,3}[:=] *['"][^'"]*""" + NOMBRE, _re.I)
+        def rojo(l):
+            return bool((not ENT.search(l)) and PATRON.search(l) and not TRIV.search(l))
+        legitimas = [
+            "def login(email: str, password: str) -> dict | None:",
+            "    password: str",
+            "const [password, setPassword] = useState('');",
+            "    'password': os.environ.get('MYSQL_PASSWORD', ''),",
+            "def usuario_desde_token(token: str) -> int | None:",
+            "json={'email': 'test@example.com', 'password': 'password'})",
+            'return {"token": "mocked-token-for-user-" + str(user.get("id"))}',
+        ]
+        for l in legitimas:
+            with self.subTest(linea=l[:50]):
+                self.assertFalse(rojo(l), "reprueba código legítimo")
+        secretos = ['api_key = "sk-live-abc123def456"',
+                    '    token: "eyJhbGciOiJIUzI1NiJ9"',
+                    "-----BEGIN RSA PRIVATE KEY-----",
+                    'password="hunter2000"']
+        for l in secretos:
+            with self.subTest(secreto=l[:40]):
+                self.assertTrue(rojo(l), "deja pasar un secreto de verdad")
+
+    def test_el_diff_de_pre_deploy_lleva_pathspec(self):
+        """Sin pathspec el diff barre el repo ENTERO: corriendo G4 del pacman entraban los
+        archivos del método, y sus fixtures de test están llenos de la palabra «password» a
+        propósito. El chequeo de dependencias ya lo filtraba; estos dos no."""
+        s = (PLANTILLAS / "pre-deploy.sh").read_text()
+        for linea in [l for l in s.split("\n") if 'git diff "$BASE"...HEAD -U0' in l]:
+            with self.subTest(linea=linea.strip()[:60]):
+                self.assertIn("PREFIJO", linea, "este diff barre el repo entero")
+
+    def test_las_senales_suprimidas_se_acotan_al_diff_y_tienen_forma_legitima(self):
+        """El gate pasa los archivos CAMBIADOS y `revisar()` leía cada archivo ENTERO: tres
+        `except Exception: pass` del idiom de curses, que viven en el pacman desde siempre,
+        reprobaban a cualquier tarea nueva sobre esos archivos —y son el alcance declarado de
+        T07, T08, T11 y T12—. No podía sacarlas sin romper el idiom ni tocarlas sin que el
+        paso 2 la reprobara: el único camino era escribir peor código."""
+        for s_ in (PLANTILLAS / "_suprimidas.py",
+                   RAIZ / "ejemplo-pacman" / "scripts" / "_suprimidas.py",
+                   RAIZ / "ejemplo-clasificados" / "scripts" / "_suprimidas.py"):
+            with self.subTest(copia=s_.parent.name):
+                s = s_.read_text()
+                self.assertIn("lineas_cambiadas", s, "no acota al diff")
+                self.assertIn("best-effort", s, "no deja ninguna forma legítima de escribirlo")
+        for g in (PLANTILLAS / "gate.sh",
+                  RAIZ / "ejemplo-clasificados" / "scripts" / "gate.sh",
+                  RAIZ / "ejemplo-pacman" / "scripts" / "gate.sh"):
+            with self.subTest(gate=g.parent.name):
+                self.assertIn('BASE="${BASE_REF:-}" "${PY_PROYECTO:-python3}" scripts/_suprimidas.py',
+                              g.read_text(), "el gate no le pasa la base, así que no puede acotar")
+
+    def test_una_senal_suprimida_nueva_sigue_cayendo(self):
+        """Brazo nulo del acote: si el filtro tapara todo, el chequeo dejaría de existir."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-sup-")).resolve()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        shutil.copy(PLANTILLAS / "_suprimidas.py", d / "_suprimidas.py")
+        f = d / "x.py"
+        f.write_text("def vieja():\n    try:\n        pass\n    except Exception:\n        pass\n")
+        for cmd in (["init","-q","-b","main"],["add","-A"],
+                    ["-c","user.email=t@t","-c","user.name=t","commit","-qm","base"]):
+            subprocess.run(["git",*cmd], cwd=d, check=True, capture_output=True)
+        vieja = correr("BASE=HEAD python3 _suprimidas.py x.py", d)
+        self.assertEqual(vieja.returncode, 0,
+                         f"le cobra a la tarea una señal que ya estaba:\n{vieja.stdout}")
+        f.write_text(f.read_text() + "\ndef nueva():\n    try:\n        pass\n"
+                     "    except Exception:\n        pass\n")
+        nueva = correr("BASE=HEAD python3 _suprimidas.py x.py", d)
+        self.assertEqual(nueva.returncode, 1, f"una señal NUEVA tiene que caer:\n{nueva.stdout}")
+        f.write_text(f.read_text().replace("    except Exception:\n        pass\n",
+                                           "    except Exception:  # best-effort: da igual\n        pass\n"))
+        exenta = correr("BASE=HEAD python3 _suprimidas.py x.py", d)
+        self.assertEqual(exenta.returncode, 0,
+                         f"la forma legítima tiene que pasar:\n{exenta.stdout}")
+
+    def test_el_TODO_se_acota_a_lo_que_la_tarea_cambio(self):
+        """Barría el árbol entero, sin guarda de TAREA ni filtro por lo cambiado, a diferencia
+        de sus tres vecinos inmediatos, que fueron acotados a propósito y con comentario. Un
+        `# TODO: paginar` que dejó otra tarea reprobaba a la de al lado, que no puede sacarlo
+        sin salirse de su alcance."""
+        for g in (PLANTILLAS / "gate.sh",
+                  RAIZ / "ejemplo-clasificados" / "scripts" / "gate.sh",
+                  RAIZ / "ejemplo-pacman" / "scripts" / "gate.sh"):
+            with self.subTest(gate=g.parent.name):
+                s = g.read_text()
+                self.assertIn("ARG_TODO", s, "el TODO no está acotado")
+                i = s.index("ARG_TODO")
+                self.assertIn('${TAREA:-}', s[max(0, i - 400):i + 200],
+                              "falta la guarda de modo tarea")
+
+    def test_el_detector_de_tailwind_no_mira_las_dependencias(self):
+        """Sin `--exclude-dir`, alcanzaba con que la cadena existiera en cualquier .json/.js/.ts
+        bajo frontend/, incluido `node_modules/`, que instala `preparar-entorno.sh` y no el
+        agente. Es la clase de rojo que el filtro INFRA del paso 2 existe para evitar."""
+        s = (RAIZ / "ejemplo-clasificados" / "scripts" / "gate.sh").read_text()
+        linea = next((l for l in s.split("\n") if "tailwind" in l and "grep -rq" in l), "")
+        self.assertTrue(linea, "no encontré el detector de Tailwind")
+        self.assertIn("--exclude-dir=node_modules", linea)
+
+
 class TestValidarPlan(CasoBase):
     def validar(self, extra=""):
         return correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py {extra}", self.p.dir)

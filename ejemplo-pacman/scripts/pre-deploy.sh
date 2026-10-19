@@ -13,6 +13,9 @@ set -uo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || exit 1
 RAIZ="$(git rev-parse --show-toplevel)"
 PREFIJO="${PWD#$RAIZ/}"; [ "$PREFIJO" = "$PWD" ] && PREFIJO=""
+# El pathspec va en TODOS los `git diff` de este script, no sólo en el de dependencias. Sin
+# él el diff barre el repo ENTERO: corriendo G4 del pacman entraban los archivos del método,
+# y sus fixtures de test están llenos de la palabra «password» a propósito.
 BASE="${1:-origin/main}"
 git rev-parse --verify -q "$BASE" >/dev/null || BASE="$(git rev-parse HEAD~1 2>/dev/null || echo HEAD)"
 
@@ -27,13 +30,42 @@ DIFF="$(git diff --name-only "$BASE"...HEAD ${PREFIJO:+-- "$RAIZ/$PREFIJO"} 2>/d
 echo "── 1. Secretos"
 # Un secreto commiteado ya está filtrado aunque lo borres en el commit siguiente:
 # hay que rotarlo. Por eso esto es rojo, no aviso.
-PATRON='(api[_-]?key|secret|password|passwd|token|BEGIN [A-Z ]*PRIVATE KEY)[^a-z]{0,3}[:=][^=]'
-if git diff "$BASE"...HEAD -U0 2>/dev/null | grep -iE '^\+' | grep -iEq "$PATRON"; then
+# Dos niveles, y el rojo pide un LITERAL. `[^a-z]{0,3}[:=]` aceptaba cero caracteres antes
+# del `:`, así que `password: str` matcheaba: medido, 21 líneas del proyecto de ejemplo, todas
+# anotaciones de tipo, campos de Pydantic, un `useState` y hasta
+# `'password': os.environ.get('MYSQL_PASSWORD', '')`, que es lo CONTRARIO de un secreto
+# commiteado. El commit que integra el auth del ejemplo ponía G4 en rojo y el deploy no
+# arrancaba. Un chequeo que reprueba el código que anda se aprende a esquivar.
+#
+# NOMBRE + separador + literal entre comillas de 6 o más = rojo. Y las líneas que leen del
+# entorno quedan afuera por nombre: son la forma correcta, no la sospechosa.
+NOMBRE='(api[_-]?key|secret|password|passwd|token)'
+PATRON="${NOMBRE}[^a-z]{0,3}[:=] *['\"][^'\"]{6,}['\"]|BEGIN [A-Z ]*PRIVATE KEY"
+DEL_ENTORNO='environ|getenv|process\.env|import\.meta\.env'
+# Y el literal que CONTIENE el nombre del campo es un fixture de test, no un secreto:
+# `'password': 'password'`, `'wrongpassword'`, `"mocked-token-for-user-"`. Eran los últimos
+# cinco falsos positivos de los 17 que el patrón viejo daba sobre el código del ejemplo.
+# El compromiso, dicho: un secreto cuyo valor lleve la palabra adentro se escapa del rojo y
+# cae en el aviso de abajo. No es un agujero callado, es un caso que queda a la vista.
+TRIVIAL="${NOMBRE}[^a-z]{0,3}[:=] *['\"][^'\"]*${NOMBRE}"
+# El patrón flojo no desaparece: lo que antes era rojo ahora es AVISO, así que un secreto sin
+# comillas se sigue viendo y nadie lo descubre tarde por un acote nuestro.
+PATRON_FLOJO="${NOMBRE}[^a-z]{0,3}[:=][^=]"
+AGREGADAS="$(git diff "$BASE"...HEAD -U0 ${PREFIJO:+-- "$RAIZ/$PREFIJO"} 2>/dev/null | grep -iE '^\+' | grep -viE "$DEL_ENTORNO" || true)"
+SOSPECHOSAS="$(printf '%s\n' "$AGREGADAS" | grep -iE "$PATRON" | grep -viE "$TRIVIAL" || true)"
+if [ -n "$SOSPECHOSAS" ]; then
   rojo "hay algo que parece un secreto en el diff"
-  git diff "$BASE"...HEAD -U0 | grep -iE '^\+' | grep -iE "$PATRON" | head -3 | sed 's/^/     /'
+  printf '%s\n' "$SOSPECHOSAS" | head -3 | sed 's/^/     /'
   echo "     si es real: rotalo, no alcanza con borrarlo del próximo commit"
 else
   verde "sin secretos evidentes en el diff"
+  # El patrón flojo, como aviso: acá entra el secreto sin comillas, que el rojo no pide.
+  FLOJAS="$(printf '%s\n' "$AGREGADAS" | grep -iE "$PATRON_FLOJO" | head -3 || true)"
+  if [ -n "$FLOJAS" ]; then
+    echo "     · nombres sospechosos sin literal (anotaciones de tipo, campos, lecturas del"
+    echo "       entorno: casi siempre legítimos). Mirá si alguno lleva un valor de verdad:"
+    printf '%s\n' "$FLOJAS" | sed 's/^/       /'
+  fi
 fi
 if echo "$DIFF" | grep -qE '(^|/)\.env$'; then rojo ".env en el diff"; fi
 
@@ -64,7 +96,7 @@ fi
 
 echo "── 4. Variables de entorno"
 # Las que el código nuevo lee y no están declaradas en el ejemplo del repo
-USADAS="$(git diff "$BASE"...HEAD -U0 | grep -E '^\+' \
+USADAS="$(git diff "$BASE"...HEAD -U0 ${PREFIJO:+-- "$RAIZ/$PREFIJO"} | grep -E '^\+' \
   | grep -oE "(os\.environ(\.get)?\(['\"][A-Z_]+|process\.env\.[A-Z_]+|getenv\(['\"][A-Z_]+)" \
   | grep -oE '[A-Z_]{3,}' | sort -u)"
 if [ -n "$USADAS" ]; then

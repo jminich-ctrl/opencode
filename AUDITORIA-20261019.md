@@ -22,12 +22,12 @@ el tronco, un «✓ en verde» sobre un test cuya implementación no existía).
 | 6 | `escribir-tests.sh` hace `rm -rf "$wt"` ANTES de `conservar_intento`, que arranca con `[ -d "$wt" ] \|\| return 0`: código muerto. Evidencia: `fallidos-T26` tiene 9 transcripts y **0 parches**; `fallidos-T05`, que pasa por el hermano, tiene 3 | arreglo sin su hermano | alta | arreglado |
 | 7 | `escribir-tests.sh` no verifica que los archivos de la tarea estén commiteados. Peor que en implementación: ahí se pierde una corrida, acá se **acepta y copia al tronco** el test del enunciado viejo | arreglo sin su hermano | alta | arreglado |
 | 8 | Toda la disciplina de cortes por tiempo vive sólo en `escribir-tests.sh`: `correr-plan.sh` no distingue inactividad de límite total, no tiene presupuestos, y no pregunta por la plataforma antes de culpar a la herramienta | arreglo sin su hermano | alta | parcial (el mensaje, sí) |
-| 9 | `_suprimidas.py` reprueba el idiom de `curses` del pacman —tres casos reales— y mira el archivo entero en vez de las líneas del diff, sin dejar ninguna forma legítima de escribirlo | chequeo demasiado ancho | media | pendiente |
-| 10 | El patrón de secretos de `pre-deploy.sh` marca **21 líneas reales** que son anotaciones de tipo (`password: str`): `[^a-z]{0,3}[:=]` acepta cero caracteres antes del `:` | chequeo demasiado ancho | media | pendiente |
+| 9 ✅ | `_suprimidas.py` reprueba el idiom de `curses` del pacman —tres casos reales— y mira el archivo entero en vez de las líneas del diff, sin dejar ninguna forma legítima de escribirlo | chequeo demasiado ancho | media | arreglado: acotado al diff + exención `# best-effort` auditable |
+| 10 ✅ | El patrón de secretos de `pre-deploy.sh` marca líneas reales que son anotaciones de tipo (`password: str`): `[^a-z]{0,3}[:=]` acepta cero caracteres antes del `:`. **Medido: 17 de 88** | chequeo demasiado ancho | media | arreglado: rojo pide literal, el patrón flojo queda como aviso, y los `git diff` llevan pathspec |
 | 11 | `control_se_movio` se auto-valida si la línea base quedó degenerada (`tools=0` apaga la primera mitad, un veredicto estable apaga la otra). Es el modo de falla para el que se escribió | veredicto que no puede fallar | media | pendiente |
 | 12 | La columna `instrumento` se escribe y **nadie la lee**: el porcentaje de `metricas.sh` mezcla hoy 6 instrumentos. Y sale del árbol commiteado, así que dos árboles de trabajo distintos comparten huella | declaración que nadie recibe | media | pendiente |
 | 13 | `correr-todo.sh` descarta con `2>/dev/null` los avisos de que el corte de etapas puede estar mal (dos tareas que escriben el mismo archivo pueden salir en paralelo) | declaración que nadie recibe | media | pendiente |
-| 14 | El grep de `TODO` y el detector de Tailwind barren el árbol entero —incluido `node_modules`— en modo tarea, sin acotar al diff como sus tres vecinos | chequeo demasiado ancho | baja | pendiente |
+| 14 ✅ | El grep de `TODO` y el detector de Tailwind barren el árbol entero —incluido `node_modules`— en modo tarea, sin acotar al diff como sus tres vecinos | chequeo demasiado ancho | baja | arreglado |
 | 15 | `plantillas/pre-deploy.sh` exige la palabra «down» DENTRO del archivo de migración y marca a la reversa misma; `plantillas/gate.sh` tiene `INTOCABLES='^(tests/|scripts/)'`, que no cubre `backend/tests/` | lista que envejece | baja | pendiente |
 
 ## Dos correcciones a los propios auditores
@@ -53,3 +53,22 @@ Los cinco auditores volvieron con la misma pregunta de fondo, cada uno en su for
 dando?** Si la respuesta es no, el chequeo no mide: decora. Y la variante más costosa no es
 el chequeo que falta, sino **el chequeo que imprime un ✓ que nadie se ganó**, porque además
 de no medir, convence.
+
+## Lo que costó arreglar la familia espejo
+
+Dos cosas que vale registrar, porque son el riesgo propio de este tipo de arreglo:
+
+1. **Acoté un chequeo demasiado ancho y lo volví demasiado angosto.** Al filtrar
+   `_suprimidas.py` por las líneas del diff, lo apagué para los archivos NUEVOS: `git diff` no
+   muestra lo que no existe en la base, así que el filtro devolvía un conjunto vacío y tapaba
+   todo, justo para los archivos que una tarea CREA, que son la mayoría. Lo atrapó la suite
+   del método —tres tests que no se escribieron hoy—, no yo. Sin ellos, el «arreglo» dejaba el
+   chequeo decorativo, que es el defecto que esta auditoría encontró cinco veces.
+
+2. **Destruí mi propio trabajo con el peligro que había arreglado tres horas antes.** Para el
+   control positivo de G4 hice `git add -A` + commit + `reset --hard HEAD~1`; ese `add -A` se
+   llevó las ediciones sin commitear de `pre-deploy.sh` al commit de prueba y el reset las
+   borró. Esa misma tarde había sacado el `git add -A` de un mensaje del método justamente
+   porque «barre el trabajo a medio hacer del humano». Se recuperó del reflog. La regla estaba
+   escrita, la conocía, y la incumplí: es el tercer caso del día de una regla que vive en un
+   documento y no en un comando.
