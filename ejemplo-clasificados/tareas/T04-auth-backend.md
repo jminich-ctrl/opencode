@@ -1,6 +1,6 @@
 # T04 — Auth backend (login, sesión)
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T02, T03, T06c
 **Archivos que podés tocar:** backend/app/rutas/auth.py, backend/app/servicios/auth.py, backend/app/datos/users.py
 **Prohibido tocar:** 
