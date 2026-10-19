@@ -80,13 +80,13 @@ vez de la aplicación.
 | T31 | Punto de entrada frontend | T30 | frontend/src/main.tsx, frontend/src/App.jsx | ✅ hecha |
 | T07 | Login page y servicio auth frontend | T31 | frontend/src/pages/Login.jsx, frontend/src/services/auth.ts | ✅ hecha |
 | T08 | Listado y detalle de avisos frontend | T07 | frontend/src/pages/AdsList.jsx, frontend/src/pages/AdDetail.jsx, frontend/src/services/ads.ts | ✅ hecha |
-| T14 | Favoritos datos | T05 | backend/app/datos/favorites.py | ✅ hecha |
+| T14 | Favoritos datos | T05 | backend/app/datos/favorites.py | pendiente |
 | T15 | Favoritos servicio | T14 | backend/app/servicios/favorites.py | pendiente |
 | T16 | Favoritos rutas | T15, T06c | backend/app/rutas/favorites.py | pendiente |
 | T17 | Favoritos servicio frontend | T16, T08 | frontend/src/services/favorites.ts | pendiente |
 | T18 | Favoritos UI lista | T17 | frontend/src/pages/AdsList.jsx | pendiente |
 | T19 | Favoritos SCSS | T18 | frontend/src/design/_favorites.scss | pendiente |
-| T20 | Mensajes datos | T05 | backend/app/datos/messages.py | ✅ hecha |
+| T20 | Mensajes datos | T05 | backend/app/datos/messages.py | pendiente |
 | T21 | Mensajes servicio | T20 | backend/app/servicios/messages.py | pendiente |
 | T22 | Mensajes rutas | T21, T06c | backend/app/rutas/messages.py | pendiente |
 | T23 | Mensajes servicio frontend | T22 | frontend/src/services/messages.ts | pendiente |
@@ -97,7 +97,7 @@ vez de la aplicación.
 | T13 | Sistema de diseño propio en SCSS | T30 | frontend/src/design/_variables.scss, frontend/src/design/_mixins.scss, frontend/src/design/main.scss | ✅ hecha |
 | T26 | Registro backend (creación de cuenta) | T03, T06c | backend/app/rutas/register.py, backend/app/servicios/register.py, backend/app/datos/users_register.py | ✅ hecha |
 | T27 | Registro frontend (página y servicio) | T31 | frontend/src/pages/Register.jsx, frontend/src/services/register.ts | ✅ hecha |
-| T28 | Búsqueda backend (texto y categoría) | T05, T06c | backend/app/rutas/search.py, backend/app/servicios/search.py, backend/app/datos/search_ads.py | ✅ hecha |
+| T28 | Búsqueda backend (texto y categoría) | T05, T06c | backend/app/rutas/search.py, backend/app/servicios/search.py, backend/app/datos/search_ads.py | pendiente |
 | T29 | Búsqueda frontend (UI y servicio) | T08 | frontend/src/components/SearchBar.jsx, frontend/src/services/search.ts | ✅ hecha |
 > Las etapas **no se declaran acá**: se deducen de la tabla de arriba, que es lo que
 > respeta las dependencias y los choques de archivo sin que nadie tenga que acordarse.
