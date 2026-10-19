@@ -84,6 +84,113 @@ def locales(raiz):
     return nombres
 
 
+def modulo_del_proyecto(nodo, archivo, raiz):
+    """La ruta del módulo que este `from X import ...` nombra, si es del proyecto.
+
+    Devuelve None si no se puede resolver a un archivo del árbol: entonces no es un import
+    interno y lo juzga el chequeo de requirements, que es el de arriba.
+    """
+    if nodo.level:
+        base = archivo.parent
+        for _ in range(nodo.level - 1):
+            base = base.parent
+        partes = (nodo.module or "").split(".") if nodo.module else []
+    else:
+        if not nodo.module:
+            return None
+        partes, base = nodo.module.split("."), raiz
+    cand = base
+    for parte in partes:
+        cand = cand / parte
+    for ruta in (cand.with_suffix(".py"), cand / "__init__.py"):
+        if ruta.is_file():
+            return ruta
+    return None
+
+
+def expone(ruta):
+    """Los nombres de nivel superior de un módulo, o None si no se puede saber.
+
+    None y no un conjunto vacío: con `from x import *` o un `__getattr__` de módulo, los
+    nombres se crean en tiempo de ejecución y afirmar que algo «no está» sería un falso
+    rojo. Un chequeo que marca a todos no distingue a ninguno.
+    """
+    try:
+        arbol = ast.parse(ruta.read_text())
+    except (SyntaxError, OSError, UnicodeDecodeError):
+        return None
+    nombres = set()
+    pendientes = list(arbol.body)
+    while pendientes:
+        n = pendientes.pop()
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            nombres.add(n.name)
+        elif isinstance(n, ast.Assign):
+            nombres.update(d.id for d in n.targets if isinstance(d, ast.Name))
+        elif isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name):
+            nombres.add(n.target.id)
+        elif isinstance(n, ast.Import):
+            nombres.update((a.asname or a.name).split(".")[0] for a in n.names)
+        elif isinstance(n, ast.ImportFrom):
+            for a in n.names:
+                if a.name == "*":
+                    return None
+                nombres.add(a.asname or a.name)
+        elif isinstance(n, (ast.If, ast.Try)):
+            # Definiciones condicionales (un `try: import x / except:`) cuentan igual.
+            for campo in ("body", "orelse", "finalbody"):
+                pendientes.extend(getattr(n, campo, []) or [])
+            for h in getattr(n, "handlers", []) or []:
+                pendientes.extend(h.body)
+    return None if "__getattr__" in nombres else nombres
+
+
+def internos_rotos(archivos, raiz):
+    """`from <modulo del proyecto> import <algo que no está>`.
+
+    Por qué existe: T14 se integró con `from .conexion import get_db_connection` y
+    conexion.py sólo exporta `configuracion()` y `conexion()`. El módulo no se podía
+    importar, el gate la cerró en VERDE —no tenía test declarado— y nadie se enteró hasta
+    que la tarea siguiente se estrelló contra ella. El chequeo de arriba no lo veía porque
+    SALTEA los módulos locales: eran el agujero justo en el medio del chequeo de imports.
+
+    Y el nombre inventado no fue casualidad: `get_db_connection` aparece en intentos de
+    TRES tareas distintas (T04, T15, T26). Está nombrado en AGENTS.md ahora; esto lo
+    reprueba cuando igual pasa.
+    """
+    rotos = []
+    for a in archivos:
+        try:
+            arbol = ast.parse(a.read_text())
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        for nodo in ast.walk(arbol):
+            if not isinstance(nodo, ast.ImportFrom):
+                continue
+            destino = modulo_del_proyecto(nodo, a, raiz)
+            if destino is None or destino == a:
+                continue
+            tiene = expone(destino)
+            if tiene is None:
+                continue
+            # `from paquete import submodulo` lo resuelve Python importando el submódulo:
+            # el `__init__.py` no tiene por qué nombrarlo. Sin esto el chequeo reprobaba
+            # `from backend.app.datos import users`, que es como el código que ANDA accede a
+            # la capa de datos —y es la forma que el propio método exige, para que el
+            # `@patch` del test aplique—. Lo encontró el control negativo contra el tronco:
+            # dos falsos positivos antes de que el chequeo viera la luz.
+            if destino.name == "__init__.py":
+                for sub in destino.parent.iterdir():
+                    if sub.suffix == ".py":
+                        tiene.add(sub.stem)
+                    elif sub.is_dir() and (sub / "__init__.py").is_file():
+                        tiene.add(sub.name)
+            for al in nodo.names:
+                if al.name != "*" and al.name not in tiene:
+                    rotos.append((a, al.name, destino))
+    return rotos
+
+
 def main():
     args = sys.argv[1:]
     raiz = pathlib.Path.cwd()
@@ -113,8 +220,18 @@ def main():
         print("     Declaralo en el requirements que corresponda o no lo importes. Si no está")
         print("     permitido en AGENTS.md, pará y decilo: la lista se amplía, no se esquiva.")
         return 1
+    rotos = internos_rotos(archivos, raiz)
+    if rotos:
+        print("  ✗ importa de un módulo del proyecto algo que ese módulo no define:")
+        for a, nombre, destino in rotos[:5]:
+            print(f"     {a}: `{nombre}` no está en {destino}")
+        print("     Mirá qué exporta ese módulo antes de importarle un nombre. Si el ayudante")
+        print("     que buscás no aparece, no es que falte: fijate cómo se llama (AGENTS.md).")
+        return 1
+
     print(f"  ✓ todo lo importado está declarado o es de la biblioteca estándar")
-    print(f"     · inspeccionó: {len(archivos)} archivo(s) .py contra los requirements*.txt")
+    print(f"     · inspeccionó: {len(archivos)} archivo(s) .py contra los requirements*.txt,")
+    print(f"       y los imports internos contra lo que cada módulo define")
     return 0
 
 

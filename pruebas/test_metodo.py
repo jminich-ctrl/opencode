@@ -2618,6 +2618,85 @@ class TestEditarUnScriptEnCursoNoPuedeQuedarCallado(unittest.TestCase):
                       "una corrida, es un inválido")
 
 
+class TestImportarDeUnModuloPropioAlgoQueNoDefine(unittest.TestCase):
+    """`_imports.py` cruzaba los imports contra los requirements y SALTEABA los módulos
+    locales, así que el agujero quedaba justo en el medio del chequeo de imports.
+
+    Cadáver: T14 se integró con `from .conexion import get_db_connection` y conexion.py sólo
+    exporta `configuracion()` y `conexion()`. El módulo no se podía importar, el gate la cerró
+    en VERDE —no tenía test declarado— y nadie se enteró hasta que la tarea siguiente se
+    estrelló contra ella. Y el nombre inventado aparece en intentos de TRES tareas distintas
+    (T04, T15, T26): tres fallas con la misma huella son una del enunciado, y por eso además
+    está nombrado en el AGENTS.md del proyecto."""
+
+    def proyecto(self, modulos):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-imp-")).resolve()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        (d / "requirements.txt").write_text("pymysql\n")
+        shutil.copy(PLANTILLAS / "_imports.py", d / "_imports.py")
+        for ruta, cuerpo in modulos.items():
+            f = d / ruta
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(cuerpo)
+        return d
+
+    def correr_imports(self, d, *archivos):
+        return correr("python3 _imports.py " + " ".join(archivos), d)
+
+    def test_un_nombre_que_el_modulo_no_define_es_rojo(self):
+        d = self.proyecto({
+            "app/__init__.py": "",
+            "app/conexion.py": "from contextlib import contextmanager\n\n"
+                               "@contextmanager\ndef conexion():\n    yield None\n",
+            "app/datos.py": "from .conexion import get_db_connection\n",
+        })
+        r = self.correr_imports(d, "app/datos.py")
+        self.assertEqual(r.returncode, 1, f"tenía que reprobar:\n{r.stdout}{r.stderr}")
+        self.assertIn("get_db_connection", r.stdout)
+        self.assertIn("no está en", r.stdout, "y tiene que decir dónde lo buscó")
+
+    def test_importar_un_submodulo_de_un_paquete_no_cuenta(self):
+        """Brazo nulo: `from paquete import submodulo` lo resuelve Python importando el
+        submódulo, y el `__init__.py` no tiene por qué nombrarlo. Es además la forma que el
+        método EXIGE para que el `@patch` del test aplique. Sin esto el chequeo reprobaba el
+        código que anda — lo encontró el control negativo contra el tronco, con dos falsos
+        positivos, antes de que esto viera la luz."""
+        d = self.proyecto({
+            "app/__init__.py": "",
+            "app/datos/__init__.py": "",
+            "app/datos/users.py": "def leer(email):\n    return None\n",
+            "app/servicios.py": "from app.datos import users\n\n"
+                                "def f(e):\n    return users.leer(e)\n",
+        })
+        r = self.correr_imports(d, "app/servicios.py")
+        self.assertEqual(r.returncode, 0,
+                         f"falso positivo sobre un submódulo:\n{r.stdout}{r.stderr}")
+
+    def test_con_import_estrella_no_afirma_nada(self):
+        """Los nombres se crean en tiempo de ejecución: decir «no está» sería un falso rojo.
+        Un chequeo que marca a todos no distingue a ninguno."""
+        d = self.proyecto({
+            "app/__init__.py": "",
+            "app/base.py": "from os.path import *\n",
+            "app/usa.py": "from .base import join\n",
+        })
+        r = self.correr_imports(d, "app/usa.py")
+        self.assertEqual(r.returncode, 0, f"no puede afirmar nada acá:\n{r.stdout}")
+
+    def test_las_tres_copias_del_chequeo_son_la_misma(self):
+        """El repo ya se comió el arreglo puesto de un solo lado más de una vez."""
+        copias = {g: g.read_text() for g in (
+            PLANTILLAS / "_imports.py",
+            RAIZ / "ejemplo-clasificados" / "scripts" / "_imports.py",
+            RAIZ / "ejemplo-pacman" / "scripts" / "_imports.py")}
+        for g, s in copias.items():
+            with self.subTest(copia=str(g.relative_to(RAIZ))):
+                self.assertIn("internos_rotos", s, "le falta el chequeo de imports internos")
+        self.assertEqual(len(set(copias.values())), 1,
+                         "las copias divergieron: " + ", ".join(
+                             str(g.relative_to(RAIZ)) for g in copias))
+
+
 class TestValidarPlan(CasoBase):
     def validar(self, extra=""):
         return correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py {extra}", self.p.dir)
