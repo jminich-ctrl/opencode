@@ -2316,6 +2316,104 @@ class TestUnaLlamadaEmitidaComoTextoNoEsUnaFallaDeLaTarea(unittest.TestCase):
                               f"nombre en hora local contra un log en UTC: {linea.strip()!r}")
 
 
+class TestLaMemoriaQueElRunnerEscribeNoFrenaLaIntegracion(CasoBase):
+    """`recordar_falla` escribía `memoria/TNN.md` en el tronco y lo dejaba SIN TRACKEAR, así
+    que `integrar.sh` —que se niega a mergear con el tronco sucio, y tiene razón— frenó la
+    etapa 1 de clasificados con T04b y T26 las dos en verde. El método bloqueándose con su
+    propia salida, y con un mensaje («el tronco tiene cambios sin commitear») que hace pensar
+    en un descuido del humano."""
+
+    def recordar(self):
+        return correr("bash -c " + shlex.quote(
+            f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; ubicar_proyecto >/dev/null 2>&1; '
+            'recordar_falla T01 "falló así: un import" "src/cosa.py"'), self.p.dir)
+
+    def test_despues_de_registrar_memoria_el_tronco_queda_limpio(self):
+        self.recordar()
+        self.assertTrue((self.p.dir / "memoria" / "T01.md").is_file(),
+                        "la memoria tiene que quedar escrita")
+        sucio = correr("git status --porcelain", self.p.repo).stdout.strip()
+        self.assertEqual(sucio, "",
+                         "el runner dejó el tronco sucio con su propia salida, y la etapa "
+                         f"siguiente no va a poder integrar:\n{sucio}")
+
+    def test_la_memoria_viaja_en_su_propio_commit(self):
+        self.recordar()
+        r = correr("git log -1 --format=%s", self.p.repo).stdout.strip()
+        self.assertEqual(r, "T01: memoria verificada",
+                         "el commit tiene que nombrarse como los otros del runner")
+        archivos = correr("git show --name-only --format= HEAD", self.p.repo).stdout.split()
+        self.assertEqual([a for a in archivos if a], ["proyecto/memoria/T01.md"],
+                         "commitea ESE archivo y no barre lo que haya sucio al lado")
+
+    def test_no_barre_otros_cambios_sin_commitear(self):
+        """Brazo nulo del anterior: si commiteara todo, el runner se llevaría puesto el
+        trabajo del humano y el tronco quedaría «limpio» por el motivo equivocado."""
+        ajeno = self.p.dir / "src" / "mio.py"
+        ajeno.write_text("# lo estaba editando yo\n")
+        self.recordar()
+        sucio = correr("git status --porcelain", self.p.repo).stdout
+        self.assertIn("src/mio.py", sucio,
+                      "se llevó puesto un cambio que no era suyo")
+
+    def test_sin_motivo_no_escribe_nada(self):
+        """Sin motivo no hay par (qué falló, qué lo arregló): no hay memoria que registrar, y
+        escribir un archivo vacío volvería a ensuciar el tronco por nada."""
+        correr("bash -c " + shlex.quote(
+            f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; ubicar_proyecto >/dev/null 2>&1; '
+            'recordar_falla T01 "" "src/cosa.py"'), self.p.dir)
+        self.assertFalse((self.p.dir / "memoria").exists(),
+                         "sin motivo no se escribe ni el directorio")
+
+
+class TestElInstrumentoNoMandaAlHumanoAHacerLoQueNoVa(unittest.TestCase):
+    """Dos mensajes del método que decían algo que no era, los dos cobrados el 2026-10-19
+    mientras diagnosticaba por qué la etapa 1 no integraba. Chequeos de forma: el primero
+    sólo se alcanza con una corrida de agente entera (el script exige al menos una tarea) y
+    el segundo necesita una integración que falle."""
+
+    def test_el_aviso_de_commitear_los_tests_no_sugiere_add_de_todo(self):
+        """Sugería `git add -A`, que barre el trabajo a medio hacer del humano a un commit
+        llamado «tests de …».
+
+        Mirando sólo las líneas que se IMPRIMEN: adentro del worktree desechable el script
+        hace `git add -A` y ahí está bien, porque ese árbol se tira. La primera versión de
+        este test miraba el archivo entero y reprobaba esa línea legítima — un detector que
+        marca a todos no distingue a ninguno, que es la lección del día."""
+        s = (SCRIPTS / "escribir-tests.sh").read_text()
+        impresas = [l for l in s.split("\n")
+                    if l.strip().startswith(("echo ", 'echo"', "printf ")) and "add -A" in l]
+        self.assertEqual(impresas, [],
+                         "un mensaje al humano sugiere `git add -A` sobre el tronco, y eso "
+                         "se lleva lo que no es suyo:\n  " + "\n  ".join(impresas))
+
+    def test_el_aviso_de_commitear_los_tests_sale_solo_si_hay_algo(self):
+        """Se imprimía SIEMPRE, incluso cuando las dos tareas se saltearon por «ya declara la
+        clase — no se toca». Lo leí con el tronco limpio y dudé del estado del repo."""
+        s = (SCRIPTS / "escribir-tests.sh").read_text()
+        i = s.index("Los tests aceptados están en el tronco sin commitear")
+        antes = s[max(0, i - 700):i]
+        self.assertIn("status --porcelain", antes,
+                      "el aviso no está guardado por el estado real del tronco")
+        self.assertIn('if [ -n "$SUCIO" ]', antes, "falta el `if` que lo condiciona")
+
+    def test_cuando_falla_la_integracion_el_hint_no_es_recorrer_la_etapa(self):
+        """`correr-todo.sh N` re-corre la etapa ENTERA. Con la integración como único paso
+        fallado, eso borra los worktrees que ya están en VERDE: seguí el mensaje al pie de la
+        letra y tiré las implementaciones verdes de T04b y T26."""
+        s = (SCRIPTS / "correr-todo.sh").read_text()
+        i = s.index('integrar.sh" "${tareas[@]}"')
+        tramo = s[i:i + 400]
+        self.assertIn("parar", tramo, "la integración tiene que parar el plan")
+        self.assertIn("integrar.sh ${tareas[*]}", tramo,
+                      "al fallar la integración, el comando para retomar es la integración, "
+                      "no la etapa entera")
+        d = s[s.index("parar() {"):]
+        d = d[:d.index("\n}")]
+        self.assertIn('${3:-}', d, "parar() no acepta un comando preciso")
+        self.assertIn("NO uses", d, "y tiene que avisar de lo que NO hay que correr")
+
+
 class TestValidarPlan(CasoBase):
     def validar(self, extra=""):
         return correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py {extra}", self.p.dir)

@@ -634,6 +634,27 @@ recordar_falla() {
     echo
   } >> "$f"
   echo "  · registrado en memoria/${id}.md"
+  # Y se commitea EN EL ACTO. Lo escribía y lo dejaba sin trackear, así que `integrar.sh`
+  # —que se niega a mergear con el tronco sucio, y tiene razón— frenó la etapa 1 de
+  # clasificados con T04b y T26 las DOS en verde. El método bloqueándose con su propia
+  # salida: la memoria verificada es la primera cosa que el runner escribe en el tronco y
+  # nadie la había puesto en un commit. Y el mensaje que salía —«el tronco tiene cambios sin
+  # commitear»— hacía pensar en un descuido del humano.
+  #
+  # El pathspec al final es a propósito: commitea ESTE archivo y no barre lo que haya sucio.
+  # Y reintenta, porque las tareas de una etapa corren en paralelo y pueden pelearse el
+  # `index.lock`.
+  local i=0
+  while [ "$i" -lt 3 ]; do
+    git -C "$RAIZ" add "$f" >/dev/null 2>&1 \
+      && git -C "$RAIZ" commit -q -m "$id: memoria verificada" -- "$f" >/dev/null 2>&1 \
+      && break
+    i=$((i+1)); sleep 1
+  done
+  # Si no se pudo, decirlo acá: el síntoma aparece después, en integrar.sh, y allá no se
+  # puede saber de dónde vino.
+  [ "$i" -ge 3 ] && echo "  ⚠ no pude commitear memoria/${id}.md — integrar.sh va a frenar por tronco sucio" >&2
+  return 0
 }
 
 # Los registros que le sirven a una tarea: los de las tareas que tocaron ALGUNO de sus
