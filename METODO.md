@@ -910,6 +910,38 @@ alcance reprueba un archivo que no está en la lista, o el test no ve lo que la
 implementación hace—. Si el agente escribió algo correcto en el lugar equivocado, el
 defecto es de la tarea.
 
+### Un chequeo que lee texto se va a encontrar con la cita del defecto
+
+En este repo **cada arreglo documenta su cadáver**: el comentario de al lado del código dice
+qué pasó, con el nombre de la tarea y la forma exacta del error. Es lo que hace que el método
+se pueda auditar. Y tiene una consecuencia que apareció **seis veces en un día**, en seis
+instrumentos distintos: todo chequeo que lea texto —prosa, comentarios, el archivo entero—
+se va a topar con la cita del defecto que vino a prevenir, y la va a marcar.
+
+| el chequeo | qué reprobó, que era legítimo |
+|---|---|
+| coherencia entre tareas | el bloque «No entra» de cada tarea arreglada, que CITA su defecto viejo |
+| imports internos | `from paquete import submodulo`, que es la forma que el método EXIGE |
+| «ningún mensaje sugiere `git add -A`» | el `git add -A` que el script hace adentro del worktree desechable, donde está bien |
+| detector de `<tool_call>` emitido como texto | un agente que sólo MENCIONA `<tool_call>` |
+| «el paso 4 no enumera extensiones» | el patrón viejo escrito en el comentario que explica el arreglo |
+| portabilidad a bash 3.2 | un `$TAREA»` dentro de un COMENTARIO, que bash nunca evalúa |
+
+**La regla, entonces:** un chequeo sobre texto se acota antes de escribirlo, no después de
+que reprueba algo bueno. Las tres formas de acotarlo, en orden de preferencia:
+
+1. **Al contexto que importa**: las líneas que se EJECUTAN (no los comentarios), las que se
+   IMPRIMEN (no las que corren), el bloque que declara (no el que explica).
+2. **Con un ancla**: a principio de línea, dentro de un bloque con nombre, en una sección
+   declarada. Sin ancla, un chequeo sobre prosa marca a todos.
+3. **Con una exención nombrada**: si la forma legítima es conocida —el submódulo, el idiom de
+   `curses`—, se nombra y se explica por qué es legítima.
+
+Y el control que lo detecta antes de que cueste algo es **el control negativo**: correr el
+chequeo nuevo contra el código que YA ANDA —los dos proyectos de ejemplo enteros— y exigir
+verde. Dos de los seis de arriba los encontró eso, antes de que el chequeo viera la luz; los
+otros cuatro los encontró una falla real y costaron tiempo.
+
 ### Nadie cruzaba las tareas entre sí
 
 `validar-plan.py` cruza el plan contra las tareas, y el gate cruza la implementación contra

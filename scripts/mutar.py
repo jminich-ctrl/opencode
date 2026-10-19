@@ -46,7 +46,11 @@ SUITE = os.environ.get("SUITE", "python3 -m unittest discover -s tests -t . -q")
 LIMITE = int(os.environ.get("LIMITE", "40"))
 # Sólo el código de producto. Mutar los scripts del método da ruido puro: no tienen suite,
 # así que todo sobrevive y tapa la señal del código que sí importa.
-CODIGO = os.environ.get("CODIGO", "src")
+# Uno o varios prefijos separados por coma: el contrato que `escribir-tests.sh` declara en su
+# comentario desde siempre («un proyecto con back y front tiene dos») y que acá se leía como
+# UN solo directorio. Con `CODIGO=backend/app,frontend/src` el `startswith` no matcheaba
+# nunca, en ningún proyecto.
+CODIGO = [c.strip().rstrip("/") for c in os.environ.get("CODIGO", "src").split(",") if c.strip()]
 
 # Heurísticas de aridez publicadas para Python, más las generales que aplican.
 ARIDAS_NOMBRE = re.compile(r"^(log|print|debug|warn|error|info|trace)", re.I)
@@ -205,10 +209,21 @@ def main():
     archivos = [a for a in subprocess.run(
         ["git", "diff", "--name-only", "--relative", BASE],
         capture_output=True, text=True).stdout.split()
-        if a.endswith(".py") and "test" not in a and a.startswith(CODIGO + "/")]
+        if a.endswith(".py") and "test" not in a
+        and any(a.startswith(c + "/") for c in CODIGO)]
     if not archivos:
-        print("  · no hay código Python cambiado que mutar")
-        return 0
+        # 2, no 0: «no había nada que mutar» es un ⊘ y NO un pase. Devolvía 0, y
+        # `escribir-tests.sh` lo corre con `>/dev/null 2>&1` e imprime «✓ los mutantes mueren:
+        # el test distingue». Con el default `CODIGO=src` y un proyecto cuyo código vive en
+        # `backend/app` y `frontend/src`, eso era TODO clasificados: el único chequeo de que
+        # el test distingue nunca corrió, y vendía un verde que no se ganó. Dos de los cuatro
+        # tests aceptados el 2026-10-19 lo recibieron.
+        #
+        # El script ya sabía informar esto bien para TypeScript —«⊘ no hay mutador … No es un
+        # pase»—. Este caso es el mismo ⊘ y salía ✓.
+        print("  ⊘ no hay código Python cambiado que mutar bajo: " + ",".join(CODIGO))
+        print("     No es un pase: nadie verificó que el test distinga.")
+        return 2
     if not correr():
         print("  ✗ la suite ya está en rojo: arreglala antes de mutar")
         return 1
@@ -219,8 +234,11 @@ def main():
         if p.exists():
             todos += candidatos(p, lineas_cambiadas(p))
     if not todos:
-        print("  · el diff no tiene nada que mutar con provecho (todo árido o sin operadores)")
-        return 0
+        # El mismo ⊘ por otra puerta: hay archivos, pero el diff no dio un solo mutante. Si
+        # nadie mutó nada, nadie verificó que el test distinga.
+        print("  ⊘ el diff no tiene nada que mutar con provecho (todo árido o sin operadores)")
+        print("     No es un pase: no se probó ni un mutante.")
+        return 2
     if len(todos) > LIMITE:
         print(f"  · {len(todos)} mutantes; se prueban los primeros {LIMITE} (subí LIMITE)")
         todos = todos[:LIMITE]

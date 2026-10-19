@@ -55,19 +55,7 @@ lanzar() {
   # que sólo pasaba con un hash falso— y el agente implementó exactamente el contrato viejo,
   # con razón, porque es el que vio. Una corrida entera por una declaración que el lector no
   # recibe, que es la forma de falla que este repo repite.
-  SUCIOS_TAREA="$(cd "$RAIZ" && { git diff --name-only HEAD -- "$PROYECTO/tareas/${id}"-*.md 2>/dev/null
-      # Y el archivo de test que la tarea declara: el agente no lo toca, pero el gate lo usa.
-      decl="$(sed -n 's/.*`\([^`]*\)`, *clase `[A-Za-z0-9_]*`.*/\1/p' "$BASE/tareas/${id}"-*.md 2>/dev/null | head -1)"
-      [ -n "$decl" ] && git diff --name-only HEAD -- "$PROYECTO/$decl" 2>/dev/null
-    } | grep . | sort -u || true)"
-  if [ -n "$SUCIOS_TAREA" ]; then
-    echo "✗ $id: estos archivos de la tarea tienen cambios SIN COMMITEAR, y el worktree sale"
-    echo "  del árbol commiteado: el agente trabajaría contra la versión vieja."
-    printf '     %s\n' $SUCIOS_TAREA
-    echo "  Commiteá el contrato y el test antes de lanzar, o el rojo que salga no va a hablar"
-    echo "  de lo que arreglaste."
-    return 1
-  fi
+  tarea_sin_commitear "$id" || return 1
   git -C "$RAIZ" worktree add -q -b "tarea/$id" "$wt" || { echo "✗ $id: no pude crear el worktree"; return 1; }
 
   # Base del diff FIJADA antes de que el agente toque nada. Sin esto, cualquier chequeo

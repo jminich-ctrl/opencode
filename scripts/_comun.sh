@@ -342,6 +342,70 @@ conservar_intento() {
   fi
 }
 
+# ¿Los archivos de esta tarea están commiteados?
+#
+#   tarea_sin_commitear <id>     0 = limpio, 1 = sucio (y lo imprime)
+#
+# El worktree sale del árbol COMMITEADO. Un arreglo del contrato o del test que esté sin
+# commitear NO llega al agente y no se entera nadie: trabaja contra la versión vieja, el gate
+# lo juzga contra la vieja, y el rojo que sale no habla de lo que arreglaste.
+#
+# Vive acá y no copiado en los dos runners porque es UNA declaración con DOS lectores, y una
+# regla copiada en dos lados es una regla que va a divergir — la forma que este repo repite.
+# Estaba sólo en `correr-tarea.sh`, y en `escribir-tests.sh` la consecuencia era peor: ahí no
+# se pierde una corrida, se ACEPTA el artefacto equivocado. El validador compara el test del
+# agente contra la implementación de referencia del propio agente, las dos escritas contra el
+# enunciado viejo, así que los tres pasos pasan y el test del contrato viejo se copia al
+# tronco. Lo encontró una auditoría, no una corrida: el defecto estaba latente.
+tarea_sin_commitear() {
+  local id="$1" sucios
+  sucios="$(cd "$RAIZ" && { git diff --name-only HEAD -- "$PROYECTO/tareas/${id}"-*.md 2>/dev/null
+      # Y el archivo de test que la tarea declara: el agente no lo toca, pero el gate lo usa.
+      local decl
+      decl="$(sed -n 's/.*`\([^`]*\)`, *clase `[A-Za-z0-9_]*`.*/\1/p' \
+              "$BASE/tareas/${id}"-*.md 2>/dev/null | head -1)"
+      [ -n "$decl" ] && git diff --name-only HEAD -- "$PROYECTO/$decl" 2>/dev/null
+    } | grep . | sort -u || true)"
+  [ -n "$sucios" ] || return 0
+  echo "✗ $id: estos archivos de la tarea tienen cambios SIN COMMITEAR, y el worktree sale"
+  echo "  del árbol commiteado: el agente trabajaría contra la versión vieja."
+  printf '     %s\n' $sucios
+  echo "  Commiteá el contrato y el test antes de lanzar, o el rojo que salga no va a hablar"
+  echo "  de lo que arreglaste."
+  return 1
+}
+
+# Qué significa un punto muerto, cuando se puede decir.
+#
+#   explicar_punto_muerto <huella>
+#
+# Dos cortes por LÍMITE TOTAL no son «el agente falla igual»: son «trabajó todo el
+# presupuesto y no terminó», dos veces, y eso habla de la TAREA. `escribir-tests.sh` ya lo
+# explicaba en su propio camino y `correr-plan.sh` sólo decía «punto muerto»: el arreglo
+# estaba de un lado y no del hermano, que es la forma que este repo repite.
+#
+# Pasó con T05 el 2026-10-19: dos cortes de 1200s, y el transcript mostraba al agente
+# escribiendo los tres archivos que la tarea pide y quedándose sin tiempo iterando. No era
+# el enunciado —ése ya se había arreglado— ni el modelo: era el presupuesto.
+#
+# No lleva números escritos a mano. Un número en un mensaje envejece y después miente; lo
+# que lleva es el comando que lo calcula, que es la regla P2 del método.
+explicar_punto_muerto() {
+  case "${1:-}" in
+    *"límite total"*)
+      echo "      Eso no es el agente fallando igual: trabajó TODO el presupuesto y no"
+      echo "      terminó, las dos veces. Habla de la TAREA, no del modelo."
+      echo "      Mirá el transcript y decidí con eso:"
+      echo "        · si escribió todo lo que la tarea pide y se cortó iterando, es"
+      echo "          presupuesto. Relanzala sola con más:"
+      echo "            LIMITE_AGENTE=2400 bash \$AGENTES/scripts/correr-plan.sh ${2:-TNN}"
+      echo "        · si iteró contra algo que no existe, es el enunciado: le falta el medio."
+      echo "        · si escribió de más, fuera de su alcance, la tarea es demasiado grande."
+      echo "      Cuánto margen hay entre este presupuesto y el éxito más lento, medido:"
+      echo "        bash \$AGENTES/scripts/metricas.sh" ;;
+  esac
+}
+
 # ¿Se movió el brazo de control respecto de su línea base?
 #
 #   control_se_movio <clave> <herramientas_ahora> <veredicto_ahora>
