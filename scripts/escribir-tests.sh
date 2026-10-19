@@ -46,6 +46,24 @@ REINTENTOS_TESTS="${REINTENTOS_TESTS:-2}"
 # quedó sin presupuesto con cinco y nunca llegó a producir un test.
 CORTES_MAX="${CORTES_MAX:-12}"
 
+# Y los cortes por LÍMITE TOTAL llevan su propia cuenta, mucho más corta.
+#
+# El presupuesto de arriba está justificado con esta cuenta, textual: «con el cuelgue de
+# arranque cortado a los 20s, doce cortes son cuatro minutos de sobrecarga en el peor caso».
+# Eso vale para el corte por INACTIVIDAD, que es el cuelgue transitorio de la herramienta:
+# opencode inicializa y nunca le pide nada al modelo, y reintentar es la respuesta correcta.
+#
+# Un corte por límite total es otra cosa: el agente TRABAJÓ los 1200s y no terminó. Doce de
+# esos no son cuatro minutos, son cuatro horas — y no dicen nada de la herramienta: dicen
+# algo de la TAREA. Medido el 2026-10-19 en T05: tres cortes seguidos por límite total, cero
+# por inactividad, y el tercer transcript mostraba al agente iterando contra un `ImportError`
+# de una función que él mismo había inventado porque la tarea le exigía autorización sin
+# decirle con qué. Con el presupuesto mezclado, el método se iba a quedar cuatro horas sin
+# decir una palabra sobre un defecto del plan.
+#
+# `motivo_del_corte` ya distinguía los dos casos; lo que faltaba era usar la distinción.
+CORTES_TOTAL_MAX="${CORTES_TOTAL_MAX:-2}"
+
 # Diagnostica y deja el motivo anotado para el reintento.
 malo() { echo "  ✗ $1"; MOTIVO_TESTS="$1"; fallos=1; }
 # Uno o varios directorios de código, separados por coma. El Pacman tiene uno (`src`); un
@@ -88,7 +106,7 @@ for id in "$@"; do
     continue
   fi
 
-  intento=1; cortes=0; MOTIVO_TESTS=""; HUELLA_ANTERIOR=""
+  intento=1; cortes=0; cortes_total=0; MOTIVO_TESTS=""; HUELLA_ANTERIOR=""
   while :; do
   wt="$RAIZ/../tests-$id"
   # El transcript del intento anterior, ANTES de borrar el worktree. Es el único lugar
@@ -299,6 +317,21 @@ for id in "$@"; do
   # convierte un problema transitorio de la herramienta en una parada del método.
   if [ "${RC_AGENTE:-0}" = "142" ]; then
     HUELLA_ANTERIOR=""
+    # ¿Trabajó y no terminó, o nunca arrancó? Son dos fallas distintas con dos presupuestos.
+    case "$MOTIVO_TESTS" in
+      *"límite total"*)
+        cortes_total=$((cortes_total+1))
+        if [ "$cortes_total" -gt "$CORTES_TOTAL_MAX" ]; then
+          echo "  ✗ $id: $cortes_total cortes por LÍMITE TOTAL (${LIMITE_AGENTE:-1200}s cada uno)."
+          echo "     El agente trabajó todo el tiempo y no terminó, las $cortes_total veces."
+          echo "     Eso no es la herramienta colgándose: es la TAREA. Mirá el transcript y"
+          echo "     preguntate si el enunciado le pide algo sin darle el medio, o si hay que"
+          echo "     partirla. Log: $log"
+          break
+        fi
+        echo "     (corte por límite total $cortes_total de $CORTES_TOTAL_MAX; el agente trabajó y no terminó)"
+        continue ;;
+    esac
     cortes=$((cortes+1))
     if [ "$cortes" -gt "$CORTES_MAX" ]; then
       # Antes de culpar a la herramienta, preguntarle a la red. Hoy perdimos horas: la
@@ -316,7 +349,7 @@ for id in "$@"; do
       fi
       break
     fi
-    echo "     (corte $cortes de $CORTES_MAX permitidos; no cuenta como intento ni como punto muerto)"
+    echo "     (corte por inactividad $cortes de $CORTES_MAX; la herramienta no llegó a pedir nada)"
     continue
   elif [ "$MOTIVO_TESTS" = "$HUELLA_ANTERIOR" ]; then
     echo "  ✗ $id: punto muerto — falló dos veces por lo mismo: $MOTIVO_TESTS"

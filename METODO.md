@@ -843,6 +843,42 @@ registra.
 que nombrar su archivo; y si el test lo importa, el import exacto.** Cuesta una línea
 escribirlo y cuesta dos intentos de agente no escribirlo.
 
+#### Y el caso peor: la tarea pide algo y no da el medio
+
+T05 decía «respetando la autorización del usuario». No decía cómo obtener el usuario, sus
+archivos permitidos **no incluían** `servicios/auth.py`, y la tarea de la que dependía
+entregaba sólo `login`. O sea: exigía autorización, prohibía tocar auth, y el medio no
+existía.
+
+El agente hizo lo único que podía. Inventó `obtener_usuario_id_desde_token`, cableó tres
+archivos a ella, grepeó el nombre, encontró siete coincidencias —**todas suyas**— y se quedó
+veinte minutos iterando contra su propio `ImportError`. Tres veces seguidas, una hora.
+
+Esto no se arregla con más tiempo ni partiendo la tarea: las dos cosas le dan más margen para
+iterar contra algo imposible. Se arregla **proveyendo el medio** (acá, una tarea chica que
+agrega la función, con su test) y **nombrándolo en el contrato**.
+
+La prueba a pasarle a un enunciado antes de lanzarlo: *por cada cosa que el criterio exige,
+¿está dicho con qué se hace, y está permitido tocar donde eso vive?* Si la respuesta es no,
+el agente va a inventarlo, y va a inventarlo bien — porque es lo razonable.
+
+#### La misma forma, en el método mismo
+
+El patrón no es de los agentes: es de las declaraciones. El mismo día, tres veces:
+
+- **`ubicar_proyecto` no exportaba `PROYECTO`.** El padre sabía cuál era el proyecto y el hijo
+  tenía que re-adivinarlo del cwd. Sale bien mientras el cwd esté adentro del proyecto;
+  después de borrar un worktree, no existe, y la detección encuentra los dos ejemplos y muere.
+- **El worktree sale del árbol commiteado.** Reescribí el contrato de T04 y su test, y el
+  agente implementó el contrato viejo —con razón, porque es el que vio—. Una corrida entera.
+- **`sync_limits.py` escribía en la copia del repo** mientras la config viva era un symlink a
+  otro repo. Y peor: el guardia que detecta la deriva corre ese mismo script, así que el
+  arreglo lo dejaba **callado** sobre el defecto real.
+
+Los tres son el mismo enunciado: *alguien declara algo y el que tiene que recibirlo no lo
+recibe.* Vale como pregunta de revisión para cualquier cambio del método: **¿quién tiene que
+leer esto, y por qué camino le llega?**
+
 El síntoma para reconocerlo: el agente falla por **ubicación**, no por comportamiento —el
 alcance reprueba un archivo que no está en la lista, o el test no ve lo que la
 implementación hace—. Si el agente escribió algo correcto en el lugar equivocado, el

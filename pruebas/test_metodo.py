@@ -3002,6 +3002,83 @@ class TestNoSeTiraElMaterialDeUnIntento(CasoBase):
                          + ", ".join(huerfanos))
 
 
+class TestUnCorteQueTrabajoNoEsUnCorteQueColgo(unittest.TestCase):
+    """Dos fallas distintas que compartían un contador, y por eso ninguna decía nada.
+
+    El presupuesto de 12 cortes está justificado con esta cuenta, textual del código: «con el
+    cuelgue de arranque cortado a los 20s, doce cortes son cuatro minutos de sobrecarga en el
+    peor caso». Eso vale para el corte por INACTIVIDAD, que es el cuelgue transitorio de la
+    herramienta —opencode inicializa y nunca le pide nada al modelo— donde insistir es la
+    respuesta correcta.
+
+    Un corte por LÍMITE TOTAL es otra cosa: el agente trabajó los 1200 s y no terminó. Doce de
+    esos son cuatro horas, y no hablan de la herramienta: hablan de la TAREA. Medido en T05:
+    tres cortes seguidos por límite total, cero por inactividad, y el agente iterando contra un
+    `ImportError` de una función que él mismo inventó porque la tarea le exigía autorización
+    sin decirle con qué.
+    """
+
+    FUENTE = SCRIPTS / "escribir-tests.sh"
+
+    def test_los_dos_cortes_tienen_presupuestos_distintos(self):
+        f = self.FUENTE.read_text()
+        self.assertIn("CORTES_TOTAL_MAX", f,
+                      "el corte por límite total necesita su propio presupuesto")
+        self.assertRegex(f, r'CORTES_TOTAL_MAX="\$\{CORTES_TOTAL_MAX:-[1-3]\}"',
+                         "el presupuesto de límite total tiene que ser chico: 12 son 4 horas")
+        self.assertRegex(f, r'CORTES_MAX="\$\{CORTES_MAX:-\d+\}"',
+                         "el de inactividad se queda generoso: es transitorio")
+
+    def test_el_corte_por_limite_total_se_decide_por_el_motivo(self):
+        """`motivo_del_corte` ya distinguía los dos casos; lo que faltaba era usar la
+        distinción para presupuestar."""
+        f = self.FUENTE.read_text()
+        tramo = f.split('RC_AGENTE:-0}" = "142"')[-1]
+        self.assertIn("límite total", tramo,
+                      "la rama de corte tiene que ramificar por el motivo, no contar todo igual")
+        self.assertIn("cortes_total", tramo, "y llevar la cuenta aparte")
+
+    def test_el_mensaje_dice_cual_de_los_dos_fue(self):
+        """«corte 3 de 12» no distingue «la herramienta no arrancó» de «la tarea no entra», y
+        son decisiones opuestas: una se reintenta, la otra se replanifica."""
+        f = self.FUENTE.read_text()
+        self.assertIn("corte por límite total", f)
+        self.assertIn("corte por inactividad", f)
+        self.assertIn("es la TAREA", f,
+                      "al agotarse, tiene que decir de quién es el defecto")
+
+
+class TestLaDeclaracionDelProyectoLlegaALosHijos(unittest.TestCase):
+    """`ubicar_proyecto` fijaba PROYECTO como variable de shell y no la exportaba, así que
+    cada script hijo tenía que re-detectarla del cwd. Sale bien mientras el cwd esté adentro
+    del proyecto; cuando no —justo después de borrar un worktree— la detección busca un
+    `tareas/` hacia abajo, encuentra los DOS ejemplos de este repo, y muere con «Hay varios
+    proyectos». Pasó en la etapa 1 de clasificados: un error impreso que no correspondía a
+    ninguna decisión y que podía tapar uno real."""
+
+    def test_un_hijo_hereda_el_proyecto_aunque_el_cwd_no_lo_diga(self):
+        proy = RAIZ / "ejemplo-clasificados"
+        dentro = (f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; ubicar_proyecto; cd "$RAIZ"; '
+                  f'bash -c ". {SCRIPTS}/_comun.sh >/dev/null 2>&1; ubicar_proyecto && '
+                  f'echo HIJO=$PROYECTO"')
+        r = correr("bash -c " + shlex.quote(dentro), proy)
+        self.assertIn("HIJO=ejemplo-clasificados", r.stdout,
+                      f"el hijo no heredó el proyecto:\n{r.stdout}\n{r.stderr}")
+        self.assertNotIn("Hay varios proyectos", r.stdout + r.stderr,
+                         "re-detectó en vez de heredar")
+
+    def test_sin_el_export_el_hijo_no_puede_adivinar(self):
+        """El control del otro lado: desde la raíz del repo, sin PROYECTO en el entorno, la
+        detección automática NO puede elegir — y eso es correcto, no un bug. Lo que estaba mal
+        era que el padre lo supiera y no se lo pasara."""
+        dentro = (f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; ubicar_proyecto 2>&1 | head -2')
+        r = correr("env -u PROYECTO bash -c " + shlex.quote(dentro), RAIZ)
+        salida = r.stdout + r.stderr
+        if "Hay varios proyectos" not in salida:
+            self.skipTest("este repo ya no tiene dos proyectos de ejemplo: el caso no aplica")
+        self.assertIn("ejemplo-", salida, "y tiene que listar los candidatos")
+
+
 class TestElPaso4DistingueDeVerdad(CasoBase):
     """El paso 4 es el UNICO chequeo de que los tests distinguen, y era el mas roto del gate.
 

@@ -74,7 +74,8 @@ vez de la aplicación.
 | T06b | Montaje automático de routers | T06a | backend/app/main.py | ✅ hecha |
 | T06c | Normalizar los errores al contrato del plan | T06b | backend/app/main.py | ✅ hecha |
 | T04 | Auth backend (login, sesión) | T02, T03, T06c | backend/app/rutas/auth.py, backend/app/servicios/auth.py, backend/app/datos/users.py | ✅ hecha |
-| T05 | CRUD de avisos backend | T04, T06c | backend/app/rutas/ads.py, backend/app/servicios/ads.py, backend/app/datos/ads.py | pendiente |
+| T04b | Verificar la sesión a partir del token | T04 | backend/app/servicios/auth.py | pendiente |
+| T05 | CRUD de avisos backend | T04b, T06c | backend/app/rutas/ads.py, backend/app/servicios/ads.py, backend/app/datos/ads.py | pendiente |
 | T30 | Scaffolding Vite | T01 | frontend/package.json, frontend/vite.config.ts | ✅ hecha |
 | T31 | Punto de entrada frontend | T30 | frontend/src/main.tsx, frontend/src/App.jsx | ✅ hecha |
 | T07 | Login page y servicio auth frontend | T31 | frontend/src/pages/Login.jsx, frontend/src/services/auth.ts | ✅ hecha |
@@ -113,6 +114,7 @@ vez de la aplicación.
 | T06b | backend/tests/test_montaje.py | TestMontaje |
 | T06c | backend/tests/test_errores.py | TestErrores |
 | T04 | backend/tests/test_auth_backend.py | TestAuthBackend |
+| T04b | backend/tests/test_sesion.py | TestSesion |
 | T05 | backend/tests/test_ads_backend.py | TestAdsBackend |
 | T30 | frontend/tests/test_scaffolding_frontend.test.ts | TestScaffoldingFrontend |
 | T31 | frontend/tests/test_entrypoint_frontend.test.ts | TestEntrypointFrontend |

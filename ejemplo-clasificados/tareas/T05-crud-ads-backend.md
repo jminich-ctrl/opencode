@@ -1,7 +1,7 @@
 # T05 — CRUD de avisos backend
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
-**Depende de:** T04, T06c
+**Depende de:** T04b, T06c
 **Archivos que podés tocar:** backend/app/rutas/ads.py, backend/app/servicios/ads.py, backend/app/datos/ads.py
 **Prohibido tocar:** 
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`, que usa el runner, no puede elegir un subagente
@@ -24,6 +24,7 @@ No entra:
 
 ```python
 from fastapi import APIRouter, Request, Response
+from backend.app.servicios.auth import usuario_desde_token   # lo provee T04b
 
 router = APIRouter()
 
@@ -31,6 +32,12 @@ router = APIRouter()
 async def crear_ad(request: Request) -> Response:
     """Crea un nuevo anuncio y devuelve su ID."""
 ```
+
+**Cómo se sabe quién pide: `usuario_desde_token(token)` de `servicios/auth.py`, que la
+provee T04b.** Está escrito acá porque la versión anterior de esta tarea pedía «respetando
+la autorización del usuario» sin decir el medio: el agente inventó una función, cableó tres
+archivos a ella y se quedó veinte minutos contra su propio `ImportError`, tres veces. Una
+tarea que exige algo y no dice con qué hacerlo no es ejecutable.
 
 ## Tests
 

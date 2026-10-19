@@ -56,6 +56,18 @@ ubicar_proyecto() {
   BASE="$RAIZ/$PROYECTO"
   [ -d "$BASE/tareas" ] \
     || { echo "✗ No encuentro $BASE/tareas (¿falta PROYECTO=<carpeta con tareas/>?)" >&2; exit 1; }
+  # Y se EXPORTA, para que los hijos no tengan que volver a adivinarlo.
+  #
+  # Estaba como variable de shell nomás, así que cada script hijo llamaba a `ubicar_proyecto`
+  # de nuevo y lo re-detectaba del cwd. Normalmente sale bien, porque el cwd está adentro del
+  # proyecto. Pero cuando el cwd ya no existe —justo después de borrar un worktree— la
+  # detección cae en «buscá un tareas/ hacia abajo», encuentra los DOS ejemplos de este repo y
+  # muere con «Hay varios proyectos». Pasó en la etapa 1 de clasificados: un error impreso que
+  # no correspondía a ninguna decisión, y que podía tapar uno real.
+  #
+  # Es la misma forma de falla que el repo repite: una declaración que el lector no recibe.
+  # Acá el que declara es el padre y el que no recibe es el hijo.
+  export PROYECTO RAIZ BASE
 }
 
 # El log de una tarea tiene dos partes: lo que escribió el agente y, al final, lo que
