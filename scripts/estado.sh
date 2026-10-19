@@ -12,7 +12,9 @@ printf '%.0s─' {1..90}; echo
 for f in "$BASE"/tareas/T*.md; do
   [ -e "$f" ] || continue
   id="$(basename "$f" | cut -d- -f1)"
-  titulo="$(head -1 "$f" | sed 's/^# T[0-9]* — //' | cut -c1-36)"
+  # `T[0-9]*` no cubre los sufijos: con T04b y T06a el título salía como «# T04b — …» y la
+  # columna quedaba ilegible justo en las tareas partidas, que son las que más se miran.
+  titulo="$(head -1 "$f" | sed 's/^# *T[0-9]*[a-z]* *— *//' | cut -c1-36)"
   wt="$RAIZ/../trabajo-$id"
   log="$wt/.tarea.log"
   if grep -q '^\*\*Estado:\*\* ✅' "$f" 2>/dev/null && [ ! -d "$wt" ]; then
@@ -45,10 +47,34 @@ done
 # Los gates corren por tarea; esto corre sobre lo que está mergeado.
 if [ -x "$BASE/scripts/gate.sh" ]; then
   echo
-  if ( cd "$BASE" && TAREA= bash scripts/gate.sh >/dev/null 2>&1 ); then
+  # Una sola corrida: estaba corriendo el gate DOS veces —una muda para el if y otra para
+  # mostrar el error—, así que la suite del tronco se pagaba dos veces en cada estado.sh.
+  salida="$( cd "$BASE" && TAREA= bash scripts/gate.sh 2>&1 )"
+  rc=$?   # pegado a la asignación: cualquier cosa en el medio y esto lee el estado de ESO
+  if [ "$rc" -eq 0 ]; then
     echo "tronco: ✓ verde"
   else
-    echo "tronco: ✗ ROJO — lo mergeado no pasa su propio gate:"
-    ( cd "$BASE" && TAREA= bash scripts/gate.sh 2>&1 ) | grep '✗' | sed 's/^/  /'
+    # Durante una etapa tests-first el tronco está rojo POR DISEÑO: los tests de la etapa se
+    # aceptan y commitean antes de que exista la implementación. Decir «ROJO» a secas es un
+    # veredicto que no puede dar verde mientras eso dure, y un número que no puede fallar no
+    # mide nada (MEDICION.md). Casi leí este rojo como una rotura real.
+    en_vuelo=""
+    for f in "$BASE"/tareas/T*.md; do
+      [ -e "$f" ] || continue
+      grep -q '^\*\*Estado:\*\* *✅' "$f" 2>/dev/null && continue
+      # Mismo extractor que el paso 4 del gate: «Archivo: `x`, clase `Y`».
+      t_decl="$(sed -n 's/.*`\([^`]*\)`, *clase `[A-Za-z0-9_]*`.*/\1/p' "$f" | head -1)"
+      [ -n "$t_decl" ] && [ -f "$BASE/$t_decl" ] \
+        && en_vuelo="$en_vuelo    $t_decl ← $(basename "$f" | cut -d- -f1), pendiente"$'\n'
+    done
+    if [ -n "$en_vuelo" ]; then
+      echo "tronco: ✗ rojo POR DISEÑO — tests de tareas pendientes ya commiteados:"
+      printf '%s' "$en_vuelo"
+      echo "  Mientras siga así este veredicto no puede dar verde, así que no mide el tronco."
+      echo "  Lo que mide es el gate de cada tarea, que descuenta la línea base."
+    else
+      echo "tronco: ✗ ROJO — lo mergeado no pasa su propio gate:"
+      printf '%s\n' "$salida" | grep '✗' | sed 's/^/  /'
+    fi
   fi
 fi
