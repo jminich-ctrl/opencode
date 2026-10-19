@@ -8,26 +8,50 @@
 
 ## Objetivo
 
-Implementar el endpoint de login que verifica credenciales, crea sesión cookie httpOnly y permite logout.
+Implementar el endpoint de login que verifica credenciales y devuelve un token en el cuerpo
+de la respuesta.
 
 ## Alcance
 
 Entra:
 - Lectura de usuarios desde `backend/app/datos/users.py`.
-- Creación y borrado de cookie de sesión.
-- Manejo de errores de autenticación.
+- Verificación del password contra el hash almacenado.
+- Manejo de errores de autenticación (401).
 
 No entra:
 - Registro de usuarios ni gestión de perfiles.
+- **Cookie de sesión httpOnly y logout.** Los pedía la versión anterior de esta tarea y
+  **ningún test los cubre**: por P2, lo que no verifica un comando no entra al plan. Si hacen
+  falta, van en una tarea propia con sus tests.
 
 ## Contrato
 
-```python
-from fastapi import Request, Response
+Tres archivos, y los tres los importa el test — no son opcionales:
 
-def login(request: Request) -> Response:
-    """Valida credenciales y devuelve respuesta con cookie de sesión."""
+```python
+# backend/app/datos/users.py
+def read_user_by_email(email: str) -> dict | None:
+    """El usuario como dict con al menos `id`, `email` y `password_hash`, o None."""
+
+# backend/app/servicios/auth.py
+def login(email: str, password: str) -> dict | None:
+    """Verifica credenciales. Devuelve algo con `token` si son válidas, o None."""
+
+# backend/app/rutas/auth.py
+router  # APIRouter con POST /auth/login — main.py lo monta solo si existe `router`
 ```
+
+**Dos cosas que el test impone y que no se deducen leyéndolo rápido:**
+
+1. **El hash es `sha256` hex del password, sin sal.** El test mockea el usuario con
+   `password_hash = sha256('password').hexdigest()`, así que la verificación tiene que calcular
+   lo mismo. (La versión anterior del test mockeaba el literal `'hashed_password'`, que ningún
+   hash real produce: sólo pasaba con una verificación falsa. Se corrigió el test.)
+2. **`read_user_by_email` se llama como ATRIBUTO del módulo**: `users.read_user_by_email(email)`
+   con `from backend.app.datos import users`. Con
+   `from backend.app.datos.users import read_user_by_email` el servicio se queda con su propia
+   referencia, el `@patch` del test no aplica, la consulta va a la base de verdad y el test
+   falla con 401 — un rojo que no se parece a su causa.
 
 ## Tests
 
@@ -39,8 +63,13 @@ Los tests de esta tarea se escriben **antes** que la implementación, en una cor
 
 ## Criterio de terminado
 
-- [ ] Endpoint `/login` funcional y pruebas pasan.
+- [ ] `POST /auth/login` con credenciales válidas devuelve **200** y un `token` en el cuerpo.
+- [ ] Con password incorrecto devuelve **401**.
+- [ ] Con usuario inexistente devuelve **401**.
 - [ ] `bash scripts/gate.sh` en verde.
+
+*(Decía «endpoint `/login`» y el test pega a `/auth/login`. El test es el contrato: P2, el juez
+es un comando. El criterio estaba mal, no el test.)*
 
 ## Verificación
 
