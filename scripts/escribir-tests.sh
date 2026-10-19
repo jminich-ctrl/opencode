@@ -119,7 +119,7 @@ for id in "$@"; do
   # método destruyendo la evidencia de sus propias fallas.
   if [ -f "$wt/.tests.log" ]; then
     FALLIDOS="$RAIZ/../fallidos-$id"; mkdir -p "$FALLIDOS"
-    cp "$wt/.tests.log" "$FALLIDOS/intento-$(date +%H%M%S).log" 2>/dev/null \
+    cp "$wt/.tests.log" "$FALLIDOS/intento-$(date -u +%Y%m%dT%H%M%SZ).log" 2>/dev/null \
       && echo "     (transcript del intento guardado en $FALLIDOS)"
   fi
   rm -rf "$wt"

@@ -144,6 +144,26 @@ parte_del_agente() {
 # explicar un rojo, o para distinguir «el agente no llegó a trabajar» de «trabajó mal»
 # —aunque eso el gate ya lo dice con «no hay ningún cambio: la tarea no se hizo»—.
 error_del_agente() {
+  # Una llamada a herramienta emitida como TEXTO. El modelo escribe `<tool_call>` en el
+  # contenido en vez de pedirla por el canal de herramientas: nadie la ejecuta, el modelo no
+  # recibe resultado y la corrida muere sin tocar un archivo. El gate entonces dice «no hay
+  # ningún cambio: la tarea no se hizo», que es cierto y **no se parece a su causa** — es un
+  # fallo de PROTOCOLO entre el modelo y el harness, no del enunciado ni del tamaño.
+  #
+  # Pasó con T26 el 2026-10-19 y el ejecutor `f5d76140`, después de que el mismo modelo
+  # escribiera bien el test de esa misma tarea. Va acá adentro y no en un chequeo aparte
+  # para que lo hereden los tres que ya leen esta función: la huella del reintento, el
+  # veredicto del runner y la columna de `comparar-modelos.sh`. El tercero es el que
+  # importa: sin esto, una falla de protocolo se cuenta como falla de LA TAREA y corrompe la
+  # comparación entre modelos — un inválido contado como reprobado.
+  #
+  # Anclado a principio de línea: con una coincidencia en cualquier lugar del texto, un
+  # agente que MENCIONE `<tool_call>` quedaría marcado como error, y un detector que marca a
+  # todos no distingue a ninguno.
+  if parte_del_agente "$1" | grep -qE '^[[:space:]]*<(tool_call>|function[/ ])'; then
+    echo "el modelo emitió una llamada a herramienta como TEXTO (<tool_call>): fallo de protocolo, no de la tarea"
+    return 0
+  fi
   parte_del_agente "$1" \
     | grep -m1 -oE 'inference timed out[^"]*|database is locked|el agente no respondió[^"]*|upstream stream ended[^"]*|maximum context length is [0-9]*[^\\"]*|Failed to allocate GPU|Failed to start inference server[^\\"]*|Bad Gateway|Service Unavailable|Internal Server Error|50[0234] '
 }
@@ -265,7 +285,12 @@ conservar_intento() {
   for log in "$wt/.tarea.log" "$wt/.tests.log" "$wt/.log"; do
     [ -f "$log" ] || continue
     mkdir -p "$dest"
-    cp "$log" "$dest/intento-$(date +%H%M%S).log" 2>/dev/null
+    # En UTC, igual que el encabezado que el runner escribe adentro del log. Estaba en hora
+    # local, y hoy leí «16:38 UTC» adentro de un archivo llamado `intento-133855` y concluí
+    # que el transcript se había perdido: comparé dos relojes distintos y por un rato creí
+    # que el método destruía su propia evidencia. Con la fecha, además, dos corridas del
+    # mismo minuto de días distintos no se pisan.
+    cp "$log" "$dest/intento-$(date -u +%Y%m%dT%H%M%SZ).log" 2>/dev/null
     break
   done
   # El parche: lo que el agente escribió, aplicable con `git apply`. Sin los archivos de
@@ -284,7 +309,7 @@ conservar_intento() {
         [ -f "$wt/$f" ] || continue
         git -C "$wt" diff --no-index -- /dev/null "$f" 2>/dev/null
       done
-    } > "$dest/parche-$(date +%H%M%S).diff"
+    } > "$dest/parche-$(date -u +%Y%m%dT%H%M%SZ).diff"
     echo "     (intento conservado en $dest: transcript y parche de $(echo "$sucios" | grep -c .) archivo/s)"
   fi
 }
