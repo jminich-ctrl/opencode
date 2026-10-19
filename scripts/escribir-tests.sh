@@ -404,7 +404,16 @@ for id in "$@"; do
 done
 
 echo
-echo "Los tests aceptados están en el tronco sin commitear. Revisalos y commiteá:"
-echo "  git -C $RAIZ diff --stat && git -C $RAIZ add -A && git -C $RAIZ commit -m 'tests de <tareas>'"
+# Sólo si hay algo que commitear. Se imprimía SIEMPRE, incluso cuando las dos tareas se
+# saltearon por «ya declara la clase — no se toca»: lo leí hoy con el tronco limpio y me hizo
+# dudar del estado del repo justo cuando estaba diagnosticando por qué la integración no
+# cerraba. Y lo que sugería era `git add -A`, que barre cualquier cosa ajena —el trabajo a
+# medio hacer del humano— a un commit llamado «tests de …».
+SUCIO="$(git -C "$RAIZ" status --porcelain 2>/dev/null | grep . || true)"
+if [ -n "$SUCIO" ]; then
+  echo "Los tests aceptados están en el tronco sin commitear. Revisalos y commiteá:"
+  printf '%s\n' "$SUCIO" | sed 's/^/    /'
+  echo "  git -C $RAIZ add -- <los de arriba> && git -C $RAIZ commit -m 'tests de <tareas>'"
+fi
 echo "Los worktrees de los tests ACEPTADOS ya se tiraron. Quedan los que fallaron,"
 echo "que es donde hay algo que mirar: git worktree list"

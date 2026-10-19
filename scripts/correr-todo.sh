@@ -148,7 +148,19 @@ parar() {
   echo
   echo "⏸  Se detuvo en la etapa $1: $2"
   echo "   Decide una persona (HUMANO.md §4). Para retomar después de arreglarlo:"
-  echo "     bash $AQUI/correr-todo.sh $1"
+  # El tercer argumento es el comando PRECISO, cuando el que para sabe uno mejor.
+  # `correr-todo.sh N` re-corre la etapa ENTERA: si lo que falló fue la integración, eso
+  # borra los worktrees que ya estaban en VERDE y manda a rehacer las implementaciones. Me
+  # pasó hoy: la etapa 1 frenó en 3/3 con T04b y T26 las dos verdes, seguí este mensaje al
+  # pie de la letra y tiré las dos. Los commits se recuperan del reflog, pero el mensaje no
+  # avisaba de nada.
+  if [ -n "${3:-}" ]; then
+    echo "     $3"
+    echo "   NO uses \`correr-todo.sh $1\`: re-corre la etapa entera y tira los worktrees"
+    echo "   que ya están en verde. Los de esta etapa están en: git worktree list"
+  else
+    echo "     bash $AQUI/correr-todo.sh $1"
+  fi
   exit 1
 }
 
@@ -230,7 +242,9 @@ for etapa in "${ETAPAS[@]}"; do
 
   # 3. Integrar, de a una, con el gate del tronco de por medio.
   echo "── 3/3 integrar"
-  bash "$AQUI/integrar.sh" "${tareas[@]}" || parar "$n" "la integración no cerró"
+  bash "$AQUI/integrar.sh" "${tareas[@]}" \
+    || parar "$n" "la integración no cerró" \
+             "bash $AQUI/integrar.sh ${tareas[*]}"
   echo "✓ etapa $n completa"
 done
 
