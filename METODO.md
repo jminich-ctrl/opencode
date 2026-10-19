@@ -788,6 +788,20 @@ arregla. Si cambió, reintenta. Esa distinción es la que necesita el humano par
 - **El worktree congela el código al crearse**, desde `HEAD`: si arreglaste el gate o el
   runner y no commiteaste, la tarea corre con la versión vieja. **Commiteá las herramientas
   antes de lanzar**, y nunca edites un script de bash mientras corre.
+
+  **Y eso último ya es un comando, porque la regla escrita no alcanzó.** La incumplieron las
+  dos personas que la conocían: quien la escribió y yo, el 2026-10-19, mergeando tres veces
+  con el plan en vuelo. bash lee el script por POSICIÓN mientras ejecuta, así que un archivo
+  que cambia debajo le corre los offsets y le hace ejecutar pedazos de otro programa. El
+  síntoma quedó dos veces en el log: la corrida salió del bucle de etapas después de la
+  primera, cayó en el `echo` final e informó **«Todas las etapas en verde» con siete etapas
+  sin tocar**. Y mi error fue peor que el descuido: afirmé que era seguro porque git
+  reemplaza con `rename`. Para los archivos del árbol de trabajo **no lo hace** —los abre con
+  `O_TRUNC` y reescribe el mismo inodo—, así que el intérprete ve el archivo cambiar.
+
+  `correr-todo.sh` toma la huella del contenido de `scripts/` al arrancar y la verifica al
+  empezar cada etapa; si cambió, para. Una corrida cuyo instrumento cambió en el medio no es
+  una corrida: es un inválido, y lo que ya informó tampoco vale.
 - **El agente no commitea.** Deja los archivos sin trackear, así que `git merge` no trae
   nada. El runner commitea la rama cuando el gate da verde; `integrar.sh` cuenta con eso.
 - **El worktree le da al agente la historia completa del repo, y eso es una fuga real.**

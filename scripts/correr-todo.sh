@@ -111,6 +111,26 @@ echo "══ ${#ETAPAS[@]} etapa(s); empezando en la $DESDE"
 # ejecutar basura. Está escrito en METODO.md «Tres cosas que muerden» y lo incumplí igual,
 # con la regla a la vista. Una regla que vive sólo en un documento es una regla que se
 # incumple.
+# La huella del CONTENIDO de los scripts, no del commit: lo que bash está leyendo es el
+# archivo en el árbol, y lo lee por posición mientras ejecuta. Si cambia a mitad de corrida,
+# los offsets se corren y el intérprete ejecuta pedazos de otro programa.
+#
+# La regla de no editar durante una corrida está escrita en METODO.md «Tres cosas que
+# muerden» y la incumplieron las dos personas que la conocían: quien la escribió y yo, el
+# 2026-10-19, mergeando tres veces con el plan en vuelo. El síntoma: la corrida salió del
+# bucle de etapas después de la PRIMERA y cayó en el `echo` final, así que informó «Todas
+# las etapas en verde» con siete etapas sin tocar. Dos veces, y en el log quedaron las dos.
+#
+# Y mi error fue peor que el descuido: afirmé que era seguro porque git reemplaza con
+# rename. No lo hace para los archivos del árbol de trabajo —los abre con O_TRUNC y los
+# reescribe en el mismo inodo—, así que el bash en curso ve el archivo cambiar debajo.
+#
+# Una regla que vive sólo en un documento es una regla que se incumple. Ahora es un comando.
+huella_scripts() {
+  cat "$AQUI"/*.sh 2>/dev/null | git hash-object --stdin 2>/dev/null || echo "?"
+}
+HUELLA_SCRIPTS="$(huella_scripts)"
+
 OTRA="$(pgrep -f "correr-todo\.sh" | grep -v "^$$\$" | head -1 || true)"
 if [ -n "$OTRA" ] && [ "$SOLO_VER" != "1" ]; then
   echo "✗ Ya hay una corrida activa (pid $OTRA)." >&2
@@ -170,6 +190,15 @@ for etapa in "${ETAPAS[@]}"; do
   read -r -a tareas <<< "$etapa"
   echo
   echo "══════ ETAPA $n/${#ETAPAS[@]}: ${tareas[*]}"
+
+  # ¿Siguen siendo los mismos scripts con los que arrancó esta corrida? Si no, lo que venga
+  # de acá en adelante no es confiable —ni lo ya hecho, porque el bucle pudo haber saltado
+  # pedazos sin decirlo—. Se para en el borde de etapa, que es donde todavía se puede.
+  if [ "$(huella_scripts)" != "$HUELLA_SCRIPTS" ]; then
+    echo "   (huella al arrancar: $HUELLA_SCRIPTS · ahora: $(huella_scripts))"
+    parar "$n" "los scripts del método CAMBIARON con la corrida en curso" \
+          "bash $AQUI/correr-todo.sh    # relanzá: esta corrida ya no es confiable"
+  fi
 
   if [ "$SOLO_VER" = "1" ]; then
     echo "   escribiría los tests, correría las tareas y las integraría"

@@ -2567,6 +2567,57 @@ class TestUnTestDeclaradoYAusenteNoEsUnTestQuePasa(CasoBase):
                                       "el caso 0 pasaba sin mirar el test declarado")
 
 
+class TestEditarUnScriptEnCursoNoPuedeQuedarCallado(unittest.TestCase):
+    """bash lee el script por POSICIÓN mientras ejecuta: si el archivo cambia a mitad de
+    corrida, los offsets se corren y el intérprete ejecuta pedazos de otro programa. La regla
+    está en METODO.md «Tres cosas que muerden» y la incumplieron las dos personas que la
+    conocían: quien la escribió y yo, el 2026-10-19, mergeando tres veces con el plan en
+    vuelo.
+
+    El síntoma quedó en el log dos veces: la corrida salió del bucle de etapas después de la
+    PRIMERA, cayó en el `echo` final e informó «Todas las etapas en verde» con siete etapas
+    sin tocar. Y encima yo había afirmado que era seguro porque git reemplaza con rename —no
+    lo hace para el árbol de trabajo: abre con O_TRUNC y reescribe el mismo inodo—.
+
+    Una regla que vive sólo en un documento es una regla que se incumple."""
+
+    def huella(self, dir_scripts):
+        return correr("bash -c " + shlex.quote(
+            f'AQUI={shlex.quote(str(dir_scripts))}; '
+            'cat "$AQUI"/*.sh 2>/dev/null | git hash-object --stdin'), RAIZ).stdout.strip()
+
+    def test_la_huella_cambia_si_cambia_un_script(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-huella-s-")).resolve()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        (d / "a.sh").write_text("echo a\n")
+        (d / "b.sh").write_text("echo b\n")
+        antes = self.huella(d)
+        self.assertTrue(antes, "la huella no puede salir vacía")
+        (d / "b.sh").write_text("echo b\necho c\n")
+        self.assertNotEqual(antes, self.huella(d),
+                            "si no distingue un script editado, el guardia no guarda nada")
+
+    def test_la_huella_no_cambia_sola(self):
+        """Brazo nulo: una huella que cambia por su cuenta pararía toda corrida y el guardia
+        se volvería un ruido que se aprende a ignorar."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-huella-n-")).resolve()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        (d / "a.sh").write_text("echo a\n")
+        self.assertEqual(self.huella(d), self.huella(d))
+
+    def test_el_guardia_corre_en_cada_etapa_y_para_el_plan(self):
+        s = (SCRIPTS / "correr-todo.sh").read_text()
+        self.assertIn("huella_scripts()", s, "no existe la huella")
+        captura = s.index('HUELLA_SCRIPTS="$(huella_scripts)"')
+        bucle = s.index('for etapa in "${ETAPAS[@]}"')
+        self.assertLess(captura, bucle, "la huella se captura ANTES del bucle de etapas")
+        cuerpo = s[bucle:]
+        i = cuerpo.index('"$(huella_scripts)" != "$HUELLA_SCRIPTS"')
+        self.assertIn("parar", cuerpo[i:i + 400],
+                      "detectarlo no alcanza: una corrida cuyo instrumento cambió no es "
+                      "una corrida, es un inválido")
+
+
 class TestValidarPlan(CasoBase):
     def validar(self, extra=""):
         return correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py {extra}", self.p.dir)
