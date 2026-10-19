@@ -18,7 +18,33 @@ set -uo pipefail
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$AQUI/_comun.sh"
 ubicar_proyecto
-DESDE="${1:-1}"
+# Los argumentos son un ÍNDICE de etapa (uso humano) o la LISTA DE TAREAS (uso de
+# correr-todo.sh). Lo segundo existe porque pasar un índice era un defecto: correr-todo.sh
+# le pasaba su `$n` y este script **re-deduce** las etapas por su cuenta, así que el mismo
+# número nombraba grupos distintos en cada lado.
+#
+# Pasó el 2026-10-19: la fase de tests corrió «ETAPA 2/8: T05» y la fase de tareas,
+# re-deduciendo con T04b y T26 ya hechas, tomó SU etapa 2 —T14 T20 T11 T28— y salteó T05,
+# que quedó con su test rojo en el tronco y sin implementación. Nadie se enteró hasta que
+# alguien miró dos líneas del log que decían 8 etapas y 7.
+#
+# Este mismo archivo ya documenta que los números de etapa no son estables entre corridas, y
+# correr-todo.sh tiene un guardia para el `--desde` que da el humano. El arreglo estaba de un
+# lado y no del otro: la forma que este repo repite. La declaración tiene que LLEVAR lo que
+# significa, no un puntero a una lista que el lector reconstruye.
+TAREAS_PEDIDAS=()
+for a in "$@"; do
+  case "$a" in T[0-9]*) TAREAS_PEDIDAS+=("$a") ;; esac
+done
+if [ "${#TAREAS_PEDIDAS[@]}" -gt 0 ]; then
+  if [ "${#TAREAS_PEDIDAS[@]}" -ne "$#" ]; then
+    echo "✗ o un índice de etapa, o una lista de tareas — no las dos cosas: $*" >&2
+    exit 1
+  fi
+  DESDE=1
+else
+  DESDE="${1:-1}"
+fi
 REINTENTOS="${REINTENTOS:-2}"
 
 PLAN="$BASE/PLAN.md"
@@ -27,8 +53,15 @@ PLAN="$BASE/PLAN.md"
 # Etapas declaradas explícitamente, o deducidas de la tabla del plan.
 # Sin `mapfile`: es de bash 4 y macOS trae 3.2. Este script no corría por eso.
 ETAPAS=()
+# Si el llamador NOMBRÓ las tareas, ésa es la etapa y no se deduce nada: así el índice no
+# puede significar una cosa acá y otra allá.
+if [ "${#TAREAS_PEDIDAS[@]}" -gt 0 ]; then
+  ETAPAS=("${TAREAS_PEDIDAS[*]}")
+fi
 # Formato canónico: `**ETAPA 1:** T02 T03`, sólo identificadores. El cierre de negrita de
 # markdown va después de los dos puntos, y se acepta con o sin asteriscos.
+CANONICAS=0; PARECIDAS=0
+if [ "${#ETAPAS[@]}" -eq 0 ]; then
 CANONICAS="$(grep -cE '^ *\*{0,2}ETAPA +[0-9]+\*{0,2}:\*{0,2} *[T0-9 ]+ *$' "$PLAN" || true)"
 PARECIDAS="$(grep -icE '^ *\*{0,2}etapa +[0-9]' "$PLAN" || true)"
 
@@ -46,6 +79,7 @@ elif [ "${CANONICAS:-0}" -gt 0 ]; then
     [ -n "$linea" ] && ETAPAS+=("$linea")
   done < <(grep -oE '^ *\*{0,2}ETAPA +[0-9]+\*{0,2}:\*{0,2} *[T0-9 ]+ *$' "$PLAN" \
            | sed 's/^[^:]*://; s/^\*\*//; s/^ *//; s/ *$//')
+fi
 fi
 
 if [ "${#ETAPAS[@]}" -eq 0 ]; then

@@ -144,6 +144,32 @@ parte_del_agente() {
 # explicar un rojo, o para distinguir «el agente no llegó a trabajar» de «trabajó mal»
 # —aunque eso el gate ya lo dice con «no hay ningún cambio: la tarea no se hizo»—.
 error_del_agente() {
+  # Sin los colores, y UNA sola vez para los tres chequeos. El log guarda la salida de
+  # opencode con escapes ANSI: la línea real es `\e[91m\e[1mError: \e[0m{"message":…}`, así
+  # que `^Error:` no ancla nunca. Lo descubrí verificando contra una copia del log que yo
+  # mismo había limpiado para poder leerla — el camino que no ejercita el defecto.
+  local limpio
+  limpio="$(parte_del_agente "$1" | sed "s/$(printf '\033')\[[0-9;]*m//g")"
+
+  # El SOBRE, no el texto. La plataforma devuelve siempre
+  # `Error: {"message":"…","type":"api_error"}`, y esta función enumeraba MENSAJES: reconocía
+  # «Failed to start inference server» y «upstream stream ended» porque están en la lista de
+  # abajo, y dejaba pasar `memory_delivery_unavailable`, que el 2026-10-19 mató T11 y T20 en
+  # la misma etapa. Los dos intentos quedaron anotados como «no hay ningún cambio: la tarea
+  # no se hizo», o sea contra el modelo.
+  #
+  # Una lista de mensajes envejece con cada error nuevo de la plataforma, y lo que envejece
+  # CALLA: el error nuevo no se parece a un error, se parece a un modelo que no pudo. El
+  # sobre es el contrato del endpoint y no cambia. La enumeración queda para los que llegan
+  # sin sobre.
+  local sobre
+  sobre="$(printf '%s\n' "$limpio" \
+           | sed -n 's/^Error: {"message":"\(.*\)","type":"api_error"}.*/\1/p' | head -1)"
+  if [ -n "$sobre" ]; then
+    printf '%s\n' "$sobre" | cut -c1-200
+    return 0
+  fi
+
   # Una llamada a herramienta emitida como TEXTO. El modelo escribe `<tool_call>` en el
   # contenido en vez de pedirla por el canal de herramientas: nadie la ejecuta, el modelo no
   # recibe resultado y la corrida muere sin tocar un archivo. El gate entonces dice «no hay
@@ -160,13 +186,15 @@ error_del_agente() {
   # Anclado a principio de línea: con una coincidencia en cualquier lugar del texto, un
   # agente que MENCIONE `<tool_call>` quedaría marcado como error, y un detector que marca a
   # todos no distingue a ninguno.
-  if parte_del_agente "$1" | grep -qE '^[[:space:]]*<(tool_call>|function[/ ])'; then
+  if printf '%s\n' "$limpio" | grep -qE '^[[:space:]]*<(tool_call>|function[/ ])'; then
     echo "el modelo emitió una llamada a herramienta como TEXTO (<tool_call>): fallo de protocolo, no de la tarea"
     return 0
   fi
-  parte_del_agente "$1" \
-    | grep -m1 -oE 'inference timed out[^"]*|database is locked|el agente no respondió[^"]*|upstream stream ended[^"]*|maximum context length is [0-9]*[^\\"]*|Failed to allocate GPU|Failed to start inference server[^\\"]*|Bad Gateway|Service Unavailable|Internal Server Error|50[0234] '
+
+  printf '%s\n' "$limpio" \
+    | grep -m1 -oE 'inference timed out[^"]*|database is locked|el agente no respondió[^"]*|upstream stream ended[^"]*|maximum context length is [0-9]*[^\"]*|Failed to allocate GPU|Failed to start inference server[^\"]*|Bad Gateway|Service Unavailable|Internal Server Error|50[0234] '
 }
+
 
 # ¿Responde la plataforma? Un 502 de nginx no es una falla de la tarea ni del agente, y
 # reintentar contra una plataforma caída gasta el presupuesto de todas las tareas sin
