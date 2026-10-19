@@ -1,6 +1,23 @@
 import hashlib
 from backend.app.datos import users
 
+def usuario_desde_token(token: str) -> int | None:
+    """El id del usuario dueño del token, o None si el token no es válido."""
+    if not token or not isinstance(token, str):
+        return None
+    
+    # Verificar si el token tiene el formato esperado
+    if not token.startswith("mocked-token-for-user-"):
+        return None
+    
+    # Extraer el ID del usuario del token
+    try:
+        user_id_str = token[len("mocked-token-for-user-"):]
+        user_id = int(user_id_str)
+        return user_id
+    except ValueError:
+        return None
+
 def login(email: str, password: str) -> dict | None:
     """Verifica credenciales. Devuelve algo con `token` si son válidas, o None."""
     # Obtener el usuario por email
