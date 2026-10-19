@@ -14,7 +14,44 @@ import json, os, pathlib, sys, urllib.request
 
 MARGEN = 0.92  # el prompt no debe llegar al tope: OpenCode compacta antes
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-CFG = ROOT / "config" / "opencode.json"
+
+
+def configs():
+    """Las configs a sincronizar, **empezando por la que OpenCode usa de verdad**.
+
+    Antes esto era una sola ruta clavada: `ROOT/config/opencode.json`, la copia del repo.
+    Y `~/.config/opencode/opencode.json` es un **symlink a otro repo**
+    (`colabhive-opencode/config/opencode.json`), así que el `--write` arreglaba la copia que
+    nadie carga y dejaba intacta la que sirve.
+
+    Lo peor no era que no arreglara: es que **el guardia se quedaba callado después**.
+    `correr-todo.sh` detecta la deriva corriendo este script, así que al sincronizar la copia
+    del repo el chequeo pasaba a verde mientras la config viva seguía declarando un contexto
+    más grande que el real — y cada tarea moriría con un 400 que no se parece a su causa.
+    Un arreglo que ciega a su propio chequeo es peor que no tener el arreglo.
+
+    Es «medí el artefacto que corre, no el árbol», en la herramienta cuyo trabajo es
+    justamente que una declaración no mienta.
+    """
+    vistas, salida = set(), []
+    candidatas = [
+        os.environ.get("CONFIG_OC"),
+        pathlib.Path.home() / ".config" / "opencode" / "opencode.json",
+        ROOT / "config" / "opencode.json",
+    ]
+    for c in candidatas:
+        if not c:
+            continue
+        ruta = pathlib.Path(c)
+        if not ruta.exists():
+            continue
+        # resolve(): si es symlink, se escribe el archivo real y no se reemplaza el enlace.
+        real = ruta.resolve()
+        if real in vistas:
+            continue
+        vistas.add(real)
+        salida.append((ruta, real))
+    return salida
 
 
 def catalogo():
@@ -27,10 +64,17 @@ def catalogo():
         return {m["id"]: m for m in json.load(r)["data"]}
 
 
-def main():
-    escribir = "--write" in sys.argv
-    cat = catalogo()
-    cfg = json.loads(CFG.read_text())
+def sincronizar(cat, ruta, destino, escribir):
+    """Una config. Devuelve cuántos modelos cambiarían (o cambiaron).
+
+    El parámetro se llama `destino` y no `real`: el bucle de abajo usa `real` para el
+    `max_model_len` del modelo, y con el mismo nombre lo tapaba — así que al escribir,
+    `real.write_text(...)` recibía un entero. La corrida en seco no lo tocaba, porque no
+    llega al write: verifiqué con el único camino que no ejercita el defecto.
+    """
+    etiqueta = str(ruta) if ruta == destino else f"{ruta} → {destino}"
+    print(f"\n── {etiqueta}")
+    cfg = json.loads(destino.read_text())
     modelos = cfg["provider"]["colabhive"]["models"]
     cambios = 0
 
@@ -53,14 +97,25 @@ def main():
             entry["limit"] = {"context": nuevo, "output": salida}
             cambios += 1
 
-    if not cambios:
+    if cambios and escribir:
+        destino.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n")
+        print(f"  {cambios} modelo(s) actualizados en {destino}")
+    return cambios
+
+
+def main():
+    escribir = "--write" in sys.argv
+    cat = catalogo()
+    destinos = configs()
+    if not destinos:
+        sys.exit("No encontré ninguna config de OpenCode (ni CONFIG_OC, ni ~/.config, ni la del repo)")
+    total = sum(sincronizar(cat, ruta, destino, escribir) for ruta, destino in destinos)
+    if not total:
         print("\nNada que cambiar.")
         return
-    if escribir:
-        CFG.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n")
-        print(f"\n{cambios} modelo(s) actualizados en {CFG}")
-    else:
-        print(f"\n{cambios} cambio(s) pendientes. Aplicalos con: python3 {pathlib.Path(__file__).resolve()} --write")
+    if not escribir:
+        print(f"\n{total} cambio(s) pendientes en {len(destinos)} config(s). "
+              f"Aplicalos con: python3 {pathlib.Path(__file__).resolve()} --write")
 
 
 if __name__ == "__main__":
