@@ -60,7 +60,13 @@ echo "base del diff: $(echo "$BASE_REF" | cut -c1-12) — $ORIGEN_BASE"
 # Los tests y este archivo viven DENTRO del worktree del agente al que juzgan. La lista es
 # fija acá y el archivo de tarea no puede ampliarla: un límite que el limitado puede
 # reescribir no es un límite. Pedirlo por prompt está medido que no alcanza.
-INTOCABLES='^(tests/|scripts/)'
+# Por NOMBRE de archivo y no sólo por directorio: `^(tests/|scripts/)` no cubre
+# `backend/tests/test_x.py` ni `frontend/tests/x.test.ts`, que es el layout de cualquier
+# proyecto con dos mitades. Un proyecto nuevo copiado de esta plantilla obtenía «✓ tests y
+# scripts intactos» mientras el agente editaba su propio test — la regla dura nº3 de
+# AGENTS.md. `ejemplo-clasificados` lo adaptó bien; la plantilla quedó con la lista corta y
+# el encabezado no la marca como ADAPTAR.
+INTOCABLES='(^|/)(test_[^/]*\.py|[^/]*_test\.py|[^/]*\.(test|spec)\.[jt]sx?)$|^scripts/|(^|/)tests/'
 if [ -n "${TAREA:-}" ]; then
   echo "── 0. Integridad"
   # --relative: git informa rutas desde la raíz del repo, y acá razonamos en rutas del

@@ -426,7 +426,19 @@ control_se_movio() {
   base="$RAIZ/.metricas/control-base.csv"
   mkdir -p "$(dirname "$base")"
   prev="$(grep -F "$clave|" "$base" 2>/dev/null | tail -1)"
+  case "$tools" in ''|*[!0-9]*) tools=0 ;; esac
   if [ -z "$prev" ]; then
+    # La línea base se escribía sin validar NADA, y un control que ya estaba roto cuando se
+    # la escribió se AUTO-VALIDA para siempre: con `tools=0` la primera mitad del criterio
+    # queda apagada —pide `t_prev > 0`— y con un veredicto estable la segunda nunca dispara.
+    # Es justo el modo de falla para el que esta función existe («el modelo de un partner daba
+    # 0 de 6 llamadas por un defecto del arnés») y no podía verlo. Lo encontró una auditoría
+    # ejercitando la función con `tools=0`, no una corrida: los cinco casos pineados en los
+    # tests usaban 6, 5 y 2 llamadas y veredicto VERDE.
+    if [ "$tools" -le 0 ] || [ "$gate" = "?" ]; then
+      echo "el control no sirve como línea base: $tools llamada(s) a herramientas, veredicto «${gate}». Un control que no actúa no puede señalar que el arnés se movió."
+      return 1
+    fi
     echo "$clave|$tools|$gate|$(date -u +%FT%TZ)" >> "$base"
     return 2
   fi
@@ -434,7 +446,12 @@ control_se_movio() {
   # Herramientas a la mitad o menos: dejó de actuar. Es el modo de falla medido — el modelo de
   # un partner daba 0 de 6 llamadas por un defecto del arnés, no del modelo.
   case "$t_prev" in ''|*[!0-9]*) t_prev=0 ;; esac
-  case "$tools" in ''|*[!0-9]*) tools=0 ;; esac
+  # Y una línea base degenerada que quedó escrita ANTES de este chequeo tampoco sirve: hay
+  # que decirlo en vez de dar la tanda por válida.
+  if [ "$t_prev" -le 0 ] || [ "$g_prev" = "?" ]; then
+    echo "la línea base del control está degenerada ($t_prev herramientas, veredicto «${g_prev}»): no puede detectar nada. Borrá su línea de $base y volvé a medirla con el arnés sano."
+    return 1
+  fi
   [ "$t_prev" -gt 0 ] && [ "$((tools * 2))" -lt "$t_prev" ] \
     && movio="las llamadas a herramientas cayeron de $t_prev a $tools"
   [ "$g_prev" != "?" ] && [ "$gate" != "?" ] && [ "$gate" != "$g_prev" ] \
@@ -474,6 +491,11 @@ anotar_intento() {
   # «cambiaste el instrumento entre dos corridas: no son comparables» y no tenía cómo saberlo.
   local instrumento
   instrumento="$(git -C "$RAIZ" rev-parse --short HEAD:scripts 2>/dev/null || echo "?")"
+  # Si el árbol de trabajo tiene cambios en scripts/, la huella del COMMIT miente: lo que
+  # corrió no es lo commiteado, y dos corridas con scripts distintos comparten huella — que
+  # es justo el estado contra el que avisa el guardia de `correr-todo.sh`. `congelar-banco.sh`
+  # ya lo marcaba así y esto no: el arreglo estaba de un lado y no del otro.
+  git -C "$RAIZ" diff --quiet -- scripts 2>/dev/null || instrumento="${instrumento}+sin-commitear"
   local ENCABEZADO="fecha,proyecto,tarea,veredicto,segundos,modelo,motivo,concurrencia,instrumento"
   if [ ! -f "$reg" ]; then
     echo "$ENCABEZADO" > "$reg"

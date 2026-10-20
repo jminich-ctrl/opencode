@@ -84,7 +84,13 @@ echo "── 3. Migraciones"
 MIGRACIONES="migrations"
 if [ -d "$MIGRACIONES" ] && echo "$DIFF" | grep -q "^$MIGRACIONES/"; then
   for m in $(echo "$DIFF" | grep "^$MIGRACIONES/"); do
-    if grep -qiE '\bdown\b|\bdowngrade\b|-- *revers' "$m" 2>/dev/null; then
+    # La reversa puede ser un ARCHIVO HERMANO —`001_initial.sql` + `001_initial_down.sql`—,
+    # que es la convención del método y la que discute `validar-plan.py`. Pidiendo la
+    # palabra sólo DENTRO del archivo, marcaba al correcto y además marcaba a la reversa
+    # misma, cuyo encabezado dice «Script de reversa» y no «down».
+    REVERSA="${m%.sql}_down.sql"
+    case "$m" in *_down.sql|*_downgrade.sql) REVERSA="$m" ;; esac
+    if [ -f "$REVERSA" ] || grep -qiE '\bdown\b|\bdowngrade\b|-- *revers' "$m" 2>/dev/null; then
       verde "$(basename "$m") tiene reversa"
     else
       rojo "$(basename "$m") NO tiene reversa: un deploy sin vuelta atrás es una apuesta"
