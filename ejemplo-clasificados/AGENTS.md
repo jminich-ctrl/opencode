@@ -114,7 +114,15 @@ completa, nunca la conexión:
 with patch('backend.app.datos.favorites.toggle_favorite') as mock_toggle:
 ```
 
-Y para que el `patch` aplique, el servicio tiene que llamarla como ATRIBUTO del módulo
+**La regla general: se parchea donde el nombre se BUSCA, no donde se define.** Las dos formas
+son válidas y la elección del patch depende de cómo importa quien lo usa:
+
+| si quien lo usa escribió | se parchea |
+|---|---|
+| `from backend.app.datos import favorites` y llama `favorites.toggle_favorite(...)` | `backend.app.datos.favorites.toggle_favorite` |
+| `from backend.app.datos.favorites import toggle_favorite` | `<módulo que lo usa>.toggle_favorite` |
+
+Y para que el `patch` aplique con la PRIMERA forma, el servicio tiene que llamarla como ATRIBUTO del módulo
 (`from backend.app.datos import favorites` … `favorites.toggle_favorite(...)`). Con
 `from backend.app.datos.favorites import toggle_favorite` el servicio se queda con su propia
 referencia, el mock no se aplica, la consulta va a la base de verdad y el rojo no se parece a

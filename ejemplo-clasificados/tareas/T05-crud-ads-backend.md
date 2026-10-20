@@ -82,18 +82,25 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 from backend.app.main import app
 
-with patch('backend.app.servicios.auth.usuario_desde_token', return_value=7):
+with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
     with patch('backend.app.datos.ads.insert_ad', return_value=123) as mock_insert:
         r = TestClient(app).post("/ads", json={...},
                                  headers={"Authorization": "Bearer cualquiera"})
         assert r.status_code == 201
 ```
 
-**Para que ese `patch` aplique, la ruta tiene que llamarla como ATRIBUTO del módulo:**
-`from backend.app.servicios import auth` … `auth.usuario_desde_token(token)`. Con
-`from backend.app.servicios.auth import usuario_desde_token` la ruta se queda con su propia
-referencia, el mock no se aplica, y el endpoint contesta **401** — un rojo que no se parece a
-su causa. Es la misma regla que ya está en `AGENTS.md` para la capa de datos.
+**Ojo con DÓNDE se parchea:** `backend.app.rutas.ads.usuario_desde_token`, o sea el módulo
+que la USA, no `backend.app.servicios.auth...`, que es donde está definida. La ruta puede
+importarla como quiera —`from backend.app.servicios.auth import usuario_desde_token` está
+bien— porque se parchea el nombre tal como la ruta lo ve.
+
+La versión anterior de esta tarea pedía lo contrario: parchear el módulo que la define y
+exigirle a la ruta que la llamara como atributo (`auth.usuario_desde_token(...)`). El agente
+escribió el import directo las dos veces —es lo natural— y se comió `assert 401 == 201` las
+dos, porque con el import directo ese patch no aplica. **La regla estaba al revés: no se le
+pide al código un estilo antinatural para que funcione un patch mal apuntado; se apunta el
+patch donde el nombre se busca.** Una convención que el agente viola dos veces, habiendo una
+alternativa que hace correcto el código natural, es un defecto de la convención.
 
 Esto está escrito porque el 2026-10-20 el agente escribió tests de ruta y se comió
 `assert 401 == 201` dos veces: en el proyecto no había NINGÚN precedente de test sobre una
