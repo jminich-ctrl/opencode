@@ -1,7 +1,7 @@
 # T20 — Backend datos mensajes
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
-**Depende de:** T05
+**Depende de:** T05a
 **Archivos que podés tocar:** backend/app/datos/messages.py
 **Prohibido tocar:** 
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`

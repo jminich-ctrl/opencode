@@ -75,29 +75,31 @@ vez de la aplicación.
 | T06c | Normalizar los errores al contrato del plan | T06b | backend/app/main.py | ✅ hecha |
 | T04 | Auth backend (login, sesión) | T02, T03, T06c | backend/app/rutas/auth.py, backend/app/servicios/auth.py, backend/app/datos/users.py | ✅ hecha |
 | T04b | Verificar la sesión a partir del token | T04 | backend/app/servicios/auth.py | ✅ hecha |
-| T05 | CRUD de avisos backend | T04b, T06c | backend/app/rutas/ads.py, backend/app/servicios/ads.py, backend/app/datos/ads.py | pendiente |
+| T05a | Avisos datos (CRUD en MySQL) | T03 | backend/app/datos/ads.py | pendiente |
+| T05b | Avisos servicio (validación y dueño) | T05a | backend/app/servicios/ads.py | pendiente |
+| T05c | Avisos rutas (endpoints CRUD) | T05b, T04b, T06c | backend/app/rutas/ads.py | pendiente |
 | T30 | Scaffolding Vite | T01 | frontend/package.json, frontend/vite.config.ts | ✅ hecha |
 | T31 | Punto de entrada frontend | T30 | frontend/src/main.tsx, frontend/src/App.jsx | ✅ hecha |
 | T07 | Login page y servicio auth frontend | T31 | frontend/src/pages/Login.jsx, frontend/src/services/auth.ts | ✅ hecha |
 | T08 | Listado y detalle de avisos frontend | T07 | frontend/src/pages/AdsList.jsx, frontend/src/pages/AdDetail.jsx, frontend/src/services/ads.ts | ✅ hecha |
-| T14 | Favoritos datos | T05 | backend/app/datos/favorites.py | pendiente |
+| T14 | Favoritos datos | T05a | backend/app/datos/favorites.py | pendiente |
 | T15 | Favoritos servicio | T14 | backend/app/servicios/favorites.py | pendiente |
 | T16 | Favoritos rutas | T15, T06c | backend/app/rutas/favorites.py | pendiente |
 | T17 | Favoritos servicio frontend | T16, T08 | frontend/src/services/favorites.ts | pendiente |
 | T18 | Favoritos UI lista | T17 | frontend/src/pages/AdsList.jsx | pendiente |
 | T19 | Favoritos SCSS | T18 | frontend/src/design/_favorites.scss | pendiente |
-| T20 | Mensajes datos | T05 | backend/app/datos/messages.py | pendiente |
+| T20 | Mensajes datos | T05a | backend/app/datos/messages.py | pendiente |
 | T21 | Mensajes servicio | T20 | backend/app/servicios/messages.py | pendiente |
 | T22 | Mensajes rutas | T21, T06c | backend/app/rutas/messages.py | pendiente |
 | T23 | Mensajes servicio frontend | T22 | frontend/src/services/messages.ts | pendiente |
 | T24 | Mensajes UI lista | T23 | frontend/src/pages/Messages.jsx | pendiente |
 | T25 | Mensajes UI detalle | T23 | frontend/src/pages/MessageDetail.jsx | pendiente |
-| T11 | Editar propios avisos | T05, T08 | frontend/src/pages/EditAd.jsx, frontend/src/services/ads.ts | pendiente |
+| T11 | Editar propios avisos | T05c, T08 | frontend/src/pages/EditAd.jsx, frontend/src/services/ads.ts | pendiente |
 | T12 | Filtro por categoría en listado | T08 | frontend/src/pages/AdsList.jsx, frontend/src/design/_filters.scss | ✅ hecha |
 | T13 | Sistema de diseño propio en SCSS | T30 | frontend/src/design/_variables.scss, frontend/src/design/_mixins.scss, frontend/src/design/main.scss | ✅ hecha |
 | T26 | Registro backend (creación de cuenta) | T03, T06c | backend/app/rutas/register.py, backend/app/servicios/register.py, backend/app/datos/users_register.py | ✅ hecha |
 | T27 | Registro frontend (página y servicio) | T31 | frontend/src/pages/Register.jsx, frontend/src/services/register.ts | ✅ hecha |
-| T28 | Búsqueda backend (texto y categoría) | T05, T06c | backend/app/rutas/search.py, backend/app/servicios/search.py, backend/app/datos/search_ads.py | pendiente |
+| T28 | Búsqueda backend (texto y categoría) | T05a, T06c | backend/app/rutas/search.py, backend/app/servicios/search.py, backend/app/datos/search_ads.py | pendiente |
 | T29 | Búsqueda frontend (UI y servicio) | T08 | frontend/src/components/SearchBar.jsx, frontend/src/services/search.ts | ✅ hecha |
 > Las etapas **no se declaran acá**: se deducen de la tabla de arriba, que es lo que
 > respeta las dependencias y los choques de archivo sin que nadie tenga que acordarse.
@@ -115,7 +117,9 @@ vez de la aplicación.
 | T06c | backend/tests/test_errores.py | TestErrores |
 | T04 | backend/tests/test_auth_backend.py | TestAuthBackend |
 | T04b | backend/tests/test_sesion.py | TestSesion |
-| T05 | backend/tests/test_ads_backend.py | TestAdsBackend |
+| T05a | backend/tests/test_ads_datos.py | TestAdsDatos |
+| T05b | backend/tests/test_ads_servicio.py | TestAdsServicio |
+| T05c | backend/tests/test_ads_rutas.py | TestAdsRutas |
 | T30 | frontend/tests/test_scaffolding_frontend.test.ts | TestScaffoldingFrontend |
 | T31 | frontend/tests/test_entrypoint_frontend.test.ts | TestEntrypointFrontend |
 | T07 | frontend/tests/test_login_frontend.test.ts | TestLoginFrontend |

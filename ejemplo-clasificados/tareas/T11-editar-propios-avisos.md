@@ -1,7 +1,7 @@
 # T11 — Editar propios avisos
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
-**Depende de:** T05, T08
+**Depende de:** T05c, T08
 **Archivos que podés tocar:** frontend/src/pages/EditAd.jsx, frontend/src/services/ads.ts
 **Prohibido tocar:** 
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`, que usa el runner, no puede elegir un subagente

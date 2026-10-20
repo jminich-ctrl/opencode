@@ -1,7 +1,7 @@
 # T14 — Backend datos favoritos
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
-**Depende de:** T05
+**Depende de:** T05a
 **Archivos que podés tocar:** backend/app/datos/favorites.py
 **Prohibido tocar:** 
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`, que usa el runner, no puede elegir un subagente
