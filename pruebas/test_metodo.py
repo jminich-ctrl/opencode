@@ -3054,6 +3054,124 @@ class TestLosChequeosQueReprobabanCodigoLegitimo(unittest.TestCase):
         self.assertIn("--exclude-dir=node_modules", linea)
 
 
+class TestLosCuatroHallazgosQueFaltaban(unittest.TestCase):
+    """Los que quedaban de AUDITORIA-20261019.md: 11, 12, 13 y 15. Ninguno lo encontró una
+    corrida — los cuatro salieron de leer el código con una forma en la cabeza."""
+
+    def control(self, *args, raiz=None):
+        d = raiz or pathlib.Path(tempfile.mkdtemp(prefix="prueba-ctrl-")).resolve()
+        if raiz is None:
+            self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        return correr("bash -c " + shlex.quote(
+            f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; RAIZ={shlex.quote(str(d))}; '
+            'control_se_movio ' + " ".join(shlex.quote(a) for a in args)), RAIZ), d
+
+    def test_un_control_degenerado_no_se_puede_usar_de_linea_base(self):
+        """La línea base se escribía sin validar NADA, así que un control que ya estaba roto se
+        auto-validaba para siempre: con `tools=0` la primera mitad del criterio queda apagada
+        —pide `t_prev > 0`— y con un veredicto estable la segunda nunca dispara. Es justo el
+        modo de falla para el que la función existe («el modelo de un partner daba 0 de 6
+        llamadas por un defecto del arnés»). Los cinco casos pineados usaban 6, 5 y 2
+        llamadas y veredicto VERDE: ninguno probaba el caso degenerado."""
+        r, _ = self.control("m|T05", "0", "ROJO")
+        self.assertEqual(r.returncode, 1, f"aceptó un control que no actuó:\n{r.stdout}")
+        self.assertIn("no sirve como línea base", r.stdout)
+
+    def test_un_control_sano_sigue_sirviendo_de_linea_base(self):
+        """Brazo nulo: si rechazara cualquier primera corrida, no habría línea base nunca y el
+        comparador no podría arrancar."""
+        r, d = self.control("m|T05", "6", "VERDE")
+        self.assertEqual(r.returncode, 2, f"rechazó un control sano:\n{r.stdout}")
+        r2, _ = self.control("m|T05", "6", "VERDE", raiz=d)
+        self.assertEqual(r2.returncode, 0, "la segunda corrida igual tiene que ser válida")
+        r3, _ = self.control("m|T05", "0", "VERDE", raiz=d)
+        self.assertEqual(r3.returncode, 1, "un derrumbe de herramientas tiene que detectarse")
+
+    def test_la_huella_del_instrumento_dice_si_habia_cambios_sin_commitear(self):
+        """Salía de `HEAD:scripts`, el árbol COMMITEADO, así que dos corridas con scripts
+        distintos sin commitear comparten huella — el estado contra el que avisa el guardia de
+        `correr-todo.sh`. `congelar-banco.sh` ya lo marcaba y esto no."""
+        s = (SCRIPTS / "_comun.sh").read_text()
+        i = s.index('rev-parse --short HEAD:scripts')
+        self.assertIn("sin-commitear", s[i:i + 600],
+                      "la huella del commit miente cuando el árbol de trabajo cambió")
+
+    def test_las_metricas_declaran_que_mezclan_instrumentos(self):
+        """La columna se escribía y NADIE la leía: el porcentaje que se imprime al final de
+        cada corrida mezclaba todas las corridas históricas, y MEDICION.md §5 declara que dos
+        filas con huellas distintas no son comparables. Hoy el registro tiene 6 huellas."""
+        s = (SCRIPTS / "metricas.sh").read_text()
+        self.assertIn("instrumento", s)
+        self.assertIn("mezcla", s, "no declara la mezcla")
+        i = s.index("huellas = {")
+        self.assertIn("MEDICION.md", s[i:i + 500], "sin la regla, el aviso no se entiende")
+
+    def test_el_guardia_de_corrida_activa_no_confunde_una_mencion_con_una_corrida(self):
+        """Usaba `pgrep -f "correr-todo\\.sh"`, que matchea cualquier proceso cuya línea de
+        comando MENCIONE la cadena. El 2026-10-20 mató un relanzamiento del plan porque mi
+        propia suite de tests tenía `"scripts/correr-todo.sh"` en su línea de comando, dentro
+        de una lista de archivos: el mensaje decía «ya hay una corrida activa (pid 45489)» y
+        45489 era un `python3 -m unittest`.
+
+        Es la decimosexta vez que aparece la misma forma —un chequeo que lee texto confunde la
+        mención con la cosa—, y la primera en la que la víctima es el plan y no un veredicto.
+
+        El lockfile no se confunde: lo escribe sólo quien corre. Y verifica que el pid esté
+        vivo, así que una corrida muerta a lo bruto no deja el plan trabado para siempre."""
+        s = (SCRIPTS / "correr-todo.sh").read_text()
+        activas = [l for l in s.split("\n")
+                   if l.strip() and not l.strip().startswith("#") and "pgrep -f" in l]
+        self.assertEqual(activas, [],
+                         "el guardia sigue usando pgrep -f: una mención lo activa:\n  "
+                         + "\n  ".join(activas))
+        self.assertIn("corrida-activa", s, "falta el lockfile")
+        self.assertIn('kill -0 "$PID_LOCK"', s,
+                      "sin verificar que el pid viva, una corrida muerta traba el plan para siempre")
+        self.assertIn("trap 'rm -f \"$LOCK\"' EXIT", s, "el lock tiene que soltarse al salir")
+        i = s.index("LOCK=\"$RAIZ/.metricas/")
+        self.assertIn(".metricas", s[i:i + 120],
+                      "va en .metricas/, que está en el .gitignore: un lock commiteado es peor")
+
+    def test_los_avisos_del_corte_de_etapas_no_van_a_dev_null(self):
+        """Ahí viajan los dos avisos de que el corte puede estar mal. Callados, dos tareas que
+        escriben el mismo archivo pueden salir en la misma etapa, en paralelo — la falla que
+        `_etapas.py` existe para evitar y que ya pasó una vez (BITACORA §13). El síntoma
+        aparece tres pasos después, como un conflicto de merge que acusa a la segunda."""
+        s = (SCRIPTS / "correr-todo.sh").read_text()
+        linea = next(l for l in s.split("\n") if "SOLO_ETAPAS=1" in l and "ETAPAS_TXT" in l)
+        self.assertNotIn("2>/dev/null", linea, "sigue tirando los avisos")
+        self.assertIn("AVISOS_ETAPAS", linea)
+        i = s.index("AVISOS_ETAPAS")
+        self.assertIn("echo", s[i:i + 900], "capturarlos sin imprimirlos es lo mismo que tirarlos")
+
+    def test_los_intocables_de_la_plantilla_cubren_los_layouts_de_dos_mitades(self):
+        """`^(tests/|scripts/)` no cubre `backend/tests/test_x.py` ni
+        `frontend/tests/x.test.ts`. Un proyecto nuevo copiado de la plantilla obtenía «✓ tests
+        y scripts intactos» mientras el agente editaba su propio test."""
+        s = (PLANTILLAS / "gate.sh").read_text()
+        patron = next(l for l in s.split("\n") if l.startswith("INTOCABLES=")).split("=", 1)[1]
+        patron = patron.strip().strip("'").strip('"')
+        import re as _re
+        rx = _re.compile(patron)
+        for intocable in ("backend/tests/test_conexion.py", "frontend/tests/x.test.ts",
+                          "src/cosa_test.py", "scripts/gate.sh", "tests/test_a.py"):
+            with self.subTest(intocable=intocable):
+                self.assertTrue(rx.search(intocable), "el agente podría editar su propio test")
+        for libre in ("backend/app/datos/ads.py", "frontend/src/pages/Login.jsx",
+                      "src/pacman/render.py", "PLAN.md"):
+            with self.subTest(libre=libre):
+                self.assertFalse(rx.search(libre), "reprueba código legítimo")
+
+    def test_la_reversa_de_una_migracion_puede_ser_un_archivo_hermano(self):
+        """La convención del método es el par `001_initial.sql` + `001_initial_down.sql`, que
+        `validar-plan.py` discute. Pidiendo la palabra sólo DENTRO del archivo, el chequeo
+        marcaba al correcto y además marcaba a la reversa misma."""
+        s = (PLANTILLAS / "pre-deploy.sh").read_text()
+        self.assertIn("_down.sql", s, "no contempla el archivo hermano")
+        i = s.index("REVERSA=")
+        self.assertIn('[ -f "$REVERSA" ]', s[i:i + 400])
+
+
 class TestValidarPlan(CasoBase):
     def validar(self, extra=""):
         return correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py {extra}", self.p.dir)

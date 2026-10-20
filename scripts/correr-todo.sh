@@ -98,7 +98,24 @@ fi
 (cd "$BASE" && ENCARGO="${ENCARGO:-OBJETIVO.md}" PLAN=PLAN.md python3 "$AQUI/cobertura.py") || {
   echo "✗ El plan no cubre el encargo. Eso se decide arriba, no acá." >&2; exit 1; }
 
-ETAPAS_TXT="$(SOLO_ETAPAS=1 bash "$AQUI/correr-plan.sh" 2>/dev/null | sed -n 's/^  ETAPA [0-9]*: //p')"
+# El stderr NO va a /dev/null: ahí viajan los dos avisos de que el corte de etapas puede
+# estar mal —«sin archivos declarados, no se les puede aplicar la regla del choque» de
+# _etapas.py, y «el plan declara etapas en un formato que el runner no lee entero» de
+# correr-plan.sh—. Callados, dos tareas que escriben el MISMO archivo pueden salir en la misma
+# etapa, en paralelo: es la falla que _etapas.py existe para evitar y que ya pasó una vez acá
+# (BITACORA §13). El síntoma aparece tres pasos después, en `integrar.sh`, como un conflicto
+# de merge que acusa a la segunda tarea.
+#
+# `planificar.sh` hace lo contrario con la misma sonda: captura sólo stderr y lo imprime. El
+# que lo tiraba era el único que corre sin nadie mirando.
+AVISOS_ETAPAS="$(mktemp)"
+ETAPAS_TXT="$(SOLO_ETAPAS=1 bash "$AQUI/correr-plan.sh" 2>"$AVISOS_ETAPAS" | sed -n 's/^  ETAPA [0-9]*: //p')"
+if grep -q ⚠ "$AVISOS_ETAPAS" 2>/dev/null; then
+  echo "⚠ el corte de etapas se dedujo CON AVISOS — leelos, pueden poner dos tareas que"
+  echo "   escriben el mismo archivo en la misma etapa:"
+  sed 's/^/     /' "$AVISOS_ETAPAS"
+fi
+rm -f "$AVISOS_ETAPAS"
 [ -n "$ETAPAS_TXT" ] || { echo "✗ No pude deducir las etapas del plan" >&2; exit 1; }
 
 ETAPAS=()
@@ -131,13 +148,41 @@ huella_scripts() {
 }
 HUELLA_SCRIPTS="$(huella_scripts)"
 
-OTRA="$(pgrep -f "correr-todo\.sh" | grep -v "^$$\$" | head -1 || true)"
+# Por un LOCKFILE con el pid, no por `pgrep -f`. `pgrep -f` matchea cualquier proceso cuya
+# línea de comando MENCIONE la cadena, y no puede distinguir una corrida de una mención: el
+# 2026-10-20 mató un relanzamiento del plan porque mi propia suite de tests tenía
+# `"scripts/correr-todo.sh"` en su línea de comando, dentro de una lista de archivos. El
+# mensaje decía «ya hay una corrida activa (pid 45489)» y 45489 era un `python3 -m unittest`.
+#
+# Es la misma forma que este repo encontró quince veces el día anterior: un chequeo que lee
+# texto confunde la mención con la cosa. El lockfile no se confunde — lo escribe sólo quien
+# corre de verdad— y se verifica que el pid esté vivo, así que una corrida muerta a lo bruto
+# no deja el plan trabado para siempre.
+#
+# Va en `.metricas/`, que ya está en el .gitignore: un lockfile commiteado sería peor que el
+# problema que resuelve.
+LOCK="$RAIZ/.metricas/corrida-activa"
+mkdir -p "$(dirname "$LOCK")"
+OTRA=""
+if [ -f "$LOCK" ]; then
+  PID_LOCK="$(cat "$LOCK" 2>/dev/null)"
+  case "$PID_LOCK" in
+    ''|*[!0-9]*) : ;;                                  # lockfile corrupto: se ignora
+    "$$") : ;;                                         # el nuestro
+    *) kill -0 "$PID_LOCK" 2>/dev/null && OTRA="$PID_LOCK" ;;
+  esac
+fi
 if [ -n "$OTRA" ] && [ "$SOLO_VER" != "1" ]; then
   echo "✗ Ya hay una corrida activa (pid $OTRA)." >&2
   echo "  Dos corridas se pisan: cada tarea borra y recrea su worktree. Y mientras una" >&2
   echo "  corre, editar un script le hace ejecutar basura —bash lo lee por posición—." >&2
   echo "  Esperá a que termine, o cortala: kill $OTRA" >&2
   exit 1
+fi
+# Y se toma el lock, que se suelta al salir por cualquier vía.
+if [ "$SOLO_VER" != "1" ]; then
+  echo "$$" > "$LOCK"
+  trap 'rm -f "$LOCK"' EXIT
 fi
 
 # Los números de etapa NO son estables entre corridas. Las etapas se deducen del grafo de

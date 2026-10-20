@@ -67,6 +67,28 @@ if por_tarea:
     if nunca_verde > 0:
         print(f"Nunca llegaron a verde: {nunca_verde}/{len(por_tarea)} "
               f"— las cerró un humano (regla: lo que falla dos veces no se insiste)")
+    # El instrumento: la columna se escribía y NADIE la leía, así que este porcentaje mezclaba
+    # todas las corridas históricas del proyecto. MEDICION.md §5 declara que dos filas con
+    # huellas distintas no son comparables, y el número que se imprime al final de cada
+    # corrida las mezclaba sin decirlo. Hoy el registro tiene seis huellas distintas.
+    huellas = {f.get("instrumento") or "" for f in filas} - {""}
+    if len(huellas) > 1:
+        print(f"  ⊘ ese {pct}% mezcla {len(huellas)} instrumentos distintos "
+              "(MEDICION.md §5: huellas distintas no se comparan)")
+        import subprocess as _sp
+        actual = _sp.run(["git", "rev-parse", "--short", "HEAD:scripts"],
+                         capture_output=True, text=True).stdout.strip()
+        mismas = [f for f in filas if (f.get("instrumento") or "").startswith(actual)] if actual else []
+        if mismas:
+            pt = collections.defaultdict(list)
+            for f in mismas:
+                pt[f["tarea"]].append(f)
+            pv = sum(1 for ts in pt.values() if ts and ts[0]["veredicto"] == "VERDE")
+            print(f"     con el instrumento de ahora ({actual}): {pv}/{len(pt)} "
+                  f"al primer intento, sobre {len(mismas)} intento(s)")
+        else:
+            print(f"     con el instrumento de ahora no hay ningún intento todavía: "
+                  "el próximo número comparable empieza de cero")
     if pct >= 60:   print("→ ≥60%: la descomposición funciona.")
     elif pct >= 30: print("→ 30-60%: tareas demasiado grandes o criterios flojos.")
     else:           print("→ <30%: el problema está en el plan, no en el modelo.")
