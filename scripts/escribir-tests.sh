@@ -225,10 +225,10 @@ for id in "$@"; do
   # diagnosticar como eso: el agente de T04 usó `passlib` donde el plan cerró `hashlib.scrypt`
   # y el método lo informó como «el test no pasa ni con la implementación del propio agente»,
   # que manda a mirar el test en vez del contrato.
-  if [ "$fallos" -eq 0 ] && [ -f scripts/_imports.py ]; then
+  if [ "$fallos" -eq 0 ] && [ -f "$AQUI/_imports.py" ]; then
     PY_TOCADOS="$(echo "$TOCADOS" | grep -E '\.py$' | tr '\n' ' ')"
     if [ -n "$PY_TOCADOS" ]; then
-      SAL_I="$("${PY_PROYECTO:-python3}" scripts/_imports.py ${PY_TOCADOS} 2>&1)"
+      SAL_I="$("${PY_PROYECTO:-python3}" "$AQUI/_imports.py" ${PY_TOCADOS} 2>&1)"
       if [ $? -eq 1 ]; then
         malo "$(echo "$SAL_I" | sed -n 's/^  ✗ //p' | head -1)"
       fi
