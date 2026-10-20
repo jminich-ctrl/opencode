@@ -3172,6 +3172,35 @@ class TestLosCuatroHallazgosQueFaltaban(unittest.TestCase):
         self.assertIn('[ -f "$REVERSA" ]', s[i:i + 400])
 
 
+class TestElMotivoLlevaSuDato(unittest.TestCase):
+    """«El motivo lleva el fallo real, no su categoría» ya estaba escrito en
+    `escribir-tests.sh` para el caso de la suite. El paso de los mutantes lo incumplía por un
+    arreglo mío a medias."""
+
+    def test_el_motivo_de_los_mutantes_lleva_su_dato(self):
+        """`mutar.py` se corría DOS veces —una muda para el veredicto y otra para capturar el
+        detalle— y cuando arreglé el `CODIGO` de la primera dejé la segunda con el viejo. El
+        detalle salía vacío, el reintento recibía «sobreviven mutantes» sin un solo dato, y
+        T05a llegó a punto muerto por eso: dos intentos sin información nueva.
+
+        Dos invocaciones del mismo comando son dos cosas que pueden divergir, y divergieron en
+        el mismo bloque y en el mismo arreglo. Ahora corre una vez y el detalle sale de esa
+        corrida, así que no puede desaparecer ni contradecirla."""
+        s = (SCRIPTS / "escribir-tests.sh").read_text()
+        invocaciones = [l for l in s.split("\n")
+                        if 'mutar.py' in l and 'python3' in l and not l.strip().startswith("#")]
+        self.assertEqual(len(invocaciones), 1,
+                         "más de una invocación de mutar.py: pueden divergir\n  "
+                         + "\n  ".join(i.strip() for i in invocaciones))
+        self.assertIn("SALIDA_MUT", s, "la salida tiene que capturarse una vez y reusarse")
+        i = s.index("SOBREVIVEN=")
+        self.assertIn('printf \'%s\\n\' "$SALIDA_MUT"', s[i:i + 200],
+                      "el detalle tiene que salir de la MISMA corrida que el veredicto")
+        self.assertIn("no listó sobrevivientes", s,
+                      "si el detalle sale vacío igual, hay que decirlo: mandar a adivinar es "
+                      "lo que produjo el punto muerto")
+
+
 class TestValidarPlan(CasoBase):
     def validar(self, extra=""):
         return correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py {extra}", self.p.dir)
