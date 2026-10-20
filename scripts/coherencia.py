@@ -156,6 +156,22 @@ def main():
             for m in re.finditer(r"^\s*([a-z_][a-z0-9_]*)\s*#.*APIRouter", bloque, re.M):
                 provee.setdefault(m.group(1), []).append(tid)
 
+    # Y los MÓDULOS que cada tarea va a CREAR: una tarea que declara
+    # `backend/app/datos/ads.py` provee el nombre `ads` para `from backend.app.datos import
+    # ads`, que es un submódulo y Python lo resuelve sin que el `__init__.py` lo nombre.
+    #
+    # Sin esto el chequeo daba un falso rojo justo sobre la forma que el método EXIGE para que
+    # el `@patch` del test aplique. Es la TERCERA vez que el mismo caso muerde un chequeo
+    # distinto de este repo: ya había pasado con `_imports.py` —donde lo atrapó el control
+    # negativo contra los dos proyectos— y con el paso 4 del gate. Un submódulo declarado como
+    # archivo es una declaración; que no tenga `def` no la vuelve inexistente.
+    for tid, texto in textos.items():
+        m = re.search(r"^\*\*Archivos que podés tocar:\*\* *(.*)$", texto, re.M)
+        if not m:
+            continue
+        for ruta in re.findall(r"[A-Za-z0-9_./-]+\.py", m.group(1)):
+            provee.setdefault(pathlib.Path(ruta).stem, []).append(tid)
+
     rojos, avisos = [], []
 
     # ── ROJO: un import del contrato que nadie provee ────────────────────────────────
