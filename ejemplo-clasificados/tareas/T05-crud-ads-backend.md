@@ -73,6 +73,35 @@ pregunta si el test distingue— **no corría** por un defecto de rutas, y los p
 comparan el test contra la implementación del propio agente, las dos con la misma firma
 inventada. Se rechazó el test y se escribió esto.
 
+**A qué capa apunta el test, y cómo se autentica.** El test ejercita el ENDPOINT con
+`TestClient(app)`, igual que `backend/tests/test_auth_backend.py`, porque ahí viven los
+errores de cableado. Y como `/ads` exige sesión, la autenticación se mockea:
+
+```python
+from unittest.mock import patch
+from fastapi.testclient import TestClient
+from backend.app.main import app
+
+with patch('backend.app.servicios.auth.usuario_desde_token', return_value=7):
+    with patch('backend.app.datos.ads.insert_ad', return_value=123) as mock_insert:
+        r = TestClient(app).post("/ads", json={...},
+                                 headers={"Authorization": "Bearer cualquiera"})
+        assert r.status_code == 201
+```
+
+**Para que ese `patch` aplique, la ruta tiene que llamarla como ATRIBUTO del módulo:**
+`from backend.app.servicios import auth` … `auth.usuario_desde_token(token)`. Con
+`from backend.app.servicios.auth import usuario_desde_token` la ruta se queda con su propia
+referencia, el mock no se aplica, y el endpoint contesta **401** — un rojo que no se parece a
+su causa. Es la misma regla que ya está en `AGENTS.md` para la capa de datos.
+
+Esto está escrito porque el 2026-10-20 el agente escribió tests de ruta y se comió
+`assert 401 == 201` dos veces: en el proyecto no había NINGÚN precedente de test sobre una
+ruta autenticada —T04 prueba `/auth/login`, que no exige sesión porque la crea, y T04b llama
+a la función directo—, así que tenía que inventarlo. Una tarea que exige autorización y no
+dice cómo se simula en un test no es ejecutable, que es la misma lección que esta tarea ya
+aprendió una vez con `obtener_usuario_id_desde_token`.
+
 **Cómo se sabe quién pide: `usuario_desde_token(token)` de `servicios/auth.py`, que la
 provee T04b.** Está escrito acá porque la versión anterior de esta tarea pedía «respetando
 la autorización del usuario» sin decir el medio: el agente inventó una función, cableó tres
