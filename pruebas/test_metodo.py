@@ -69,7 +69,7 @@ class Proyecto:
         # El gate ya no sabe correr la suite: lo sabe correr-suite.sh, y los dos van juntos.
         shutil.copy(PLANTILLAS / "correr-suite.sh", self.dir / "scripts" / "correr-suite.sh")
         # El gate también depende de estos dos: si faltan, da rojo y lo dice.
-        shutil.copy(PLANTILLAS / "_suprimidas.py", self.dir / "scripts" / "_suprimidas.py")
+        shutil.copy(SCRIPTS / "_suprimidas.py", self.dir / "scripts" / "_suprimidas.py")
         (self.dir / "src" / "__init__.py").touch()
         (self.dir / "tests" / "__init__.py").touch()
         (self.repo / ".gitignore").write_text(
@@ -400,7 +400,7 @@ class TestGate(CasoBase):
         silencio: el síntoma era un 404 donde el test esperaba un 400, que no se parece en
         nada a su causa. Es la vacuidad otra vez: «no pude» disfrazado de «no hay nada».
         """
-        shutil.copy(PLANTILLAS / "_suprimidas.py", self.p.dir / "scripts" / "_suprimidas.py")
+        shutil.copy(SCRIPTS / "_suprimidas.py", self.p.dir / "scripts" / "_suprimidas.py")
         self.p.declarar("src/")
         self.p.implementar("def f():\n"
                            "    try:\n"
@@ -413,7 +413,7 @@ class TestGate(CasoBase):
 
     def test_un_except_que_hace_algo_no_da_rojo(self):
         """La otra mitad: manejar una excepción no es suprimir una señal."""
-        shutil.copy(PLANTILLAS / "_suprimidas.py", self.p.dir / "scripts" / "_suprimidas.py")
+        shutil.copy(SCRIPTS / "_suprimidas.py", self.p.dir / "scripts" / "_suprimidas.py")
         self.p.declarar("src/")
         self.p.implementar("def f():\n"
                            "    try:\n"
@@ -1617,7 +1617,7 @@ class TestImportsDePython(CasoBase):
         # si no, no queda ningún cambio y el gate da rojo por «la tarea no se hizo».
         # El chequeo es parte del verificador y va commiteado ANTES: si entra después del
         # commit, el gate lo ve como un archivo fuera del alcance de la tarea —y tiene razón—.
-        shutil.copy(PLANTILLAS / "_imports.py", self.p.dir / "scripts" / "_imports.py")
+        shutil.copy(SCRIPTS / "_imports.py", self.p.dir / "scripts" / "_imports.py")
         self.p.declarar("src/, requirements.txt")
         (self.p.dir / "requirements.txt").write_text(requirements)
         (self.p.dir / "src" / "cosa.py").write_text(codigo)
@@ -2644,7 +2644,7 @@ class TestImportarDeUnModuloPropioAlgoQueNoDefine(unittest.TestCase):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-imp-")).resolve()
         self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         (d / "requirements.txt").write_text("pymysql\n")
-        shutil.copy(PLANTILLAS / "_imports.py", d / "_imports.py")
+        shutil.copy(SCRIPTS / "_imports.py", d / "_imports.py")
         for ruta, cuerpo in modulos.items():
             f = d / ruta
             f.parent.mkdir(parents=True, exist_ok=True)
@@ -2696,16 +2696,16 @@ class TestImportarDeUnModuloPropioAlgoQueNoDefine(unittest.TestCase):
 
     def test_las_tres_copias_del_chequeo_son_la_misma(self):
         """El repo ya se comió el arreglo puesto de un solo lado más de una vez."""
-        copias = {g: g.read_text() for g in (
-            PLANTILLAS / "_imports.py",
-            RAIZ / "ejemplo-clasificados" / "scripts" / "_imports.py",
-            RAIZ / "ejemplo-pacman" / "scripts" / "_imports.py")}
-        for g, s in copias.items():
-            with self.subTest(copia=str(g.relative_to(RAIZ))):
-                self.assertIn("internos_rotos", s, "le falta el chequeo de imports internos")
-        self.assertEqual(len(set(copias.values())), 1,
-                         "las copias divergieron: " + ", ".join(
-                             str(g.relative_to(RAIZ)) for g in copias))
+        # La invariante cambió: antes era «las tres copias son idénticas» y ahora es «hay UNA
+        # copia». Es más fuerte, porque dos copias idénticas hoy divergen mañana — pasó dos
+        # veces. El chequeo de que no reaparezcan está en
+        # TestLosChequeosDelMetodoVivenEnUnSoloLugar.
+        unica = SCRIPTS / "_imports.py"
+        self.assertIn("internos_rotos", unica.read_text(),
+                      "le falta el chequeo de imports internos")
+        self.assertEqual([p.relative_to(RAIZ).as_posix()
+                          for p in RAIZ.rglob("_imports.py") if ".git" not in p.parts],
+                         ["scripts/_imports.py"], "reapareció una copia")
 
 
 class TestUnPuntoMuertoDiceQueSignifica(unittest.TestCase):
@@ -2992,9 +2992,7 @@ class TestLosChequeosQueReprobabanCodigoLegitimo(unittest.TestCase):
         reprobaban a cualquier tarea nueva sobre esos archivos —y son el alcance declarado de
         T07, T08, T11 y T12—. No podía sacarlas sin romper el idiom ni tocarlas sin que el
         paso 2 la reprobara: el único camino era escribir peor código."""
-        for s_ in (PLANTILLAS / "_suprimidas.py",
-                   RAIZ / "ejemplo-pacman" / "scripts" / "_suprimidas.py",
-                   RAIZ / "ejemplo-clasificados" / "scripts" / "_suprimidas.py"):
+        for s_ in (SCRIPTS / "_suprimidas.py",):   # una sola copia, en el método
             with self.subTest(copia=s_.parent.name):
                 s = s_.read_text()
                 self.assertIn("lineas_cambiadas", s, "no acota al diff")
@@ -3003,14 +3001,28 @@ class TestLosChequeosQueReprobabanCodigoLegitimo(unittest.TestCase):
                   RAIZ / "ejemplo-clasificados" / "scripts" / "gate.sh",
                   RAIZ / "ejemplo-pacman" / "scripts" / "gate.sh"):
             with self.subTest(gate=g.parent.name):
-                self.assertIn('BASE="${BASE_REF:-}" "${PY_PROYECTO:-python3}" scripts/_suprimidas.py',
-                              g.read_text(), "el gate no le pasa la base, así que no puede acotar")
+                # Lo que pina es que le PASE la base, no la ruta del chequeo: la ruta
+                # cambió cuando los chequeos pasaron a vivir en un solo lugar, y un test
+                # clavado a la forma convierte un refactor legítimo en un rojo.
+                #
+                # Y se busca la línea que lo INVOCA, no la primera aparición del nombre: el
+                # comentario del resolver también lo menciona, y una ventana alrededor de la
+                # primera aparición cae sobre la prosa. Undécima vez que un chequeo mío
+                # confunde la mención con la cosa, y la segunda en este mismo test.
+                s = g.read_text()
+                invoca = [l for l in s.split("\n")
+                          if "_suprimidas.py" in l and "aux_del_metodo" in l
+                          and ("python3" in l or "PY_PROYECTO" in l)]
+                self.assertEqual(len(invoca), 1,
+                                 f"esperaba una invocación del chequeo: {invoca}")
+                self.assertIn('BASE="${BASE_REF:-}"', invoca[0],
+                              "el gate no le pasa la base, así que no puede acotar al diff")
 
     def test_una_senal_suprimida_nueva_sigue_cayendo(self):
         """Brazo nulo del acote: si el filtro tapara todo, el chequeo dejaría de existir."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-sup-")).resolve()
         self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        shutil.copy(PLANTILLAS / "_suprimidas.py", d / "_suprimidas.py")
+        shutil.copy(SCRIPTS / "_suprimidas.py", d / "_suprimidas.py")
         f = d / "x.py"
         f.write_text("def vieja():\n    try:\n        pass\n    except Exception:\n        pass\n")
         for cmd in (["init","-q","-b","main"],["add","-A"],
@@ -3199,6 +3211,72 @@ class TestElMotivoLlevaSuDato(unittest.TestCase):
         self.assertIn("no listó sobrevivientes", s,
                       "si el detalle sale vacío igual, hay que decirlo: mandar a adivinar es "
                       "lo que produjo el punto muerto")
+
+
+class TestLosChequeosDelMetodoVivenEnUnSoloLugar(unittest.TestCase):
+    """Etapa 1 hacia un método genérico. `_imports.py` y `_suprimidas.py` estaban copiados en
+    la plantilla y en los dos ejemplos —**idénticos byte a byte**, mismo md5—, así que cada
+    arreglo había que escribirlo tres veces, y la auditoría del 2026-10-19 encontró dos casos
+    donde una copia quedó atrás.
+
+    Lo que varía de verdad por proyecto es `correr-suite.sh` (cómo se corre SU suite) y la
+    config de `_arquitectura.py` (sus capas). El juicio no varía, y por eso no se copia."""
+
+    def test_hay_una_sola_copia_de_cada_chequeo_compartido(self):
+        for n in ("_imports.py", "_suprimidas.py"):
+            with self.subTest(chequeo=n):
+                copias = [p for p in RAIZ.rglob(n) if ".git" not in p.parts]
+                self.assertEqual([p.relative_to(RAIZ).as_posix() for p in copias],
+                                 [f"scripts/{n}"],
+                                 "un chequeo copiado es un chequeo que va a divergir")
+
+    def test_AGENTES_existe_como_variable_y_no_solo_en_la_prosa(self):
+        """`$AGENTES` aparecía 31 veces en los mensajes del método y no existía como variable
+        en ninguna parte: una ruta que el método le pedía al humano tener en la cabeza. Es la
+        misma forma que este repo viene encontrando —una regla que vive sólo en un documento—
+        aplicada a su propia ubicación."""
+        r = correr("bash -c " + shlex.quote(
+            f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; echo "$AGENTES"'), RAIZ)
+        self.assertEqual(r.stdout.strip(), str(RAIZ),
+                         f"AGENTES no apunta a la raíz del método: {r.stdout!r}")
+        self.assertIn("export AGENTES", (SCRIPTS / "_comun.sh").read_text(),
+                      "sin export, el gate del proyecto no la recibe")
+
+    def test_los_tres_gates_buscan_el_chequeo_en_el_metodo(self):
+        for g in (PLANTILLAS / "gate.sh",
+                  RAIZ / "ejemplo-clasificados" / "scripts" / "gate.sh",
+                  RAIZ / "ejemplo-pacman" / "scripts" / "gate.sh"):
+            with self.subTest(gate=g.parent.name):
+                s = g.read_text()
+                self.assertIn("aux_del_metodo", s, "sigue buscando una copia local")
+                # Sólo las líneas que lo INVOCAN, no las que lo nombran: el mensaje
+                # `rojo "falta scripts/_suprimidas.py: …"` menciona la ruta y es correcto.
+                # Décima vez que un chequeo mío confunde la mención con la cosa; acá la
+                # víctima era un mensaje de error.
+                activas = [l for l in s.split("\n")
+                           if l.strip() and not l.strip().startswith("#")
+                           and ("scripts/_imports.py" in l or "scripts/_suprimidas.py" in l)
+                           and "aux_del_metodo" not in l
+                           and ("python3" in l or "PY_PROYECTO" in l or "[ -f " in l)]
+                self.assertEqual(activas, [],
+                                 "quedó una referencia a la copia del proyecto:\n  "
+                                 + "\n  ".join(a.strip() for a in activas))
+
+    def test_el_resolver_encuentra_el_chequeo_y_falla_a_la_vista(self):
+        """La cadena: `$AGENTES`, después la raíz del repo, después el proyecto. Y si no está
+        en ninguna, devuelve vacío para que el paso que lo necesita dé ROJO: un chequeo que no
+        se encuentra no es un chequeo que pasa."""
+        fuente = (PLANTILLAS / "gate.sh").read_text()
+        i = fuente.index("aux_del_metodo() {")
+        cuerpo = fuente[i:fuente.index("\n}", i) + 2]   # + 2: el `\n}` de cierre va incluido
+        guion = cuerpo + '\naux_del_metodo "$1" || echo VACIO\n'
+        con = correr("bash -c " + shlex.quote(guion) + " x _imports.py",
+                     RAIZ, AGENTES=str(RAIZ))
+        self.assertIn("_imports.py", con.stdout, f"no lo encontró con AGENTES:\n{con.stdout}")
+        sin = correr("bash -c " + shlex.quote(guion) + " x no_existe_nunca.py",
+                     RAIZ, AGENTES=str(RAIZ))
+        self.assertIn("VACIO", sin.stdout,
+                      "tiene que devolver vacío cuando no está, no una ruta inventada")
 
 
 class TestValidarPlan(CasoBase):

@@ -5,6 +5,29 @@
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 FALLOS=0
+# Los chequeos que el MÉTODO provee, no el proyecto. Estaban copiados en cada proyecto y en
+# la plantilla —`_imports.py` y `_suprimidas.py`, idénticos byte a byte en las tres copias—,
+# así que cada arreglo había que escribirlo tres veces y dos veces una copia quedó atrás (la
+# auditoría del 2026-10-19 encontró las dos).
+#
+# La cadena de búsqueda, en orden y sin silencios:
+#   1. `$AGENTES`, que el runner exporta desde `_comun.sh`;
+#   2. la raíz del repo, para cuando el proyecto vive dentro del repo del método (los dos
+#      ejemplos) y alguien corre el gate a mano;
+#   3. `scripts/` del propio proyecto, para un proyecto que se lo llevó aparte.
+# Si no está en ninguna, el paso que lo necesita da ROJO y dice que es del método: un chequeo
+# que no se encuentra no es un chequeo que pasa.
+aux_del_metodo() {
+  local n="$1" c
+  for c in "${AGENTES:+$AGENTES/scripts/$n}" \
+           "$(git rev-parse --show-toplevel 2>/dev/null)/scripts/$n" \
+           "scripts/$n"; do
+    case "$c" in /scripts/*|"") continue ;; esac
+    [ -f "$c" ] && { printf '%s\n' "$c"; return 0; }
+  done
+  return 1
+}
+
 VACIOS=0
 rojo() { echo "  ✗ $1"; FALLOS=$((FALLOS+1)); }
 verde() { echo "  ✓ $1"; }
@@ -283,13 +306,13 @@ echo "── 3. Higiene"
 # chequeo que parecía caro costaba una línea. Lo habría atrapado al toque: el agente de T04
 # importó `mysql.connector` donde el proyecto declara `pymysql`, y el síntoma fue un
 # ModuleNotFoundError dentro del test que el método informó como "el test está mal".
-if [ -f scripts/_imports.py ]; then
+if [ -n "$(aux_del_metodo _imports.py)" ]; then
   if [ -n "${TAREA:-}" ]; then
     PY_IMPORT="$(echo "$CAMBIADOS" | grep -E '\.py$' | tr '\n' ' ')"
   else
     PY_IMPORT="--todo src tests"
   fi
-  SAL_IMP="$("${PY_PROYECTO:-python3}" scripts/_imports.py ${PY_IMPORT} 2>&1)"; RC_IMP=$?
+  SAL_IMP="$("${PY_PROYECTO:-python3}" "$(aux_del_metodo _imports.py)" ${PY_IMPORT} 2>&1)"; RC_IMP=$?
   echo "$SAL_IMP"
   case "$RC_IMP" in
     1) FALLOS=$((FALLOS+1)) ;;
@@ -373,9 +396,9 @@ if ! python3 -m compileall -q src/ >/dev/null 2>&1; then rojo "src/ no compila";
 # Por árbol sintáctico y no por grep de línea: la forma más común de apagar una señal
 # en Python ocupa tres líneas (`except X:` / comentario / `pass`) y un grep por línea no
 # la ve. Pasó en serio, y el agente citó mi propio texto de la tarea para justificarla.
-if [ ! -f scripts/_suprimidas.py ]; then
+if [ -z "$(aux_del_metodo _suprimidas.py)" ]; then
   rojo "falta scripts/_suprimidas.py: el gate no puede buscar señales suprimidas"
-  echo "     Copialo de plantillas/_suprimidas.py. Esto es del método, no del código juzgado."
+  echo "     Lo provee el método en scripts/_suprimidas.py. Esto es del método, no del código juzgado."
 else
   # En modo tarea, sólo lo que ESTA tarea tocó: una señal suprimida que ya estaba en el
   # tronco no es de esta tarea. Es el mismo error que cometí con los imports y con el
@@ -388,7 +411,7 @@ else
   # Con BASE, `_suprimidas.py` acota al diff: una señal que ya estaba en el archivo
   # no es de esta tarea. Sin esto le cobraba a cualquier tarea las tres de curses
   # que viven en el pacman desde siempre.
-  SAL_SUP="$(BASE="${BASE_REF:-}" "${PY_PROYECTO:-python3}" scripts/_suprimidas.py ${ARG_SUP} 2>&1)"; RC_SUP=$?
+  SAL_SUP="$(BASE="${BASE_REF:-}" "${PY_PROYECTO:-python3}" "$(aux_del_metodo _suprimidas.py)" ${ARG_SUP} 2>&1)"; RC_SUP=$?
   echo "$SAL_SUP"
   case "$RC_SUP" in 1) FALLOS=$((FALLOS+1)) ;; 2) VACIOS=$((VACIOS+1)) ;; esac
 fi

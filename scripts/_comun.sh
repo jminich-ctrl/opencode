@@ -44,6 +44,16 @@ el_enunciado_cambio() {
   [ -n "${2:-}" ] && [ -n "${1:-}" ] && [ "$1" != "$2" ]
 }
 
+# La raíz del MÉTODO, deducida de dónde vive este archivo. Hasta ahora `$AGENTES` aparecía
+# 31 veces en los mensajes del método y no existía como variable en ninguna parte: una ruta
+# que el método le pedía al humano tener en la cabeza. Es la misma forma que este repo viene
+# encontrando —una regla que vive sólo en un documento— aplicada a su propia ubicación.
+#
+# Se exporta para que los hijos la reciban, incluido el gate del proyecto, que necesita
+# encontrar los chequeos que el método provee y que estaban copiados en cada proyecto.
+AGENTES="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+export AGENTES
+
 ubicar_proyecto() {
   git rev-parse --show-toplevel >/dev/null 2>&1 \
     || { echo "✗ Corré esto desde adentro del repo git de tu proyecto" >&2; exit 1; }
