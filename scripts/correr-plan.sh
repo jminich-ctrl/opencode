@@ -107,6 +107,10 @@ if [ "${SOLO_ETAPAS:-0}" = "1" ]; then
   exit 0
 fi
 
+# `${ETAPAS[@]+...}` y no `"${ETAPAS[@]}"`: en bash 3.2 —el que trae macOS—
+# expandir un array VACÍO con `set -u` no imprime mal, ABORTA el script. Hoy un
+# `exit 0` anterior lo intercepta, pero esa garantía la rompe mover una línea.
+rechazar_salteo "$DESDE" "bash $AQUI/correr-plan.sh" ${ETAPAS[@]+"${ETAPAS[@]}"}
 echo "Plan con ${#ETAPAS[@]} etapa(s). Empezando en la $DESDE."
 echo
 

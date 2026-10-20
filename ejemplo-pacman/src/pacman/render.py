@@ -91,7 +91,7 @@ def dibujar(pantalla, juego, pacman, fantasmas) -> None:
             mensaje = f"Agrandá la terminal: hacen falta {max(len(l) for l in lineas) + 1}x{len(lineas) + 1}"
             try:
                 pantalla.addstr(0, 0, mensaje[:max(0, ancho - 1)])
-            except Exception:
+            except Exception:  # best-effort: si ni el aviso entra, se sale sin dibujar
                 pass
             pantalla.refresh()
             return
@@ -128,7 +128,7 @@ def dibujar(pantalla, juego, pacman, fantasmas) -> None:
             mensaje = f"Agrandá la terminal: hacen falta {max(len(l) for l in lineas) + 1}x{len(lineas) + 1}"
             try:
                 pantalla.addstr(0, 0, mensaje[:max(0, ancho - 1)])
-            except Exception:
+            except Exception:  # best-effort: si ni el aviso entra, se sale sin dibujar
                 pass
             pantalla.refresh()
             return

@@ -47,13 +47,24 @@ fi
 # `correr-suite.sh --fallas` es el MISMO comando que el runner usa para la línea base de cada
 # tarea, y lista las fallas de a una. Cuesta una corrida de suite extra por captura; el
 # veredicto que reemplaza no costaba nada y no medía nada.
+# El `sort -u` envuelve a la función ENTERA y no a cada bloque. `comm` exige orden GLOBAL en
+# sus dos entradas, y dos bloques ordenados por separado y concatenados no lo están: con los
+# bloques desordenados `comm -13` sobre-reporta y devuelve como «nueva» una falla que ya
+# estaba en la línea base — o sea `reset --hard HEAD~1` culpando a una tarea correcta. Hoy no
+# se dispara por ACCIDENTE: el `✗` que sobrevive al `sed` ordena después del ASCII en este
+# locale, así que la concatenación sale ordenada. Una garantía incidental no es una garantía.
 fallas_del_tronco() {
-  ( cd "$BASE" && bash scripts/correr-suite.sh --fallas 2>/dev/null | grep . | sort -u )
-  # Y los chequeos del gate que NO son la suite: ésos sí son una línea por falla. Se saca la
-  # línea resumen de la suite para no mezclar granularidades.
-  ( cd "$BASE" && TAREA= bash scripts/gate.sh 2>&1 ) \
-    | grep '✗' | grep -v 'la suite está en rojo' | sed 's/^ *//' | sort -u
+  {
+    ( cd "$BASE" && bash scripts/correr-suite.sh --fallas 2>/dev/null | grep . )
+    # Y los chequeos del gate que NO son la suite: ésos sí son una línea por falla. Se saca
+    # la línea resumen de la suite para no mezclar granularidades.
+    ( cd "$BASE" && TAREA= bash scripts/gate.sh 2>&1 ) \
+      | grep '✗' | grep -v 'la suite está en rojo' | sed 's/^ *//'
+  } | sort -u
 }
+# Sin `LC_ALL=C` a propósito: `comm` compara en el orden de colación del locale ACTUAL y
+# avisa si su entrada no está ordenada así. Ordenar con un locale y comparar con otro es la
+# forma de que el aviso aparezca —o peor, no aparezca— según la máquina.
 
 FALLAS_BASE=""
 if [ "$SOLO_VER" != "1" ]; then

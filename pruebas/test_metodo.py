@@ -68,8 +68,13 @@ class Proyecto:
         shutil.copy(PLANTILLAS / "gate.sh", self.dir / "scripts" / "gate.sh")
         # El gate ya no sabe correr la suite: lo sabe correr-suite.sh, y los dos van juntos.
         shutil.copy(PLANTILLAS / "correr-suite.sh", self.dir / "scripts" / "correr-suite.sh")
-        # El gate también depende de estos dos: si faltan, da rojo y lo dice.
-        shutil.copy(SCRIPTS / "_suprimidas.py", self.dir / "scripts" / "_suprimidas.py")
+        # El gate también depende de estos dos: si faltan, da rojo y lo dice. El comentario
+        # decía «estos dos» y copiaba UNO: `_imports.py` quedaba sin resolver en todo proyecto
+        # de juguete, y eso no se notaba porque su paso fallaba ABIERTO. Al hacerlo fallar
+        # cerrado, 22 tests se pusieron rojos de golpe y mostraron que el fixture nunca lo
+        # había tenido. La prosa decía una cosa y el código otra, en el fixture esta vez.
+        for aux in ("_suprimidas.py", "_imports.py"):
+            shutil.copy(SCRIPTS / aux, self.dir / "scripts" / aux)
         (self.dir / "src" / "__init__.py").touch()
         (self.dir / "tests" / "__init__.py").touch()
         (self.repo / ".gitignore").write_text(
@@ -707,11 +712,18 @@ class TestRetomarPorNumeroNoSaltaTrabajo(unittest.TestCase):
         # sobre G3 que ya estaba, así que pasaba sin que hubiera chequeo alguno. Un test
         # que pasa contra el código sin arreglar no prueba nada — es la falla que el propio
         # método persigue en los tests que escriben los agentes.
+        # Se busca la LLAMADA a la guardia, no la variable interna `SALTEADAS`: la guardia
+        # se mudó a `_comun.sh` porque `correr-plan.sh` tomaba el mismo índice SIN ella —el
+        # arreglo había quedado en un solo hermano, que es el defecto que la guardia venía a
+        # cerrar—. Un test clavado a la variable convierte ese arreglo en un rojo falso.
         self.assertIn(
-            "SALTEADAS", texto,
+            'rechazar_salteo "$DESDE"', texto,
             "correr-todo.sh N no comprueba si las etapas anteriores a N tienen tareas "
             "pendientes: los números se recalculan en cada corrida y saltar trabajo en "
             "silencio es la peor forma de fallar")
+        self.assertIn(
+            'rechazar_salteo "$DESDE"', (SCRIPTS / "correr-plan.sh").read_text(),
+            "y correr-plan.sh toma el mismo índice: la guardia tiene que estar en los dos")
 
 
 class TestLaHuellaLlevaElDatoNoLaCategoria(unittest.TestCase):
@@ -3015,8 +3027,18 @@ class TestLosChequeosQueReprobabanCodigoLegitimo(unittest.TestCase):
                           and ("python3" in l or "PY_PROYECTO" in l)]
                 self.assertEqual(len(invoca), 1,
                                  f"esperaba una invocación del chequeo: {invoca}")
-                self.assertIn('BASE="${BASE_REF:-}"', invoca[0],
+                # `BASE_SUP` y no `BASE_REF`: este assert PINABA EL DEFECTO. Exigía que la
+                # base viajara en los dos modos, y en modo integración eso filtra todos los
+                # hallazgos —`BASE_REF` es el merge-base con main, el árbol está limpio, el
+                # diff sale vacío—, así que el chequeo quedaba decorativo justo en el modo
+                # que revisa el tronco entero. Un test escrito desde el comentario de al
+                # lado («en modo tarea, sólo lo que ESTA tarea tocó») pina la intención, no
+                # la conducta.
+                self.assertIn('BASE="$BASE_SUP"', invoca[0],
                               "el gate no le pasa la base, así que no puede acotar al diff")
+                self.assertRegex(s, r'BASE_SUP=""',
+                                 "y en modo integración la base tiene que ser vacía, o el "
+                                 "acote filtra TODO en vez de nada")
 
     def test_una_senal_suprimida_nueva_sigue_cayendo(self):
         """Brazo nulo del acote: si el filtro tapara todo, el chequeo dejaría de existir."""
@@ -3055,6 +3077,38 @@ class TestLosChequeosQueReprobabanCodigoLegitimo(unittest.TestCase):
                 i = s.index("ARG_TODO")
                 self.assertIn('${TAREA:-}', s[max(0, i - 400):i + 200],
                               "falta la guarda de modo tarea")
+                # Y que el GREP la use. La primera versión de este test verificaba que la
+                # variable existiera, y el grep seguía usando los directorios fijos: el
+                # arreglo que el comentario del gate describe NO EXISTÍA y el test daba
+                # verde. Nombrar la cosa no alcanza — acá aplicado al test mismo.
+                grepea = [l for l in s.split("\n")
+                          if 'grep -rnE "\\bTODO' in l and not l.strip().startswith("#")]
+                self.assertEqual(len(grepea), 1, f"esperaba un grep de TODO: {grepea}")
+                self.assertIn("${ARG_TODO}", grepea[0],
+                              "el grep del TODO no usa el acote que se calculó arriba")
+
+    def test_un_TODO_en_un_archivo_ajeno_no_reprueba_a_la_tarea(self):
+        """La conducta, no la forma: un `# TODO` que dejó otra tarea en un archivo que ESTA
+        no tocó no puede reprobarla, porque no puede sacarlo sin salirse de su alcance —y
+        tocarlo la reprueba el paso 2—. El único camino era escribir peor código."""
+        p = Proyecto()
+        self.addCleanup(shutil.rmtree, p.repo, ignore_errors=True)
+        ajeno = p.dir / "src" / "ajeno.py"
+        ajeno.write_text("def g():\n    return 1  # TODO: paginar\n")
+        p.git("add -A"); p.git('commit -qm "lo dejó otra tarea"')
+        p.implementar()                      # T01 toca sólo src/cosa.py
+        r = p.gate("T01")
+        self.assertNotIn("quedaron TODO", r.stdout,
+                         f"le cobra a T01 un TODO que no escribió:\n{r.stdout}")
+
+    def test_un_TODO_propio_sigue_reprobando(self):
+        """Brazo nulo: si el acote tapara todo, el chequeo dejaría de existir."""
+        p = Proyecto()
+        self.addCleanup(shutil.rmtree, p.repo, ignore_errors=True)
+        p.implementar("def f():\n    return 42  # TODO: arreglar esto\n")
+        r = p.gate("T01")
+        self.assertIn("quedaron TODO", r.stdout,
+                      f"dejó pasar un TODO que la tarea SÍ escribió:\n{r.stdout}")
 
     def test_el_detector_de_tailwind_no_mira_las_dependencias(self):
         """Sin `--exclude-dir`, alcanzaba con que la cadena existiera en cualquier .json/.js/.ts
@@ -3103,10 +3157,28 @@ class TestLosCuatroHallazgosQueFaltaban(unittest.TestCase):
         """Salía de `HEAD:scripts`, el árbol COMMITEADO, así que dos corridas con scripts
         distintos sin commitear comparten huella — el estado contra el que avisa el guardia de
         `correr-todo.sh`. `congelar-banco.sh` ya lo marcaba y esto no."""
-        s = (SCRIPTS / "_comun.sh").read_text()
-        i = s.index('rev-parse --short HEAD:scripts')
-        self.assertIn("sin-commitear", s[i:i + 600],
-                      "la huella del commit miente cuando el árbol de trabajo cambió")
+        # Por CONDUCTA y no por una ventana de caracteres: la versión anterior miraba 600
+        # caracteres después del `rev-parse` y el comentario que explica el arreglo del
+        # stage la desbordó, así que reprobaba al código arreglado. Es la misma forma que
+        # mordió a tres tests este día.
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-huella3-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "scripts").mkdir()
+        (d / "scripts" / "x.sh").write_text("echo 1\n")
+        for cmd in (["init", "-q", "-b", "main"], ["add", "-A"],
+                    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"]):
+            subprocess.run(["git", *cmd], cwd=d, check=True, capture_output=True)
+        correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; RAIZ="{d}" PROYECTO=p '
+               f'anotar_intento T01 VERDE 10 abc', RAIZ)
+        limpio = (d / ".metricas" / "intentos.csv").read_text().strip().split("\n")[-1]
+        self.assertNotIn("sin-commitear", limpio,
+                         f"con el árbol limpio no hay nada que marcar:\n{limpio}")
+        (d / "scripts" / "x.sh").write_text("echo 2\n")
+        correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; RAIZ="{d}" PROYECTO=p '
+               f'anotar_intento T02 VERDE 10 abc', RAIZ)
+        sucio = (d / ".metricas" / "intentos.csv").read_text().strip().split("\n")[-1]
+        self.assertIn("sin-commitear", sucio,
+                      f"la huella del commit miente cuando el árbol cambió:\n{sucio}")
 
     def test_las_metricas_declaran_que_mezclan_instrumentos(self):
         """La columna se escribía y NADIE la leía: el porcentaje que se imprime al final de
@@ -3115,8 +3187,11 @@ class TestLosCuatroHallazgosQueFaltaban(unittest.TestCase):
         s = (SCRIPTS / "metricas.sh").read_text()
         self.assertIn("instrumento", s)
         self.assertIn("mezcla", s, "no declara la mezcla")
-        i = s.index("huellas = {")
-        self.assertIn("MEDICION.md", s[i:i + 500], "sin la regla, el aviso no se entiende")
+        # La regla citada en el MENSAJE que se imprime, no dentro de una ventana de 500
+        # caracteres del código: el comentario que explica el arreglo de la igualdad la
+        # desbordó y el test reprobaba al código arreglado.
+        self.assertRegex(s, r'MEDICION\.md §5[^"\n]*"',
+                         "el aviso tiene que citar la regla, o no se entiende")
 
     def test_el_guardia_de_corrida_activa_no_confunde_una_mencion_con_una_corrida(self):
         """Usaba `pgrep -f "correr-todo\\.sh"`, que matchea cualquier proceso cuya línea de
@@ -4729,7 +4804,13 @@ class TestElRegistroDiceLaVerdadSobreSiMismo(unittest.TestCase):
                     for i in range(1, 7)]
 
         casos = (
-            ("serializadas", enc9, filas(1), "mediana"),
+            # `0` y no `1`: la columna la mide quien LANZA, antes de lanzar, así que la
+            # corrida no se cuenta a sí misma y 0 es «ninguna otra viva». Con `<= 1` el
+            # filtro admitía una fila con un competidor vivo, que es justo lo que la columna
+            # existe para excluir — y antes de arreglarlo la columna se medía al CERRAR, con
+            # lo que sus valores decrecían con el orden de finalización.
+            ("serializadas", enc9, filas(0), "mediana"),
+            ("un competidor vivo", enc9, filas(1), "—"),
             ("simultaneas", enc9, filas(8), "—"),
             # El esquema viejo: la columna no existe, así que el dato no está. Eso NO es
             # «concurrencia 1»: es que no se sabe, y un tiempo que no se puede atribuir no
@@ -4884,3 +4965,602 @@ class TestLosScriptsOperanSobreElArbolDelQueSalieron(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestLaTerceraAuditoria(unittest.TestCase):
+    """Los defectos que encontró la auditoría del 2026-10-20, sobre dos superficies: los ~60
+    commits del día anterior y el aparato de medición.
+
+    El resultado que ordena a todos los demás: **cuatro de los chequeos que esos commits
+    introdujeron o acotaron no podían fallar**, y dos están en el mismo archivo y el mismo
+    commit — el que el informe anterior anota como «acoté un chequeo demasiado ancho y lo
+    volví demasiado angosto». La estrechez quedó, por los dos lados que no se probaron.
+
+    Y una lección de forma: el defecto más caro de la lista —`git cat-file -e "$base:$ruta"`
+    resuelto desde la raíz del repo y no desde el cwd— tenía su test, y el test armaba el
+    repo con el proyecto EN LA RAÍZ, donde el prefijo es vacío. La clase `Proyecto` de este
+    mismo archivo existe para eso y lleva el comentario que lo explica desde hace semanas.
+    No alcanza con tener el caso: hay que usarlo.
+    """
+
+    # ── El acote al diff: el prefijo y el tramo ────────────────────────────────────────
+
+    def repo_sub(self, contenido):
+        """Un repo con el proyecto en un SUBDIRECTORIO, que es donde vive todo proyecto real
+        y donde el prefijo de git no es vacío."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-aud3-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "proyecto" / "app").mkdir(parents=True)
+        (d / "proyecto" / "app" / "m.py").write_text(contenido)
+        for cmd in (["init", "-q", "-b", "main"], ["add", "-A"],
+                    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"]):
+            subprocess.run(["git", *cmd], cwd=d, check=True, capture_output=True)
+        return d / "proyecto", d / "proyecto" / "app" / "m.py"
+
+    def sup(self, cwd, arg="app/m.py", base="HEAD"):
+        return correr(f'BASE={base} python3 "{SCRIPTS}/_suprimidas.py" {arg}', cwd)
+
+    def test_el_acote_al_diff_funciona_con_el_proyecto_en_un_subdirectorio(self):
+        """`git cat-file -e <rev>:<ruta>` resuelve la ruta desde la RAÍZ DEL REPO, no desde el
+        cwd, así que sin el prefijo salía 128 («path does not exist») para todo proyecto que
+        viva en un subdirectorio —los dos ejemplos y cualquier monorepo—. `lineas_cambiadas`
+        devolvía None siempre, el acote no existía, y las tres `except Exception: pass` del
+        idiom de curses seguían reprobando a T07, T08, T11 y T12 de pacman: exactamente el
+        defecto que el acote venía a cerrar. Medido con el árbol limpio: rc 1 sobre un archivo
+        IDÉNTICO a HEAD. El gate hacía esto bien dos pasos más abajo, con el comentario que
+        explica el mecanismo; el arreglo del hermano no se copió."""
+        p, _ = self.repo_sub("def f():\n    try:\n        pass\n    except Exception:\n        pass\n")
+        r = self.sup(p)
+        self.assertEqual(r.returncode, 0,
+                         f"le cobra una señal que ya estaba y que no tocó:\n{r.stdout}")
+
+    def test_una_senal_nueva_en_un_subdirectorio_sigue_cayendo(self):
+        """Brazo nulo del test de arriba: si el prefijo arreglado apagara el chequeo, daría
+        verde acá también."""
+        p, f = self.repo_sub("def f():\n    return 1\n")
+        f.write_text(f.read_text() + "\ndef g():\n    try:\n        pass\n"
+                     "    except Exception:\n        pass\n")
+        r = self.sup(p)
+        self.assertEqual(r.returncode, 1, f"una señal NUEVA tiene que caer:\n{r.stdout}")
+
+    def test_apagar_un_handler_que_ya_existia_no_pasa_el_acote(self):
+        """El hallazgo se registraba en la línea del `except` y el acote compara contra las
+        líneas que el cambio TOCÓ. Quien reemplaza el cuerpo de un handler existente por
+        `pass` cambia la línea del CUERPO, no la del `except`: el filtro lo dejaba pasar sin
+        imprimir nada. Es la forma más común de apagar una señal en código que ya existe, y
+        es la mitad que el arreglo del archivo nuevo no cubrió."""
+        p, f = self.repo_sub("import logging\n\n\ndef f():\n    try:\n        pass\n"
+                            "    except Exception as e:\n        logging.error(e)\n")
+        f.write_text(f.read_text().replace("        logging.error(e)", "        pass"))
+        r = self.sup(p)
+        self.assertEqual(r.returncode, 1,
+                         f"apagar un handler que ya estaba tiene que caer:\n{r.stdout}")
+
+    def test_saltear_un_test_que_ya_existia_no_pasa_el_acote(self):
+        """La otra forma de la misma cosa: el `@skip` agregado arriba de un test que ya
+        estaba. Se informaba en la línea del `def`, que no cambió."""
+        p, f = self.repo_sub("import unittest\n\n\nclass T(unittest.TestCase):\n"
+                            "    def test_a(self):\n        self.assertTrue(True)\n")
+        f.write_text(f.read_text().replace("    def test_a",
+                                           "    @unittest.skip('luego')\n    def test_a"))
+        r = self.sup(p)
+        self.assertEqual(r.returncode, 1, f"saltear un test que ya estaba cae:\n{r.stdout}")
+
+    def test_en_modo_integracion_el_chequeo_no_se_acota_a_nada(self):
+        """Los tres gates pasaban `BASE="${BASE_REF:-}"` en LOS DOS modos, aunque el
+        comentario de arriba decía «en modo tarea, sólo lo que ESTA tarea tocó». En el tronco
+        `BASE_REF` es el merge-base con main —o sea HEAD— y el árbol está limpio, así que el
+        diff no tiene un solo hunk: `tocadas` quedaba en el conjunto VACÍO, que no es None, y
+        se filtraban TODOS los hallazgos. El chequeo quedaba decorativo justo en el modo que
+        revisa el tronco entero. Al arreglarlo, el tronco del pacman salió rojo en el acto
+        con las tres de curses, que se marcaron `# best-effort`: el chequeo encontró lo que
+        existe para encontrar en la primera corrida en que pudo fallar."""
+        p, _ = self.repo_sub("def f():\n    try:\n        pass\n    except Exception:\n        pass\n")
+        r = self.sup(p, base="")       # modo integración: sin base
+        self.assertEqual(r.returncode, 1,
+                         f"sin base no se filtra NADA; esto tiene que ser rojo:\n{r.stdout}")
+        for g in (PLANTILLAS / "gate.sh",
+                  RAIZ / "ejemplo-clasificados" / "scripts" / "gate.sh",
+                  RAIZ / "ejemplo-pacman" / "scripts" / "gate.sh"):
+            with self.subTest(gate=g.parent.parent.name):
+                s = g.read_text()
+                invoca = [l for l in s.split("\n")
+                          if "_suprimidas.py" in l and "aux_del_metodo" in l
+                          and ("python3" in l or "PY_PROYECTO" in l)]
+                self.assertEqual(len(invoca), 1, f"una sola invocación: {invoca}")
+                self.assertIn('BASE="$BASE_SUP"', invoca[0],
+                              "la base tiene que venir de una variable que distinga el modo")
+                self.assertRegex(s, r'BASE_SUP=""',
+                                 "y en modo integración tiene que ser vacía")
+
+    # ── `expone`: un falso ROJO sobre código que anda ──────────────────────────────────
+
+    def imports(self, cwd, arg):
+        return correr(f'python3 "{SCRIPTS}/_imports.py" {arg}', cwd)
+
+    def proyecto_dos_modulos(self, conf, usa):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-exp-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "app").mkdir()
+        (d / "app" / "__init__.py").touch()
+        (d / "app" / "conf.py").write_text(conf)
+        (d / "app" / "usa.py").write_text(usa)
+        return d
+
+    def test_expone_ve_todas_las_formas_de_ligar_un_nombre(self):
+        """`expone()` enumeraba CUATRO formas de definir un nombre (`Assign` con target
+        `Name`, `AnnAssign`, los dos `import`) y todo lo demás le era invisible, así que daba
+        ROJO sobre código que Python corre sin chistar. Y el mensaje manda a buscar el nombre
+        donde sí está —«fijate cómo se llama»—, o sea que la tarea quema sus reintentos contra
+        un rojo que sólo se apaga reescribiendo una asignación correcta. Un chequeo que
+        enumera formas envejece callando: cada forma del lenguaje que no esté en la lista es
+        un falso rojo esperando. Las que ligan nombres son las de contexto Store, y eso el
+        árbol sintáctico ya lo dice."""
+        casos = {
+            "tupla": "DATO, OTRO = 1, 2\n",
+            "with": "import os\nwith open(os.devnull) as _f:\n    DATO = _f.name\nOTRO = 1\n",
+            "for": "for _n in (1,):\n    DATO = _n\nOTRO = 1\n",
+            "match": "match 1:\n    case 1:\n        DATO = True\nOTRO = 1\n",
+            "walrus": "if (DATO := 1):\n    pass\nOTRO = 1\n",
+            "aumentada": "DATO = 0\nDATO += 1\nOTRO = 1\n",
+        }
+        for nombre, conf in casos.items():
+            with self.subTest(forma=nombre):
+                d = self.proyecto_dos_modulos(conf, "from .conf import DATO\nprint(DATO)\n")
+                # Control positivo: si Python no lo corre, el caso está mal escrito y el
+                # chequeo tendría razón. Se verifica antes de exigirle verde al chequeo.
+                real = correr("python3 -c 'import app.usa'", d)
+                self.assertEqual(real.returncode, 0,
+                                 f"el caso tiene que correr de verdad:\n{real.stderr}")
+                r = self.imports(d, "app/usa.py")
+                self.assertEqual(r.returncode, 0,
+                                 f"falso rojo sobre código que anda ({nombre}):\n{r.stdout}")
+
+    def test_un_nombre_que_de_verdad_no_esta_sigue_cayendo(self):
+        """Brazo nulo: el arreglo de arriba no puede ser «aceptá todo». Éste es el cadáver
+        original, `get_db_connection`, que es por lo que el chequeo existe."""
+        d = self.proyecto_dos_modulos("DATO = 1\n", "from .conf import NO_EXISTE\n")
+        r = self.imports(d, "app/usa.py")
+        self.assertEqual(r.returncode, 1, f"un nombre inventado tiene que caer:\n{r.stdout}")
+        self.assertIn("NO_EXISTE", r.stdout, "y el informe tiene que decir cuál")
+
+    # ── El único eslabón que fallaba abierto ───────────────────────────────────────────
+
+    def test_si_falta_el_chequeo_de_imports_el_gate_da_rojo_y_dice_de_quien_es(self):
+        """`if [ -n "$(aux_del_metodo _imports.py)" ]; then … fi`, sin `else`: si el resolver
+        devolvía vacío, el paso no imprimía nada, no sumaba a FALLOS ni a VACIOS, y el
+        veredicto salía «GATE VERDE» limpio —ni siquiera «con N chequeos que no pudieron
+        correr»—. Era el único eslabón de la cadena nueva que fallaba ABIERTO; su hermano
+        `_suprimidas.py` tenía su `rojo` desde el principio, y el mensaje del commit que movió
+        los chequeos al método afirmaba que los dos lo tenían. Cualquier gate corrido sin
+        $AGENTES exportada (CI, cron, una shell nueva) perdía el chequeo en silencio, y el
+        commit que los movió borró la copia local de la plantilla."""
+        for g in (PLANTILLAS / "gate.sh",
+                  RAIZ / "ejemplo-clasificados" / "scripts" / "gate.sh",
+                  RAIZ / "ejemplo-pacman" / "scripts" / "gate.sh"):
+            with self.subTest(gate=g.parent.parent.name):
+                s = g.read_text()
+                # Por ESTRUCTURA y no por distancia: la primera versión de este test miraba
+                # una ventana de 400 caracteres y el comentario que explica el arreglo la
+                # desbordó, así que reprobaba al código arreglado. Duodécima vez que un
+                # chequeo mío confunde «cerca» con «en el mismo bloque».
+                i = s.index('if [ -z "$(aux_del_metodo _imports.py)" ]; then')
+                # La rama negativa, y que sea `rojo`: un `echo` acá es la misma vacuidad.
+                j = s.index('rojo "falta scripts/_imports.py', i)
+                self.assertLess(i, j, "el rojo va dentro de la rama que detecta la falta")
+                self.assertLess(j, s.index("\nelse\n", i),
+                                "y antes del `else`, o sea en la rama negativa")
+
+    def test_el_gate_que_no_encuentra_un_chequeo_no_dice_verde(self):
+        """Conducta, no forma: un proyecto sin el chequeo y sin $AGENTES no puede cerrar
+        verde. Vale para los dos chequeos de la cadena."""
+        p = Proyecto()
+        self.addCleanup(p.tirar)
+        p.implementar()
+        (p.dir / "scripts" / "_suprimidas.py").unlink()
+        r = correr("bash scripts/gate.sh", p.dir, TAREA="", AGENTES="/no/existe")
+        self.assertNotEqual(r.returncode, 0,
+                            f"sin los chequeos del método el gate no puede dar verde:\n{r.stdout}")
+        self.assertRegex(r.stdout, r"falta scripts/_(imports|suprimidas)\.py",
+                         f"y tiene que decir qué falta y de quién es:\n{r.stdout}")
+
+    # ── La huella del instrumento ──────────────────────────────────────────────────────
+
+    def huella(self, d):
+        """La función real, extraída de `correr-todo.sh` y evaluada con AQUI apuntando a d."""
+        cuerpo = correr(
+            f"awk '/^huella_scripts\\(\\) \\{{/,/^\\}}/' \"{SCRIPTS}/correr-todo.sh\"", RAIZ).stdout
+        return correr(f'AQUI="{d}"; {cuerpo}\nhuella_scripts', d).stdout.strip()
+
+    def test_la_huella_del_instrumento_cubre_los_py_y_no_solo_los_sh(self):
+        """`cat "$AQUI"/*.sh` dejaba afuera los diez `.py` que viven en `scripts/` y que SON
+        el instrumento: `_imports.py` y `_suprimidas.py` son lo que el gate ejecuta,
+        `mutar.py` y `vaciar.py` deciden si un test se acepta, `coherencia.py` y `_etapas.py`
+        deciden si el plan arranca y cómo se cortan las etapas. Editar uno con el plan en
+        vuelo —que es literalmente lo que pasó cuatro veces el 2026-10-20— pasaba el guardia
+        de borde de etapa en silencio: la etapa 1 se juzgaba con un chequeo y la etapa 5 con
+        otro, y el guardia decía que era la misma corrida."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-huella2-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "a.sh").write_text("echo a\n")
+        (d / "b.py").write_text("print('b')\n")
+        antes = self.huella(d)
+        self.assertRegex(antes, r"^[0-9a-f]{7,}$", f"la huella tiene que ser un hash: {antes}")
+        (d / "b.py").write_text("print('b2')\n")
+        self.assertNotEqual(antes, self.huella(d),
+                            "cambiar un .py de scripts/ CAMBIA el instrumento")
+        # Y no depende de un `.DS_Store` que aparezca en el medio: eso no es el método.
+        (d / ".DS_Store").write_text("basura\n")
+        self.assertEqual(self.huella(d), self.huella(d),
+                         "la huella tiene que ser estable")
+        sin_punto = self.huella(d)
+        (d / ".DS_Store").write_text("otra basura\n")
+        self.assertEqual(sin_punto, self.huella(d),
+                         "un archivo que empieza con punto no es el instrumento")
+
+    def test_la_marca_de_sin_commitear_ve_los_cambios_en_el_stage(self):
+        """`git diff --quiet -- scripts` compara árbol↔ÍNDICE, así que un `git add scripts/`
+        —el reflejo de cualquiera que quiera mirar su propio diff antes de lanzar— apagaba la
+        marca: la fila quedaba con la huella del commit viejo y sin aviso, que es justo el
+        estado que la marca existe para delatar. El modelo que se citó al escribirla
+        (`congelar-banco.sh`) tenía el mismo defecto, así que el arreglo copió el agujero."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-stage-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "scripts").mkdir()
+        (d / "scripts" / "x.sh").write_text("echo 1\n")
+        for cmd in (["init", "-q", "-b", "main"], ["add", "-A"],
+                    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"]):
+            subprocess.run(["git", *cmd], cwd=d, check=True, capture_output=True)
+        (d / "scripts" / "x.sh").write_text("echo 2\n")
+        subprocess.run(["git", "add", "scripts"], cwd=d, check=True, capture_output=True)
+        correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; RAIZ="{d}" PROYECTO=p '
+               f'anotar_intento T01 ROJO 10 abc', RAIZ)
+        fila = (d / ".metricas" / "intentos.csv").read_text().strip().split("\n")[-1]
+        self.assertIn("+sin-commitear", fila,
+                      f"un cambio en el stage es un instrumento sin commitear:\n{fila}")
+
+    # ── El veredicto que se escribe ────────────────────────────────────────────────────
+
+    def test_el_registro_escribe_el_veredicto_del_gate_no_el_ruido_de_la_herramienta(self):
+        """El arreglo «el gate primero, siempre» entró en el mensaje de CONSOLA y no en el
+        valor que se escribe, así que el registro siguió contradiciendo al gate. Medido: T07,
+        T27 y T06 del 2026-10-04 tienen su commit `TNN: gate verde` al segundo exacto de una
+        fila ERROR —y `cerrar_con_gate` commitea sólo con rc 0, así que el commit prueba el
+        verde—, y `metricas.sh` las informaba como «nunca llegaron a verde» y además las
+        descontaba como pérdida de plataforma: un ⊘ tapando un sí, contra el modelo y contra
+        la tarea a la vez. Es P2: el juez es un comando."""
+        def v(rc, error, log="/dev/null"):
+            return correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                          f'veredicto_registrado {rc} "{error}" "{log}"', RAIZ).stdout.strip()
+        self.assertEqual(v(0, "api_error: 500"), "VERDE",
+                         "si el gate dio 0, el ruido del log no lo desmiente")
+        self.assertEqual(v(1, "api_error: 500"), "ERROR",
+                         "con el gate en rojo, el error de la herramienta sí manda")
+        self.assertEqual(v(1, ""), "ROJO",
+                         "y nunca se escribe una columna vacía: nadie la puede clasificar")
+        # Y el llamador tiene que usar la función, no decidir inline otra vez.
+        s = (SCRIPTS / "correr-tarea.sh").read_text()
+        linea = [l for l in s.split("\n") if "anotar_intento" in l and "$id" in l]
+        self.assertEqual(len(linea), 1, f"una sola llamada: {linea}")
+        self.assertIn("veredicto_registrado", linea[0],
+                      "la decisión vive en la función, que es lo que se puede verificar")
+
+    def test_la_concurrencia_se_mide_al_arrancar_y_no_al_cerrar(self):
+        """`anotar_intento` la contaba sola, y corre DESPUÉS del agente y del gate: lo que
+        anotaba era «cuántas quedaban vivas cuando yo ya terminé». Medido en la tanda del
+        2026-10-19: cuatro tareas arrancadas en 12 segundos, solapadas por completo, con
+        valores 1, 2, 2 y 0 que decrecen con el orden de finalización — y la que compitió con
+        tres durante sus 970 s enteros quedó anotada como 0, o sea como la única serializada.
+        La columna que existe para que el tiempo no mida la ocupación de la plataforma estaba
+        midiendo la ocupación de la plataforma."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-conc-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; RAIZ="{d}" PROYECTO=p '
+               f'CONCURRENCIA_AL_ARRANCAR=3 anotar_intento T01 VERDE 10 abc', RAIZ)
+        fila = (d / ".metricas" / "intentos.csv").read_text().strip().split("\n")[-1]
+        self.assertEqual(fila.split(",")[7], "3",
+                         f"la concurrencia que se anota es la que midió quien lanzó:\n{fila}")
+        # Y quien lanza la tiene que medir ANTES de lanzar al agente.
+        s = (SCRIPTS / "correr-tarea.sh").read_text()
+        i_mide = s.index("CONCURRENCIA_AL_ARRANCAR=")
+        i_lanza = s.index("opencode run --agent")
+        self.assertLess(i_mide, i_lanza,
+                        "medirla después de lanzar al agente es medir otra cosa")
+
+    # ── El lector: qué fila puede entrar a una tasa ────────────────────────────────────
+
+    def repo_con_registro(self, filas):
+        """Un repo de juguete con un proyecto y un registro, para correr `metricas.sh`."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-met3-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "p" / "tareas").mkdir(parents=True)
+        (d / ".metricas").mkdir()
+        # Con `scripts/` commiteado: sin él no hay huella de instrumento que leer, y el
+        # bloque de comparabilidad no tiene contra qué comparar.
+        (d / "scripts").mkdir()
+        (d / "scripts" / "x.sh").write_text("echo 1\n")
+        enc = ("fecha,proyecto,tarea,veredicto,segundos,modelo,motivo,"
+               "concurrencia,instrumento")
+        (d / ".metricas" / "intentos.csv").write_text("\n".join([enc, *filas]) + "\n")
+        for cmd in (["init", "-q", "-b", "main"], ["add", "-A"],
+                    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"]):
+            subprocess.run(["git", *cmd], cwd=d, check=True, capture_output=True)
+        return d
+
+    def metricas(self, d):
+        return correr(f'bash "{SCRIPTS}/metricas.sh"', d, PROYECTO="p").stdout
+
+    def test_el_lector_no_cuenta_contra_el_modelo_lo_que_no_es_del_modelo(self):
+        """Tres clases de fila no hablan del ejecutor y el instrumento las contaba como su
+        rojo o como su verde:
+
+        · INVÁLIDA del método: `correr-suite.sh` declara `exit 3` = «defecto del método o
+          del plan, no del código que se juzga». Los primeros intentos de T01, T02 y T03 de
+          clasificados son eso —faltaba el corredor—, y contaban como ROJO del modelo.
+        · PERDIDA por la plataforma: el propio informe dice «no cuentan contra el modelo»
+          tres bloques más abajo, y acto seguido una fila ERROR hacía de primer intento.
+        · NO ATRIBUIBLE: `cerrar-tarea.sh` escribe `modelo=humano` en el MISMO registro. El
+          61% del pacman se apoyaba en una fila con `segundos=0` y `modelo=humano`; sacando
+          las cuatro filas no atribuibles da 44%, o sea el otro lado del umbral. El único
+          proyecto del repo que «funcionaba» lo hacía por trabajo humano contado como verde
+          del modelo.
+        """
+        filas = [
+            # T01: el método falló primero, el modelo acertó en cuanto pudo correr.
+            "2026-01-01T00:00:00Z,p,T01,ROJO,10,m1,✗ falta el corredor de tests,0,aa",
+            "2026-01-01T00:10:00Z,p,T01,VERDE,20,m1,,0,aa",
+            # T02: la plataforma se comió el primero.
+            "2026-01-01T00:20:00Z,p,T02,ERROR,10,m1,agente: api_error,0,aa",
+            "2026-01-01T00:30:00Z,p,T02,VERDE,20,m1,,0,aa",
+            # T03: la cerró un humano. No es evidencia sobre ningún modelo.
+            "2026-01-01T00:40:00Z,p,T03,VERDE,0,humano,,0,aa",
+            # T04: el modelo falló de verdad. Ésta sí cuenta, y en contra.
+            "2026-01-01T00:50:00Z,p,T04,ROJO,30,m1,✗ los tests siguen fallando,0,aa",
+        ]
+        s = self.metricas(self.repo_con_registro(filas))
+        self.assertIn("Verde al PRIMER intento: 2/3", s,
+                      f"T01 y T02 cuentan como verde al primer intento CONTABLE, "
+                      f"T03 no cuenta, T04 cuenta en contra:\n{s}")
+        self.assertIn("⊘ fuera de esa tasa: 1 tarea(s)", s,
+                      f"y la tarea que no cuenta se informa, no se esconde:\n{s}")
+        self.assertIn("1 intento(s) inválidos del método", s,
+                      f"y el inválido del método también:\n{s}")
+
+    def test_la_lista_de_motivos_invalidos_cubre_los_mensajes_que_el_gate_imprime(self):
+        """La detección del inválido es una ENUMERACIÓN de marcas en el texto del motivo, que
+        es la forma que envejece callando. Esto la cruza contra los mensajes que los gates
+        imprimen DE VERDAD: si alguien reescribe el mensaje del corredor faltante, el lector
+        vuelve a contar un defecto del método como rojo del modelo, y acá se entera."""
+        m_ = re.search(r'MARCAS_INVALIDO = \((.*?)\)',
+                       (SCRIPTS / "metricas.sh").read_text(), re.S)
+        self.assertIsNotNone(m_, "el lector no declara qué motivos son inválidos del método: "
+                                 "sin eso vuelve a contarlos como rojo del modelo")
+        marcas = [x.strip().strip('"') for x in m_.group(1).split(",") if x.strip()]
+        mensajes = []
+        for g in (PLANTILLAS / "gate.sh",
+                  RAIZ / "ejemplo-clasificados" / "scripts" / "gate.sh",
+                  RAIZ / "ejemplo-pacman" / "scripts" / "gate.sh"):
+            mensajes += re.findall(r'rojo "([^"]*corredor[^"]*)"', g.read_text())
+            mensajes += re.findall(r'rojo "([^"]*ningún test[^"]*)"', g.read_text())
+        self.assertTrue(mensajes, "si el gate ya no dice nada de esto, revisá este test")
+        for m in mensajes:
+            with self.subTest(mensaje=m[:50]):
+                self.assertTrue(any(x in m.lower() for x in marcas),
+                                f"el lector no reconoce como inválido un mensaje que el gate "
+                                f"imprime: «{m}» contra {marcas}")
+
+    def test_el_instrumento_de_ahora_se_compara_por_igualdad_y_avisa_con_una_sola_huella(self):
+        """Dos defectos del mismo bloque:
+
+        · `startswith(actual)` metía `X` y `X+sin-commitear` en el mismo balde, deshaciendo
+          dos líneas más abajo la distinción que el escritor acababa de crear — y que existe
+          justamente para separar la corrida commiteada de la que no lo está.
+        · Todo el bloque vivía dentro de `if len(huellas) > 1`. Proyecto nuevo, las cinco
+          tareas corridas con el instrumento A, arreglás un script: UNA sola huella, ni un ⊘,
+          y el número se seguía anunciando como si describiera el instrumento instalado.
+          Lo que invalida la comparación no es que haya varias huellas: es que la de los
+          datos no sea la de ahora.
+        """
+        d = self.repo_con_registro([
+            "2026-01-01T00:00:00Z,p,T01,VERDE,10,m1,,0,viejo",
+            "2026-01-01T00:10:00Z,p,T02,VERDE,10,m1,,0,viejo",
+        ])
+        s = self.metricas(d)
+        self.assertIn("⊘ el instrumento de ahora", s,
+                      f"con UNA huella que no es la de ahora, también hay que avisar:\n{s}")
+        self.assertNotIn("con el instrumento de ahora (", s.split("⊘ el instrumento")[-1]
+                         .split("\n")[0], "no puede informar una tasa de datos ajenos")
+
+    def test_el_lector_informa_lo_mismo_desde_la_raiz_y_desde_el_proyecto(self):
+        """Relación metamórfica: el informe no puede depender de dónde estás parado.
+        `HEAD:scripts` lo resuelve git desde la RAÍZ del repo y el pathspec de `git diff` es
+        relativo al cwd, así que corrido desde el subdirectorio del proyecto una pregunta
+        miraba los scripts del método y la otra los del proyecto. Lo cometí en el arreglo
+        de la huella mientras arreglaba el mismo defecto en `_suprimidas.py`."""
+        d = self.repo_con_registro([
+            "2026-01-01T00:00:00Z,p,T01,VERDE,10,m1,,0,aa",
+        ])
+        (d / "p" / "scripts").mkdir()
+        (d / "p" / "scripts" / "otro.sh").write_text("echo distinto\n")
+        subprocess.run(["git", "add", "-A"], cwd=d, check=True, capture_output=True)
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                        "commit", "-qm", "scripts del proyecto"], cwd=d, check=True,
+                       capture_output=True)
+        # El `scripts/` DEL PROYECTO sucio y el del método limpio: es la asimetría que hace
+        # visible la diferencia. Con los dos limpios las dos rutas coinciden por casualidad,
+        # y la primera versión de este test daba verde con el defecto puesto.
+        (d / "p" / "scripts" / "otro.sh").write_text("echo cambiado\n")
+        desde_raiz = correr(f'bash "{SCRIPTS}/metricas.sh"', d, PROYECTO="p").stdout
+        desde_proy = correr(f'bash "{SCRIPTS}/metricas.sh"', d / "p", PROYECTO="p").stdout
+        self.assertEqual(desde_raiz, desde_proy,
+                         "el informe cambia según el directorio desde el que se lo corre:\n"
+                         f"--- raíz:\n{desde_raiz}\n--- proyecto:\n{desde_proy}")
+
+    def test_la_mediana_de_tiempo_no_lleva_el_techo_del_propio_vigilante(self):
+        """6 de las 16 filas que entraban a la mediana eran ERROR, y 4 de ellas con «límite
+        total 1200s» en el motivo: el techo del vigilante metido adentro del número.
+        `MEDICION.md` §4 manda INVÁLIDO para un timeout. El «máximo 1855s» que se imprimía
+        era un ROJO, y el éxito más lento medía 970 s — y es ese número, no el máximo, el que
+        `_comun.sh` manda mirar para dimensionar el presupuesto del agente. Calibrar un
+        presupuesto con el techo de la propia regla es medirse con la regla."""
+        d = self.repo_con_registro([
+            "2026-01-01T00:00:00Z,p,T01,VERDE,100,m1,,0,aa",
+            "2026-01-01T00:10:00Z,p,T02,ERROR,1200,m1,el agente no respondió: límite total 1200s,0,aa",
+        ])
+        s = self.metricas(d)
+        self.assertIn("éxito más lento: 100s", s,
+                      f"el número para calibrar es el éxito más lento:\n{s}")
+        self.assertNotIn("1200", s.split("Tiempo por intento")[-1],
+                         f"el techo del vigilante no entra a la estadística de tiempo:\n{s}")
+
+    # ── «Por diseño» es una afirmación que hay que verificar ───────────────────────────
+
+    def test_el_estado_imprime_las_fallas_y_no_declara_por_diseno_sin_comprobarlo(self):
+        """`en_vuelo` se llenaba si CUALQUIER tarea no-✅ tenía su archivo de test presente, y
+        el `grep '✗'` vivía sólo en el `else`: con una etapa en vuelo, un tronco realmente
+        roto no mostraba una sola falla. Es el estado exacto de clasificados el 2026-10-19
+        —etapa en vuelo Y T14 integrada con un `from .conexion import get_db_connection` que
+        abortaba la colección entera—: el informe decía «por diseño» y el ImportError quedaba
+        invisible. Cambiar un rojo que no medía por un rojo que se explica sin comprobar la
+        explicación es la misma vacuidad con otra cara."""
+        s = (SCRIPTS / "estado.sh").read_text()
+        self.assertIn('echo "tronco: ✗ rojo —', s,
+                      "el informe tiene que imprimir las fallas del tronco en TODOS los "
+                      "casos, no sólo cuando no hay una etapa en vuelo")
+        self.assertLess(s.index('echo "tronco: ✗ rojo —'),
+                        s.index('if [ -n "$en_vuelo" ]; then',
+                                s.index('echo "tronco: ✗ rojo —')),
+                        "las fallas se imprimen ANTES de decidir si el rojo es por diseño")
+        self.assertIn("NO las explica ningún test en vuelo", s,
+                      "«por diseño» se verifica falla por falla, no se afirma")
+        # Y el aviso tiene que poder dispararse: una falla que ningún test en vuelo nombra.
+        self.assertRegex(s, r'ajenas="\$ajenas',
+                         "tiene que juntar las fallas que el «por diseño» no cubre")
+
+    # ── La guardia que quedó en un solo hermano ────────────────────────────────────────
+
+    def test_los_dos_runners_rechazan_saltear_una_etapa_pendiente(self):
+        """La guardia nació del salteo de T05 —los números de etapa se recalculan en cada
+        corrida, así que `correr-todo.sh 2` salteó tres tareas sin un solo aviso— y se escribió
+        **sólo en `correr-todo.sh`**. `correr-plan.sh` siguió tomando el índice sin guardia: el
+        arreglo dejó abierto el script hermano del defecto que venía a cerrar, reproducido por
+        un auditor sobre el plan real (`DESDE=2` saltea T05a). Es la cuarta vez en un día que
+        un arreglo se aplica a una copia y no a su hermana, así que ahora hay UNA copia."""
+        r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                   f'rechazar_salteo 2 "relanzá así" "T01 T02" "T03"', RAIZ)
+        self.assertEqual(r.returncode, 1, f"saltear una etapa pendiente se rechaza:\n{r.stdout}")
+        self.assertIn("T01 T02", r.stderr, "y tiene que decir QUÉ se saltea")
+        self.assertIn("relanzá así", r.stderr, "y cómo relanzar bien")
+        ok = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                    f'rechazar_salteo 1 "x" "T01" "T02"; echo PASO', RAIZ)
+        self.assertIn("PASO", ok.stdout, "sin salteo no molesta")
+        for runner in ("correr-todo.sh", "correr-plan.sh"):
+            with self.subTest(runner=runner):
+                s = (SCRIPTS / runner).read_text()
+                self.assertIn('rechazar_salteo "$DESDE"', s,
+                              f"{runner} toma un índice de etapa y tiene que llamar la guardia")
+                self.assertLess(s.index('rechazar_salteo "$DESDE"'),
+                                s.index('[ "$n" -ge "$DESDE" ] || continue'),
+                                "la guardia va ANTES del bucle que saltea")
+
+    # ── El paso 4, en los tres gates ───────────────────────────────────────────────────
+
+    def test_los_tres_gates_deducen_el_paso_4_del_alcance_declarado(self):
+        """`IMPL` se deducía con un patrón de rutas (`^$CODIGO/`, `^src/.*\\.py$`), así que
+        quedaba VACÍO para toda tarea cuya implementación no cayera en él —un `.scss`, un
+        `.sql`, un manifiesto, un archivo fuera del directorio de código—: el paso imprimía
+        «⊘ no hay implementación que revertir» y el gate cerraba, con el ÚNICO chequeo de que
+        los tests distinguen sin correr. El arreglo existía en UN ejemplo de tres, y faltaba
+        justamente en la plantilla, que es la que copia todo proyecto nuevo."""
+        for g in (PLANTILLAS / "gate.sh",
+                  RAIZ / "ejemplo-clasificados" / "scripts" / "gate.sh",
+                  RAIZ / "ejemplo-pacman" / "scripts" / "gate.sh"):
+            with self.subTest(gate=g.parent.parent.name):
+                s = g.read_text()
+                self.assertIn("declarado_por_la_tarea", s,
+                              "el alcance del paso 4 sale de lo que la tarea DECLARA")
+                i = s.index("── 4. ¿Los tests distinguen?")
+                bloque = s[i:i + 1200]
+                self.assertIn("declarado_por_la_tarea", bloque,
+                              "y el paso 4 lo tiene que usar, no sólo definirlo")
+                self.assertNotRegex(bloque, r'IMPL="\$\(echo "\$CAMBIADOS" \| grep -E',
+                                    "nada de patrones de ruta: envejecen con cada extensión")
+
+    def test_el_paso_4_revierte_una_implementacion_que_no_es_py(self):
+        """Conducta: una tarea cuyo alcance es un archivo que ningún patrón de los viejos
+        matcheaba. El paso 4 tiene que revertirlo y exigir rojo, no saltearse."""
+        p = Proyecto()
+        self.addCleanup(p.tirar)
+        # FUERA de `$CODIGO` a propósito: un `.scss` dentro de `src/` lo matcheaba el patrón
+        # viejo por casualidad, y la primera versión de este test daba verde con el defecto
+        # puesto. Lo que el patrón no podía ver es lo que vive en otro directorio.
+        (p.dir / "assets").mkdir()
+        p.declarar("assets/estilos.scss")
+        (p.dir / "assets" / "estilos.scss").write_text(".a { color: red; }\n")
+        (p.dir / "tests" / "test_cosa.py").write_text(
+            "import pathlib, unittest\n\n"
+            "class TestCosa(unittest.TestCase):\n"
+            "    def test_hay_estilo(self):\n"
+            "        self.assertIn('color', "
+            "pathlib.Path('assets/estilos.scss').read_text())\n")
+        r = p.gate("T01")
+        self.assertNotIn("no hay implementación que revertir", r.stdout,
+                         f"un .scss declarado fuera de $CODIGO ES implementación:\n{r.stdout}")
+        self.assertIn("assets/estilos.scss", r.stdout,
+                      f"y el paso 4 tiene que nombrar lo que revirtió:\n{r.stdout}")
+
+    # ── El informe de estado nombra al sujeto correcto ─────────────────────────────────
+
+    def test_un_worktree_sin_entorno_no_se_informa_como_tronco_roto(self):
+        """`estado.sh` imprimía ocho fallas de colección por `ModuleNotFoundError: pymysql`
+        —un worktree de desarrollo sin `.venv` ni `node_modules`— y las atribuía a «lo
+        mergeado sin pasar su propio gate». Es la distinción que `correr-suite.sh` codifica en
+        su código 3 y que este informe perdía: no es que la suite corrió y dio mal, es que no
+        corrió. Acusar al merge por un worktree sin entorno es nombrar mal al sujeto."""
+        p = Proyecto()
+        self.addCleanup(p.tirar)
+        (p.dir / "requirements.txt").write_text("pymysql\n")
+        (p.dir / "tareas" / "T01-cosa.md").write_text(
+            (p.dir / "tareas" / "T01-cosa.md").read_text().replace(
+                "## Tests (ya escritos, fallando)\n\nArchivo: `tests/test_cosa.py`, clase `TestCosa`.\n",
+                "## Tests\n\nNinguno todavía.\n"))
+        p.git("add -A"); p.git("commit -qm reqs")
+        r = correr(f'bash "{SCRIPTS}/estado.sh"', p.dir, PROYECTO="proyecto")
+        self.assertIn("no tiene entorno", r.stdout,
+                      f"el informe tiene que nombrar el entorno como causa:\n{r.stdout}")
+        self.assertIn(".venv", r.stdout, f"y decir qué falta:\n{r.stdout}")
+        self.assertNotIn("sin pasar su propio gate", r.stdout,
+                         f"y NO acusar a lo mergeado:\n{r.stdout}")
+
+    def test_el_test_en_vuelo_explica_su_falla_en_las_dos_notaciones(self):
+        """Los corredores nombran la falla como MÓDULO (`tests.test_cosa`) y la tarea declara
+        su test como RUTA (`tests/test_cosa.py`). Comparar la ruta cruda marcaba como «no
+        explicada» justo al test en vuelo que la explica, o sea un aviso que grita en cada
+        etapa tests-first: exactamente cuando hay que poder creerle."""
+        p = Proyecto()
+        self.addCleanup(p.tirar)
+        r = correr(f'bash "{SCRIPTS}/estado.sh"', p.dir, PROYECTO="proyecto")
+        self.assertIn("tests/test_cosa.py ← T01, pendiente", r.stdout,
+                      f"el test en vuelo se tiene que listar:\n{r.stdout}")
+        self.assertIn("el rojo es POR DISEÑO", r.stdout,
+                      f"y su propia falla la tiene que explicar él:\n{r.stdout}")
+        self.assertNotIn("NO las explica ningún test en vuelo", r.stdout,
+                         f"no puede gritar contra el test que sí la explica:\n{r.stdout}")
+
+    def test_un_plan_con_todo_hecho_cierra_limpio_y_no_aborta(self):
+        """En bash 3.2 —el que trae macOS— expandir un array VACÍO con `set -u` no imprime
+        mal: **aborta el script** (`a[@]: unbound variable`). La guardia de salteo recibe las
+        etapas como argumentos, así que un plan sin etapas pendientes pasa por esa expansión.
+        Hoy no se dispara porque un `exit 0` anterior lo intercepta, pero la garantía es
+        incidental: alcanza con mover una línea. Esto prueba la propiedad, no la sintaxis."""
+        p = Proyecto()
+        self.addCleanup(p.tirar)
+        p.escribir_tarea("T01", "src/cosa.py", estado="✅ hecha")
+        pl = p.dir / "PLAN.md"
+        pl.write_text(pl.read_text().replace("| pendiente |", "| ✅ hecha |"))
+        p.git("add -A"); p.git("commit -qm hecha")
+        r = correr(f'bash "{SCRIPTS}/correr-plan.sh"', p.dir, PROYECTO="proyecto")
+        self.assertEqual(r.returncode, 0, f"tiene que cerrar limpio:\n{r.stdout}\n{r.stderr}")
+        self.assertIn("no hay nada que lanzar", r.stdout,
+                      f"y decirlo, no morir con «unbound variable»:\n{r.stdout}\n{r.stderr}")
+        self.assertNotIn("unbound variable", r.stderr, r.stderr)

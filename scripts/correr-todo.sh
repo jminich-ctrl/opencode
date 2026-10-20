@@ -144,7 +144,17 @@ echo "══ ${#ETAPAS[@]} etapa(s); empezando en la $DESDE"
 #
 # Una regla que vive sólo en un documento es una regla que se incumple. Ahora es un comando.
 huella_scripts() {
-  cat "$AQUI"/*.sh 2>/dev/null | git hash-object --stdin 2>/dev/null || echo "?"
+  # TODOS los archivos del directorio, no los `*.sh`. El instrumento incluye los diez `.py`
+  # que viven acá: `_imports.py` y `_suprimidas.py` son lo que el gate ejecuta, `mutar.py` y
+  # `vaciar.py` deciden si un test se acepta, `coherencia.py` y `_etapas.py` deciden si el
+  # plan arranca y cómo se cortan las etapas. Editar uno con el plan en vuelo —que es
+  # literalmente lo que pasó cuatro veces el 2026-10-20— pasaba el guardia de borde de etapa
+  # en silencio: la etapa 1 se juzgaba con un chequeo y la etapa 5 con otro, y el guardia
+  # decía que era la misma corrida. Sin lista de extensiones a propósito: una enumeración
+  # envejece callando, y cada `.py` nuevo que se mueva acá quedaba afuera sin que nada avise.
+  # Se saltean los que empiezan con punto (`.DS_Store`, swaps del editor): no son el método.
+  find "$AQUI" -maxdepth 1 -type f ! -name '.*' 2>/dev/null | LC_ALL=C sort \
+    | tr '\n' '\0' | xargs -0 cat 2>/dev/null | git hash-object --stdin 2>/dev/null || echo "?"
 }
 HUELLA_SCRIPTS="$(huella_scripts)"
 
@@ -192,22 +202,10 @@ fi
 #
 # El argumento existe para retomar después de arreglar algo, y eso es legítimo. Lo que no
 # puede es saltar trabajo callado.
-if [ "$DESDE" -gt 1 ] 2>/dev/null; then
-  SALTEADAS=""
-  i=0
-  for etapa in "${ETAPAS[@]}"; do
-    i=$((i+1)); [ "$i" -lt "$DESDE" ] || break
-    SALTEADAS="$SALTEADAS $etapa"
-  done
-  if [ -n "$(echo "$SALTEADAS" | tr -d ' ')" ]; then
-    echo "✗ Al empezar en la etapa $DESDE se saltean tareas que siguen pendientes:$SALTEADAS" >&2
-    echo "  Los números de etapa se recalculan en cada corrida: al cerrar una etapa, las" >&2
-    echo "  que siguen se corren un lugar. El número que anotaste ya no significa lo mismo." >&2
-    echo "  Corré sin argumento —arranca en la primera etapa con trabajo pendiente—:" >&2
-    echo "    bash $AQUI/correr-todo.sh" >&2
-    exit 1
-  fi
-fi
+# `${ETAPAS[@]+...}` y no `"${ETAPAS[@]}"`: en bash 3.2 —el que trae macOS—
+# expandir un array VACÍO con `set -u` no imprime mal, ABORTA el script. Hoy un
+# `exit 0` anterior lo intercepta, pero esa garantía la rompe mover una línea.
+rechazar_salteo "$DESDE" "bash $AQUI/correr-todo.sh" ${ETAPAS[@]+"${ETAPAS[@]}"}
 
 parar() {
   echo

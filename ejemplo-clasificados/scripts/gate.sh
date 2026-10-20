@@ -330,7 +330,17 @@ echo "── 3. Higiene"
 # chequeo que parecía caro costaba una línea. Lo habría atrapado al toque: el agente de T04
 # importó `mysql.connector` donde el proyecto declara `pymysql`, y el síntoma fue un
 # ModuleNotFoundError dentro del test que el método informó como "el test está mal".
-if [ -n "$(aux_del_metodo _imports.py)" ]; then
+if [ -z "$(aux_del_metodo _imports.py)" ]; then
+  # Con `else` y con `rojo`, como su hermano `_suprimidas.py`. Era el único eslabón de la
+  # cadena nueva que fallaba ABIERTO: un `if` sin rama negativa, así que el paso no imprimía
+  # nada, no sumaba a FALLOS ni a VACIOS, y el veredicto salía «GATE VERDE» limpio — ni
+  # siquiera «con N chequeos que no pudieron correr». El mensaje del commit que movió los
+  # chequeos al método afirmaba lo contrario; era cierto para uno de los dos. Cualquier
+  # invocación del gate sin $AGENTES exportada (CI, cron, una shell nueva) perdía el chequeo
+  # de imports en silencio, y el proyecto que se llevó el método aparte ya no tiene copia local.
+  rojo "falta scripts/_imports.py: el gate no puede revisar los imports"
+  echo "     Lo provee el método en scripts/_imports.py. Esto es del método, no del código juzgado."
+else
   if [ -n "${TAREA:-}" ]; then
     PY_IMPORT="$(echo "$CAMBIADOS" | grep -E '\.py$' | tr '\n' ' ')"
   else
@@ -435,15 +445,23 @@ else
   # En modo tarea, sólo lo que ESTA tarea tocó: una señal suprimida que ya estaba en el
   # tronco no es de esta tarea. Es el mismo error que cometí con los imports y con el
   # corredor faltante — tests-first deja el tronco con defectos de etapas en vuelo.
+  # La base se pasa SÓLO en modo tarea, y es la mitad que faltaba del acote. En modo
+  # integración no hay tarea de quien acotar: `BASE_REF` es el merge-base con main, o sea
+  # HEAD, el árbol está limpio y el diff sale vacío — así que `tocadas` era el conjunto
+  # VACÍO (que no es None) y se filtraban TODOS los hallazgos. El chequeo quedaba
+  # decorativo justo en el modo que revisa el tronco entero, y el comentario de acá arriba
+  # decía «en modo tarea» mientras el código lo pasaba en los dos.
   if [ -n "${TAREA:-}" ]; then
     ARG_SUP="$(echo "$CAMBIADOS" | grep -E '\.(py|ts|tsx|js|jsx)$' | tr '\n' ' ')"
+    BASE_SUP="${BASE_REF:-}"
   else
     ARG_SUP="backend/app frontend/src"
+    BASE_SUP=""
   fi
   # Con BASE, `_suprimidas.py` acota al diff: una señal que ya estaba en el archivo
   # no es de esta tarea. Sin esto le cobraba a cualquier tarea las tres de curses
   # que viven en el pacman desde siempre.
-  SAL_SUP="$(BASE="${BASE_REF:-}" "${PY_PROYECTO:-python3}" "$(aux_del_metodo _suprimidas.py)" ${ARG_SUP} 2>&1)"; RC_SUP=$?
+  SAL_SUP="$(BASE="$BASE_SUP" "${PY_PROYECTO:-python3}" "$(aux_del_metodo _suprimidas.py)" ${ARG_SUP} 2>&1)"; RC_SUP=$?
   echo "$SAL_SUP"
   case "$RC_SUP" in 1) FALLOS=$((FALLOS+1)) ;; 2) VACIOS=$((VACIOS+1)) ;; esac
 fi
@@ -481,7 +499,12 @@ else
 fi
 if [ -z "$ARG_TODO" ]; then
   vacuo "esta tarea no cambió archivos donde buscar TODO"
-elif grep -rnE "\bTODO\b" backend/app frontend/src --exclude-dir=__pycache__ 2>/dev/null | grep -q .; then rojo "quedaron TODO sueltos"; else verde "sin TODO sueltos"; fi
+# OJO: el `grep` usa $ARG_TODO. La primera versión de este acote calculaba la variable y
+# después greppeaba los directorios igual, así que el arreglo que el comentario de arriba
+# describe NO EXISTÍA: el chequeo seguía barriendo el árbol entero. Y mi test no lo vio
+# porque verificaba que la variable EXISTIERA, no que el grep la usara — nombrar la cosa no
+# alcanza, esta vez aplicado al test. Lo encontró una auditoría, no una corrida.
+elif grep -rnE "\bTODO\b" ${ARG_TODO} --exclude-dir=__pycache__ 2>/dev/null | grep -q .; then rojo "quedaron TODO sueltos"; else verde "sin TODO sueltos"; fi
 
 # ── 4. ¿Los tests distinguen? (sólo en modo tarea)
 if [ -n "${TAREA:-}" ]; then

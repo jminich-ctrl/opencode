@@ -47,8 +47,21 @@ con alguna entrada que realmente corrés.**
 ### 1. Una suite para el método: `pruebas/test_metodo.py`
 
 ```bash
-python3 -m unittest pruebas.test_metodo   # 173 casos, ~10 minutos
+python3 -m unittest -v pruebas.test_metodo        # con el nombre de cada caso
+python3 -m unittest pruebas.test_metodo           # un punto por caso
+python3 -c 'import unittest; print(unittest.defaultTestLoader.discover("pruebas").countTestCases())'
 ```
+
+**Con `-v`, o sin pipe.** El número de casos no va escrito acá —decía 173 cuando ya eran
+306— porque un número a mano envejece y después miente: va el comando que lo cuenta, que es
+la regla P2 aplicada a la propia documentación.
+
+Y no se la pasa por `tail` ni por `| grep`: la suite tarda doce minutos e imprime un punto por
+caso, y `tail` no emite nada hasta que el proceso termina, así que la corrida entera se ve
+igual que una colgada. Lo hice el 2026-10-20 y pasé doce minutos sin saber si estaba viva.
+Es la misma regla que el método aplica al vigilante de los agentes —**la señal de vida no es
+el silencio**— incumplida en el instrumento que verifica el método. Para quedarse con el
+resumen y ver el avance a la vez: `2>&1 | tee /tmp/suite.log`, que no amortigua.
 
 Cada caso es un bug que de verdad tuvimos. Y dos cosas que aprendimos escribiéndola, las dos
 sobre la suite misma:

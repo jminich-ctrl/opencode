@@ -43,6 +43,15 @@ def vacio(cuerpo):
 
 
 def revisar(archivo):
+    """Hallazgos como `(linea, qué, tramo)`.
+
+    El TRAMO —el conjunto de líneas que podrían delatar el hallazgo— y no sólo la línea
+    donde se informa, porque el acote al diff compara contra las líneas que el cambio tocó
+    y las dos no coinciden: quien reemplaza el cuerpo de un `except` que ya existía por
+    `pass` cambia la línea del CUERPO, y el hallazgo se informa en la línea del `except`.
+    Con una sola línea, ese cambio —la forma más común de apagar una señal en código
+    existente— pasaba el filtro sin que nada se imprimiera.
+    """
     hallazgos = []
     texto = archivo.read_text(errors="replace")
     for i, linea in enumerate(texto.splitlines(), 1):
@@ -51,7 +60,7 @@ def revisar(archivo):
         bajo = linea.lower()
         for aguja, nombre in PATRONES_TEXTO:
             if aguja in bajo:
-                hallazgos.append((i, f"{nombre}: {linea.strip()[:70]}"))
+                hallazgos.append((i, f"{nombre}: {linea.strip()[:70]}", {i}))
     if archivo.suffix == ".py":
         lineas_texto = texto.split("\n")
         try:
@@ -71,13 +80,21 @@ def revisar(archivo):
                     "best-effort" in (lineas_texto[k - 1] if 0 < k <= len(lineas_texto) else "")
                     for k in (nodo.lineno - 1, nodo.lineno, nodo.lineno + 1)):
                 que = ast.unparse(nodo.type) if nodo.type else "todo"
+                # El tramo es el handler ENTERO, cuerpo incluido: apagar un handler que ya
+                # existía se hace cambiando el cuerpo, no la línea del `except`.
+                fin = getattr(nodo, "end_lineno", None) or nodo.lineno
                 hallazgos.append((nodo.lineno,
-                                  f"except {que} y no hace nada: la falla se pierde"))
+                                  f"except {que} y no hace nada: la falla se pierde",
+                                  set(range(nodo.lineno, fin + 1))))
             # Un test salteado.
             if isinstance(nodo, (ast.FunctionDef, ast.ClassDef)):
                 for d in nodo.decorator_list:
                     if "skip" in ast.unparse(d):
-                        hallazgos.append((nodo.lineno, f"{nodo.name} está salteado: {ast.unparse(d)}"))
+                        # La línea del DECORADOR además de la del `def`: saltear un test que
+                        # ya estaba agrega la línea del decorador y no toca el `def`.
+                        hallazgos.append((nodo.lineno,
+                                          f"{nodo.name} está salteado: {ast.unparse(d)}",
+                                          {nodo.lineno, d.lineno}))
     return hallazgos
 
 
@@ -103,7 +120,18 @@ def lineas_cambiadas(archivo, base):
     # vacío y filtraba TODO — apagando el chequeo justo para los archivos que la tarea CREA,
     # que son la mayoría. Lo atrapó la suite del método: al acotar un chequeo demasiado ancho
     # lo volví demasiado angosto, que es el mismo error por el otro lado.
-    existe = subprocess.run(["git", "cat-file", "-e", f"{base}:{archivo}"],
+    # `rev:ruta` lo resuelve git desde la RAÍZ DEL REPO, no desde el cwd, así que sin el
+    # prefijo esto fallaba —rc 128, «path does not exist»— para TODO proyecto que viva en un
+    # subdirectorio de su repo, que son los dos ejemplos y cualquier monorepo. La función
+    # devolvía None siempre y el acote no existía: las tres `except Exception: pass` del
+    # idiom de curses seguían reprobando a T07, T08, T11 y T12, que es el defecto que este
+    # acote venía a cerrar. El gate hace esto bien dos pasos más abajo y el arreglo del
+    # hermano no se copió acá. Lo encontró una auditoría, no la suite: el test armaba el
+    # repo con el proyecto en la raíz, que es el único caso donde el prefijo es vacío.
+    prefijo = subprocess.run(["git", "rev-parse", "--show-prefix"],
+                             capture_output=True, text=True)
+    pref = prefijo.stdout.strip() if prefijo.returncode == 0 else ""
+    existe = subprocess.run(["git", "cat-file", "-e", f"{base}:{pref}{archivo}"],
                             capture_output=True)
     if existe.returncode != 0:
         return None
@@ -143,8 +171,8 @@ def main():
     todos = []
     for a in sorted(archivos):
         tocadas = lineas_cambiadas(a, base)
-        for ln, que in revisar(a):
-            if tocadas is not None and ln not in tocadas:
+        for ln, que, tramo in revisar(a):
+            if tocadas is not None and not (tramo & tocadas):
                 continue   # ya estaba antes de este cambio: no es de esta tarea
             todos.append(f"{a}:{ln} — {que}")
     if todos:

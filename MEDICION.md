@@ -181,7 +181,7 @@ La sección de arriba habla de medir modelos. El mismo día encontramos tres nú
 | el número | por qué no podía fallar | cómo se arregló |
 |---|---|---|
 | «✓ gate VERDE» del runner | inserté el bloque de memoria entre `cerrar_con_gate` y su `local rc=$?`, y un `if` con condición falsa vale 0: imprimía VERDE **siempre** | capturar `$?` pegado a la llamada, y un test que reprueba cualquier cosa insertada en el medio |
-| «tronco: ✗ ROJO» de `estado.sh` | durante una etapa tests-first el tronco está rojo por diseño, así que ese veredicto no podía dar **verde** mientras durara la etapa | declara el rojo de la etapa y **nombra** el test en vuelo; si no hay ninguno, el rojo es real y lo dice como antes |
+| «tronco: ✗ ROJO» de `estado.sh` | durante una etapa tests-first el tronco está rojo por diseño, así que ese veredicto no podía dar **verde** mientras durara la etapa | declara el rojo de la etapa y **nombra** el test en vuelo. **Ese arreglo tampoco alcanzaba** (ver abajo): bastaba que existiera un test en vuelo para que las fallas reales no se imprimieran |
 | el presupuesto de cortes por tarea | seguía contando después de que yo cambiara el enunciado, así que el contador mezclaba dos experimentos y lo que iba a frenar la etapa era él y no la tarea | si cambia la huella del enunciado que el agente va a leer, intentos y cortes vuelven a cero |
 
 Los dos primeros son el mismo defecto en espejo: uno no podía dar rojo, el otro no podía dar
@@ -192,6 +192,50 @@ corre ahora, limita al que ya no existe.
 La pregunta que los atrapa a los tres, y que no es la misma que la del ⊘: **¿hay algún estado
 del mundo en el que este número salga distinto?** Si no lo hay, no es una medición, es una
 constante con disfraz.
+
+### Qué fila puede entrar a una tasa
+
+La auditoría del 2026-10-20 sobre el aparato de medición encontró **tres clases de fila que no
+hablan del ejecutor** y que el instrumento contaba como su rojo o como su verde. Las tres
+estaban nombradas en este documento y ningún script las leía.
+
+| la fila | el propio método ya decía | qué hacía el lector |
+|---|---|---|
+| **inválida del método** | `correr-suite.sh` declara `exit 3` = «defecto del método o del plan, no del código que se juzga», y §6.3 nombraba las cinco filas | las contaba como ROJO del modelo |
+| **perdida por la plataforma** | el informe imprime «no cuentan contra el modelo» tres bloques más abajo | una fila `ERROR` hacía de «primer intento» de su tarea y la marcaba ✗ |
+| **no atribuible a un modelo** | `cerrar-tarea.sh` escribe `modelo=humano` en el mismo registro | la contaba como verde del modelo |
+
+El efecto, medido:
+
+| proyecto | antes | ahora |
+|---|---|---|
+| clasificados | 47% | **50%** |
+| pacman | 61% — «la descomposición funciona» | **44%** — «tareas demasiado grandes o criterios flojos» |
+
+**El método no tenía ningún proyecto en el que la descomposición funcionara; tenía uno en el
+que el instrumento lo decía.** El 61% del pacman se apoyaba en una fila con `segundos=0` y
+`modelo=humano` más tres con la columna de modelo vacía.
+
+Y una nota sobre auditar: el auditor estimó que arreglar la primera clase llevaba clasificados
+de 47% a 60% y cambiaba la banda. **Verificado: no.** Al descartar el intento inválido, el que
+pasa a ser «el primero» de esas tres tareas también es rojo. La dirección del hallazgo era
+correcta y la magnitud no, y la diferencia importaba porque la magnitud era el argumento.
+Un hallazgo que llega con su número todavía necesita que se corra el número.
+
+### Dos cosas que un número de tiempo no puede llevar adentro
+
+1. **El techo del propio vigilante.** 6 de las 16 filas que entraban a la mediana eran
+   `ERROR`, 4 con «límite total 1200s» en el motivo. El «máximo» que se imprimía era un
+   ROJO de 1855 s —más largo que el límite, porque el número incluye el gate— y el éxito más
+   lento medía 970. Y es ese máximo el que el método mandaba mirar para dimensionar el
+   presupuesto del agente: calibrar un presupuesto con el techo de la propia regla es
+   medirse con la regla. Hoy el instrumento imprime una línea **«éxito más lento»** aparte.
+2. **La ocupación de la plataforma.** La columna `concurrencia` existe para eso, y se estaba
+   midiendo al CERRAR la corrida en vez de al arrancarla: cuatro tareas lanzadas en 12
+   segundos, solapadas por completo, quedaron con 1, 2, 2 y 0 — valores que decrecen con el
+   orden de finalización. La que compitió con tres durante sus 970 s enteros quedó anotada
+   como la única serializada. **Una columna que se escribe en el momento equivocado miente
+   con más autoridad que una que falta**, porque nadie la mira dos veces.
 
 ---
 

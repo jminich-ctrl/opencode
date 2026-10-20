@@ -119,29 +119,47 @@ def expone(ruta):
         arbol = ast.parse(ruta.read_text())
     except (SyntaxError, OSError, UnicodeDecodeError):
         return None
+    # Por ALCANCE y no por lista de formas. La versión anterior enumeraba cuatro maneras de
+    # definir un nombre (`Assign` con target `Name`, `AnnAssign`, los dos `import`) y todo lo
+    # demás le era invisible, así que daba ROJO sobre código que Python corre sin chistar:
+    # `DEBUG, VERBOSE = False, True`, un `with ... as f: HANDLE = ...`, un `for`, un `match`.
+    # Y el mensaje manda a buscar el nombre donde sí está —«fijate cómo se llama»—, así que
+    # la tarea quema sus reintentos contra un rojo que sólo se apaga reescribiendo una
+    # asignación correcta. Un chequeo que enumera formas envejece callando: cada forma nueva
+    # del lenguaje es un falso rojo esperando. Las que ligan nombres son las de contexto
+    # Store, y eso el árbol ya lo dice.
     nombres = set()
+    # No se baja a funciones, clases ni comprensiones: sus nombres NO son del módulo. El
+    # nombre de la función sí, y por eso se agrega antes de cortar el descenso.
+    CORTA = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
+             ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp, ast.Lambda)
     pendientes = list(arbol.body)
     while pendientes:
         n = pendientes.pop()
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             nombres.add(n.name)
-        elif isinstance(n, ast.Assign):
-            nombres.update(d.id for d in n.targets if isinstance(d, ast.Name))
-        elif isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name):
-            nombres.add(n.target.id)
-        elif isinstance(n, ast.Import):
+            continue
+        if isinstance(n, CORTA):
+            continue
+        if isinstance(n, ast.Import):
             nombres.update((a.asname or a.name).split(".")[0] for a in n.names)
-        elif isinstance(n, ast.ImportFrom):
+            continue
+        if isinstance(n, ast.ImportFrom):
             for a in n.names:
                 if a.name == "*":
                     return None
                 nombres.add(a.asname or a.name)
-        elif isinstance(n, (ast.If, ast.Try)):
-            # Definiciones condicionales (un `try: import x / except:`) cuentan igual.
-            for campo in ("body", "orelse", "finalbody"):
-                pendientes.extend(getattr(n, campo, []) or [])
-            for h in getattr(n, "handlers", []) or []:
-                pendientes.extend(h.body)
+            continue
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+            nombres.add(n.id)
+        # `case [x, *resto]` / `case Punto() as p` / `case {**resto}`: ligan nombres y no
+        # son nodos `Name`.
+        for campo in ("name", "rest"):
+            v = getattr(n, campo, None)
+            if isinstance(n, (getattr(ast, "MatchAs", ()), getattr(ast, "MatchStar", ()),
+                              getattr(ast, "MatchMapping", ()))) and isinstance(v, str):
+                nombres.add(v)
+        pendientes.extend(ast.iter_child_nodes(n))
     return None if "__getattr__" in nombres else nombres
 
 
