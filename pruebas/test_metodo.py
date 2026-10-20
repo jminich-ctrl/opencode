@@ -4126,6 +4126,49 @@ class TestNadieCruzabaLasTareasEntreSi(unittest.TestCase):
         tramo = fuente[i:i + 900]
         self.assertIn("exit 1", tramo, "informarlo no alcanza: tiene que frenar")
 
+    def test_un_submodulo_que_otra_tarea_crea_no_es_un_import_huerfano(self):
+        """`provee` juntaba sólo los `def f(...)` de los contratos, así que una tarea que
+        declara el ARCHIVO `backend/app/datos/ads.py` no «proveía» el módulo `ads`, y
+        `from backend.app.datos import ads` salía como import huérfano. Falso rojo justo sobre
+        la forma que el método EXIGE para que el `@patch` del test aplique.
+
+        Tercera vez que el mismo caso muerde un chequeo distinto de este repo: ya había pasado
+        con `_imports.py` —donde lo atrapó el control negativo contra los dos proyectos— y con
+        el paso 4 del gate. Un submódulo declarado como archivo es una declaración; que no
+        tenga `def` no la vuelve inexistente."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-coh-sub-")).resolve()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        (d / "tareas").mkdir()
+        (d / "tareas" / "T01-datos.md").write_text(
+            "# T01 — datos\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/datos/ads.py\n**Prohibido tocar:** \n\n"
+            "## Contrato\n\n```python\ndef insert_ad(x: int) -> int: ...\n```\n")
+        (d / "tareas" / "T02-servicio.md").write_text(
+            "# T02 — servicio\n\n**Estado:** pendiente\n**Depende de:** T01\n"
+            "**Archivos que podés tocar:** app/servicios/ads.py\n**Prohibido tocar:** \n\n"
+            "## Contrato\n\n```python\nfrom app.datos import ads\n"
+            "def crear(x: int) -> int: ...\n```\n")
+        r = correr(f"python3 {SCRIPTS}/coherencia.py", d)
+        self.assertEqual(r.returncode, 0,
+                         f"falso rojo sobre un submódulo que otra tarea crea:\n{r.stdout}")
+
+    def test_un_import_que_nadie_provee_sigue_siendo_rojo(self):
+        """Brazo nulo del anterior: si cualquier nombre contara como provisto, el chequeo
+        dejaría de existir. Éste es el cadáver original (T05 inventando
+        `obtener_usuario_id_desde_token` y grepeando siete coincidencias, todas suyas)."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-coh-huer-")).resolve()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        (d / "tareas").mkdir()
+        (d / "tareas" / "T01-servicio.md").write_text(
+            "# T01 — servicio\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/servicios/x.py\n**Prohibido tocar:** \n\n"
+            "## Contrato\n\n```python\n"
+            "from app.servicios.auth import obtener_usuario_id_desde_token\n"
+            "def f() -> int: ...\n```\n")
+        r = correr(f"python3 {SCRIPTS}/coherencia.py", d)
+        self.assertEqual(r.returncode, 1, f"dejó pasar un import que nadie provee:\n{r.stdout}")
+        self.assertIn("obtener_usuario_id_desde_token", r.stdout)
+
     def test_lo_que_la_tarea_dice_que_NO_hace_no_cuenta(self):
         """En este repo cada arreglo documenta su cadáver, así que una tarea corregida CITA el
         defecto viejo. Un chequeo que lee prosa vería la cita como la declaración, y le pasaría
