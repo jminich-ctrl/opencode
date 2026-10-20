@@ -295,23 +295,30 @@ for id in "$@"; do
         # el filtro de mutar.py no matcheaba un solo archivo, devolvía 0, y esto imprimía
         # «✓ los mutantes mueren» con la salida silenciada. Todo clasificados, siempre.
         CODIGO_TAREA="$(for f in $impl; do dirname "$f"; done | sort -u | paste -sd, -)"
-        BASE=HEAD~1 CODIGO="${CODIGO_TAREA:-$CODIGO}" SUITE="$prueba" \
-          python3 "$AQUI/mutar.py" >/dev/null 2>&1
+        # UNA sola corrida de mutar.py, y su salida se usa para todo. Antes corría DOS veces
+        # —una muda para el veredicto y otra para capturar el detalle— y la segunda quedó con
+        # el `CODIGO` viejo cuando arreglé la primera: el detalle salía VACÍO. El reintento
+        # recibía «sobreviven mutantes» sin un solo dato, dos veces, y T05a llegó a punto
+        # muerto por eso. Dos invocaciones del mismo comando son dos cosas que pueden
+        # divergir, y divergieron en el mismo bloque y en el mismo arreglo.
+        #
+        # Y mutar.py muta archivos del árbol y los restaura: correrlo una vez también es más
+        # seguro que correrlo dos.
+        SALIDA_MUT="$(BASE=HEAD~1 CODIGO="${CODIGO_TAREA:-$CODIGO}" SUITE="$prueba" \
+                      python3 "$AQUI/mutar.py" 2>&1)"
         RC_MUT=$?
         if [ "$RC_MUT" = "0" ]; then
           echo "  ✓ los mutantes mueren: el test distingue"
         elif [ "$RC_MUT" = "2" ]; then
-          # 2 es el ⊘ de mutar.py: no hubo nada que mutar. No es un pase, igual que el caso
-          # de TypeScript de arriba, y se dice con las mismas palabras.
           echo "  ⊘ no hubo nada que mutar bajo «${CODIGO_TAREA:-$CODIGO}»: el test pasa los dos"
           echo "     primeros pasos y el tercero (¿distingue?) no pudo verificarse. No es un pase."
-          BASE=HEAD~1 CODIGO="${CODIGO_TAREA:-$CODIGO}" SUITE="$prueba" \
-            python3 "$AQUI/mutar.py" 2>&1 | sed 's/^/     /'
+          printf '%s\n' "$SALIDA_MUT" | sed 's/^/     /'
         else
-          SOBREVIVEN="$(BASE=HEAD~1 CODIGO="$CODIGO" SUITE="$prueba" python3 "$AQUI/mutar.py" 2>&1 \
-                         | grep '→' | head -3 | tr '\n' ' ' | cut -c1-400)"
+          # El detalle sale de la MISMA corrida, así que no puede desaparecer ni contradecirla.
+          SOBREVIVEN="$(printf '%s\n' "$SALIDA_MUT" | grep '→' | head -3 | tr '\n' ' ' | cut -c1-400)"
           malo "sobreviven mutantes: el test cubre las líneas y no verifica su comportamiento.${SOBREVIVEN:+ Sobrevivió: $SOBREVIVEN}"
-          echo "$SOBREVIVEN" | tr ';' '\n' | sed 's/^/     /'
+          printf '%s\n' "$SOBREVIVEN" | tr ';' '\n' | sed 's/^/     /'
+          [ -n "$SOBREVIVEN" ] || echo "     ⚠ mutar.py no listó sobrevivientes: el reintento no tiene dato. Mirá $log"
         fi
         fi
         # 4. El BRAZO NULO: con los cuerpos vaciados, el test tiene que FALLAR.
