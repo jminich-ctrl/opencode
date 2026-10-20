@@ -169,6 +169,43 @@ salen 2 con mensaje, el código 3 de `correr-suite.sh` dice que es del método, 
 es agnóstico de stack. Y `coherencia.py` fue el que mejor resistió: `ast` para los imports,
 lista corta con cadáver por entrada, y `lo_que_hace()` descartando el bloque «No entra».
 
+## Qué sigue, y quién lo hace
+
+Una cosa que esta auditoría dejó clara y que no estaba escrita en ninguna parte: **el método
+no puede ser un proyecto de sí mismo.** El gate declara `^scripts/` intocable
+(`INTOCABLES` en los tres gates), así que un agente que trabaje una tarea no puede editar el
+método: el paso 0 lo reprueba. La regla es correcta y es P2 —el juez no puede ser editable
+por el juzgado— y tiene una consecuencia de diseño que conviene decir en voz alta:
+
+| el trabajo | quién |
+|---|---|
+| los proyectos (clasificados, pacman, el que venga) | los agentes, por `correr-todo.sh` |
+| el método (`scripts/`, los gates, las plantillas) | una persona, **por diseño** |
+
+De ahí que la pregunta del tercer proyecto pese más de lo que parecía: el método no puede
+usarse a sí mismo como sujeto, así que los caminos genéricos sólo los puede ejercitar un
+proyecto externo.
+
+### Tier A, planificado: cada arreglo con su test declarado
+
+No son parches: es el enunciado verificable de cada uno. Sin el test declarado, «arreglado»
+lo decide quien lo escribió, que es lo que el método no acepta.
+
+| # | el arreglo | el test que lo prueba |
+|---|---|---|
+| A1 | `correr-plan.sh` usa las etapas DECLARADAS textuales y nunca llama a `_etapas.py`: no se cruzan dependencias, choques de archivo, estado ni cobertura de pendientes | un `PLAN.md` con dos tareas sobre el mismo archivo **en la misma etapa declarada** tiene que parar antes de lanzar, no cerrar en «todas las etapas en verde» |
+| A2 | corolario de A1: formato incorrecto → cae a la deducción, que sí chequea; formato correcto → se ejecuta a ciegas | el mismo plan, escrito en los dos formatos, tiene que dar el MISMO veredicto. Relación metamórfica |
+| A3 | ciclo de dependencias: `validar-plan.py` lo acepta, `_etapas.py` lo detecta pero sale 1 con stdout parcial, y `correr-plan.sh` compara el rc sólo con 2 | un plan con `T01 → T02 → T01` sale distinto de cero y lo dice. Y el caso peor: si TODAS las pendientes están en el ciclo, hoy imprime «✓ todas las tareas están marcadas como hechas» con rc 0 |
+| A4 | el choque de archivo se compara por string exacto, y `validar-plan.py` bendice abreviaturas que el deductor no resuelve | `laberinto.py` y `src/pacman/laberinto.py` son el mismo archivo: dos tareas que los declaran no pueden salir en la misma etapa. Más el caso directorio-vs-archivo, que ya está en `ejemplo-clasificados/PLAN.md:70` |
+| A5 | columna «Archivos» vacía: ni se cruza contra el archivo de tarea ni entra en la regla del choque | una tarea con la columna vacía y un alcance declarado en su `.md` tiene que entrar igual a la regla del choque |
+| A6 | un título de tarea de UNA palabra desvía la ruta del test: dos `sed` leen la tabla de tests y matchean la fila de TAREAS | una tarea titulada `Favoritos` tiene que devolver su propio archivo de test, no `Login T01`. Es el primer nombre que escribe cualquiera |
+| A7 | `cobertura.py` cuenta como cobertura un requisito mencionado para EXCLUIRLO («sin favoritos, que quedan fuera»). `coherencia.py` se defiende de esto y `cobertura.py` no | un plan que menciona dos tercios del encargo sólo para descartarlos tiene que reprobar G0 |
+| A8 | sin sección `## Requisitos`, `cobertura.py` sale 0: indistinguible de «cubre todo» | un `OBJETIVO.md` sin esa sección tiene que salir ⊘, no verde |
+
+Y uno nuevo, de hoy, del mismo tamaño: **`correr-todo.sh` con `SOLO_VER=1` imprime «Todas
+las etapas en verde»** sin haber corrido nada. Es un mensaje que afirma lo que no pasó, que
+es la familia entera de esta auditoría, en el único modo que existe para mirar sin tocar.
+
 ## La pregunta que queda, y es para una persona
 
 Arreglar los 25 es semanas. La causa —la plantilla no es fuente de verdad y ningún proyecto
