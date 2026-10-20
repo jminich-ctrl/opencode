@@ -411,7 +411,12 @@ explicar_punto_muerto() {
       echo "            LIMITE_AGENTE=2400 bash \$AGENTES/scripts/correr-plan.sh ${2:-TNN}"
       echo "        · si iteró contra algo que no existe, es el enunciado: le falta el medio."
       echo "        · si escribió de más, fuera de su alcance, la tarea es demasiado grande."
-      echo "      Cuánto margen hay entre este presupuesto y el éxito más lento, medido:"
+      # «el éxito más lento» y no «el máximo»: el máximo que `metricas.sh` imprimía era un
+      # ROJO de 1855 s —más largo que el propio límite, porque el número incluye el gate— y
+      # el éxito más lento medía 970. Calibrar un presupuesto con el techo del vigilante es
+      # medirse con la propia regla. El lector ahora imprime la línea que este mensaje pide.
+      echo "      Cuánto margen hay entre este presupuesto y el éxito más lento, medido"
+      echo "      en la línea «éxito más lento» de:"
       echo "        bash \$AGENTES/scripts/metricas.sh" ;;
   esac
 }
@@ -493,8 +498,12 @@ anotar_intento() {
   # que el `||` agregaba otra línea y la variable quedaba con DOS valores («0\n1»). Es el
   # mismo defecto que dejaba el mensaje «HTTP 000000» en la sonda de plataforma. `wc -l` no
   # falla, así que no hace falta el respaldo.
-  local concurrencia
-  concurrencia="$(pgrep -f "opencode run" 2>/dev/null | wc -l | tr -d ' ')"
+  # Quien lanza la corrida la mide al ARRANCAR y la pasa en `CONCURRENCIA_AL_ARRANCAR`.
+  # Contarla acá es contarla al cerrar, que es otra cosa y es la que no sirve (ver
+  # `correr-tarea.sh`). El respaldo queda para los llamadores que no la pasan
+  # —`cerrar-tarea.sh`, que es trabajo humano y no compite con nada—.
+  local concurrencia="${CONCURRENCIA_AL_ARRANCAR:-}"
+  [ -n "$concurrencia" ] || concurrencia="$(pgrep -f "opencode run" 2>/dev/null | wc -l | tr -d ' ')"
   [ -n "$concurrencia" ] || concurrencia=0
   # `instrumento`: la huella de los scripts que produjeron la fila. Dos filas con huellas
   # distintas no se comparan — es el punto 7 de la regla de parada de MEDICION.md, que decía
@@ -505,7 +514,12 @@ anotar_intento() {
   # corrió no es lo commiteado, y dos corridas con scripts distintos comparten huella — que
   # es justo el estado contra el que avisa el guardia de `correr-todo.sh`. `congelar-banco.sh`
   # ya lo marcaba así y esto no: el arreglo estaba de un lado y no del otro.
-  git -C "$RAIZ" diff --quiet -- scripts 2>/dev/null || instrumento="${instrumento}+sin-commitear"
+  # Con HEAD: `git diff --quiet -- <ruta>` compara árbol↔ÍNDICE, así que un `git add scripts/`
+  # —el reflejo de cualquiera que quiera mirar su propio diff antes de lanzar— apagaba la
+  # marca y la fila quedaba con la huella del commit viejo y sin aviso. Justo el estado que
+  # esta línea existe para delatar. El modelo que cité al escribirla (`congelar-banco.sh`)
+  # tenía el mismo defecto, así que el arreglo copió el agujero.
+  git -C "$RAIZ" diff --quiet HEAD -- scripts 2>/dev/null || instrumento="${instrumento}+sin-commitear"
   local ENCABEZADO="fecha,proyecto,tarea,veredicto,segundos,modelo,motivo,concurrencia,instrumento"
   if [ ! -f "$reg" ]; then
     echo "$ENCABEZADO" > "$reg"
@@ -559,6 +573,58 @@ veredicto() {
   if [ "$rc" = "0" ]; then echo VERDE; return 0; fi
   if parte_del_agente "$log" | grep -qE '^ *IMPOSIBLE:'; then echo IMPOSIBLE; return 0; fi
   echo ROJO
+}
+
+# Empezar en la etapa N saltea las anteriores. El argumento existe para retomar después de
+# arreglar algo, y eso es legítimo; lo que no puede es saltar trabajo callado.
+#
+#   rechazar_salteo <desde> <comando para relanzar> <etapa>...
+#
+# UNA copia, en el método, y los dos runners la llaman. La guardia nació del salteo de T05 y
+# se escribió sólo en `correr-todo.sh`: `correr-plan.sh` siguió tomando el índice sin guardia,
+# o sea que el arreglo dejó abierto el script hermano del defecto que venía a cerrar. Es la
+# cuarta vez en un día que un arreglo se aplica a una copia y no a su hermana, así que esta
+# vez no hay copia que desincronizar.
+rechazar_salteo() {
+  local desde="$1" relanzar="$2"; shift 2
+  [ "$desde" -gt 1 ] 2>/dev/null || return 0
+  local salteadas="" i=0 etapa
+  for etapa in "$@"; do
+    i=$((i+1)); [ "$i" -lt "$desde" ] || break
+    salteadas="$salteadas $etapa"
+  done
+  [ -n "$(echo "$salteadas" | tr -d ' ')" ] || return 0
+  echo "✗ Al empezar en la etapa $desde se saltean tareas que siguen pendientes:$salteadas" >&2
+  echo "  Los números de etapa se recalculan en cada corrida: al cerrar una etapa, las" >&2
+  echo "  que siguen se corren un lugar. El número que anotaste ya no significa lo mismo." >&2
+  echo "  Corré sin argumento —arranca en la primera etapa con trabajo pendiente—:" >&2
+  echo "    $relanzar" >&2
+  exit 1
+}
+
+# Qué veredicto se ESCRIBE en el registro: el del gate primero, siempre.
+#
+#   veredicto_registrado <rc del gate> <error de la herramienta> <log>
+#
+# Vive acá, como función, y no inline en el llamador, porque inline sólo se podía verificar
+# leyéndolo — y ahí fue donde el arreglo se perdió. `correr-tarea.sh` decidía con
+# `[ -n "$error" ] && echo ERROR || veredicto "$log"`, o sea el ruido de la herramienta ANTES
+# del código del gate, mientras doce líneas más abajo un comentario declaraba lo contrario
+# para el mensaje de consola. Medido: T07, T27 y T06 del 2026-10-04 tienen su commit
+# `TNN: gate verde` al segundo exacto de una fila ERROR —y `cerrar_con_gate` commitea sólo
+# con rc 0, así que el commit prueba el verde—; `metricas.sh` las informaba como «nunca
+# llegaron a verde» Y las descontaba como pérdida de plataforma. Es P2: el juez es un
+# comando, y si el comando dio verde, el log no lo desmiente.
+veredicto_registrado() {
+  local rc="${1:-1}" error="${2:-}" log="${3:-}"
+  if [ "$rc" -eq 0 ]; then echo VERDE; return 0; fi
+  if [ -n "$error" ]; then echo ERROR; return 0; fi
+  # `veredicto` no imprime nada si el log está incompleto (sin la línea `=== fin`), y una
+  # columna vacía es una fila que ningún lector puede clasificar. El gate ya dijo que no es
+  # verde, así que el respaldo es ROJO: lo único que `veredicto` agrega sobre el rc es
+  # distinguir IMPOSIBLE, y para eso necesita el log.
+  local v; v="$(veredicto "$log")"
+  echo "${v:-ROJO}"
 }
 
 # El motivo que declaró el agente, para que el humano lo lea sin abrir el log.

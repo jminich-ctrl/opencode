@@ -233,7 +233,11 @@ for f in "$BASE"/tareas/*.md; do
     [ "$N_SHAS" -gt 1 ] && echo "aviso: la tarea tiene $N_SHAS commits «gate verde»; se usó el más nuevo"
     echo "implementación: $(echo $IMPL | tr '\n' ' ')"
     echo "congelado: $(date -u +%FT%TZ)"
-    echo "instrumento: $(git -C "$RAIZ" rev-parse --short HEAD:$PROYECTO/scripts 2>/dev/null || echo '?')$(git -C "$RAIZ" diff --quiet -- "$PROYECTO/scripts" 2>/dev/null || echo ' +sin-commitear')"
+    # `instrumento-proyecto` y no `instrumento`: el registro usa ese nombre para
+    # `HEAD:scripts` (los scripts del MÉTODO) y acá se sella `HEAD:$PROYECTO/scripts` (el
+    # corredor de suite del PROYECTO). Son dos árboles distintos; con el mismo nombre las
+    # dos columnas parecían unibles y no lo son.
+    echo "instrumento-proyecto: $(git -C "$RAIZ" rev-parse --short HEAD:$PROYECTO/scripts 2>/dev/null || echo '?')$(git -C "$RAIZ" diff --quiet HEAD -- "$PROYECTO/scripts" 2>/dev/null || echo ' +sin-commitear')"
     echo
     echo "## salida sobre base (tiene que ser rojo atribuible a la tarea)"
     # Sin la ruta absoluta del worktree de congelado, que no existe después y es justo el

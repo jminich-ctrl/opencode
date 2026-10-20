@@ -125,7 +125,7 @@ def fin_de_partida(pantalla, juego, pacman, fantasmas) -> None:
     dibujar(pantalla, juego, pacman, fantasmas)
     try:
         curses.flushinp()
-    except Exception:
+    except Exception:  # best-effort: no toda terminal lo soporta y no vaciar no rompe nada
         pass
     pantalla.nodelay(False)
     alto, _ = pantalla.getmaxyx()

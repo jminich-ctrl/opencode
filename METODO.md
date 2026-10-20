@@ -942,6 +942,73 @@ chequeo nuevo contra el código que YA ANDA —los dos proyectos de ejemplo ente
 verde. Dos de los seis de arriba los encontró eso, antes de que el chequeo viera la luz; los
 otros cuatro los encontró una falla real y costaron tiempo.
 
+**Y una variante que apareció al día siguiente, cuatro veces de una sola vez**: el chequeo no
+lee prosa del proyecto, lee una **ventana de N caracteres alrededor de una cita** del propio
+código —`s[i:i+400]`, `s[i:i+600]`, `s[i:i+500]`— y el comentario que explica el arreglo la
+desborda. Tres tests de este repo reprobaron al código **arreglado** por eso, y uno de ellos
+era mío, escrito ese mismo día. La forma es la misma que las seis de arriba, con el agravante
+de que **se vuelve más probable cuanto mejor documentado está el arreglo**, y este repo exige
+documentar cada arreglo con su cadáver: el chequeo y la convención empujan en direcciones
+opuestas.
+
+La regla, entonces, con una cuarta forma de acotar que es la buena para este caso:
+
+4. **Por estructura, nunca por distancia**: el índice del `if` que abre el bloque y el del
+   `else` que lo cierra, no «400 caracteres después del nombre». Si lo que importa es que A
+   esté dentro del bloque de B, eso se pregunta con dos índices, no con una ventana.
+
+Y el caso peor de todos, también de ese día: un test que **pinaba el defecto**. Afirmaba que
+el gate le pasara la base al chequeo de señales suprimidas *en los dos modos* —porque eso era
+lo que decía el comentario de al lado— y en modo integración eso filtra todos los hallazgos.
+El test estaba verde, el chequeo estaba apagado, y arreglar el chequeo puso el test en rojo.
+Un test escrito desde el comentario pina la intención; lo que hay que pinar es la conducta.
+
+### El arreglo que existe en la prosa y no en el código
+
+La forma más caras de todas, porque **se defiende sola**: el comentario, el mensaje de
+consola o el mensaje del commit afirman el arreglo que el código no tiene. Quien lee, lee la
+afirmación. Quien audita, lee la afirmación. El código sigue hecho como antes.
+
+Cuatro casos, todos del mismo día, todos encontrados por auditores y ninguno por mí:
+
+| dónde | la prosa decía | el código hacía |
+|---|---|---|
+| el acote del TODO, en los tres gates | el comentario describía el acote al alcance de la tarea | `ARG_TODO` se calculaba y **no se usaba**: el `grep` barría el árbol entero |
+| el veredicto que se escribe en el registro | «El gate primero, siempre… el ruido del log es una nota, no un veredicto», doce líneas más abajo | `[ -n "$error" ] && echo ERROR || veredicto` — el ruido ANTES del gate. Tres tareas con su commit «gate verde» quedaron anotadas como ERROR |
+| el acote de las señales suprimidas | «En modo tarea, sólo lo que ESTA tarea tocó» | pasaba la base en los DOS modos, y en integración eso filtra todo |
+| el commit que movió los chequeos al método | «si no está en ninguna, el paso que lo necesita da ROJO y dice que es del método» | cierto para uno de los dos chequeos; el otro fallaba abierto y cerraba «GATE VERDE» limpio |
+
+**Por qué sobreviven**: porque el arreglo se hizo en el lugar que se MIRA —el mensaje, el
+comentario, la consola— y no en el que se EJECUTA. Y porque los tests, cuando existieron, se
+escribieron leyendo la prosa: el test del TODO afirmaba que la variable existía, y el mío de
+las señales suprimidas **pinaba el gate pasando la base en los dos modos**, o sea pinaba el
+defecto como conducta deseada. Un test escrito desde el comentario pasa con el defecto puesto.
+
+**La regla:** un arreglo se verifica por su EFECTO, nunca por su rastro. Tres formas, de peor
+a mejor:
+
+1. Afirmar que la variable, la línea o el mensaje están. **No sirve**: es leer la prosa otra
+   vez, con más pasos.
+2. Afirmar que el código usa la variable (`grep` de la invocación, no de la definición).
+   Sirve contra el calculado-y-no-usado y contra nada más.
+3. **Construir el caso y exigir el resultado**: un TODO ajeno que no reprueba y uno propio que
+   sí; un gate con rc 0 y un error de herramienta, y exigir `VERDE`; un archivo idéntico a la
+   base que no puede dar rojo. Es lo único que no se puede satisfacer con un comentario.
+
+Y hay un corolario del brazo nulo que salió de aplicar esto: **tres de los 24 tests que
+escribí ese día pasaban con el defecto puesto**, uno de cada ocho, y los tres los encontró
+correr el test nuevo contra el código viejo. Uno de ellos agrega una variante que no sabíamos:
+cuando hay **dos defectos en el mismo camino**, el más ancho tapa al otro —el prefijo de git
+mal resuelto apagaba el acote entero, así que el test del tramo daba verde con el tramo
+roto—. Por eso el brazo nulo se corre revirtiendo **de a un arreglo**, no todos juntos.
+
+Y el otro corolario: **cuando un arreglo se aplica a una copia, se busca a la hermana en
+el mismo commit.** Hoy pasó cuatro veces en una dirección —el gate resolvía bien el prefijo de
+git y `_suprimidas.py` no; `congelar-banco.sh` marcaba el árbol sucio y `anotar_intento` no, y
+después el arreglo nuevo copió el agujero del modelo que citó; `archivos_de_la_tarea` quedó
+sólo en un ejemplo de tres; la guardia de índice quedó sólo en `correr-todo.sh` y no en
+`correr-plan.sh`, que es el script hermano del defecto que esa guardia venía a cerrar.
+
 ### Nadie cruzaba las tareas entre sí
 
 `validar-plan.py` cruza el plan contra las tareas, y el gate cruza la implementación contra

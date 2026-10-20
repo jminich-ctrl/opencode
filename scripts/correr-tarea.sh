@@ -105,6 +105,16 @@ lanzar() {
     mkdir -p "$XDG_DATA_HOME"
     local log="$wt/.tarea.log" inicio
     inicio="$(date +%s)"
+    # La concurrencia se mide ACÁ, antes de lanzar al agente, y viaja al registro en una
+    # variable. `anotar_intento` la contaba sola, y corre DESPUÉS del agente y del gate: lo
+    # que anotaba era «cuántas quedaban vivas cuando yo ya terminé». Medido en la tanda del
+    # 2026-10-19: cuatro tareas arrancadas en 12 segundos, solapadas por completo, con
+    # valores 1, 2, 2 y 0 que decrecen con el orden de finalización — y la que compitió con
+    # tres durante sus 970 s enteros quedó anotada como 0, o sea como la única serializada.
+    # La columna que existe para que el tiempo no mida la ocupación de la plataforma estaba
+    # midiendo la ocupación de la plataforma.
+    CONCURRENCIA_AL_ARRANCAR="$(pgrep -f "opencode run" 2>/dev/null | wc -l | tr -d ' ')"
+    export CONCURRENCIA_AL_ARRANCAR
     # Igual que en escribir-tests.sh: lo que distingue un cuelgue de un agente lento es el
     # silencio, no el tiempo total.
     # El valor de INACTIVIDAD lo declara _comun.sh en un solo lugar. Acá decía 45,
@@ -151,7 +161,15 @@ lanzar() {
            | grep -v '^$' | tr '\n' ' ' | cut -c1-200)"
     fi
     # Una línea por intento en el registro: las métricas leen datos, no adivinan del texto.
-    anotar_intento "$id" "$([ -n "$error" ] && echo ERROR || veredicto "$log")" \
+    #
+    # El gate primero, SIEMPRE, también acá. El arreglo de abajo —«el ruido del log es una
+    # nota, no un veredicto»— entró en el mensaje de consola y NO en el valor que se
+    # escribe, así que el registro siguió contradiciendo al gate. Medido: T07, T27 y T06 del
+    # 2026-10-04 tienen su commit `gate verde` al segundo exacto de una fila `ERROR`
+    # —`cerrar_con_gate` commitea sólo con rc 0, así que el commit prueba el verde—, y
+    # `metricas.sh` las informaba como «nunca llegaron a verde» y además las descontaba como
+    # pérdida de plataforma. Un ⊘ tapando un sí, contra el modelo y contra la tarea a la vez.
+    anotar_intento "$id" "$(veredicto_registrado "$rc" "$error" "$log")" \
                    "$(( $(date +%s) - inicio ))" \
                    "$(grep -m1 -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}' "$log" | cut -c1-8)" \
                    "$log"

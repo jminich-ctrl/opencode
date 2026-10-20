@@ -139,6 +139,28 @@ SALIDA="$(bash scripts/correr-suite.sh 2>&1)"; RC=$?
 # La declaración canónica, en el marcador de fase del archivo de tarea:
 #     Archivo: `<ruta>`, clase `<Clase>`.
 # Devuelve «ruta clase», o vacío si la tarea no la declara.
+# Los archivos que la tarea declara. UN solo lector para UNA sola declaración, igual que
+# `test_de_la_tarea`: el paso 2 y el paso 4 leían la misma línea del archivo de tarea con dos
+# parsers distintos, y el del paso 4 era una lista de extensiones que envejeció.
+archivos_de_la_tarea() {
+  sed -n 's/^\*\*Archivos que podés tocar:\*\* *//p' "tareas/${TAREA:-}"-*.md 2>/dev/null \
+    | tr ',' '\n' | grep -oE '[A-Za-z0-9_./-]+(\.[A-Za-z0-9]+|/)' | sort -u
+}
+
+# ¿Este archivo está dentro de lo que la tarea declara? Mismo criterio que el paso 2: un
+# directorio cubre lo de abajo, un archivo es exacto.
+declarado_por_la_tarea() {
+  local archivo="$1" permitido
+  while read -r permitido; do
+    [ -n "$permitido" ] || continue
+    case "$permitido" in
+      */) case "$archivo" in "$permitido"*) return 0 ;; esac ;;
+      *) [ "$archivo" = "$permitido" ] && return 0 ;;
+    esac
+  done <<< "$(archivos_de_la_tarea)"
+  return 1
+}
+
 test_de_la_tarea() {
   # Sin anclar en «Archivo:»: la declaración aparece en dos formas en el repo,
   #     Archivo: `backend/tests/test_errores.py`, clase `TestErrores`.
@@ -358,7 +380,17 @@ echo "── 3. Higiene"
 # chequeo que parecía caro costaba una línea. Lo habría atrapado al toque: el agente de T04
 # importó `mysql.connector` donde el proyecto declara `pymysql`, y el síntoma fue un
 # ModuleNotFoundError dentro del test que el método informó como "el test está mal".
-if [ -n "$(aux_del_metodo _imports.py)" ]; then
+if [ -z "$(aux_del_metodo _imports.py)" ]; then
+  # Con `else` y con `rojo`, como su hermano `_suprimidas.py`. Era el único eslabón de la
+  # cadena nueva que fallaba ABIERTO: un `if` sin rama negativa, así que el paso no imprimía
+  # nada, no sumaba a FALLOS ni a VACIOS, y el veredicto salía «GATE VERDE» limpio — ni
+  # siquiera «con N chequeos que no pudieron correr». El mensaje del commit que movió los
+  # chequeos al método afirmaba lo contrario; era cierto para uno de los dos. Cualquier
+  # invocación del gate sin $AGENTES exportada (CI, cron, una shell nueva) perdía el chequeo
+  # de imports en silencio, y el proyecto que se llevó el método aparte ya no tiene copia local.
+  rojo "falta scripts/_imports.py: el gate no puede revisar los imports"
+  echo "     Lo provee el método en scripts/_imports.py. Esto es del método, no del código juzgado."
+else
   if [ -n "${TAREA:-}" ]; then
     PY_IMPORT="$(echo "$CAMBIADOS" | grep -E '\.py$' | tr '\n' ' ')"
   else
@@ -426,15 +458,23 @@ else
   # En modo tarea, sólo lo que ESTA tarea tocó: una señal suprimida que ya estaba en el
   # tronco no es de esta tarea. Es el mismo error que cometí con los imports y con el
   # corredor faltante — tests-first deja el tronco con defectos de etapas en vuelo.
+  # La base se pasa SÓLO en modo tarea, y es la mitad que faltaba del acote. En modo
+  # integración no hay tarea de quien acotar: `BASE_REF` es el merge-base con main, o sea
+  # HEAD, el árbol está limpio y el diff sale vacío — así que `tocadas` era el conjunto
+  # VACÍO (que no es None) y se filtraban TODOS los hallazgos. El chequeo quedaba
+  # decorativo justo en el modo que revisa el tronco entero, y el comentario de acá arriba
+  # decía «en modo tarea» mientras el código lo pasaba en los dos.
   if [ -n "${TAREA:-}" ]; then
     ARG_SUP="$(echo "$CAMBIADOS" | grep -E '\.(py|ts|tsx|js|jsx)$' | tr '\n' ' ')"
+    BASE_SUP="${BASE_REF:-}"
   else
     ARG_SUP=""$CODIGO""
+    BASE_SUP=""
   fi
   # Con BASE, `_suprimidas.py` acota al diff: una señal que ya estaba en el archivo
   # no es de esta tarea. Sin esto le cobraba a cualquier tarea las tres de curses
   # que viven en el pacman desde siempre.
-  SAL_SUP="$(BASE="${BASE_REF:-}" "${PY_PROYECTO:-python3}" "$(aux_del_metodo _suprimidas.py)" ${ARG_SUP} 2>&1)"; RC_SUP=$?
+  SAL_SUP="$(BASE="$BASE_SUP" "${PY_PROYECTO:-python3}" "$(aux_del_metodo _suprimidas.py)" ${ARG_SUP} 2>&1)"; RC_SUP=$?
   echo "$SAL_SUP"
   case "$RC_SUP" in 1) FALLOS=$((FALLOS+1)) ;; 2) VACIOS=$((VACIOS+1)) ;; esac
 fi
@@ -472,14 +512,32 @@ else
 fi
 if [ -z "$ARG_TODO" ]; then
   vacuo "esta tarea no cambió archivos donde buscar TODO"
-elif grep -rnE "\bTODO\b" "$CODIGO" --exclude-dir=__pycache__ 2>/dev/null | grep -q .; then rojo "quedaron TODO sueltos en $CODIGO/"; else verde "sin TODO sueltos"; fi
+# OJO: el `grep` usa $ARG_TODO. La primera versión de este acote calculaba la variable y
+# después greppeaba los directorios igual, así que el arreglo que el comentario de arriba
+# describe NO EXISTÍA: el chequeo seguía barriendo el árbol entero. Y mi test no lo vio
+# porque verificaba que la variable EXISTIERA, no que el grep la usara — nombrar la cosa no
+# alcanza, esta vez aplicado al test. Lo encontró una auditoría, no una corrida.
+elif grep -rnE "\bTODO\b" ${ARG_TODO} --exclude-dir=__pycache__ 2>/dev/null | grep -q .; then rojo "quedaron TODO sueltos"; else verde "sin TODO sueltos"; fi
 
 # ── 4. ¿Los tests distinguen? (sólo en modo tarea)
 # Revierte la implementación y exige que la suite FALLE. Un test que pasa con el código
 # viejo no prueba nada, y no hay otra forma de que el gate lo detecte.
 if [ -n "${TAREA:-}" ]; then
   echo "── 4. ¿Los tests distinguen?"
-  IMPL="$(echo "$CAMBIADOS" | grep -E "^$CODIGO/" || true)"
+  # El alcance que la tarea DECLARA, no un patrón de rutas. El patrón dejaba `IMPL` vacío
+  # para toda tarea cuya implementación no cayera en él —un `.scss`, un `.sql`, un
+  # manifiesto, un archivo fuera del directorio de código— y entonces el paso imprimía
+  # «⊘ no hay implementación que revertir» y el gate cerraba: el único chequeo de que los
+  # tests DISTINGUEN no corría. El arreglo existía en un ejemplo de tres; la plantilla, que
+  # es la que copia todo proyecto nuevo, seguía con el patrón.
+  IMPL=""
+  while read -r f; do
+    [ -n "$f" ] || continue
+    [ "$f" = "${RUTA_DECLARADA:-}" ] && continue
+    declarado_por_la_tarea "$f" && IMPL="$IMPL
+$f"
+  done <<< "$CAMBIADOS"
+  IMPL="$(printf '%s' "$IMPL" | grep . || true)"
   TMP="$(mktemp -d)"; REVERTIDOS=""
   PREFIJO="$(git rev-parse --show-prefix)"   # vacío si el proyecto es la raíz del repo
   for f in $IMPL; do
