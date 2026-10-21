@@ -189,6 +189,16 @@ for id in "$@"; do
   # que era el valor viejo: una tercera copia del mismo número, de las que quedan
   # viejas sin que nadie se entere.
   export LOG_VIGILADO="$log"
+  # Antes de gastar un intento: ¿sigue siendo el mismo instrumento? Editar un script con
+  # una corrida en vuelo le hace ejecutar basura a bash, y el guardia de borde de etapa se
+  # enteraba cuarenta minutos después. Ver `instrumento_se_movio` en _comun.sh.
+  # `break 2`: sale del bucle de intentos Y del de tareas. Con un `break` simple pasaría a
+  # la tarea siguiente, que es lo contrario de lo que dice el mensaje — y lo que viniera
+  # después se juzgaría con el instrumento nuevo, que es el defecto que esto ataja.
+  if instrumento_se_movio; then
+    echo "     No se lanza este intento. Relanzá la corrida desde cero." >&2
+    break 2
+  fi
   echo "▶ $id · $AGENTE escribe $ruta::$clase"
   (
     cd "$wt/$PROYECTO" || exit 1

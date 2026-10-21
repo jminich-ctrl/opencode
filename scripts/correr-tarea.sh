@@ -100,6 +100,16 @@ lanzar() {
     # chocan con "database is locked": cada tarea necesita el suyo.
     # El gate endurece sus reglas cuando sabe que corre dentro de una tarea:
     # exige que haya cambios y aplica los límites de alcance.
+    # Antes de gastar un intento: ¿sigue siendo el mismo instrumento? Editar un script con
+    # una corrida en vuelo le hace ejecutar basura a bash, y el guardia de borde de etapa se
+    # enteraba cuarenta minutos después. Ver `instrumento_se_movio` en _comun.sh.
+    # `exit 1` y no `break`: esto corre dentro de la subshell `( ... ) &` de cada tarea, y
+    # un `break` ahí no rompe el bucle de afuera — rompe nada y sigue como si el chequeo
+    # hubiera pasado, que es la vacuidad de siempre. El código 1 lo lee el `wait` de abajo.
+    if instrumento_se_movio; then
+      echo "     No se lanza este intento. Relanzá la corrida desde cero." >&2
+      exit 1
+    fi
     export TAREA="$id"
     export XDG_DATA_HOME="$wt/.opencode-data"
     mkdir -p "$XDG_DATA_HOME"

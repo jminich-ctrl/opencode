@@ -143,20 +143,10 @@ echo "══ ${#ETAPAS[@]} etapa(s); empezando en la $DESDE"
 # reescribe en el mismo inodo—, así que el bash en curso ve el archivo cambiar debajo.
 #
 # Una regla que vive sólo en un documento es una regla que se incumple. Ahora es un comando.
-huella_scripts() {
-  # TODOS los archivos del directorio, no los `*.sh`. El instrumento incluye los diez `.py`
-  # que viven acá: `_imports.py` y `_suprimidas.py` son lo que el gate ejecuta, `mutar.py` y
-  # `vaciar.py` deciden si un test se acepta, `coherencia.py` y `_etapas.py` deciden si el
-  # plan arranca y cómo se cortan las etapas. Editar uno con el plan en vuelo —que es
-  # literalmente lo que pasó cuatro veces el 2026-10-20— pasaba el guardia de borde de etapa
-  # en silencio: la etapa 1 se juzgaba con un chequeo y la etapa 5 con otro, y el guardia
-  # decía que era la misma corrida. Sin lista de extensiones a propósito: una enumeración
-  # envejece callando, y cada `.py` nuevo que se mueva acá quedaba afuera sin que nada avise.
-  # Se saltean los que empiezan con punto (`.DS_Store`, swaps del editor): no son el método.
-  find "$AQUI" -maxdepth 1 -type f ! -name '.*' 2>/dev/null | LC_ALL=C sort \
-    | tr '\n' '\0' | xargs -0 cat 2>/dev/null | git hash-object --stdin 2>/dev/null || echo "?"
-}
-HUELLA_SCRIPTS="$(huella_scripts)"
+# Fija la huella para TODA la corrida, y la heredan los hijos: `escribir-tests.sh` y
+# `correr-tarea.sh` la verifican antes de cada intento con `instrumento_se_movio`.
+instrumento_se_movio >/dev/null 2>&1 || true   # la fija si no estaba
+HUELLA_SCRIPTS="$HUELLA_INSTRUMENTO"
 
 # Por un LOCKFILE con el pid, no por `pgrep -f`. `pgrep -f` matchea cualquier proceso cuya
 # línea de comando MENCIONE la cadena, y no puede distinguir una corrida de una mención: el
@@ -237,8 +227,7 @@ for etapa in "${ETAPAS[@]}"; do
   # ¿Siguen siendo los mismos scripts con los que arrancó esta corrida? Si no, lo que venga
   # de acá en adelante no es confiable —ni lo ya hecho, porque el bucle pudo haber saltado
   # pedazos sin decirlo—. Se para en el borde de etapa, que es donde todavía se puede.
-  if [ "$(huella_scripts)" != "$HUELLA_SCRIPTS" ]; then
-    echo "   (huella al arrancar: $HUELLA_SCRIPTS · ahora: $(huella_scripts))"
+  if instrumento_se_movio; then
     parar "$n" "los scripts del método CAMBIARON con la corrida en curso" \
           "bash $AQUI/correr-todo.sh    # relanzá: esta corrida ya no es confiable"
   fi

@@ -2630,15 +2630,24 @@ class TestEditarUnScriptEnCursoNoPuedeQuedarCallado(unittest.TestCase):
 
     def test_el_guardia_corre_en_cada_etapa_y_para_el_plan(self):
         s = (SCRIPTS / "correr-todo.sh").read_text()
-        self.assertIn("huella_scripts()", s, "no existe la huella")
-        captura = s.index('HUELLA_SCRIPTS="$(huella_scripts)"')
+        # La huella vive en el MÉTODO (una copia) y el runner la usa: antes este assert la
+        # exigía dentro de `correr-todo.sh`, o sea pinaba su ubicación y no su existencia.
+        self.assertIn("huella_scripts()", (SCRIPTS / "_comun.sh").read_text(),
+                      "no existe la huella")
+        self.assertIn("instrumento_se_movio", s, "el runner no la usa")
+        captura = s.index("instrumento_se_movio")
         bucle = s.index('for etapa in "${ETAPAS[@]}"')
-        self.assertLess(captura, bucle, "la huella se captura ANTES del bucle de etapas")
+        self.assertLess(captura, bucle, "la huella se fija ANTES del bucle de etapas")
         cuerpo = s[bucle:]
-        i = cuerpo.index('"$(huella_scripts)" != "$HUELLA_SCRIPTS"')
+        i = cuerpo.index("instrumento_se_movio")
         self.assertIn("parar", cuerpo[i:i + 400],
                       "detectarlo no alcanza: una corrida cuyo instrumento cambió no es "
                       "una corrida, es un inválido")
+        # Y el borde de etapa ya no es el ÚNICO lugar donde se mira: eso es lo que me dejó
+        # editar un script con un intento en curso sin que nada avisara.
+        for otro in ("escribir-tests.sh", "correr-tarea.sh"):
+            self.assertIn("instrumento_se_movio", (SCRIPTS / otro).read_text(),
+                          f"{otro} gasta intentos y tiene que mirar antes de cada uno")
 
 
 class TestImportarDeUnModuloPropioAlgoQueNoDefine(unittest.TestCase):
@@ -5167,10 +5176,14 @@ class TestLaTerceraAuditoria(unittest.TestCase):
     # ── La huella del instrumento ──────────────────────────────────────────────────────
 
     def huella(self, d):
-        """La función real, extraída de `correr-todo.sh` y evaluada con AQUI apuntando a d."""
-        cuerpo = correr(
-            f"awk '/^huella_scripts\\(\\) \\{{/,/^\\}}/' \"{SCRIPTS}/correr-todo.sh\"", RAIZ).stdout
-        return correr(f'AQUI="{d}"; {cuerpo}\nhuella_scripts', d).stdout.strip()
+        """La función real del método, apuntada al directorio `d`.
+
+        Antes se extraía con awk de `correr-todo.sh` y se evaluaba con `AQUI` apuntando a
+        `d`. Al mudarla a `_comun.sh` el test se rompió —no por conducta: por ubicación y por
+        nombre de variable—, y además la función había quedado clavada a `$AGENTES/scripts`,
+        o sea inverificable. Ahora toma el directorio como argumento y el test la llama."""
+        return correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; huella_scripts "{d}"',
+                      RAIZ).stdout.strip()
 
     def test_la_huella_del_instrumento_cubre_los_py_y_no_solo_los_sh(self):
         """`cat "$AQUI"/*.sh` dejaba afuera los diez `.py` que viven en `scripts/` y que SON
@@ -5971,3 +5984,57 @@ class TestLaTerceraAuditoria(unittest.TestCase):
                 self.assertIn(msg, r.stdout,
                               f"el sobre api_error es lo que identifica a la plataforma, no "
                               f"una lista de mensajes conocidos:\n{r.stdout}")
+
+    # ── El guardia del instrumento miraba cuando ya era tarde ──────────────────────────
+
+    def test_el_instrumento_se_verifica_antes_de_cada_intento(self):
+        """El guardia comparaba la huella de `scripts/` **en el borde de etapa**, que es el
+        único momento en que ya es tarde: entre dos bordes pueden pasar cuarenta minutos y
+        seis intentos, y cualquier edición en esa ventana queda fuera de su alcance.
+
+        Lo demostré rompiéndolo. El 2026-10-21 edité `escribir-tests.sh` dos veces con un
+        intento en curso —con la regla a la vista, y después de haberla citado cuatro veces
+        en la misma sesión— y el guardia no se enteró. Es el mismo problema que
+        `huella_enunciado` ya resuelve bien y en el mismo archivo: se compara la huella del
+        sujeto antes de CADA intento, no una vez por tanda."""
+        r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                   f'instrumento_se_movio; echo "primera=$?"; '
+                   f'instrumento_se_movio; echo "igual=$?"; '
+                   f'HUELLA_INSTRUMENTO=distinta instrumento_se_movio 2>/dev/null; '
+                   f'echo "cambiada=$?"', RAIZ)
+        self.assertIn("primera=1", r.stdout,
+                      f"la primera llamada FIJA la huella y no acusa a nadie:\n{r.stdout}")
+        self.assertIn("igual=1", r.stdout,
+                      f"sin cambios no se movió:\n{r.stdout}")
+        self.assertIn("cambiada=0", r.stdout,
+                      f"con el instrumento cambiado tiene que avisar:\n{r.stdout}")
+        # Y los dos que iteran por intento lo tienen que llamar ANTES de lanzar al agente.
+        for ruta, lanza in (("escribir-tests.sh", "opencode run"),
+                            ("correr-tarea.sh", "opencode run")):
+            with self.subTest(script=ruta):
+                s = (SCRIPTS / ruta).read_text()
+                self.assertIn("instrumento_se_movio", s,
+                              f"{ruta} gasta intentos: tiene que verificar el instrumento")
+                self.assertLess(s.index("instrumento_se_movio"), s.index(lanza),
+                                "y antes de lanzar al agente, no después")
+        # Una sola copia de la huella, en el método.
+        self.assertIn("huella_scripts()", (SCRIPTS / "_comun.sh").read_text(),
+                      "la huella vive en el método")
+        self.assertNotIn("huella_scripts() {", (SCRIPTS / "correr-todo.sh").read_text(),
+                         "y no duplicada en el runner")
+
+    def test_el_corte_por_instrumento_no_sigue_con_la_tarea_siguiente(self):
+        """Con un `break` simple, el bucle pasaba a la tarea siguiente: lo contrario de lo que
+        dice el mensaje («relanzá la corrida desde cero») y, peor, lo que viniera después se
+        juzgaría con el instrumento nuevo — que es justo el defecto que esto ataja."""
+        s = (SCRIPTS / "escribir-tests.sh").read_text()
+        self.assertIn("instrumento_se_movio", s,
+                      "sin el guardia no hay nada que cortar: ver el test de arriba")
+        i = s.index("instrumento_se_movio")
+        self.assertIn("break 2", s[i:i + 400],
+                      "tiene que salir del bucle de intentos Y del de tareas")
+        t = (SCRIPTS / "correr-tarea.sh").read_text()
+        j = t.index("instrumento_se_movio")
+        self.assertIn("exit 1", t[j:j + 400],
+                      "y en correr-tarea.sh, que corre en una subshell `( ) &`, un `break` "
+                      "no rompe nada y sigue como si el chequeo hubiera pasado")

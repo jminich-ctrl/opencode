@@ -609,6 +609,49 @@ veredicto() {
   echo ROJO
 }
 
+huella_scripts() {
+  # TODOS los archivos del directorio, no los `*.sh`. El instrumento incluye los diez `.py`
+  # que viven acá: `_imports.py` y `_suprimidas.py` son lo que el gate ejecuta, `mutar.py` y
+  # `vaciar.py` deciden si un test se acepta, `coherencia.py` y `_etapas.py` deciden si el
+  # plan arranca y cómo se cortan las etapas. Editar uno con el plan en vuelo —que es
+  # literalmente lo que pasó cuatro veces el 2026-10-20— pasaba el guardia de borde de etapa
+  # en silencio: la etapa 1 se juzgaba con un chequeo y la etapa 5 con otro, y el guardia
+  # decía que era la misma corrida. Sin lista de extensiones a propósito: una enumeración
+  # envejece callando, y cada `.py` nuevo que se mueva acá quedaba afuera sin que nada avise.
+  # Se saltean los que empiezan con punto (`.DS_Store`, swaps del editor): no son el método.
+  # El directorio es un ARGUMENTO con valor por omisión: sin eso la función sólo puede
+  # hablar del método instalado y no hay forma de apuntarla a un árbol de prueba, así que su
+  # conducta no se puede verificar — sólo su texto. Lo descubrí rompiendo el test que la
+  # verificaba: al mudarla acá quedó inverificable, que es peor que estar en el lugar
+  # equivocado.
+  local dir="${1:-$AGENTES/scripts}"
+  find "$dir" -maxdepth 1 -type f ! -name '.*' 2>/dev/null | LC_ALL=C sort \
+    | tr '\n' '\0' | xargs -0 cat 2>/dev/null | git hash-object --stdin 2>/dev/null || echo "?"
+}
+
+# ¿Cambió el instrumento desde que arrancó esto? Se compara contra `HUELLA_INSTRUMENTO`, que
+# fija el primero que pregunte y heredan los hijos.
+#
+# Se verifica ANTES DE CADA INTENTO y no sólo en el borde de etapa, que es donde estaba. El
+# guardia de borde de etapa mira en el único momento en que ya es tarde: entre dos bordes
+# pueden pasar cuarenta minutos y seis intentos, y cualquier edición en esa ventana queda
+# fuera de su alcance. Lo demostré rompiéndolo: el 2026-10-21 edité `escribir-tests.sh` dos
+# veces con un intento en curso —con la regla a la vista y después de citarla cuatro veces—
+# y el guardia no se enteró. Es el mismo problema que `huella_enunciado` ya resuelve bien, en
+# el mismo archivo: comparar la huella del sujeto antes de cada intento, no por tanda.
+instrumento_se_movio() {
+  local ahora; ahora="$(huella_scripts)"
+  if [ -z "${HUELLA_INSTRUMENTO:-}" ]; then
+    HUELLA_INSTRUMENTO="$ahora"; export HUELLA_INSTRUMENTO; return 1
+  fi
+  [ "$ahora" = "$HUELLA_INSTRUMENTO" ] && return 1
+  echo "  ✗ los scripts del método CAMBIARON con la corrida en curso" >&2
+  echo "     (instrumento al arrancar: $HUELLA_INSTRUMENTO · ahora: $ahora)" >&2
+  echo "     bash lee los scripts por posición mientras ejecuta: lo que siga no es" >&2
+  echo "     confiable, y lo ya hecho tampoco, porque el bucle pudo saltar pedazos." >&2
+  return 0
+}
+
 # Empezar en la etapa N saltea las anteriores. El argumento existe para retomar después de
 # arreglar algo, y eso es legítimo; lo que no puede es saltar trabajo callado.
 #
