@@ -6402,3 +6402,98 @@ class TestUnaTablaQueNadieCrea(unittest.TestCase):
         r = correr(f'PROYECTO=ejemplo-pacman python3 "{SCRIPTS}/coherencia.py"', RAIZ)
         self.assertNotIn("ninguna migración la crea", r.stdout,
                          f"un proyecto sin SQL no puede tener tablas faltantes:\n{r.stdout}")
+
+
+class TestUnEnunciadoQueDaPorHechaUnaTabla(unittest.TestCase):
+    """El cruce de esquema contra el CÓDIGO llega tarde por construcción: para poder hablar
+    necesita que un agente haya escrito el código, y para entonces ya se gastó.
+
+    Cadáver del 2026-10-19, medido el 21: el enunciado de T26 dice «almacene los datos en la
+    tabla `users`» y la migración de otra tarea del mismo plan crea `usuarios`. El agente
+    escribió `INSERT INTO users` porque se lo pidieron, el gate le dio VERDE —commit
+    `d8eb1e3 "T26: gate verde"`— y dejó dos tests en rojo permanente con
+    `Table 'clasificados.users' doesn't exist`. Esos dos tests después se leyeron como «la
+    tarea rompió tests que andaban» y como línea base truncada: dos defectos más, buscando en
+    el lugar equivocado una causa que estaba en una palabra del plan.
+
+    El enunciado y las migraciones existen el día que se planifica. Contradecirse entre ellos
+    es detectable ahí, con cero agentes gastados, y eso es lo que mide esta clase."""
+
+    MIGRACION = "CREATE TABLE usuarios (id INT PRIMARY KEY, email VARCHAR(255));\n"
+
+    def proyecto(self, enunciado, migracion=MIGRACION):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-enunciado-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "tareas").mkdir()
+        (d / "tareas" / "T26-registro.md").write_text(
+            "# T26 — Registro\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/x.py\n\n## Objetivo\n\n" + enunciado + "\n")
+        (d / "app").mkdir()
+        if migracion is not None:
+            (d / "migraciones").mkdir()
+            (d / "migraciones" / "001_initial.sql").write_text(migracion)
+        return d
+
+    def correr(self, d):
+        return correr(f'PROYECTO="{d}" python3 "{SCRIPTS}/coherencia.py"', RAIZ)
+
+    def test_el_enunciado_que_nombra_una_tabla_que_nadie_crea_es_rojo_sin_codigo(self):
+        """Sin una línea de código en el proyecto: el rojo sale del plan contra la migración."""
+        d = self.proyecto("Almacenar los datos en la tabla `users`.")
+        r = self.correr(d)
+        self.assertEqual(1, r.returncode, f"tiene que ser rojo:\n{r.stdout}{r.stderr}")
+        self.assertIn("T26", r.stdout, f"y nombrar la TAREA, que es lo que se corrige:\n{r.stdout}")
+        self.assertIn("usuarios", r.stdout, f"con el candidato parecido:\n{r.stdout}")
+
+    def test_nombra_el_enunciado_y_no_al_agente(self):
+        """El defecto más caro de estos días es cobrarle al sujeto equivocado. Acá el sujeto
+        es el enunciado: el agente que escriba esa consulta va a estar obedeciendo."""
+        d = self.proyecto("Almacenar los datos en la tabla `users`.")
+        r = self.correr(d)
+        self.assertIn("ENUNCIADO", r.stdout, f"tiene que decir dónde está el defecto:\n{r.stdout}")
+        self.assertNotIn("el agente se equivocó", r.stdout)
+
+    def test_un_from_de_python_en_el_enunciado_no_es_una_tabla(self):
+        """El falso positivo que cometí escribiendo esto: `from fastapi import FastAPI` citado
+        en un enunciado daba la tabla `fastapi`. Seis de siete hallazgos contra clasificados
+        eran de esta forma, y es el MISMO falso positivo que coherencia.py ya documentaba del
+        lado del código. Un rojo que decide si el plan arranca no puede apoyarse en una
+        palabra suelta."""
+        d = self.proyecto("Montar la app con `from fastapi import FastAPI` y "
+                          "`from contextlib import asynccontextmanager`.")
+        r = self.correr(d)
+        self.assertEqual(0, r.returncode, f"no hay ninguna tabla acá:\n{r.stdout}{r.stderr}")
+        for falsa in ("`fastapi`", "`contextlib`"):
+            self.assertNotIn(falsa, r.stdout, f"{falsa} no es una tabla:\n{r.stdout}")
+
+    def test_una_tabla_que_el_enunciado_promete_crear_no_es_un_hueco(self):
+        """Guardia contra sobre-detección: si una tarea promete crear la tabla, el plan es
+        coherente y el chequeo tiene que callarse. Sin esto, todo plan que cree su esquema por
+        migración sería rojo el día uno."""
+        d = self.proyecto("Crear la tabla `pagos` en una migración y guardar ahí los cobros.")
+        r = self.correr(d)
+        self.assertEqual(0, r.returncode,
+                         f"la misma tarea promete crearla:\n{r.stdout}{r.stderr}")
+
+    def test_sin_migraciones_no_opina(self):
+        """La misma regla que el resto del método: un chequeo que no puede medir no opina. Un
+        proyecto sin SQL no tiene con qué comparar, y un ⊘ no es un pase pero tampoco un rojo."""
+        d = self.proyecto("Almacenar los datos en la tabla `users`.", migracion=None)
+        r = self.correr(d)
+        self.assertEqual(0, r.returncode, f"sin migraciones no hay con qué comparar:\n{r.stdout}")
+
+    def test_el_control_contra_los_dos_proyectos_de_ejemplo(self):
+        """Contra clasificados tiene que encontrar los DOS casos reales —`users` en T26 y
+        `ads` en T28, que además todavía no se ejecutó— y contra pacman, que no tiene SQL,
+        ninguno. Si encuentra algo en pacman, el extractor está inventando."""
+        if not (RAIZ / "ejemplo-clasificados" / "tareas").is_dir():
+            self.skipTest("no está ejemplo-clasificados")
+        r = correr(f'PROYECTO=ejemplo-clasificados python3 "{SCRIPTS}/coherencia.py"', RAIZ)
+        self.assertIn("`users`", r.stdout, f"el cadáver de T26:\n{r.stdout}")
+        self.assertIn("`ads`", r.stdout, f"y el de T28, que todavía no se gastó:\n{r.stdout}")
+        pac = RAIZ / "ejemplo-pacman"
+        if not (pac / "tareas").is_dir():
+            self.skipTest("no está ejemplo-pacman")
+        r = correr(f'PROYECTO=ejemplo-pacman python3 "{SCRIPTS}/coherencia.py"', RAIZ)
+        self.assertNotIn("da por hecha la tabla", r.stdout,
+                         f"un proyecto sin SQL no puede tener tablas faltantes:\n{r.stdout}")

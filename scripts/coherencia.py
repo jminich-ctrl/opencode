@@ -216,6 +216,73 @@ def tablas_que_consulta_el_codigo(base: pathlib.Path):
     return usadas
 
 
+# ¿Qué dicen los ENUNCIADOS sobre esta tabla? Dos cosas muy distintas:
+#   · quien promete CREARLA se hace cargo del problema;
+#   · quien promete GUARDAR ahí sin que nadie la cree ES el problema, y es la tarea a corregir.
+#
+# La distinción no es cosmética: la escribí primero sin ella y el chequeo trató a T26 —la
+# tarea cuyo enunciado dice «almacene los datos en la tabla `users`», o sea la que ORIGINA
+# la contradicción— como si fuera su dueña, y bajó un rojo legítimo a aviso. Un chequeo que
+# confunde la causa con el arreglo ablanda exactamente el caso que vino a atrapar.
+#
+# Exige la tabla EN FORMA DE TABLA y no la palabra suelta: el archivo `users_register.py`
+# contiene «users» y nombrarlo no es comprometerse con la tabla `users`.
+def _pat(plantilla: str, tabla: str):
+    return re.compile(plantilla % re.escape(tabla), re.I)
+
+
+# Las tablas que los ENUNCIADOS dan por hechas, sin mirar una línea de código.
+#
+# Este es el cruce que habría ahorrado todo. El de abajo mira el código, así que sólo puede
+# hablar DESPUÉS de que un agente lo escribió: para cuando dijo «la tabla `users` no existe»,
+# T26 ya había corrido, commiteado «gate verde» y dejado dos tests en rojo permanente que
+# tres defectos posteriores intentaron explicar mirando al lugar equivocado. El enunciado y
+# las migraciones existen **el día que se planifica**, y contradecirse entre ellos es
+# detectable ahí, con cero agentes gastados.
+# Dos formas, y las dos tienen que ser inequívocas. La primera versión aceptaba
+# `\bFROM\s+(\w+)` a secas y cobró SEIS falsos positivos de siete contra clasificados:
+# `fastapi`, `pydantic`, `contextlib`, `backend`, `app`, `ads` — todos de un `from X import`
+# de Python citado en el enunciado. Es LITERALMENTE el falso positivo que este archivo ya
+# documenta del lado del código («un `from X import` de Python no es un `FROM` de SQL»),
+# repetido del lado del enunciado por escribir la regex de memoria en vez de mirar la que
+# estaba doce líneas más arriba.
+RE_TABLA_BACKTICKS = re.compile(r"tabla\s+`([a-z_][a-z0-9_]*)`", re.I)
+RE_TABLA_EN_SQL = re.compile(r"\b(?:FROM|INTO|UPDATE|JOIN)\s+`?([a-z_][a-z0-9_]*)`?", re.I)
+
+
+def tablas_que_los_enunciados_dan_por_hechas(textos: dict):
+    """`{tabla: [TNN, ...]}` — «tabla `x`» con backticks, o un `x` dentro de una línea que
+    parece SQL de verdad (el mismo RE_PARECE_SQL que juzga el código)."""
+    pedidas = {}
+    for tid, texto in sorted(textos.items()):
+        encontradas = set(m.group(1).lower() for m in RE_TABLA_BACKTICKS.finditer(texto))
+        for linea in texto.splitlines():
+            if RE_PARECE_SQL.search(linea):
+                encontradas |= {m.group(1).lower() for m in RE_TABLA_EN_SQL.finditer(linea)}
+        for t in sorted(encontradas):
+            if t in NUNCA_UNA_TABLA or t in TABLAS_DEL_SISTEMA:
+                continue
+            pedidas.setdefault(t, [])
+            if tid not in pedidas[t]:
+                pedidas[t].append(tid)
+    return pedidas
+
+
+def tareas_que_crean(textos: dict, tabla: str):
+    pats = (_pat(r"create\s+table\s+(?:if\s+not\s+exists\s+)?`?%s`?\b", tabla),
+            _pat(r"cre(?:a|ar|e)\s+(?:la\s+)?tabla\s+`?%s`?\b", tabla))
+    return sorted(tid for tid, t in textos.items() if any(p.search(t) for p in pats))
+
+
+# UN solo criterio para «¿el enunciado nombra esta tabla?», y se apoya en la función de
+# arriba. Tenía dos, con regexes distintas para la misma pregunta, y uno de los dos ya había
+# cobrado los seis falsos positivos: dos definiciones de lo mismo son dos cosas que pueden
+# divergir, y en este repo divergieron tres veces (el gate en tres copias, mutar.py corriendo
+# dos veces, la huella del instrumento).
+def tareas_que_la_dan_por_hecha(textos: dict, tabla: str):
+    return list(tablas_que_los_enunciados_dan_por_hechas(textos).get(tabla.lower(), []))
+
+
 def main():
     base = pathlib.Path(os.environ.get("PROYECTO", "."))
     if not (base / "tareas").is_dir():
@@ -279,21 +346,59 @@ def main():
     # Sólo se juzga si el proyecto TIENE migraciones: sin ellas no hay con qué comparar, y un
     # chequeo que no puede medir no opina. Es la misma regla que el método aplica a los
     # corredores de tests: un ⊘ no es un pase, pero tampoco un rojo.
+    cubiertos = []
     creadas = tablas_que_crean_las_migraciones(base)
+    dichas = set()
+    if creadas:
+        for tabla, quienes in sorted(tablas_que_los_enunciados_dan_por_hechas(textos).items()):
+            if tabla in creadas or tareas_que_crean(textos, tabla):
+                continue
+            parecidas = difflib.get_close_matches(tabla, sorted(creadas), n=1, cutoff=0.5)
+            pista = f" ¿Será `{parecidas[0]}`, que crea {creadas[parecidas[0]]}?" if parecidas else ""
+            dichas.add(tabla)
+            rojos.append(("esquema",
+                          f"{', '.join(quienes)} da por hecha la tabla `{tabla}` y ninguna "
+                          f"migración ni tarea la crea.{pista} Está en el ENUNCIADO: quien lo "
+                          f"ejecute va a escribir esa consulta porque se la pidieron, y va a "
+                          f"pasar su propio gate. Se corrige antes de gastar un agente."))
     if creadas:
         for tabla, lugares in sorted(tablas_que_consulta_el_codigo(base).items()):
-            if tabla in creadas:
+            if tabla in creadas or tabla in dichas:
                 continue
             # La pista con `difflib` y no con prefijos a ojo: `users` vs `usuarios` no
             # comparte los primeros cinco caracteres y era justo el caso que había que
             # nombrar. Quien planifica necesita el candidato, no sólo el problema.
             parecidas = difflib.get_close_matches(tabla, sorted(creadas), n=1, cutoff=0.5)
             pista = f" ¿Será `{parecidas[0]}`, que crea {creadas[parecidas[0]]}?" if parecidas else ""
-            rojos.append(("esquema",
-                          f"el código consulta la tabla `{tabla}` y ninguna migración la "
-                          f"crea — {lugares[0]}{' y ' + str(len(lugares) - 1) + ' más' if len(lugares) > 1 else ''}."
-                          f"{pista} Lo decide quien planifica: o la migración la crea, o el "
-                          f"código usa la que existe."))
+            donde = f"{lugares[0]}{' y ' + str(len(lugares) - 1) + ' más' if len(lugares) > 1 else ''}"
+            cargo = tareas_que_crean(textos, tabla)
+            piden = [t for t in tareas_que_la_dan_por_hecha(textos, tabla) if t not in cargo]
+            if piden:
+                # El sujeto correcto. El mensaje anterior decía «el código consulta» y mandaba
+                # a mirar el código: con esto se ve que el agente hizo lo que le pidieron y que
+                # lo que hay que corregir es el ENUNCIADO. Es el defecto más caro de estos días
+                # —culpar al sujeto equivocado— en el chequeo más nuevo.
+                rojos.append(("esquema",
+                              f"{', '.join(piden)} promete guardar en la tabla `{tabla}` y "
+                              f"ninguna tarea la crea: la migración crea "
+                              f"{', '.join('`%s`' % c for c in sorted(creadas))}."
+                              f"{pista} El código la consulta porque el enunciado se la pidió "
+                              f"({donde}): se corrige el enunciado, no el agente."))
+            elif cargo:
+                # No es un pase: la contradicción sigue viva hasta que esa tarea corra, y
+                # cualquier tarea anterior que toque ese camino va a chocar con la tabla que
+                # no existe. Lo que cambia es que el plan tiene dueño para el problema, así
+                # que detenerlo acá sería impedir su propio arreglo. El juez sigue siendo el
+                # gate de esa tarea.
+                cubiertos.append(f"la tabla `{tabla}` no la crea ninguna migración ({donde}), "
+                                 f"y {', '.join(cargo)} se hace cargo: el plan puede arrancar, "
+                                 f"pero hasta que esa tarea pase, todo lo que consulte `{tabla}` falla.")
+            else:
+                rojos.append(("esquema",
+                              f"el código consulta la tabla `{tabla}` y ninguna migración la "
+                              f"crea — {donde}."
+                              f"{pista} Lo decide quien planifica: o la migración la crea, o el "
+                              f"código usa la que existe."))
 
     # ── AVISO: un enunciado nombra `mod.func` y el CÓDIGO usa `mod.otra` ─────────────
     #
@@ -329,15 +434,18 @@ def main():
 
     for tid, msg in rojos:
         print(f"  ✗ {tid}: {msg}")
+    for detalle in cubiertos:
+        print(f"  ⚠ esquema: {detalle}")
     for mod, detalle in avisos:
         print(f"  ⚠ {detalle}")
         print(f"     Puede ser legítimo. Si tienen que coincidir, el enunciado no debe nombrar"
               f" el algoritmo sino EL ARCHIVO donde vive el que ya se usa.")
-    if not rojos and not avisos:
+    avisos_total = len(avisos) + len(cubiertos)
+    if not rojos and not avisos_total:
         print(f"  ✓ {len(textos)} tareas cruzadas: ningún import huérfano, ningún módulo en disputa")
     elif not rojos:
         print(f"  ✓ {len(textos)} tareas cruzadas: ningún import huérfano "
-              f"({len(avisos)} aviso/s para revisar)")
+              f"({avisos_total} aviso/s para revisar)")
     return 1 if rojos else 0
 
 
