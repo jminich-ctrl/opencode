@@ -5864,3 +5864,68 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         # Y el chequeo tiene que seguir mutando lo que sí es código.
         self.assertRegex(r.stdout, r"[1-9][0-9]* mutante\(s\) probados",
                          f"si no mutó nada, la exclusión se comió el chequeo:\n{r.stdout}")
+
+    def servidor_que_falla_las_primeras(self, fallas, codigo=502):
+        """Un endpoint que contesta `codigo` las primeras `fallas` veces y 200 después:
+        una plataforma intermitente, que es la que tenemos."""
+        import http.server, threading
+        estado = {"n": 0}
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                estado["n"] += 1
+                try:
+                    if estado["n"] <= fallas:
+                        self.send_response(codigo)
+                        self.send_header("Content-Length", "0")
+                        self.end_headers()
+                    else:
+                        self.send_response(200)
+                        self.send_header("Content-Length", "2")
+                        self.end_headers()
+                        self.wfile.write(b"{}")
+                except (BrokenPipeError, ConnectionResetError):
+                    pass   # best-effort: el cliente puede haber cortado
+            def log_message(self, *a):
+                pass
+        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return f"http://127.0.0.1:{srv.server_address[1]}/v1", estado
+
+    def test_un_502_transitorio_no_declara_la_plataforma_caida(self):
+        """Una muestra puntual de un servicio intermitente no alcanza para declararlo caído.
+        El 2026-10-21 un 502 abortó un plan de 7 etapas y dos minutos después el mismo pedido
+        —con y sin herramientas— contestaba 200. El costo de reintentar son segundos; el de
+        un aborto falso es un lanzamiento entero y un diagnóstico que apunta a la plataforma.
+
+        Y no puede tapar una caída real: si todas las muestras fallan, el veredicto es el
+        mismo, y la SECUENCIA de códigos se informa siempre — «502 200» y «502 502 502» dicen
+        cosas distintas y quien decide necesita esa diferencia."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-502-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        cfg = d / "opencode.json"
+        cfg.write_text('{"provider":{"colabhive":{"models":{"m-sonda":{}}}}}')
+
+        def sonda(base):
+            return correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                          f'COLABHIVE_BASE_URL="{base}" COLABHIVE_API_KEY=x '
+                          f'MODELO_SONDA=m-sonda CONFIG_OC="{cfg}" plataforma_responde', RAIZ)
+
+        base, estado = self.servidor_que_falla_las_primeras(1)
+        r = sonda(base)
+        self.assertEqual(r.returncode, 0,
+                         f"un 502 y después 200 es una plataforma intermitente, no caída:"
+                         f"\n{r.stderr}")
+        self.assertEqual(estado["n"], 2, "tiene que haber reintentado, no adivinado")
+        self.assertIn("intermitente", r.stderr,
+                      f"y hay que decir que lo está, porque los tiempos no son comparables:"
+                      f"\n{r.stderr}")
+
+        # Caída de verdad: el veredicto no se ablanda.
+        base2, estado2 = self.servidor_que_falla_las_primeras(99)
+        r2 = sonda(base2)
+        self.assertNotEqual(r2.returncode, 0, "tres fallas son una caída, y se declara")
+        self.assertEqual(estado2["n"], 3, "no más de tres muestras: no se insiste gratis")
+        self.assertIn("502 502 502", r2.stderr,
+                      f"la secuencia completa, no sólo la última:\n{r2.stderr}")

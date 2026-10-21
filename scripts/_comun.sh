@@ -298,21 +298,38 @@ plataforma_responde() {
   # carrera contra el error que la herramienta vigilada sabe informar.** Si corta antes, no
   # observa el sistema, lo fabrica. Y de paso la sonda CALIENTA: el POST es lo que arranca la
   # réplica, así que esperarla es más útil que no esperarla.
-  codigo="$(curl -s -m "$ARRANQUE_FRIO" -o /dev/null -w '%{http_code}' \
-            "$COLABHIVE_BASE_URL/chat/completions" \
-            -H "Authorization: Bearer ${COLABHIVE_API_KEY:-}" \
-            -H "Content-Type: application/json" \
-            -d '{"model":"'$modelo'",
-                 "max_tokens":4,"messages":[{"role":"user","content":"OK"}],
-                 "tools":[{"type":"function","function":{"name":"read",
-                   "description":"sonda","parameters":{"type":"object",
-                   "properties":{"p":{"type":"string"}}}}}]}' 2>/dev/null)"
-  # Sin `|| echo 000`: cuando curl no conecta ya imprime «000» y además sale distinto de
-  # cero, así que el `||` agregaba otro y el mensaje decía «HTTP 000000». Un mensaje con un
-  # valor inventado es justo lo que vengo arreglando todo el día.
-  codigo="${codigo:-000}"
-  [ "$codigo" = "200" ] && return 0
-  echo "✗ la plataforma de modelos no responde: HTTP $codigo en $COLABHIVE_BASE_URL/chat/completions" >&2
+  # TRES muestras, no una. La plataforma es intermitente —está anotado y medido— y una
+  # muestra puntual de un servicio intermitente no alcanza para declararlo caído: el
+  # 2026-10-21 un 502 abortó un plan de 7 etapas y dos minutos después el mismo pedido, con
+  # y sin herramientas, contestaba 200. El costo de reintentar son segundos; el de un aborto
+  # falso es un lanzamiento entero y un diagnóstico que apunta a la plataforma.
+  #
+  # No tapa una caída real: si las tres fallan, el veredicto es el mismo que antes, y la
+  # SECUENCIA de códigos se informa siempre. «502 200» y «502 502 502» dicen cosas
+  # distintas, y el que decide necesita esa diferencia.
+  local intentos=3 i=1 codigos=""
+  while [ "$i" -le "$intentos" ]; do
+    codigo="$(curl -s -m "$ARRANQUE_FRIO" -o /dev/null -w '%{http_code}' \
+              "$COLABHIVE_BASE_URL/chat/completions" \
+              -H "Authorization: Bearer ${COLABHIVE_API_KEY:-}" \
+              -H "Content-Type: application/json" \
+              -d '{"model":"'$modelo'",
+                   "max_tokens":4,"messages":[{"role":"user","content":"OK"}],
+                   "tools":[{"type":"function","function":{"name":"read",
+                     "description":"sonda","parameters":{"type":"object",
+                     "properties":{"p":{"type":"string"}}}}}]}' 2>/dev/null)"
+    # Sin `|| echo 000`: cuando curl no conecta ya imprime «000» y además sale distinto de
+    # cero, así que el `||` agregaba otro y el mensaje decía «HTTP 000000». Un mensaje con un
+    # valor inventado es justo lo que vengo arreglando todo el día.
+    codigo="${codigo:-000}"
+    codigos="${codigos:+$codigos }$codigo"
+    if [ "$codigo" = "200" ]; then
+      [ "$i" -gt 1 ] && echo "  ⚠ la plataforma contestó al intento $i de $intentos (códigos: $codigos): está intermitente, los tiempos de esta corrida no son comparables" >&2
+      return 0
+    fi
+    i=$((i+1))
+  done
+  echo "✗ la plataforma de modelos no responde: HTTP $codigos ($intentos intentos) en $COLABHIVE_BASE_URL/chat/completions" >&2
   [ "$codigo" = "000" ] && echo "  (000 = ni contestó en ${ARRANQUE_FRIO}s. Si el modelo estaba desalojado, este mismo pedido lo arrancó: reintentá una vez.)" >&2
   echo "  No es la tarea ni el agente. Reintentar contra una plataforma caída gasta el" >&2
   echo "  presupuesto de todas las tareas sin aprender nada." >&2
