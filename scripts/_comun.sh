@@ -16,6 +16,12 @@
 : "${INACTIVIDAD:=90}"
 : "${ARRANQUE:=90}"
 : "${UMBRAL_ARRANQUE:=1024}"
+# ARRANQUE_FRIO: cuánto se le concede a un modelo DESALOJADO para levantarse. Medido el
+# 2026-10-20 con `oc --warm`: 91, 97 y 106 s según el modelo, y un POST de sonda contra el
+# ejecutor desalojado contestó 200 a los 41,5 s después de que pedidos anteriores lo
+# arrancaran. El número vive acá y lo usan los dos que lo necesitan —la sonda de plataforma y
+# el presupuesto del calentador—, porque tenerlo dos veces es tenerlo mal una vez.
+: "${ARRANQUE_FRIO:=240}"
 
 # Ubica el proyecto: el repo git del directorio actual (no el de estos scripts), así el
 # mismo runner sirve para tu proyecto y para ejemplo-pacman. Deja RAIZ, PROYECTO y BASE.
@@ -282,7 +288,17 @@ plataforma_responde() {
   # —20 KB de prompt y definiciones de herramientas— devolvían 502. Un chequeo que pasa
   # mientras el camino que importa falla es un falso verde, y éste iba a dejar arrancar una
   # corrida de nueve etapas contra una plataforma que no podía atenderla.
-  codigo="$(curl -s -m 45 -o /dev/null -w '%{http_code}' \
+  # La paciencia es ARRANQUE_FRIO y no 45 s. Con 45, la sonda no sobrevive al arranque de un
+  # modelo desalojado —medido: 91 a 106 s— así que devolvía «HTTP 000» y el runner abortaba
+  # el plan entero con «la plataforma de modelos no responde», que es falso: la plataforma
+  # contestaba 200 a otros modelos en 13 s. Nos bloqueó tres lanzamientos el 2026-10-20 y me
+  # llevó a culpar primero al `nohup` y después al segundo plano, las dos veces mal.
+  #
+  # Es la misma regla que el vigilante de inactividad: **un vigilante tiene que perder la
+  # carrera contra el error que la herramienta vigilada sabe informar.** Si corta antes, no
+  # observa el sistema, lo fabrica. Y de paso la sonda CALIENTA: el POST es lo que arranca la
+  # réplica, así que esperarla es más útil que no esperarla.
+  codigo="$(curl -s -m "$ARRANQUE_FRIO" -o /dev/null -w '%{http_code}' \
             "$COLABHIVE_BASE_URL/chat/completions" \
             -H "Authorization: Bearer ${COLABHIVE_API_KEY:-}" \
             -H "Content-Type: application/json" \
@@ -297,6 +313,7 @@ plataforma_responde() {
   codigo="${codigo:-000}"
   [ "$codigo" = "200" ] && return 0
   echo "✗ la plataforma de modelos no responde: HTTP $codigo en $COLABHIVE_BASE_URL/chat/completions" >&2
+  [ "$codigo" = "000" ] && echo "  (000 = ni contestó en ${ARRANQUE_FRIO}s. Si el modelo estaba desalojado, este mismo pedido lo arrancó: reintentá una vez.)" >&2
   echo "  No es la tarea ni el agente. Reintentar contra una plataforma caída gasta el" >&2
   echo "  presupuesto de todas las tareas sin aprender nada." >&2
   return 1

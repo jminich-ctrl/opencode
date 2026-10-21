@@ -5734,3 +5734,73 @@ class TestLaTerceraAuditoria(unittest.TestCase):
                 self.assertIn("⊘", bloque,
                               "y si el corredor no lista ninguna, eso se declara: es un "
                               "desacuerdo entre el corredor y el gate, no un pase")
+
+    # ── La sonda de plataforma vs. el arranque en frío ─────────────────────────────────
+
+    def servidor_lento(self, demora):
+        """Un endpoint que tarda `demora` segundos en contestar 200, como un modelo que
+        arranca en frío."""
+        import http.server, threading
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                time.sleep(demora)
+                self.send_response(200)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"{}")
+            def log_message(self, *a):
+                pass
+        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        # Los dos, y en este orden: `shutdown` para el bucle, `server_close` para el socket.
+        # Sin el segundo la suite deja un ResourceWarning por cada corrida del test.
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return f"http://127.0.0.1:{srv.server_address[1]}/v1"
+
+    def test_la_sonda_le_da_al_modelo_el_tiempo_que_tarda_en_arrancar(self):
+        """Con `curl -m 45` la sonda no sobrevivía al arranque de un modelo DESALOJADO
+        —medido con `oc --warm`: 91, 97 y 106 s— así que devolvía «HTTP 000» y el runner
+        abortaba el plan entero con «la plataforma de modelos no responde». Era falso: la
+        plataforma contestaba 200 a otros modelos en 13 s, y el propio ejecutor contestó 200
+        en 41,5 s en cuanto unos pedidos lo arrancaron. Nos bloqueó tres lanzamientos el
+        2026-10-20, y me llevó a culpar primero al `nohup` y después a la ejecución en
+        segundo plano: las dos veces mal, porque el mensaje nombraba al sujeto equivocado.
+
+        Es la misma regla que el vigilante de inactividad ya tenía escrita: **un vigilante
+        tiene que perder la carrera contra el error que la herramienta vigilada sabe
+        informar.** Si corta antes, no observa el sistema: lo fabrica."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-sonda-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        cfg = d / "opencode.json"
+        cfg.write_text('{"provider":{"colabhive":{"models":{"m-sonda":{}}}}}')
+        base = self.servidor_lento(2)
+        def sonda(paciencia):
+            return correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                          f'ARRANQUE_FRIO={paciencia} COLABHIVE_BASE_URL="{base}" '
+                          f'COLABHIVE_API_KEY=x MODELO_SONDA=m-sonda CONFIG_OC="{cfg}" '
+                          f'plataforma_responde', RAIZ)
+        impaciente = sonda(1)
+        self.assertNotEqual(impaciente.returncode, 0,
+                            "con menos paciencia que el arranque, la sonda tiene que fallar "
+                            "(si no, este test no prueba que la use)")
+        self.assertIn("000", impaciente.stderr,
+                      f"y el 000 es «ni contestó», no «contestó mal»:\n{impaciente.stderr}")
+        self.assertIn("reintentá una vez", impaciente.stderr,
+                      "y el mensaje tiene que decir que el pedido pudo haber arrancado el "
+                      "modelo, en vez de declarar la plataforma caída")
+        paciente = sonda(20)
+        self.assertEqual(paciente.returncode, 0,
+                         f"con la paciencia suficiente tiene que pasar:\n{paciente.stderr}")
+
+    def test_el_arranque_en_frio_se_declara_en_un_solo_lugar(self):
+        """El presupuesto del calentador y la paciencia de la sonda son el MISMO número —
+        cuánto tarda un modelo desalojado en levantarse— y estaban escritos dos veces: 240 en
+        `con_limite 240 oc --warm` y 45 en el `curl -m 45`. Dos copias del mismo número es
+        tenerlo mal una vez."""
+        c = (SCRIPTS / "_comun.sh").read_text()
+        self.assertIn(': "${ARRANQUE_FRIO:=', c, "el número se declara una vez, con su medición")
+        self.assertIn('curl -s -m "$ARRANQUE_FRIO"', c, "la sonda lo usa")
+        t = (SCRIPTS / "correr-todo.sh").read_text()
+        self.assertIn('con_limite "$ARRANQUE_FRIO" oc --warm', t, "y el calentador también")
+        self.assertNotRegex(c, r"curl -s -m 45", "no puede quedar el número viejo")

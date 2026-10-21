@@ -258,7 +258,7 @@ for etapa in "${ETAPAS[@]}"; do
     # Se informa lo que dijo, no se juzga: `oc --warm` avisa «quedaron modelos fríos» cuando
     # alguno del equipo no se pudo levantar, y puede ser uno que esta corrida no usa. Quien
     # sabe si importa es la herramienta del proyecto, no este script.
-    SALIDA_WARM="$(con_limite 240 oc --warm 2>&1)"
+    SALIDA_WARM="$(con_limite "$ARRANQUE_FRIO" oc --warm 2>&1)"
     echo "$SALIDA_WARM" | grep -E '^ *[●◐○]' | sed 's/^/  /' || true
     echo "$SALIDA_WARM" | grep -q "Quedaron modelos fríos" \
       && echo "  ⊘ quedaron modelos fríos: si la corrida usa uno de ésos, su arranque (~253s" \
