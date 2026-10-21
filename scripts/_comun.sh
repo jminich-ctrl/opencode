@@ -554,7 +554,11 @@ anotar_intento() {
   # esta línea existe para delatar. El modelo que cité al escribirla (`congelar-banco.sh`)
   # tenía el mismo defecto, así que el arreglo copió el agujero.
   git -C "$RAIZ" diff --quiet HEAD -- scripts 2>/dev/null || instrumento="${instrumento}+sin-commitear"
-  local ENCABEZADO="fecha,proyecto,tarea,veredicto,segundos,modelo,motivo,concurrencia,instrumento"
+  # Y los contextos declarados, que también son el instrumento. Las filas viejas quedan con
+  # el campo VACÍO, que es lo honesto: no dice «el mismo contexto», dice «no se registró».
+  local contextos
+  contextos="$(huella_contextos)"
+  local ENCABEZADO="fecha,proyecto,tarea,veredicto,segundos,modelo,motivo,concurrencia,instrumento,contextos"
   if [ ! -f "$reg" ]; then
     echo "$ENCABEZADO" > "$reg"
   elif [ "$(head -1 "$reg")" != "$ENCABEZADO" ]; then
@@ -586,7 +590,7 @@ open(ruta, "w").write("\n".join(salida) + "\n")
 PYMIG
     echo "  (registro migrado a $n_cols columnas: el encabezado no nombraba todas las escritas)" >&2
   fi
-  echo "$(date -u +%FT%TZ),${PROYECTO:-.},$id,$ver,$segs,$modelo,$motivo,$concurrencia,$instrumento" >> "$reg"
+  echo "$(date -u +%FT%TZ),${PROYECTO:-.},$id,$ver,$segs,$modelo,$motivo,$concurrencia,$instrumento,$contextos" >> "$reg"
 }
 
 # VERDE / ROJO / IMPOSIBLE si el runner ya cerró el log; vacío si la tarea sigue corriendo.
@@ -639,6 +643,38 @@ huella_scripts() {
 # veces con un intento en curso —con la regla a la vista y después de citarla cuatro veces—
 # y el guardia no se enteró. Es el mismo problema que `huella_enunciado` ya resuelve bien, en
 # el mismo archivo: comparar la huella del sujeto antes de cada intento, no por tanda.
+# La huella de los CONTEXTOS DECLARADOS, que son parte del instrumento y no vivían en
+# ninguna huella. `huella_scripts` cubre `scripts/`; el `limit.context` de cada modelo vive
+# en la config de opencode, afuera del repo, así que cambiarlo no movía ninguna huella y las
+# filas de antes y después quedaban comparables sin serlo.
+#
+# Medido el 2026-10-21: el ejecutor venía declarado con 32000 cuando la plataforma le sirve
+# 241000 —ocho veces menos— y al corregirlo NADA dijo que las filas anteriores dejaban de
+# ser comparables. Un cambio de contexto cambia lo que el sujeto puede hacer; es la misma
+# clase de cosa que cambiar un script, y el registro no la veía.
+#
+# Se hashea SÓLO `{id: limit.context}` y no el archivo entero: la config lleva tema, atajos
+# y claves, y un cambio de tema no vuelve incomparables dos corridas. Una huella que se
+# mueve por cosas que no afectan al sujeto es una huella que nadie va a poder usar.
+huella_contextos() {
+  local cfg="${CONFIG_OC:-$HOME/.config/opencode/opencode.json}"
+  [ -f "$cfg" ] || { echo "?"; return 0; }
+  python3 -I - "$cfg" 2>/dev/null <<'PYCTX' || echo "?"
+import hashlib, json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    print("?"); raise SystemExit
+pares = []
+for pv in (d.get("provider") or {}).values():
+    for mid, m in ((pv.get("models") or {}).items()):
+        ctx = (m.get("limit") or {}).get("context")
+        if ctx:
+            pares.append("%s=%s" % (mid, ctx))
+print(hashlib.sha1("\n".join(sorted(pares)).encode()).hexdigest()[:7] if pares else "?")
+PYCTX
+}
+
 instrumento_se_movio() {
   local ahora; ahora="$(huella_scripts)"
   if [ -z "${HUELLA_INSTRUMENTO:-}" ]; then

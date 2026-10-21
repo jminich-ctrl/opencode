@@ -25,6 +25,7 @@ forma concreta, y se afirma el VEREDICTO esperado. No se afirma el texto exacto 
 —eso haría los tests frágiles— sino el código de salida y, cuando importa, que el motivo
 aparezca.
 """
+import json
 import os
 import pathlib
 import re
@@ -6038,3 +6039,74 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         self.assertIn("exit 1", t[j:j + 400],
                       "y en correr-tarea.sh, que corre en una subshell `( ) &`, un `break` "
                       "no rompe nada y sigue como si el chequeo hubiera pasado")
+
+    # ── El contexto declarado es instrumento y no estaba en ninguna huella ─────────────
+
+    def cfg_con(self, d, contextos, extra=None):
+        """Una config de opencode con los contextos dados: {id: context}."""
+        cfg = d / "opencode.json"
+        modelos = {mid: {"name": mid, "limit": {"context": ctx}}
+                   for mid, ctx in contextos.items()}
+        doc = {"provider": {"colabhive": {"models": modelos}}}
+        if extra:
+            doc.update(extra)
+        cfg.write_text(json.dumps(doc))
+        return cfg
+
+    def huella_ctx(self, cfg):
+        return correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                      f'CONFIG_OC="{cfg}" huella_contextos', RAIZ).stdout.strip()
+
+    def test_la_huella_de_contextos_se_mueve_con_el_contexto_y_no_con_el_tema(self):
+        """`huella_scripts` cubre `scripts/`, pero el `limit.context` de cada modelo vive en
+        la config de opencode, AFUERA del repo: cambiarlo no movía ninguna huella y las filas
+        de antes y después quedaban comparables sin serlo.
+
+        Medido el 2026-10-21: el ejecutor venía declarado con 32000 cuando la plataforma le
+        sirve 241000 —ocho veces menos— y al corregirlo nada dijo que las filas anteriores
+        dejaban de ser comparables. Un cambio de contexto cambia lo que el sujeto PUEDE
+        hacer: es la misma clase de cosa que cambiar un script.
+
+        Y la otra mitad del requisito, que es la que vuelve usable a una huella: no se mueve
+        por cosas que no afectan al sujeto. Se hashea sólo `{id: limit.context}`, no el
+        archivo, porque la config lleva tema, atajos y claves."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-ctx-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+
+        base = self.huella_ctx(self.cfg_con(d, {"ejecutor": 32000, "orq": 69000}))
+        self.assertRegex(base, r"^[0-9a-f]{7}$", f"tiene que ser un hash: {base}")
+
+        # El caso real: 32000 -> 241000.
+        movido = self.huella_ctx(self.cfg_con(d, {"ejecutor": 241000, "orq": 69000}))
+        self.assertNotEqual(base, movido,
+                            "cambiar el contexto declarado TIENE que mover la huella")
+
+        # Lo mismo escrito distinto no es un cambio del sujeto.
+        igual = self.huella_ctx(self.cfg_con(d, {"orq": 69000, "ejecutor": 32000}))
+        self.assertEqual(base, igual, "el orden de las claves no es un cambio de contexto")
+
+        # Y un cambio que no toca al sujeto no puede invalidar mediciones.
+        con_tema = self.huella_ctx(self.cfg_con(
+            d, {"ejecutor": 32000, "orq": 69000},
+            extra={"theme": "dracula", "keybinds": {"leader": "ctrl+x"}}))
+        self.assertEqual(base, con_tema,
+                         "una huella que se mueve con el tema es una huella que nadie usa")
+
+    def test_el_registro_anota_los_contextos_de_cada_fila(self):
+        """Las filas viejas quedan con el campo VACÍO, que es lo honesto: no dice «el mismo
+        contexto», dice «no se registró». No hay forma de recuperar hacia atrás con qué
+        contexto corrió una fila que no lo anotó."""
+        s = (SCRIPTS / "_comun.sh").read_text()
+        i = s.index('local ENCABEZADO="fecha,proyecto')
+        encabezado = s[i:s.index("\n", i)]
+        self.assertIn("contextos", encabezado,
+                      f"el registro tiene que anotar los contextos:\n{encabezado}")
+        # Y la fila escrita tiene que llevar el campo, no sólo el nombre: una columna que
+        # nadie escribe es exactamente la columna `motivo` que no se leyó nunca.
+        fila = [l for l in s.split("\n") if l.strip().startswith('echo "$(date -u +%FT%TZ)')]
+        self.assertTrue(fila, "no encontré la línea que escribe la fila")
+        self.assertIn("$contextos", fila[0],
+                      f"la columna se nombra pero no se escribe:\n{fila[0]}")
+        self.assertEqual(encabezado.count(","), fila[0].count(","),
+                         f"el encabezado y la fila tienen que tener el mismo ancho:\n"
+                         f"{encabezado}\n{fila[0]}")
