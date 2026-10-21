@@ -5603,3 +5603,76 @@ class TestLaTerceraAuditoria(unittest.TestCase):
                 # Y tiene que llegar a dar un veredicto, no morir en el camino.
                 self.assertRegex(r.stdout, r"GATE (VERDE|ROJO)",
                                  f"no llegó a un veredicto ({nombre}):\n{r.stdout[-800:]}")
+
+    # ── El detalle de los mutantes, que se destruía ────────────────────────────────────
+
+    def test_el_sobreviviente_sale_con_el_marcador_que_el_consumidor_busca(self):
+        """`escribir-tests.sh` extrae los sobrevivientes con `grep '→'` para ponerlos en el
+        mensaje que el agente lee en su reintento, y `mutar.py` los imprimía SIN flecha. La
+        extracción salía vacía en todas las corridas de la historia, y el reintento iba a
+        ciegas: es por eso que T05a llegó a punto muerto el 2026-10-20 —«sobreviven mutantes»
+        dos veces, sin un solo dato— después de que el arreglo anterior (una sola invocación
+        de `mutar.py`) ya hubiera descartado la otra causa.
+
+        Cuarta vez que el extractor busca una forma que el productor no emite: el ✗ del gate,
+        las fallas de vitest, el TODO, y esto. Los dos lados viven en archivos distintos y
+        nadie los lee juntos, así que el test tiene que leerlos por los dos."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-mut3-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "scripts").mkdir()
+        shutil.copy(PLANTILLAS / "correr-suite.sh", d / "scripts" / "correr-suite.sh")
+        (d / "app").mkdir()
+        (d / "app" / "__init__.py").touch()
+        # Una función con comparación y asignación: `mutar.py` marca como «árido» —y con
+        # razón— todo cuerpo cuyas hojas son sólo `return`, así que un `return a + b` no
+        # produce mutantes y el caso no mediría nada. Lo descubrí escribiendo este test.
+        (d / "app" / "m.py").write_text(
+            "def clasificar(n):\n    return 'bajo'\n")
+        (d / "tests").mkdir()
+        (d / "tests" / "__init__.py").touch()
+        # Un test que CUBRE la línea y no verifica el comportamiento: el caso exacto.
+        (d / "tests" / "test_m.py").write_text(
+            "import unittest\nfrom app.m import clasificar\n\n"
+            "class TestM(unittest.TestCase):\n"
+            "    def test_devuelve_un_texto(self):\n"
+            "        self.assertIsInstance(clasificar(5), str)\n")
+        for cmd in (["init", "-q", "-b", "main"], ["add", "-A"],
+                    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"]):
+            subprocess.run(["git", *cmd], cwd=d, check=True, capture_output=True)
+        (d / "app" / "m.py").write_text(
+            "def clasificar(n):\n"
+            "    etiqueta = 'bajo'\n"
+            "    if n > 10:\n"
+            "        etiqueta = 'alto'\n"
+            "    return etiqueta\n")
+        subprocess.run(["git", "add", "-A"], cwd=d, check=True, capture_output=True)
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                        "commit", "-qm", "impl"], cwd=d, check=True, capture_output=True)
+        r = correr(f'BASE=HEAD~1 CODIGO=app '
+                   f'SUITE=\'python3 -m unittest tests.test_m -q\' '
+                   f'python3 "{SCRIPTS}/mutar.py"', d)
+        self.assertEqual(r.returncode, 1,
+                         f"un test que no verifica comportamiento deja mutantes vivos:\n{r.stdout}")
+        self.assertIn("→", r.stdout,
+                      f"sin el marcador, `escribir-tests.sh` extrae un detalle VACÍO y el "
+                      f"reintento va a ciegas:\n{r.stdout}")
+        # Y el marcador tiene que llevar el DATO, no sólo estar.
+        flechas = [l for l in r.stdout.split("\n") if "→" in l]
+        self.assertRegex(flechas[0], r"app/m\.py:\d+",
+                         f"el sobreviviente se nombra con archivo y línea: {flechas}")
+        # Y el consumidor tiene que seguir buscando lo que el productor emite.
+        s = (SCRIPTS / "escribir-tests.sh").read_text()
+        self.assertIn("""grep '→'""", s,
+                      "si cambia el extractor, este test tiene que enterarse")
+
+    def test_el_paso_de_mutantes_no_descarta_su_propia_evidencia(self):
+        """En la rama de falla, `SALIDA_MUT` no se imprimía —sólo el extracto—, así que cuando
+        la extracción fallaba la evidencia no quedaba en ninguna parte: ni el agente ni la
+        persona podían saber qué sobrevivió, y el aviso mandaba a mirar un log donde no
+        estaba. La rama del ⊘, doce líneas más arriba, sí la imprimía. Un chequeo que descarta
+        su propia evidencia no se puede auditar."""
+        s = (SCRIPTS / "escribir-tests.sh").read_text()
+        i = s.index('malo "sobreviven mutantes')
+        fin = s.index("# 4. El BRAZO NULO", i)
+        self.assertIn('printf \'%s\\n\' "$SALIDA_MUT"', s[i:fin],
+                      "la rama de falla tiene que dejar la salida completa en el log")

@@ -317,8 +317,13 @@ for id in "$@"; do
           # El detalle sale de la MISMA corrida, así que no puede desaparecer ni contradecirla.
           SOBREVIVEN="$(printf '%s\n' "$SALIDA_MUT" | grep '→' | head -3 | tr '\n' ' ' | cut -c1-400)"
           malo "sobreviven mutantes: el test cubre las líneas y no verifica su comportamiento.${SOBREVIVEN:+ Sobrevivió: $SOBREVIVEN}"
-          printf '%s\n' "$SOBREVIVEN" | tr ';' '\n' | sed 's/^/     /'
-          [ -n "$SOBREVIVEN" ] || echo "     ⚠ mutar.py no listó sobrevivientes: el reintento no tiene dato. Mirá $log"
+          # La salida COMPLETA al log, igual que en la rama del ⊘ doce líneas más arriba.
+          # Acá no se imprimía, así que cuando la extracción fallaba la evidencia no quedaba
+          # en ninguna parte: ni el agente ni la persona podían saber qué mutante sobrevivió,
+          # y el aviso mandaba a mirar un log donde no estaba. Un chequeo que descarta su
+          # propia evidencia no se puede auditar.
+          printf '%s\n' "$SALIDA_MUT" | sed 's/^/     /'
+          [ -n "$SOBREVIVEN" ] || echo "     ⚠ mutar.py no listó sobrevivientes con «→»: revisá que el formato de mutar.py y este extractor sigan acordando"
         fi
         fi
         # 4. El BRAZO NULO: con los cuerpos vaciados, el test tiene que FALLAR.

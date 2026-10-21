@@ -267,7 +267,14 @@ def main():
     if sobrevivientes:
         print(f"  ✗ {len(sobrevivientes)} sobrevivieron: la suite no nota estos cambios")
         for archivo, linea, que, texto in sobrevivientes[:10]:
-            print(f"     {archivo}:{linea}  [{que}]   {texto.strip()[:60]}")
+            # El `→` es un CONTRATO, no decoración: `escribir-tests.sh` extrae los
+            # sobrevivientes con `grep '→'` para ponerlos en el mensaje que el agente lee en
+            # su reintento. Sin la flecha, esa extracción salía vacía SIEMPRE —en todas las
+            # corridas de la historia— y el reintento iba a ciegas. Cuarta vez que el
+            # extractor busca una forma que el productor no emite (el ✗ del gate, las fallas
+            # de vitest, el TODO, esto): el que imprime y el que raspa viven en archivos
+            # distintos y nadie los lee juntos. Si se cambia esta línea, se cambia allá.
+            print(f"     → {archivo}:{linea}  [{que}]   {texto.strip()[:60]}")
         return 1
     print("  ✓ todos los mutantes murieron: la suite distingue el código cambiado")
     return 0
