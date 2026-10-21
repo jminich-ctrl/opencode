@@ -32,6 +32,7 @@ Uso:
 Códigos: 0 sin rojos · 1 hay rojos · 2 no pude leer el plan (⊘, no es un pase)
 """
 import ast
+import difflib
 import os
 import pathlib
 import re
@@ -133,6 +134,88 @@ def simbolos_de(ruta: pathlib.Path):
     return out
 
 
+
+# ── Tablas: lo que el código consulta contra lo que las migraciones crean ─────────────
+#
+# Mismo chequeo que el de imports, en otra superficie. Cadáver del 2026-10-21:
+# `backend/app/datos/users_register.py` hace `INSERT INTO users` y la migración
+# `001_initial.sql` crea `usuarios`. Esa tabla NUNCA existió, así que los tests de registro
+# no podían pasar — y durante trece corridas el método culpó por eso a tareas que no tocan
+# registro. Nadie cruzaba «qué tabla consulta el código» contra «qué tabla crea alguna
+# migración».
+#
+# Se miran SÓLO literales de cadena, con `ast`: un `from backend.app.datos import users` de
+# Python tiene la palabra `from` seguida de un nombre, y un regex plano sobre el archivo lo
+# leería como SQL. Y la cadena tiene que parecer SQL —llevar SELECT/INSERT/UPDATE/DELETE—
+# porque «from» aparece en mil textos que no son consultas.
+RE_CREA_TABLA = re.compile(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?([A-Za-z_][A-Za-z0-9_]*)`?",
+                           re.I)
+# `(?<!ON )`: `actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`
+# es una cláusula de COLUMNA, y sin esto el chequeo informaba `current_timestamp` como una
+# tabla que falta. Lo encontró el control contra los dos proyectos de ejemplo, que es la
+# única razón por la que no quedó un rojo inventado en el chequeo que decide si el plan
+# arranca.
+RE_USA_TABLA = re.compile(r"(?<!ON )\b(?:FROM|INTO|UPDATE|JOIN)\s+`?([a-z_][a-z0-9_]*)`?", re.I)
+# Forma de SENTENCIA, no «aparece la palabra UPDATE». La cadena de arriba lleva `UPDATE` y no
+# es una consulta; un ROJO que se apoya en una palabra suelta no es mecánico, es un augurio.
+RE_PARECE_SQL = re.compile(
+    r"^\s*(SELECT|INSERT|UPDATE|DELETE|REPLACE|WITH)\b"
+    r"|\bINSERT\s+INTO\b|\bDELETE\s+FROM\b"
+    r"|\bSELECT\b[\s\S]*\bFROM\b|\bUPDATE\b[\s\S]*\bSET\b", re.I)
+# Palabras que nunca son una tabla, por si alguna forma nueva se cuela igual.
+NUNCA_UNA_TABLA = {"current_timestamp", "now", "set", "select", "values", "table",
+                   "duplicate", "key", "null", "default"}
+# Tablas del motor, y la que el propio método crea para registrar migraciones.
+TABLAS_DEL_SISTEMA = {"information_schema", "mysql", "performance_schema", "sys",
+                      "_migraciones", "dual"}
+
+
+def tablas_que_crean_las_migraciones(base: pathlib.Path):
+    """Las que alguna migración CREA. Las `_down.sql` no cuentan: son la reversa."""
+    creadas = {}
+    for sql in sorted(base.rglob("*.sql")):
+        partes = {x.lower() for x in sql.parts}
+        if not ({"migraciones", "migrations"} & partes):
+            continue
+        if sql.name.endswith("_down.sql"):
+            continue
+        try:
+            txt = sql.read_text()
+        except OSError:
+            continue
+        for t in RE_CREA_TABLA.findall(txt):
+            creadas.setdefault(t.lower(), sql.name)
+    return creadas
+
+
+def tablas_que_consulta_el_codigo(base: pathlib.Path):
+    """`{tabla: [archivo:línea, ...]}` leyendo sólo cadenas que parecen SQL."""
+    usadas = {}
+    for f in sorted(base.rglob("*.py")):
+        s = str(f)
+        if any(x in s for x in ("/.venv", "/_env", "__pycache__", "/node_modules/")):
+            continue
+        try:
+            arbol = ast.parse(f.read_text())
+        except (OSError, SyntaxError):
+            continue
+        for nodo in ast.walk(arbol):
+            if not (isinstance(nodo, ast.Constant) and isinstance(nodo.value, str)):
+                continue
+            txt = nodo.value
+            if not RE_PARECE_SQL.search(txt):
+                continue
+            # Una cadena que CREA la tabla la provee, no la consume.
+            propias = {t.lower() for t in RE_CREA_TABLA.findall(txt)}
+            for t in RE_USA_TABLA.findall(txt):
+                t = t.lower()
+                if t in TABLAS_DEL_SISTEMA or t in propias or t in NUNCA_UNA_TABLA:
+                    continue
+                donde = f"{f.relative_to(base) if f.is_relative_to(base) else f}:{nodo.lineno}"
+                usadas.setdefault(t, []).append(donde)
+    return usadas
+
+
 def main():
     base = pathlib.Path(os.environ.get("PROYECTO", "."))
     if not (base / "tareas").is_dir():
@@ -190,6 +273,27 @@ def main():
                 continue
             rojos.append((tid, f"importa `{simbolo}` de `{modulo}` y no existe en el tronco "
                                f"ni lo declara el contrato de ninguna tarea"))
+
+    # ── ROJO: una tabla que el código consulta y ninguna migración crea ─────────────
+    #
+    # Sólo se juzga si el proyecto TIENE migraciones: sin ellas no hay con qué comparar, y un
+    # chequeo que no puede medir no opina. Es la misma regla que el método aplica a los
+    # corredores de tests: un ⊘ no es un pase, pero tampoco un rojo.
+    creadas = tablas_que_crean_las_migraciones(base)
+    if creadas:
+        for tabla, lugares in sorted(tablas_que_consulta_el_codigo(base).items()):
+            if tabla in creadas:
+                continue
+            # La pista con `difflib` y no con prefijos a ojo: `users` vs `usuarios` no
+            # comparte los primeros cinco caracteres y era justo el caso que había que
+            # nombrar. Quien planifica necesita el candidato, no sólo el problema.
+            parecidas = difflib.get_close_matches(tabla, sorted(creadas), n=1, cutoff=0.5)
+            pista = f" ¿Será `{parecidas[0]}`, que crea {creadas[parecidas[0]]}?" if parecidas else ""
+            rojos.append(("esquema",
+                          f"el código consulta la tabla `{tabla}` y ninguna migración la "
+                          f"crea — {lugares[0]}{' y ' + str(len(lugares) - 1) + ' más' if len(lugares) > 1 else ''}."
+                          f"{pista} Lo decide quien planifica: o la migración la crea, o el "
+                          f"código usa la que existe."))
 
     # ── AVISO: un enunciado nombra `mod.func` y el CÓDIGO usa `mod.otra` ─────────────
     #

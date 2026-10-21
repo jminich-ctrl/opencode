@@ -6309,3 +6309,96 @@ class TestUnErrorDeColeccionNoPuedeEsconderLaSuite(unittest.TestCase):
                                       f"sin esto la línea base viene truncada:\n{linea}")
         self.assertGreater(encontrados, 0,
                            "ningún ejemplo usa pytest: este test no estaría midiendo nada")
+
+
+class TestUnaTablaQueNadieCrea(unittest.TestCase):
+    """`coherencia.py` cruzaba imports entre tareas y no mirabla el ESQUEMA. Cadáver del
+    2026-10-21: `backend/app/datos/users_register.py` hace `INSERT INTO users` y la migración
+    `001_initial.sql` crea `usuarios`. Esa tabla nunca existió, así que los tests de registro
+    no podían pasar — y durante trece corridas el método culpó por eso a tareas que no tocan
+    registro, hasta dejar el plan detenido.
+
+    Es el mismo chequeo que el de imports en otra superficie: lo que el código consume contra
+    lo que alguien provee. Y la decisión no es del método: o la migración crea la tabla, o el
+    código usa la que existe, y eso lo resuelve quien planifica."""
+
+    def proyecto(self, migracion=None, codigo=None):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-tabla-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "tareas").mkdir()
+        (d / "tareas" / "T01-x.md").write_text(
+            "# T01 — Una cosa\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/x.py\n\n## Objetivo\n\nUna cosa.\n")
+        (d / "app").mkdir()
+        if migracion is not None:
+            (d / "migraciones").mkdir()
+            (d / "migraciones" / "001_initial.sql").write_text(migracion)
+        if codigo is not None:
+            (d / "app" / "datos.py").write_text(codigo)
+        return d
+
+    def correr(self, d):
+        return correr(f'PROYECTO="{d}" python3 "{SCRIPTS}/coherencia.py"', RAIZ)
+
+    def test_una_tabla_sin_migracion_es_rojo_con_el_candidato_parecido(self):
+        d = self.proyecto(
+            migracion="CREATE TABLE usuarios (id INT PRIMARY KEY, email VARCHAR(255));\n",
+            codigo='def insertar(c, email):\n'
+                   '    c.execute("INSERT INTO users (email) VALUES (%s)", (email,))\n')
+        r = self.correr(d)
+        self.assertEqual(1, r.returncode, f"tiene que ser rojo:\n{r.stdout}{r.stderr}")
+        self.assertIn("`users`", r.stdout, f"tiene que nombrar la tabla:\n{r.stdout}")
+        self.assertIn("usuarios", r.stdout,
+                      f"y el candidato parecido, que es lo que quien planifica necesita:"
+                      f"\n{r.stdout}")
+
+    def test_una_clausula_de_columna_no_es_una_tabla(self):
+        """El falso positivo que encontró el control contra los ejemplos:
+        `actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP` lleva
+        la palabra UPDATE y no es una consulta. Un rojo apoyado en una palabra suelta no es
+        mecánico: es un augurio, y éste decide si el plan arranca."""
+        d = self.proyecto(
+            migracion="CREATE TABLE usuarios (id INT PRIMARY KEY);\n",
+            codigo="COLUMNAS = [\n"
+                   "    'creado_en DATETIME DEFAULT CURRENT_TIMESTAMP',\n"
+                   "    'actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP "
+                   "ON UPDATE CURRENT_TIMESTAMP',\n"
+                   "]\n")
+        r = self.correr(d)
+        self.assertNotIn("current_timestamp", r.stdout.lower(),
+                         f"eso es una columna, no una tabla:\n{r.stdout}")
+        self.assertEqual(0, r.returncode, f"y no puede reprobar el plan:\n{r.stdout}")
+
+    def test_un_import_de_python_no_es_un_from_de_sql(self):
+        """Por esto se leen sólo literales de cadena, con `ast`: un
+        `from backend.app.datos import users` tiene la palabra `from` seguida de un nombre, y
+        un regex plano sobre el archivo lo leería como SQL."""
+        d = self.proyecto(
+            migracion="CREATE TABLE usuarios (id INT PRIMARY KEY);\n",
+            codigo="from app import otra_cosa\nfrom app.datos import tablas_raras\n\n"
+                   "def f():\n    return otra_cosa, tablas_raras\n")
+        r = self.correr(d)
+        self.assertNotIn("otra_cosa", r.stdout, f"ése es un import:\n{r.stdout}")
+        self.assertNotIn("tablas_raras", r.stdout, f"ése es un import:\n{r.stdout}")
+        self.assertEqual(0, r.returncode, f"no hay nada que reprobar:\n{r.stdout}")
+
+    def test_sin_migraciones_el_chequeo_no_opina(self):
+        """Sin migraciones no hay con qué comparar. Un chequeo que no puede medir no opina:
+        la misma regla que el método aplica a los corredores de tests que faltan."""
+        d = self.proyecto(
+            codigo='def leer(c):\n    c.execute("SELECT * FROM cualquier_cosa")\n')
+        r = self.correr(d)
+        self.assertNotIn("cualquier_cosa", r.stdout,
+                         f"sin migraciones no se puede afirmar que falte:\n{r.stdout}")
+        self.assertEqual(0, r.returncode, f"y no reprueba:\n{r.stdout}")
+
+    def test_el_control_contra_los_dos_proyectos_de_ejemplo(self):
+        """La práctica que este repo ya tiene escrita: todo chequeo nuevo se corre contra los
+        dos ejemplos. El de pacman no tiene SQL, así que no puede encontrar nada — y si
+        encuentra algo, el extractor está inventando."""
+        pac = RAIZ / "ejemplo-pacman"
+        if not (pac / "tareas").is_dir():
+            self.skipTest("no está ejemplo-pacman")
+        r = correr(f'PROYECTO=ejemplo-pacman python3 "{SCRIPTS}/coherencia.py"', RAIZ)
+        self.assertNotIn("ninguna migración la crea", r.stdout,
+                         f"un proyecto sin SQL no puede tener tablas faltantes:\n{r.stdout}")
