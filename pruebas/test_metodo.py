@@ -5929,3 +5929,45 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         self.assertEqual(estado2["n"], 3, "no más de tres muestras: no se insiste gratis")
         self.assertIn("502 502 502", r2.stderr,
                       f"la secuencia completa, no sólo la última:\n{r2.stderr}")
+
+    # ── Un error de plataforma no es una falla de la tarea ─────────────────────────────
+
+    def test_la_etapa_de_tests_reconoce_un_error_de_plataforma(self):
+        """`error_del_agente` aparecía 2 veces en `correr-tarea.sh` y **0** en
+        `escribir-tests.sh`, así que un `{"message":"memory_session_expired",
+        "type":"api_error"}` se informaba como «✗ no escribió backend/tests/X.py declarando
+        TestX»: cierto en la letra y falso en el sujeto. La tarea gastaba un reintento por una
+        falla que no era suya y el registro anotaba un rojo del modelo.
+
+        Medido el 2026-10-21 en T05a: el agente venía leyendo archivos con normalidad y la API
+        le cortó la sesión. Misma familia que mató T11 y T20 el 2026-10-19 con
+        `memory_delivery_unavailable` —el detector ya reconoce el SOBRE `api_error` entero, no
+        una lista de mensajes, justo por eso—. Séptima vez en el día que el arreglo vive en un
+        hermano y no en el otro, así que el test mira a los dos."""
+        s = (SCRIPTS / "escribir-tests.sh").read_text()
+        self.assertIn("error_del_agente", s,
+                      "la etapa de tests tiene que clasificar los errores de plataforma")
+        # Y con el presupuesto generoso, no con el de «límite total», que es el único que
+        # habla de la tarea.
+        i = s.index('PLATAFORMA_CORTO:-0')
+        bloque = s[i:i + 900]
+        self.assertIn("no cuenta contra la tarea", bloque,
+                      "un corte de plataforma no puede gastar el presupuesto de la tarea")
+        self.assertIn('MOTIVO_TESTS=""', bloque,
+                      "y el reintento no puede recibir «un intento anterior falló así» con "
+                      "un motivo que el enunciado no puede arreglar")
+        # El detector, por conducta: reconoce el sobre, no el mensaje.
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-plat-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        for msg in ("memory_session_expired", "memory_delivery_unavailable",
+                    "un_mensaje_que_nadie_enumero_todavia"):
+            with self.subTest(mensaje=msg):
+                log = d / "t.log"
+                log.write_text('=== T05a\n> ejecutor\n→ Read tareas\n'
+                               'Error: {"message":"%s","type":"api_error"}\n'
+                               '=== rc=1\n=== fin T05a · hoy\n' % msg)
+                r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                           f'error_del_agente "{log}"', RAIZ)
+                self.assertIn(msg, r.stdout,
+                              f"el sobre api_error es lo que identifica a la plataforma, no "
+                              f"una lista de mensajes conocidos:\n{r.stdout}")

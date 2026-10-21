@@ -206,6 +206,23 @@ for id in "$@"; do
   if [ "${RC_AGENTE:-0}" = "142" ]; then
     malo "el agente no respondió: $(motivo_del_corte "$log")"
   fi
+  # Y los errores de PLATAFORMA, con el mismo detector que usa `correr-tarea.sh`. Esta etapa
+  # no lo llamaba —`error_del_agente` aparecía 2 veces en su hermana y 0 acá—, así que un
+  # `{"message":"memory_session_expired","type":"api_error"}` se informaba como
+  # «✗ no escribió backend/tests/X.py declarando TestX»: cierto en la letra y falso en el
+  # sujeto. La tarea gastaba un reintento por una falla que no era suya, y el registro
+  # anotaba un rojo del modelo.
+  #
+  # Medido el 2026-10-21 en T05a: el agente venía leyendo archivos con normalidad y la API
+  # le cortó la sesión. Es la misma familia que mató T11 y T20 el 2026-10-19 con
+  # `memory_delivery_unavailable`, y el detector ya reconoce el sobre `api_error` completo
+  # —no una lista de mensajes— justo por eso. Séptima vez en el día que el arreglo vive en
+  # un hermano y no en el otro.
+  ERROR_PLAT="$(error_del_agente "$log")"
+  if [ -n "$ERROR_PLAT" ] && [ "$fallos" = "0" ]; then
+    malo "la plataforma cortó el intento: $ERROR_PLAT"
+    PLATAFORMA_CORTO=1
+  fi
   # Otra vez, porque el agente pudo CREAR el manifiesto: T30 escribe el package.json con
   # vitest, y recién ahora se sabe que hace falta instalarlo.
   bash "$AQUI/preparar-entorno.sh" "$wt/$PROYECTO" >> "$log" 2>&1
@@ -416,6 +433,23 @@ for id in "$@"; do
   # opencode es intermitente —inicializa y no llega a pedirle nada al modelo— y el mismo
   # prompt anduvo seis veces de seis en reproducciones aisladas. Tratarlo como punto muerto
   # convierte un problema transitorio de la herramienta en una parada del método.
+  # Un corte de PLATAFORMA tampoco es una falla que repite, y no es de la tarea. Va con el
+  # presupuesto generoso de los cortes de herramienta —no con el de «límite total», que es
+  # el único que habla de la tarea— y la huella se limpia para que el reintento no reciba
+  # «un intento anterior falló así» con un motivo que el enunciado no puede arreglar.
+  if [ "${PLATAFORMA_CORTO:-0}" = "1" ]; then
+    PLATAFORMA_CORTO=0
+    HUELLA_ANTERIOR=""; MOTIVO_TESTS=""
+    cortes=$((cortes+1))
+    if [ "$cortes" -gt "$CORTES_MAX" ]; then
+      echo "  ✗ $id: $cortes cortes seguidos y el último fue de plataforma."
+      echo "     No es la tarea ni el modelo. Cuando la plataforma se estabilice, retomá:"
+      echo "     no hay nada que arreglar en el plan. Log: $log"
+      break
+    fi
+    echo "     (corte de plataforma $cortes de $CORTES_MAX; no cuenta contra la tarea)"
+    continue
+  fi
   if [ "${RC_AGENTE:-0}" = "142" ]; then
     HUELLA_ANTERIOR=""
     # ¿Trabajó y no terminó, o nunca arrancó? Son dos fallas distintas con dos presupuestos.
