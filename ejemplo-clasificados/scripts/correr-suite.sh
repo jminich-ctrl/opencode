@@ -53,7 +53,24 @@ correr_backend() {
   # PYTHONPATH=backend: los tests importan `app.x`, y el paquete vive ahí. Sin esto el
   # import falla y el diagnóstico que sale es "el test está mal".
   local salida_pytest
-  salida_pytest="$(PYTHONPATH="$PWD/backend" "$PY" -m pytest -q "$sel" 2>&1)"
+  # `--continue-on-collection-errors`: SIN esto, un solo error de colección hace que pytest
+  # no corra NINGÚN test, y la salida informa ese error y nada más.
+  #
+  # En un método tests-first eso no es un caso raro: es el caso NORMAL. Al empezar una etapa
+  # el tronco tiene los tests de todas sus tareas y la implementación de ninguna, así que al
+  # menos un archivo de test no se puede importar. Resultado: la LÍNEA BASE venía truncada
+  # en todas las etapas, siempre, y registraba una sola falla donde había cuatro.
+  #
+  # Cadáver del 2026-10-21, y es caro: la línea base de T05a decía
+  #     ERROR backend/tests/test_ads_datos.py
+  # y nada más. Cuando el agente implementó `ads.py` la colección pasó a funcionar y las 3
+  # fallas preexistentes aparecieron por PRIMERA vez, así que el gate las leyó como nuevas y
+  # acusó a la tarea de «rompiste tests que andaban antes» — tests de registro de usuarios,
+  # que T05a no toca. Dos intentos, punto muerto y el plan detenido.
+  #
+  # Verificado a mano: con un error de colección puesto, `--fallas` informaba 1 falla; sin
+  # él, 3. Mismo árbol, misma base de datos.
+  salida_pytest="$(PYTHONPATH="$PWD/backend" "$PY" -m pytest -q --continue-on-collection-errors "$sel" 2>&1)"
   rc=$?
   printf '%s\n' "$salida_pytest"
   # Los códigos de pytest, traducidos al contrato. 5 es "no collected" = no corrió nada.

@@ -6234,3 +6234,78 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         r = correr(f'[ -f "{relativa}" ] && echo si || echo no', wt)
         self.assertEqual("no", r.stdout.strip(),
                          "si esto diera «si», el defecto no sería lo que digo que es")
+
+
+class TestUnErrorDeColeccionNoPuedeEsconderLaSuite(unittest.TestCase):
+    """pytest, ante UN error de colección, no corre NINGÚN test: informa el error y nada más.
+
+    En un método tests-first eso no es un caso raro, es el caso NORMAL: al empezar una etapa
+    el tronco tiene los tests de todas las tareas y la implementación de ninguna, así que al
+    menos un archivo no se puede importar. Resultado: la LÍNEA BASE venía truncada en todas
+    las etapas, siempre.
+
+    Cadáver del 2026-10-21, y es caro. La línea base de T05a decía, completa:
+
+        ERROR backend/tests/test_ads_datos.py
+
+    Cuando el agente implementó `ads.py` la colección pasó a funcionar y las 3 fallas
+    preexistentes aparecieron por PRIMERA vez, así que el gate las leyó como nuevas y acusó a
+    la tarea de «rompiste tests que andaban antes» — tests de registro de usuarios, que T05a
+    no toca. Dos intentos, punto muerto y el plan detenido.
+
+    Y por qué no se vio nunca: `unittest` NO trunca —informa el módulo roto y además los
+    demás— y el otro proyecto de ejemplo usa unittest. El método se calibró contra él."""
+
+    def proyecto_pytest(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-colec-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "tests").mkdir()
+        # Un test que falla de verdad, y otro que no se puede ni importar.
+        (d / "tests" / "test_falla.py").write_text(
+            "def test_suma():\n    assert 2 + 2 == 5\n")
+        (d / "tests" / "test_sin_implementacion.py").write_text(
+            "from app.todavia_no import nada\n\ndef test_algo():\n    assert nada\n")
+        return d
+
+    def py_con_pytest(self):
+        for v in (RAIZ / "ejemplo-clasificados" / ".venv" / "bin" / "python",
+                  pathlib.Path(sys.executable)):
+            if v.exists() and subprocess.run(
+                    [str(v), "-c", "import pytest"], capture_output=True).returncode == 0:
+                return str(v)
+        return None
+
+    def test_pytest_sin_la_bandera_esconde_las_fallas_reales(self):
+        py = self.py_con_pytest()
+        if not py:
+            self.skipTest("no hay un python con pytest disponible")
+        d = self.proyecto_pytest()
+        sin = subprocess.run([py, "-m", "pytest", "-q", "tests"],
+                             cwd=str(d), capture_output=True, text=True)
+        con = subprocess.run([py, "-m", "pytest", "-q",
+                              "--continue-on-collection-errors", "tests"],
+                             cwd=str(d), capture_output=True, text=True)
+        # La falla real existe en los dos casos; sólo uno la informa.
+        self.assertNotIn("test_suma", sin.stdout,
+                         f"si pytest ya la informara, el defecto no sería lo que digo:\n"
+                         f"{sin.stdout[-600:]}")
+        self.assertIn("test_suma", con.stdout,
+                      f"con la bandera, la falla real tiene que aparecer:\n"
+                      f"{con.stdout[-600:]}")
+
+    def test_el_corredor_del_proyecto_lleva_la_bandera(self):
+        """El arreglo donde importa: el corredor que produce la línea base. Si alguna vez se
+        saca, la línea base vuelve a mentir y el gate vuelve a acusar a la tarea."""
+        encontrados = 0
+        for ruta in sorted(RAIZ.glob("ejemplo-*/scripts/correr-suite.sh")):
+            s = ruta.read_text()
+            if "-m pytest" not in s:
+                continue          # unittest no trunca: no necesita la bandera
+            encontrados += 1
+            with self.subTest(corredor=str(ruta.relative_to(RAIZ))):
+                for linea in s.split("\n"):
+                    if "-m pytest" in linea and not linea.strip().startswith("#"):
+                        self.assertIn("--continue-on-collection-errors", linea,
+                                      f"sin esto la línea base viene truncada:\n{linea}")
+        self.assertGreater(encontrados, 0,
+                           "ningún ejemplo usa pytest: este test no estaría midiendo nada")
