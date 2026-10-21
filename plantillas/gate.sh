@@ -314,7 +314,24 @@ case "$RC" in
        veredicto_con_linea_base
      else
        rojo "la suite está en rojo"
-       echo "$SALIDA" | tail -15 | sed 's/^/     /'
+       # Las FALLAS, no las últimas 15 líneas. `tail -15` supone que las fallas están al
+       # final, y con una suite de dos mitades la que falla puede ser la primera: medido el
+       # 2026-10-20, el backend falló 3 tests y el frontend pasó 27, el tail cayó entero
+       # dentro del frontend, y el agente leyó «la suite está en rojo» seguido de
+       # «Tests 27 passed (27)» sin una sola falla a la vista. Iteró 1200 s contra un
+       # veredicto que su propia evidencia contradecía.
+       #
+       # `--fallas` es el mismo comando que usan la línea base y `integrar.sh`: una falla por
+       # línea, sin depender de dónde las imprimió el corredor. Cuesta una corrida de suite
+       # extra, y sólo en el caso rojo.
+       FALLAS_SUITE="$(bash scripts/correr-suite.sh --fallas 2>/dev/null | grep . || true)"
+       if [ -n "$FALLAS_SUITE" ]; then
+         printf '%s\n' "$FALLAS_SUITE" | head -15 | sed 's/^/     /'
+       else
+         echo "     ⊘ la suite salió en rojo y «--fallas» no listó ninguna: el corredor y"
+         echo "       este gate no acuerdan en cómo se nombra una falla. Salida cruda:"
+         echo "$SALIDA" | tail -15 | sed 's/^/       /'
+       fi
      fi ;;
 esac
 fi

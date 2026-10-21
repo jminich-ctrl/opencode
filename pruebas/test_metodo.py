@@ -5676,3 +5676,61 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         fin = s.index("# 4. El BRAZO NULO", i)
         self.assertIn('printf \'%s\\n\' "$SALIDA_MUT"', s[i:fin],
                       "la rama de falla tiene que dejar la salida completa en el log")
+
+    # ── La etapa de tests corría sin línea base ────────────────────────────────────────
+
+    def test_la_etapa_de_tests_fija_la_base_igual_que_la_de_implementacion(self):
+        """**La explicación completa del punto muerto de T05a, y es del método.**
+
+        `correr-tarea.sh` escribe `.base-ref` y `.tests-base` antes de lanzar al agente, y su
+        propio comentario dice por qué: «el método es tests-first, al empezar la etapa el
+        tronco tiene los tests de todas sus tareas y la implementación de ninguna, así que la
+        suite no puede estar verde; **sin esta lista el gate de cada tarea la vería roja por
+        los tests de sus hermanas y ninguna podría cerrar**».
+
+        `escribir-tests.sh` no escribía ninguna de las dos. Medido el 2026-10-20: `AGENTS.md`
+        manda correr el gate, el gate del worktree de tests no tenía línea base, las 3 fallas
+        preexistentes del tronco —de T26 y T04b, ya mergeadas, por `CR_CONN_HOST_ERROR`— se
+        le cobraban a la tarea, y el veredicto quedaba INSATISFACIBLE. El agente escribía su
+        test y su implementación, el gate le decía «la suite está en rojo», e iteraba hasta
+        agotar los 1200 s. Tres corridas, seis intentos, tres puntos muertos, todos
+        informados como «el agente trabajó y no terminó: habla de la TAREA».
+
+        Quinta vez en el día que el arreglo vive en un hermano y no en el otro."""
+        s = (SCRIPTS / "escribir-tests.sh").read_text()
+        i = s.index('worktree add')
+        j = s.index("opencode run", i)
+        bloque = s[i:j]
+        self.assertIn(".base-ref", bloque,
+                      "la base del diff se fija ANTES de que el agente toque nada")
+        self.assertIn(".tests-base", bloque,
+                      "y la línea base de tests también, o el gate le cobra a la tarea los "
+                      "tests rojos de sus hermanas")
+        self.assertIn("correr-suite.sh --fallas", bloque,
+                      "la línea base sale del MISMO comando que usa el resto del método")
+        # Y lo mismo que hace su hermano, con el mismo comando: una sola forma.
+        otro = (SCRIPTS / "correr-tarea.sh").read_text()
+        for pieza in ("rev-parse HEAD", "correr-suite.sh --fallas"):
+            self.assertIn(pieza, otro, f"cambió el hermano: revisá que sigan iguales ({pieza})")
+
+    def test_la_suite_roja_muestra_las_fallas_y_no_las_ultimas_lineas(self):
+        """`echo "$SALIDA" | tail -15` supone que las fallas están al FINAL. Con una suite de
+        dos mitades la que falla puede ser la primera: medido el 2026-10-20, el backend falló
+        3 tests y el frontend pasó 27, el tail cayó entero dentro del frontend, y el agente
+        leyó «✗ la suite está en rojo» seguido de «Tests 27 passed (27)» **sin una sola falla
+        a la vista**. Un informe que nombra una falla y muestra sólo aprobados es peor que no
+        mostrar nada: el agente itera contra un veredicto que su propia evidencia contradice.
+        """
+        for g in (PLANTILLAS / "gate.sh",
+                  RAIZ / "ejemplo-clasificados" / "scripts" / "gate.sh",
+                  RAIZ / "ejemplo-pacman" / "scripts" / "gate.sh"):
+            with self.subTest(gate=g.parent.parent.name):
+                s = g.read_text()
+                i = s.index('rojo "la suite está en rojo"')
+                fin = s.index("esac", i)
+                bloque = s[i:fin]
+                self.assertIn("correr-suite.sh --fallas", bloque,
+                              "las fallas se piden al corredor, no se adivinan de la cola")
+                self.assertIn("⊘", bloque,
+                              "y si el corredor no lista ninguna, eso se declara: es un "
+                              "desacuerdo entre el corredor y el gate, no un pase")

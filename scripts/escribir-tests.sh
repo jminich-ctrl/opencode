@@ -154,6 +154,28 @@ for id in "$@"; do
   # El worktree es nuevo: no tiene venv ni node_modules. Sin esto, una tarea de frontend
   # se rechaza por falta de corredor, que es un defecto del método y no del test.
   bash "$AQUI/preparar-entorno.sh" "$wt/$PROYECTO" 2>&1 | sed 's/^/  /'
+
+  # La base del diff y la LÍNEA BASE DE TESTS, antes de que el agente toque nada —igual que
+  # hace `correr-tarea.sh` para la etapa de implementación, y por el mismo motivo, que su
+  # propio comentario explica: «el método es tests-first, al empezar la etapa el tronco tiene
+  # los tests de todas sus tareas y la implementación de ninguna, así que la suite no puede
+  # estar verde; sin esta lista el gate de cada tarea la vería roja por los tests de sus
+  # hermanas y ninguna podría cerrar».
+  #
+  # Esta etapa no las escribía, y el efecto lo medimos el 2026-10-20 con T05a: `AGENTS.md`
+  # manda correr el gate, el gate del worktree de tests no tenía línea base, las 3 fallas
+  # preexistentes del tronco (de T26 y T04b, ya mergeadas, por `CR_CONN_HOST_ERROR`) se le
+  # cobraban a la tarea, y el veredicto quedaba INSATISFACIBLE. El agente escribía su test y
+  # su implementación, el gate le decía «la suite está en rojo», e iteraba hasta agotar los
+  # 1200 s. Tres corridas, seis intentos, tres puntos muertos, todos informados como «habla
+  # de la TAREA». No hablaban de la tarea.
+  #
+  # Quinta vez en el día que el arreglo vive en un hermano y no en el otro.
+  git -C "$wt" rev-parse HEAD > "$wt/.base-ref"
+  if [ -f "$wt/$PROYECTO/scripts/correr-suite.sh" ]; then
+    ( cd "$wt/$PROYECTO" && bash scripts/correr-suite.sh --fallas > .tests-base 2>/dev/null ) || true
+    echo "  · línea base: $(grep -c . "$wt/$PROYECTO/.tests-base" 2>/dev/null || echo 0) test(s) ya fallando"
+  fi
   # El venv del tronco, igual que en correr-tarea.sh: el del worktree es un enlace, pero
   # si el enlace no está, el validador correría con el intérprete del sistema y no vería
   # las dependencias — y el diagnóstico que saldría es "el test está mal".
