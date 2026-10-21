@@ -206,6 +206,33 @@ veredicto_con_linea_base() {
     return
   fi
   if [ -n "$nuevas" ]; then
+    # ¿Fallan por el ENTORNO o por el cambio? Esta rama acusaba sin distinguirlo, y la
+    # diferencia entre dos muestras de la suite no es causal: todos los worktrees comparten
+    # un MySQL, así que la base que la etapa de tests vio poblada la etapa de tareas la puede
+    # ver sin tablas, y la tarea carga con esa diferencia.
+    #
+    # Cadáver del 2026-10-21: T05a tocó UN archivo nuevo —`backend/app/datos/ads.py`, datos
+    # de avisos— y el gate la acusó de romper `test_register_backend.py::
+    # test_crear_usuario_hash_correcto`. Sacando ese archivo del worktree fallaban los
+    # mismos dos tests, y la causa era `(1146, "Table 'clasificados.users' doesn't exist")`.
+    # Dos intentos, punto muerto y el plan detenido, por una falla que la tarea no podía
+    # causar: no toca registro ni hasheo.
+    #
+    # Es el mismo principio que esta función ya aplica a `FALTA_CORREDOR` —«es del método y
+    # no del código»— extendido a las firmas de infraestructura. Y no ablanda nada: no
+    # declara verde, detiene igual. Lo único que cambia es a QUIÉN se le cobra, que es
+    # exactamente lo que estuvo mal en nueve de los doce defectos de estos días.
+    if printf '%s\n' "$SALIDA" | grep -qiE "Table '[^']*' doesn't exist|Unknown database|Can't connect to( local)? MySQL|CR_CONN_HOST_ERROR|Access denied for user|Connection refused|ECONNREFUSED|\(200[36]|2013,"; then
+      rojo "el entorno se movió: estas fallas no son de la tarea"
+      printf '%s\n' "$nuevas" | head -5 | sed 's/^/     /'
+      printf '%s\n' "$SALIDA" | grep -ioE "Table '[^']*' doesn't exist|Unknown database[^\"]*|Can't connect to( local)? MySQL[^\"]*|CR_CONN_HOST_ERROR|Access denied for user[^\"]*|Connection refused" \
+        | head -2 | sed 's/^/     causa: /'
+      echo "     ENTORNO_MOVIDO — la base de datos del proyecto no está en el estado que la"
+      echo "     línea base vio. Todos los worktrees comparten el MySQL de 127.0.0.1:33306:"
+      echo "     lo que una etapa deja, la siguiente lo encuentra. Es del entorno y no del"
+      echo "     código, así que no se le cobra a la tarea ni se reintenta contra ella."
+      return
+    fi
     rojo "rompiste tests que andaban antes de esta tarea:"
     printf '%s\n' "$nuevas" | head -5 | sed 's/^/     /'
     return

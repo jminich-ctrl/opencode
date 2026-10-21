@@ -471,6 +471,64 @@ class TestLineaBaseDeTests(CasoBase):
         (self.p.dir / ".tests-base").write_text(r.stdout)
         return r.stdout
 
+    def test_una_falla_de_infraestructura_no_se_le_cobra_a_la_tarea(self):
+        """La diferencia entre dos muestras de la suite NO es causal. Todos los worktrees
+        comparten un MySQL, así que la base que la etapa de tests vio poblada la etapa de
+        tareas la puede ver sin tablas, y la tarea cargaba con esa diferencia.
+
+        Cadáver del 2026-10-21: T05a tocó UN archivo nuevo —`backend/app/datos/ads.py`,
+        datos de avisos— y el gate la acusó de romper
+        `test_register_backend.py::test_crear_usuario_hash_correcto`. Sacando ese archivo del
+        worktree fallaban los mismos dos tests, y la causa era
+        `(1146, "Table 'clasificados.users' doesn't exist")`. Dos intentos, punto muerto y el
+        plan detenido por una falla que la tarea no podía causar: no toca registro ni hasheo.
+
+        Es el mismo principio que el gate ya aplica a `FALTA_CORREDOR` —«es del método y no
+        del código»— y no ablanda nada: detiene igual. Lo único que cambia es a quién se le
+        cobra."""
+        base = self.fijar_base()
+        self.assertNotIn("test_infra", base, "al fijar la base esto todavía no existe")
+        # El entorno se mueve DESPUÉS de la línea base: la tabla desaparece.
+        (self.p.dir / "tests" / "test_infra.py").write_text(
+            "import unittest\n\n"
+            "class TestInfra(unittest.TestCase):\n"
+            "    def test_lee_la_tabla(self):\n"
+            "        raise Exception(\"(1146, \\\"Table 'clasificados.users' doesn't "
+            "exist\\\")\")\n")
+        self.p.implementar()
+        r = self.p.gate("T01")
+        salida = r.stdout + r.stderr
+        self.assertIn("el entorno se movió", salida,
+                      f"la tarea no puede cargar con una falla de infraestructura:\n{salida}")
+        self.assertIn("ENTORNO_MOVIDO", salida,
+                      f"y el runner necesita el marcador para no reintentar:\n{salida}")
+        self.assertNotIn("rompiste tests", salida,
+                         f"eso es acusar a la tarea de algo que no hizo:\n{salida}")
+        # Y NO es verde: detener sigue siendo lo correcto.
+        self.assertNotEqual(0, r.returncode,
+                            f"no se ablanda el veredicto, se corrige el sujeto:\n{salida}")
+
+    def test_una_rotura_de_verdad_sigue_siendo_de_la_tarea(self):
+        """El guardia del arreglo de arriba. Si una falla nueva no trae firma de
+        infraestructura, es del cambio y se dice así: lo contrario volvería «entorno» a
+        cualquier rotura y apagaría el chequeo que de verdad protege al tronco."""
+        # La base se fija CON T01 ya implementada: así la única falla nueva es la rotura que
+        # este test introduce, y no el propio test de T01 que el fixture deja fallando.
+        self.p.implementar()
+        base = self.fijar_base()
+        self.assertEqual("", base.strip(), f"la base tiene que quedar limpia: {base!r}")
+        # Una rotura común: la tarea rompe un test de otra parte del proyecto.
+        (self.p.dir / "tests" / "test_vecino.py").write_text(
+            "import unittest\n\n"
+            "class TestVecino(unittest.TestCase):\n"
+            "    def test_suma(self):\n        self.assertEqual(2 + 2, 5)\n")
+        r = self.p.gate("T01")
+        salida = r.stdout + r.stderr
+        self.assertIn("rompiste tests", salida,
+                      f"una rotura sin firma de infraestructura es de la tarea:\n{salida}")
+        self.assertNotIn("el entorno se movió", salida,
+                         f"si todo fuera «entorno», el chequeo no protegería nada:\n{salida}")
+
     def test_la_falla_de_una_hermana_no_reprueba_a_esta_tarea(self):
         self.hermana_fallando()
         base = self.fijar_base()

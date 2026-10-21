@@ -127,6 +127,7 @@ for etapa in "${ETAPAS[@]}"; do
   HUELLAS="$(mktemp -d)"    # una huella de falla por tarea (bash 3.2 no tiene arrays asociativos)
   MUERTAS=()                # las que fallaron dos veces por lo mismo
   IMPOSIBLES=()             # las que el agente declaró imposibles
+  ENTORNO=()                # las que fallaron por el entorno: no son de la tarea
   while [ "${#pendientes[@]}" -gt 0 ] && [ "$intento" -le "$REINTENTOS" ]; do
     [ "$intento" -gt 1 ] && echo "── reintento $intento de: ${pendientes[*]}"
     # El reintento lleva una DESCRIPCIÓN de lo que falló, no la salida cruda. Medido: tener
@@ -163,6 +164,24 @@ for etapa in "${ETAPAS[@]}"; do
       # Reintentar a ciegas gasta tiempo en la falla que no se va a ir sola. Si la huella
       # repite, es la misma falla y no hay nada nuevo que intentar: se detiene acá y decide
       # un humano. Si cambió, el reintento tiene sentido.
+      # Un veredicto de ENTORNO no es una falla de la tarea, así que no entra en el juego
+      # de huellas: reintentar no la arregla y declararla en punto muerto le cobra a la
+      # tarea una diferencia del entorno. Es la misma regla que ya rige para los cortes de
+      # plataforma en `escribir-tests.sh`, y el gate la emite con `ENTORNO_MOVIDO`.
+      #
+      # Cadáver del 2026-10-21: T05a, que toca un solo archivo de datos de avisos, quedó en
+      # punto muerto acusada de romper el hasheo de contraseñas. La causa era
+      # `Table 'clasificados.users' doesn't exist` en el MySQL que comparten todos los
+      # worktrees. Dos intentos y el plan detenido por algo que la tarea no podía causar.
+      if grep -q 'ENTORNO_MOVIDO' "$log" 2>/dev/null; then
+        echo "  ⊘ $t: el entorno se movió, no es la tarea. No se reintenta contra ella."
+        grep -m2 '     causa: ' "$log" 2>/dev/null | sed 's/^ */      /'
+        echo "      El MySQL del proyecto lo comparten todos los worktrees: lo que una"
+        echo "      etapa deja, la siguiente lo encuentra. Log: $log"
+        ENTORNO+=("$t")
+        continue
+      fi
+
       h="$(huella_de_falla "$log")"
       anterior="$(cat "$HUELLAS/$t" 2>/dev/null || true)"
       if [ -n "$h" ] && [ "$h" = "$anterior" ]; then
@@ -182,7 +201,13 @@ for etapa in "${ETAPAS[@]}"; do
   done
   rm -rf "$HUELLAS"
 
-  if [ "${#pendientes[@]}" -gt 0 ] || [ "${#MUERTAS[@]}" -gt 0 ] || [ "${#IMPOSIBLES[@]}" -gt 0 ]; then
+  if [ "${#ENTORNO[@]}" -gt 0 ]; then
+    echo "  ⊘ el entorno se movió en: ${ENTORNO[*]}"
+    echo "     No es la tarea ni el modelo. La base de datos del proyecto no estaba en el"
+    echo "     estado que la línea base vio. Arreglá el entorno y relanzá: no hay nada que"
+    echo "     cambiarle al plan ni al enunciado."
+  fi
+  if [ "${#pendientes[@]}" -gt 0 ] || [ "${#MUERTAS[@]}" -gt 0 ] || [ "${#IMPOSIBLES[@]}" -gt 0 ] || [ "${#ENTORNO[@]}" -gt 0 ]; then
     echo
     echo "✗ La etapa $n se detuvo: ${pendientes[*]+${pendientes[*]}} ${MUERTAS[*]+${MUERTAS[*]}} ${IMPOSIBLES[*]+${IMPOSIBLES[*]}}"
     [ "${#MUERTAS[@]}" -gt 0 ] && echo "  En punto muerto (misma falla dos veces): ${MUERTAS[*]}"
