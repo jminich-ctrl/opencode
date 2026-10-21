@@ -5564,3 +5564,42 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         self.assertIn("no hay nada que lanzar", r.stdout,
                       f"y decirlo, no morir con «unbound variable»:\n{r.stdout}\n{r.stderr}")
         self.assertNotIn("unbound variable", r.stderr, r.stderr)
+
+    # ── El gate corrido como el método le pide al agente ───────────────────────────────
+
+    def test_el_gate_corrido_a_mano_no_muere_con_unbound_variable(self):
+        """**El defecto más caro que encontramos, y vivía a la vista.** `AGENTS.md` le dice al
+        agente «al terminar corré `bash scripts/gate.sh`», o sea SIN `TAREA` en el entorno. Con
+        `set -u`, `"tareas/${TAREA}"-*.md` en `test_de_la_tarea` aborta el script:
+        `gate.sh: line 131: TAREA: unbound variable`. El agente ve «✗ la suite está en rojo»
+        sin ninguna causa —porque el gate murió antes de poder decir cuál— e itera contra eso
+        hasta agotar el presupuesto.
+
+        Medido en vivo el 2026-10-20, en T05a: el agente escribió su test (172 líneas) y su
+        implementación (78), corrió la suite —7 passed—, corrió el gate, se topó con esto, y
+        quemó los 1200 s enteros dos veces. El método lo anotó como «el agente no respondió:
+        límite total», que su propia documentación interpreta como «habla de la TAREA, no del
+        modelo». **No hablaba de la tarea: hablaba de un gate que no arranca.**
+
+        Y no se veía desde acá porque todo el resto del método invoca el gate con
+        `TAREA=` —definida y vacía, que `set -u` acepta—: `estado.sh`, `integrar.sh`, el
+        runner y esta suite. La única invocación sin definirla es la que hace el agente, que
+        es la única que nadie probaba. Es la decimoséptima vez que aparece la misma forma: el
+        camino que no se ejercita es el que falla.
+        """
+        p = Proyecto()
+        self.addCleanup(p.tirar)
+        p.implementar()
+        for env, nombre in ((None, "sin TAREA en el entorno"), ("", "con TAREA vacía"),
+                            ("T01", "en modo tarea")):
+            with self.subTest(caso=nombre):
+                if env is None:
+                    r = correr("env -u TAREA bash scripts/gate.sh", p.dir)
+                else:
+                    r = correr("bash scripts/gate.sh", p.dir, TAREA=env)
+                self.assertNotIn("unbound variable", r.stdout + r.stderr,
+                                 f"el gate se muere antes de poder juzgar ({nombre}):\n"
+                                 f"{r.stdout[-800:]}\n{r.stderr[-400:]}")
+                # Y tiene que llegar a dar un veredicto, no morir en el camino.
+                self.assertRegex(r.stdout, r"GATE (VERDE|ROJO)",
+                                 f"no llegó a un veredicto ({nombre}):\n{r.stdout[-800:]}")

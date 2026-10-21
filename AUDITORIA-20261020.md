@@ -169,6 +169,51 @@ salen 2 con mensaje, el código 3 de `correr-suite.sh` dice que es del método, 
 es agnóstico de stack. Y `coherencia.py` fue el que mejor resistió: `ast` para los imports,
 lista corta con cadáver por entrada, y `lo_que_hace()` descartando el bloque «No entra».
 
+## El hallazgo que sólo apareció corriendo
+
+Al relanzar el plan —después de arreglar todo lo de arriba— T05a quemó los 1200 s dos veces.
+La causa no era ninguna de las tres que el método propone para un corte por límite total:
+
+```
+$ bash scripts/gate.sh
+base del diff: 50e7d43f6fc8 — deducida (no había .base-ref)
+── 1. Tests
+scripts/gate.sh: line 131: TAREA: unbound variable
+  ✗ la suite está en rojo
+```
+
+`AGENTS.md` le dice al agente **«al terminar corré `bash scripts/gate.sh`»**, o sea sin
+`TAREA` en el entorno. Con `set -u`, `"tareas/${TAREA}"-*.md` aborta el script. El agente ve
+«✗ la suite está en rojo» sin ninguna causa —porque el gate murió antes de poder decir cuál—
+e itera contra eso hasta que se le acaba el presupuesto.
+
+Medido en vivo: el agente escribió su test (172 líneas) y su implementación (78), corrió la
+suite (**7 passed**), corrió el gate, se topó con esto, y quemó el presupuesto entero. Dos
+veces. El método lo anotó como «el agente no respondió: límite total», que su propia
+documentación interpreta como **«habla de la TAREA, no del modelo»**. No hablaba de la tarea:
+hablaba de un gate que no arranca.
+
+**Es preexistente** —el gate del commit anterior muere en la misma línea— y no se veía porque
+todo el resto del método invoca el gate con `TAREA=`, definida y vacía, que `set -u` acepta:
+`estado.sh`, `integrar.sh`, el runner y la suite del método. **La única invocación que no la
+define es la del agente, que es la única que nadie probaba.** Decimoséptima vez que aparece
+la misma forma: el camino que no se ejercita es el que falla.
+
+### Lo que invalida
+
+| filas | tareas |
+|---|---|
+| `2026-10-19T16:59:08Z T26 ERROR 1208` · `18:37:44 T11 ERROR 1209` · `20:45:08 T05 ERROR 1213` · `21:05:22 T05 ERROR 1209` | T05 (×2), T11, T26 |
+
+Las cuatro son inválidas **como evidencia sobre el tamaño de la tarea**: el agente no estaba
+peleando con la tarea, estaba peleando con un gate abortado. Y son las que hicieron ver T05
+como demasiado grande. El corte de T05 en T05a/b/c tenía además su propia justificación
+—espeja la descomposición T14/T15/T16 del plan— así que no cae con esto; lo que cae es el
+argumento del presupuesto.
+
+No hace falta un filtro nuevo en el lector: esas filas llevan una huella de instrumento
+distinta de la de ahora, y el ⊘ que se agregó hoy ya las declara no comparables.
+
 ## Qué sigue, y quién lo hace
 
 Una cosa que esta auditoría dejó clara y que no estaba escrita en ninguna parte: **el método

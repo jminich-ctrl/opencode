@@ -121,7 +121,7 @@ test_de_la_tarea() {
   # perdía T16; anclar en `tests/` perdía las 31 de clasificados, cuyas rutas son
   # `backend/tests/` y `frontend/tests/`. Con esto: 34 de 50 tareas acotables, contra 3.
   sed -n 's/.*`\([^`]*\)`, *clase `\([A-Za-z0-9_]*\)`.*/\1 \2/p' \
-    "tareas/${TAREA}"-*.md 2>/dev/null | head -1
+    "tareas/${TAREA:-}"-*.md 2>/dev/null | head -1
 }
 
 veredicto_con_linea_base() {
