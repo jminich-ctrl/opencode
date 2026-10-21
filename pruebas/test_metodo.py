@@ -6497,3 +6497,96 @@ class TestUnEnunciadoQueDaPorHechaUnaTabla(unittest.TestCase):
         r = correr(f'PROYECTO=ejemplo-pacman python3 "{SCRIPTS}/coherencia.py"', RAIZ)
         self.assertNotIn("da por hecha la tabla", r.stdout,
                          f"un proyecto sin SQL no puede tener tablas faltantes:\n{r.stdout}")
+
+
+class TestElPreflightTieneCaminoAlArquitecto(unittest.TestCase):
+    """`coherencia.py` terminaba sus rojos con «Lo decide quien planifica» y `correr-todo.sh`
+    hacía `exit 1`: un veredicto correcto que **paraba a esperar a una persona**. Es palabra
+    por palabra el defecto que `replanificar.sh` corrigió del lado de las tareas, reaparecido
+    en el chequeo más nuevo — y acá la persona que iba a inferir era quien escribe el método,
+    que es exactamente lo que no tiene que pasar.
+
+    Estos tests no miran el texto del script: le ponen un arquitecto falso en el PATH y miden
+    qué hace con lo que escribe. El juez que importa es que el MISMO chequeo que encontró el
+    problema sea el que acepta el arreglo."""
+
+    def proyecto(self, enunciado):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-replan-coh-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        correr("git init -q . && git config user.email a@b && git config user.name a", d)
+        (d / "tareas").mkdir()
+        (d / "tareas" / "T26-registro.md").write_text(
+            "# T26 — Registro\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/x.py\n\n## Objetivo\n\n" + enunciado + "\n\n"
+            "## Terminado cuando\n\n- [ ] anda\n")
+        (d / "migraciones").mkdir()
+        (d / "migraciones" / "001_initial.sql").write_text(
+            "CREATE TABLE usuarios (id INT PRIMARY KEY);\n")
+        # El formato que `validar-plan.py` exige de verdad. La primera versión de este
+        # andamio puso una tabla inventada de dos columnas, y el test «se acepta» falló con
+        # «el plan dejó de validar»: estaba midiendo mi PLAN.md de juguete y no el script.
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n## Tareas\n\n"
+            "| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
+            "| T26 | Registro | — | `app/x.py` | pendiente |\n")
+        return d
+
+    def arquitecto_falso(self, d, guion):
+        """Un `opencode` en el PATH que hace lo que diga `guion` sobre tareas/T26."""
+        bin_ = d / ".bin"; bin_.mkdir()
+        (bin_ / "opencode").write_text("#!/usr/bin/env bash\n" + guion + "\n")
+        (bin_ / "opencode").chmod(0o755)
+        return f'PATH="{bin_}:$PATH"'
+
+    def correr_replan(self, d, guion):
+        env = self.arquitecto_falso(d, guion)
+        return correr(f'{env} PROYECTO=. LIMITE_AGENTE=60 '
+                      f'bash "{SCRIPTS}/replanificar-coherencia.sh"', d)
+
+    def test_si_el_arquitecto_no_resuelve_el_rojo_se_descarta_y_las_tareas_vuelven(self):
+        """El juez es el preflight, no la buena voluntad del arquitecto. Y descartar tiene que
+        DEJAR EL PLAN COMO ESTABA: un arreglo a medias en tareas/ es peor que ninguno, porque
+        la corrida siguiente arranca sobre algo que nadie revisó."""
+        d = self.proyecto("Guardar los datos en la tabla `users`.")
+        antes = (d / "tareas" / "T26-registro.md").read_text()
+        r = self.correr_replan(d, 'echo "ya lo pensé" >> tareas/T26-registro.md')
+        self.assertNotEqual(0, r.returncode, f"no resolvió nada:\n{r.stdout}{r.stderr}")
+        self.assertIn("preflight sigue en rojo", r.stdout + r.stderr,
+                      f"y tiene que decir POR QUÉ se descarta:\n{r.stdout}{r.stderr}")
+        self.assertEqual(antes, (d / "tareas" / "T26-registro.md").read_text(),
+                         "la tarea tiene que quedar exactamente como estaba")
+
+    def test_si_el_arquitecto_usa_la_tabla_que_existe_se_acepta(self):
+        """La salida (a) del enunciado: que use el nombre que la migración ya crea."""
+        d = self.proyecto("Guardar los datos en la tabla `users`.")
+        r = self.correr_replan(
+            d, "sed -i '' 's/tabla `users`/tabla `usuarios`/' tareas/T26-registro.md")
+        self.assertEqual(0, r.returncode, f"el rojo desapareció:\n{r.stdout}{r.stderr}")
+        self.assertIn("ya no se contradice", r.stdout, f"\n{r.stdout}")
+        self.assertIn("usuarios", (d / "tareas" / "T26-registro.md").read_text())
+
+    def test_un_arquitecto_que_no_escribe_nada_no_es_una_replanificacion(self):
+        """El chequeo que a `replanificar.sh` le faltaba y costó dos verdes con cero líneas de
+        diff: los jueces pasan trivialmente sobre un archivo intacto."""
+        d = self.proyecto("Guardar los datos en la tabla `users`.")
+        r = self.correr_replan(d, "echo 'leí todo y no escribí nada'")
+        self.assertNotEqual(0, r.returncode, f"no ocurrió nada:\n{r.stdout}{r.stderr}")
+        self.assertIn("no cambió nada", r.stdout + r.stderr, f"\n{r.stdout}{r.stderr}")
+
+    def test_no_puede_achicar_los_criterios_de_terminado(self):
+        """Replanificar no es bajar la vara. El arquitecto podría hacer desaparecer el rojo
+        borrando la tarea entera, y eso no es un arreglo."""
+        d = self.proyecto("Guardar los datos en la tabla `users`.")
+        r = self.correr_replan(
+            d, "printf '# T26 — Registro\\n\\n**Estado:** pendiente\\n\\n## Objetivo\\n\\nNada.\\n'"
+               " > tareas/T26-registro.md")
+        self.assertNotEqual(0, r.returncode, f"borró el criterio:\n{r.stdout}{r.stderr}")
+        self.assertIn("criterios de terminado", r.stdout + r.stderr, f"\n{r.stdout}{r.stderr}")
+
+    def test_sin_rojos_no_llama_al_arquitecto(self):
+        """Un script que gasta un agente para no hacer nada enseña a no correrlo."""
+        d = self.proyecto("Guardar los datos en la tabla `usuarios`.")
+        r = self.correr_replan(d, "echo NO_DEBERIA_CORRER; exit 1")
+        self.assertEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertNotIn("NO_DEBERIA_CORRER", r.stdout)
+        self.assertIn("no hay nada que replanificar", r.stdout)
