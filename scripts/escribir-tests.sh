@@ -199,12 +199,27 @@ for id in "$@"; do
     echo "     No se lanza este intento. Relanzá la corrida desde cero." >&2
     break 2
   fi
+  # La ruta del enunciado va ABSOLUTA Y DENTRO DEL WORKTREE. Las dos otras formas fallan,
+  # cada una por su lado:
+  #   · absoluta del repo ORIGINAL -> OpenCode la ve como `external_directory` y la rechaza
+  #     por permisos (está escrito en correr-tarea.sh y hoy se vio en el log:
+  #     «permission requested: external_directory (/Users/jose/*); auto-rejecting»);
+  #   · relativa (`tareas/X.md`) -> OpenCode la resuelve contra la RAÍZ DEL WORKTREE y no
+  #     contra el `cd` de este bloque, y ahí no hay `tareas/`: el proyecto vive en
+  #     `$wt/$PROYECTO`. El 2026-10-21 el intento murió con
+  #     «Read /Users/jose/tests-T05a/tareas/T05a-avisos-datos.md failed: File not found»
+  #     mientras el archivo estaba en `/Users/jose/tests-T05a/ejemplo-clasificados/tareas/`.
+  #
+  # Que la absoluta del worktree SÍ se puede leer lo prueba ese mismo log: falló con «File
+  # not found» y no con un rechazo de permisos. Y no depender de cómo OpenCode resuelve una
+  # ruta relativa es lo correcto además por otra razón: el 2026-10-21 el mismo prompt anduvo
+  # en un intento y falló en el siguiente, así que esa resolución no es estable.
   echo "▶ $id · $AGENTE escribe $ruta::$clase"
   (
     cd "$wt/$PROYECTO" || exit 1
     export XDG_DATA_HOME="$wt/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
     con_limite "${LIMITE_AGENTE:-1200}" opencode run --agent "$AGENTE" \
-      "${MOTIVO_TESTS:+Un intento anterior falló así: $MOTIVO_TESTS. No repitas ese camino. }Leé tareas/$(basename \"$archivo\"). Ojo: esta corrida es la que CREA los tests, así que todavía no existen, los estás creando vos. Hacé la tarea completa: la implementación Y sus tests, las dos cosas con la herramienta write. El archivo de test es '$ruta' y su agrupador se llama '$clase'. Las reglas de cómo escribir tests están en AGENTS.md: leelas. Al terminar corré 'bash scripts/correr-suite.sh $ruta::$clase' y mostrá su salida real." 2>&1
+      "${MOTIVO_TESTS:+Un intento anterior falló así: $MOTIVO_TESTS. No repitas ese camino. }Leé $wt/$PROYECTO/tareas/$(basename \"$archivo\"). Ojo: esta corrida es la que CREA los tests, así que todavía no existen, los estás creando vos. Hacé la tarea completa: la implementación Y sus tests, las dos cosas con la herramienta write. El archivo de test es '$ruta' y su agrupador se llama '$clase'. Las reglas de cómo escribir tests están en AGENTS.md: leelas. Al terminar corré 'bash scripts/correr-suite.sh $ruta::$clase' y mostrá su salida real." 2>&1
   ) > "$log" 2>&1
   RC_AGENTE=$?
 

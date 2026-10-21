@@ -6110,3 +6110,69 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         self.assertEqual(encabezado.count(","), fila[0].count(","),
                          f"el encabezado y la fila tienen que tener el mismo ancho:\n"
                          f"{encabezado}\n{fila[0]}")
+
+    # ── La ruta del enunciado que se le entrega al agente ──────────────────────────────
+
+    def test_el_enunciado_va_con_ruta_absoluta_dentro_del_worktree(self):
+        """De las tres formas de nombrarle el enunciado al agente, dos fallan:
+
+          · absoluta del repo ORIGINAL -> OpenCode la ve como `external_directory` y la
+            rechaza por permisos. Está escrito en `correr-tarea.sh` desde hace tiempo y hoy
+            se vio en el log: «permission requested: external_directory (/Users/jose/*);
+            auto-rejecting».
+          · relativa (`tareas/X.md`)   -> OpenCode la resuelve contra la RAÍZ DEL WORKTREE y
+            no contra el `cd` del bloque que lanza al agente, y ahí no hay `tareas/`: el
+            proyecto vive en `$wt/$PROYECTO`.
+          · absoluta del WORKTREE      -> se lee.
+
+        Cadáver del 2026-10-21: «Read /Users/jose/tests-T05a/tareas/T05a-avisos-datos.md
+        failed: File not found» con el archivo presente en
+        `/Users/jose/tests-T05a/ejemplo-clasificados/tareas/`. Que la absoluta del worktree
+        sí se puede leer lo prueba ese mismo log: falló con «File not found» y NO con un
+        rechazo de permisos.
+
+        Y lo que más dice del repo: `escribir-tests.sh` ya calculaba la ruta correcta tres
+        líneas antes —para `huella_enunciado`— y al agente le entregaba la otra."""
+        for nombre in ("escribir-tests.sh", "correr-tarea.sh"):
+            with self.subTest(script=nombre):
+                s = (SCRIPTS / nombre).read_text()
+                # La forma correcta tiene que estar en el script: en el prompt mismo
+                # (escribir-tests.sh) o en la variable que el prompt usa (correr-tarea.sh,
+                # que la arma en `archivo=`). Las dos cuentan: lo que importa es qué ruta
+                # termina viendo el agente.
+                self.assertIn("$wt/$PROYECTO/tareas/", s,
+                              f"{nombre}: el enunciado tiene que ir absoluto y dentro del "
+                              f"worktree")
+                # Y la forma vieja no puede estar: `tareas/X.md` suelta se resuelve contra la
+                # raíz del worktree, donde no hay `tareas/`.
+                self.assertNotIn('archivo="tareas/$(basename', s,
+                                 f"{nombre}: ésa es la ruta relativa que mató a T05a")
+                self.assertNotRegex(
+                    s, r"Leé tareas/\$\(basename",
+                    f"{nombre}: ésa es la ruta relativa que mató a T05a")
+
+    def test_una_ruta_absoluta_del_worktree_resuelve_desde_las_dos_raices(self):
+        """La propiedad por la que se eligió esa forma: no depende de cuál de las dos raíces
+        use OpenCode para resolver. El 2026-10-21 el mismo prompt con ruta relativa anduvo en
+        un intento y falló en el siguiente, así que esa resolución no es estable y no se
+        puede construir nada encima."""
+        wt = pathlib.Path(tempfile.mkdtemp(prefix="prueba-ruta-")).resolve()
+        self.addCleanup(shutil.rmtree, str(wt), True)
+        proyecto = "ejemplo-clasificados"
+        (wt / proyecto / "tareas").mkdir(parents=True)
+        tarea = wt / proyecto / "tareas" / "T05a-avisos-datos.md"
+        tarea.write_text("# T05a\n")
+
+        absoluta = f"{wt}/{proyecto}/tareas/T05a-avisos-datos.md"
+        relativa = "tareas/T05a-avisos-datos.md"
+        for raiz, etiqueta in ((wt, "raíz del worktree"),
+                               (wt / proyecto, "directorio del proyecto")):
+            with self.subTest(resuelve_desde=etiqueta):
+                r = correr(f'[ -f "{absoluta}" ] && echo si || echo no', raiz)
+                self.assertEqual("si", r.stdout.strip(),
+                                 f"la absoluta tiene que resolver desde {etiqueta}")
+        # Y la relativa, que es la que estaba, falla desde la raíz del worktree: es el
+        # cadáver exacto.
+        r = correr(f'[ -f "{relativa}" ] && echo si || echo no', wt)
+        self.assertEqual("no", r.stdout.strip(),
+                         "si esto diera «si», el defecto no sería lo que digo que es")

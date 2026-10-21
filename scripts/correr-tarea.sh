@@ -30,13 +30,24 @@ lanzar() {
   local archivo
   archivo="$(ls "$BASE/tareas/${id}"-*.md 2>/dev/null | head -1)"
   [ -n "$archivo" ] || { echo "✗ $id: no existe tareas/${id}-*.md"; return 1; }
-  # Ruta RELATIVA al worktree: si le pasamos la absoluta del repo original, OpenCode
-  # la ve como external_directory y rechaza leerla por permisos.
-  archivo="tareas/$(basename "$archivo")"
+  # Absoluta DENTRO DEL WORKTREE, que es la única de las tres formas que anda:
+  #   · absoluta del repo ORIGINAL -> OpenCode la ve como `external_directory` y la rechaza
+  #     por permisos (es lo que decía el comentario que estaba acá, y es cierto);
+  #   · relativa (`tareas/X.md`)   -> OpenCode la resuelve contra la RAÍZ DEL WORKTREE y no
+  #     contra el `cd` del bloque que lanza al agente, y ahí no hay `tareas/`: el proyecto
+  #     vive en `$wt/$PROYECTO`. Mató un intento de T05a el 2026-10-21 con «File not found»
+  #     sobre `/Users/jose/tests-T05a/tareas/T05a-avisos-datos.md`, con el archivo presente
+  #     en `/Users/jose/tests-T05a/ejemplo-clasificados/tareas/`.
+  #   · absoluta del worktree      -> se lee. Lo prueba ese mismo log: falló con «File not
+  #     found», no con un rechazo de permisos.
+  # Se arma abajo, cuando `$wt` ya existe.
+  local nombre_tarea
+  nombre_tarea="$(basename "$archivo")"
 
   # El worktree se crea desde HEAD: los cambios sin commitear (al gate, por ejemplo)
   # NO viajan. Commiteá antes de lanzar.
   local wt="$RAIZ/../trabajo-$id"
+  archivo="$wt/$PROYECTO/tareas/$nombre_tarea"
   # El transcript del intento anterior, ANTES de borrar el worktree. Es el único lugar
   # donde está escrito por qué falló. Lo agregué primero a escribir-tests.sh y no acá, y
   # volví a perder un log en este camino: arreglar un lado y no el otro es el patrón que
