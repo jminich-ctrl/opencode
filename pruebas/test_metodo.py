@@ -5744,10 +5744,17 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         class H(http.server.BaseHTTPRequestHandler):
             def do_POST(self):
                 time.sleep(demora)
-                self.send_response(200)
-                self.send_header("Content-Length", "2")
-                self.end_headers()
-                self.wfile.write(b"{}")
+                try:
+                    self.send_response(200)
+                    self.send_header("Content-Length", "2")
+                    self.end_headers()
+                    self.wfile.write(b"{}")
+                except (BrokenPipeError, ConnectionResetError):
+                    # best-effort: el caso impaciente CORTA la conexión a propósito, así que
+                    # esta escritura falla por diseño. Sin atraparla, `http.server` imprime
+                    # un traceback en medio de la suite, y un traceback de ruido tapa las
+                    # fallas de verdad — que es lo que la suite existe para mostrar.
+                    pass
             def log_message(self, *a):
                 pass
         srv = http.server.HTTPServer(("127.0.0.1", 0), H)
@@ -5804,3 +5811,56 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         t = (SCRIPTS / "correr-todo.sh").read_text()
         self.assertIn('con_limite "$ARRANQUE_FRIO" oc --warm', t, "y el calentador también")
         self.assertNotRegex(c, r"curl -s -m 45", "no puede quedar el número viejo")
+
+    def test_una_anotacion_de_tipo_no_es_un_mutante_que_un_test_pueda_matar(self):
+        """`dict | None` es un `BinOp(BitOr)` en el árbol, así que entraba como «cambiar el
+        operador aritmético» y producía un mutante **inmatable**: ningún test observa el tipo
+        declarado, así que el mutante sobrevive por construcción.
+
+        El efecto: toda tarea cuya implementación sea un archivo NUEVO —donde el diff cubre
+        también la línea de la firma— con un tipo unión moderno falla el chequeo de mutación
+        para siempre. Es lo que dejó a T05a en punto muerto cuatro corridas seguidas, con un
+        veredicto correcto en su forma («el test cubre las líneas y no verifica su
+        comportamiento») y falso en su contenido. Sólo se pudo ver después de arreglar el
+        marcador `→`, porque hasta entonces el mensaje no decía QUÉ había sobrevivido.
+
+        El brazo nulo de este arreglo es el test de arriba: un test que de verdad no verifica
+        comportamiento tiene que seguir dejando mutantes vivos."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-anot-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        for sub in ("app", "tests"):
+            (d / sub).mkdir()
+            (d / sub / "__init__.py").touch()
+        (d / "app" / "otro.py").write_text("x = 1\n")
+        for cmd in (["init", "-q", "-b", "main"], ["add", "-A"],
+                    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"]):
+            subprocess.run(["git", *cmd], cwd=d, check=True, capture_output=True)
+        # Archivo NUEVO: el diff cubre la firma, igual que en una tarea real.
+        (d / "app" / "m.py").write_text(
+            "def buscar(id: int) -> dict | None:\n"
+            "    tabla = {1: 'uno'}\n"
+            "    if id in tabla:\n"
+            "        return {'id': id, 'v': tabla[id]}\n"
+            "    return None\n")
+        # Un test que SÍ verifica comportamiento, en los dos caminos y con valores reales.
+        (d / "tests" / "test_m.py").write_text(
+            "import unittest\nfrom app.m import buscar\n\n"
+            "class TestM(unittest.TestCase):\n"
+            "    def test_encuentra(self):\n"
+            "        self.assertEqual(buscar(1)['v'], 'uno')\n"
+            "    def test_no_encuentra(self):\n"
+            "        self.assertIsNone(buscar(99))\n")
+        subprocess.run(["git", "add", "-A"], cwd=d, check=True, capture_output=True)
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                        "commit", "-qm", "nuevo"], cwd=d, check=True, capture_output=True)
+        r = correr(f'BASE=HEAD~1 CODIGO=app '
+                   f'SUITE=\'python3 -m unittest tests.test_m -q\' '
+                   f'python3 "{SCRIPTS}/mutar.py"', d)
+        self.assertEqual(r.returncode, 0,
+                         f"un test que verifica comportamiento no puede fallar por una "
+                         f"anotación de tipo:\n{r.stdout}")
+        self.assertNotIn("-> dict | None", r.stdout,
+                         f"la firma no es un candidato a mutar:\n{r.stdout}")
+        # Y el chequeo tiene que seguir mutando lo que sí es código.
+        self.assertRegex(r.stdout, r"[1-9][0-9]* mutante\(s\) probados",
+                         f"si no mutó nada, la exclusión se comió el chequeo:\n{r.stdout}")

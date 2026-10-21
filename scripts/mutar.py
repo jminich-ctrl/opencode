@@ -166,10 +166,42 @@ def candidatos(archivo, lineas_cambiadas):
         if hojas_todas_return(nodo):
             aridos.update(range(nodo.lineno, (nodo.end_lineno or nodo.lineno) + 1))
 
+    # Las ANOTACIONES DE TIPO no son código que un test pueda distinguir. `dict | None` es un
+    # `BinOp(BitOr)` en el árbol, así que entraba como «cambiar el operador aritmético» y
+    # producía un mutante INMATABLE: ningún test observa el tipo declarado, y el mutante
+    # sobrevive por construcción. El efecto, medido el 2026-10-21: toda tarea cuya
+    # implementación sea un archivo NUEVO —donde el diff cubre también la línea de la firma—
+    # con un tipo unión moderno falla el chequeo de mutación para siempre. Fue lo que dejó a
+    # T05a en punto muerto cuatro corridas seguidas, con el veredicto correcto en su forma
+    # («el test cubre las líneas y no verifica su comportamiento») y falso en su contenido.
+    #
+    # Se excluyen por IDENTIDAD de nodo y no por línea: una línea puede llevar una anotación
+    # y código de verdad, y excluir la línea entera apagaría el chequeo donde sí sirve.
+    anotados = set()
+    for nodo in ast.walk(arbol):
+        anotaciones = []
+        if isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            anotaciones.append(nodo.returns)
+            a = nodo.args
+            for arg in (list(a.args) + list(a.posonlyargs) + list(a.kwonlyargs)
+                        + [a.vararg, a.kwarg]):
+                if arg is not None:
+                    anotaciones.append(arg.annotation)
+        elif isinstance(nodo, ast.AnnAssign):
+            anotaciones.append(nodo.annotation)
+        for an in anotaciones:
+            if an is None:
+                continue
+            anotados.add(id(an))
+            for hijo in ast.walk(an):
+                anotados.add(id(hijo))
+
     por_linea = {}
     for nodo in ast.walk(arbol):
         linea = getattr(nodo, "lineno", None)
         if linea is None or linea not in lineas_cambiadas or linea in aridos:
+            continue
+        if id(nodo) in anotados:
             continue
         if es_arido(nodo, fuente):
             continue
