@@ -6643,3 +6643,71 @@ class TestElVeredictoNoDependeDeComoLoInvocas(unittest.TestCase):
         r = correr(f'PROYECTO=. python3 "{SCRIPTS}/coherencia.py"', d)
         self.assertNotIn("tabla_de_la_libreria", r.stdout,
                          f"el plan no es responsable del SQL de sus dependencias:\n{r.stdout}")
+
+
+class TestUnaCorridaPorRojo(unittest.TestCase):
+    """El techo de la sesión de memoria de ColabHive, medido el 2026-10-21 con el mismo agente
+    y el mismo prompt, variando sólo cuánto se le permitía durar:
+
+      240s directo · 300s directo · 240s con con_limite  → cortadas por alarma, TRABAJANDO
+      1800s por el script, cuatro veces                  → memory_* a los 8-13 min
+      900s directo, sin script                           → memory_session_expired a los 7:03
+      420s directo, UN rojo, prompt de 541 caracteres    → ✓ hecho en 4:09
+
+    Ninguna murió antes de los 5 minutos y ninguna sobrevivió más de 13, así que el pedido que
+    no entra en ese techo no falla por su contenido sino por su tamaño. Le cobré el corte a la
+    plataforma tres veces antes de medirlo.
+
+    Lo que este test fija es que el script PARTE el trabajo: una corrida por contradicción. No
+    fija el techo en segundos —es de la plataforma y se mueve— ni baja `LIMITE_AGENTE`, porque
+    el vigilante tiene que seguir perdiendo la carrera contra el error que la plataforma sabe
+    informar."""
+
+    def proyecto(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-por-rojo-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        correr("git init -q . && git config user.email a@b && git config user.name a", d)
+        (d / "tareas").mkdir()
+        # El archivo que cada tarea declara tiene que ser EL MISMO que el PLAN.md le asigna:
+        # `validar-plan.py` cruza las dos cosas, y mi primer andamio puso `app/x.py` en las dos
+        # tareas con el plan diciendo `app/y.py` para T28. El test falló con «el plan dejó de
+        # validar» y el defecto era del andamio, no del script. Segunda vez en esta clase de
+        # tests: medir el andamio en vez del sujeto.
+        for tid, tabla, arch in (("T26", "users", "app/x.py"), ("T28", "ads", "app/y.py")):
+            (d / "tareas" / f"{tid}-x.md").write_text(
+                f"# {tid} — Algo\n\n**Estado:** pendiente\n**Depende de:** —\n"
+                f"**Archivos que podés tocar:** {arch}\n\n## Objetivo\n\n"
+                f"Guardar en la tabla `{tabla}`.\n\n## Terminado cuando\n\n- [ ] anda\n")
+        (d / "migraciones").mkdir()
+        (d / "migraciones" / "001_initial.sql").write_text(
+            "CREATE TABLE usuarios (id INT PRIMARY KEY);\nCREATE TABLE anuncios (id INT);\n")
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n## Tareas\n\n| # | Tarea | Depende de | Archivos | Estado |\n"
+            "|---|---|---|---|---|\n| T26 | Algo | — | `app/x.py` | pendiente |\n"
+            "| T28 | Otro | — | `app/y.py` | pendiente |\n")
+        return d
+
+    def test_dos_contradicciones_son_dos_corridas_y_cada_prompt_nombra_un_archivo(self):
+        d = self.proyecto()
+        bin_ = d / ".bin"; bin_.mkdir()
+        # El arquitecto falso anota su invocación y qué archivo le pidieron.
+        (bin_ / "opencode").write_text(
+            '#!/usr/bin/env bash\n'
+            'echo "$*" >> "$INVOCACIONES"\n'
+            # Corrige la tabla del archivo que el prompt nombre, y nada más.
+            'arch="$(printf "%s" "$*" | grep -oE "tareas/T[0-9]+[a-z]?-[a-z]+\\.md" | head -1)"\n'
+            '[ -n "$arch" ] && { sed -i "" "s/tabla \\`users\\`/tabla \\`usuarios\\`/; '
+            's/tabla \\`ads\\`/tabla \\`anuncios\\`/" "$arch"; }\n')
+        (bin_ / "opencode").chmod(0o755)
+        inv = d / "invocaciones.txt"
+        r = correr(f'PATH="{bin_}:$PATH" INVOCACIONES="{inv}" PROYECTO=. LIMITE_AGENTE=60 '
+                   f'bash "{SCRIPTS}/replanificar-coherencia.sh"', d)
+        lineas = inv.read_text().splitlines() if inv.exists() else []
+        self.assertEqual(2, len(lineas),
+                         f"dos contradicciones tienen que ser dos corridas, no una con las "
+                         f"dos adentro:\n{chr(10).join(lineas)}\n--- salida:\n{r.stdout}{r.stderr}")
+        for linea in lineas:
+            nombrados = re.findall(r"tareas/T\d+[a-z]?-\w+\.md", linea)
+            self.assertEqual(1, len(set(nombrados)),
+                             f"cada corrida tiene que pedir UN archivo: {nombrados}")
+        self.assertEqual(0, r.returncode, f"y el preflight queda limpio:\n{r.stdout}{r.stderr}")

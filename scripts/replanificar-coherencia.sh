@@ -43,26 +43,64 @@ PREVIO="$BASE/.tareas-previo"
 rm -rf "$PREVIO"; cp -R "$BASE/tareas" "$PREVIO"
 restaurar() { rm -rf "$BASE/tareas"; mv "$PREVIO" "$BASE/tareas"; }
 
+# UNA CORRIDA POR ROJO, y no una sola con todos.
+#
+# Medido el 2026-10-21, porque las primeras cuatro corridas de este script murieron con
+# `memory_delivery_unavailable` y yo se lo cobré a la plataforma tres veces. La tabla
+# completa, con el mismo agente y el mismo prompt variando sólo el techo de tiempo:
+#
+#   240s directo, 300s directo, 240s con con_limite  → cortadas por alarma, TRABAJANDO
+#   1800s por este script, cuatro veces              → memory_* a los 8-13 min
+#   900s directo, sin script                         → memory_session_expired a los 7:03
+#   420s directo, UN rojo, prompt de 541 caracteres  → ✓ hecho en 4:09
+#
+# Ninguna murió antes de los 5 minutos; ninguna sobrevivió más de 13. O sea: la sesión de
+# memoria de ColabHive tiene un techo de unos pocos minutos, y el pedido que no entra ahí no
+# falla por su contenido sino por su tamaño. Partirlo es la única palanca del método.
+#
+# Y NO se baja `LIMITE_AGENTE`: el principio que este repo ya tiene escrito es que un
+# vigilante tiene que perder la carrera contra el error que la herramienta vigilada sabe
+# informar. La plataforma informa su corte con un mensaje claro; si el límite del método
+# cortara antes, taparía ese mensaje con un cuelgue sin causa. Lo que se achica es el
+# TRABAJO por corrida, no la paciencia.
 export LOG_VIGILADO="$BASE/.replan-coherencia.log"
-(
-  cd "$BASE" || exit 1
-  export XDG_DATA_HOME="$BASE/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
-  if [ -n "${MODELO:-}" ]; then COMO=(--model "colabhive/$MODELO"); else COMO=(--agent arquitecto); fi
-  con_limite "${LIMITE_AGENTE:-1800}" opencode run "${COMO[@]}" \
-    "Mirá SOLO los archivos de tareas/, PLAN.md y las migraciones que se nombren. NO explores .venv, node_modules ni .git: hay decenas de miles de archivos ahí y no tienen nada que ver. El preflight del plan encontró esto, y es una contradicción del PLAN, no de ningún agente: $ROJOS. Cada rojo dice qué tarea lo origina. Corregí con la herramienta write SOLO los archivos de tareas/ que haga falta, de modo que la contradicción desaparezca. Para cada tabla tenés exactamente dos salidas y elegís vos: (a) que el enunciado use el nombre que la migración YA crea, o (b) que alguna tarea prometa CREAR esa tabla en una migración, diciéndolo con las palabras 'crear la tabla'. Reglas que no podés romper: (1) no saques ni ablandes ningún criterio de terminado —si hace falta, agregá—; (2) no cambies ningún archivo de test ni el nombre de su clase, los declara el plan; (3) no toques código ni migraciones, sólo tareas/; (4) si la contradicción no se puede resolver sin inventar una decisión de producto, decilo con la palabra HUECO y explicá qué falta, en vez de elegir por tu cuenta." 2>&1
-) > "$LOG_VIGILADO" 2>&1
-RC=$?
+: > "$LOG_VIGILADO"
+n=0; fallo=""
+# El bucle lee de un heredoc y NO de una tubería: `printf | while` corre el cuerpo en un
+# subshell, así que `fallo` y `n` volverían vacíos al terminar y el script informaría que
+# todos los rojos se trataron bien cuando ninguno lo hizo.
+while IFS= read -r rojo; do
+  [ -n "$rojo" ] || continue
+  n=$((n+1))
+  # De qué tarea es, para nombrarle el archivo exacto: con la ruta en el prompt, la corrida
+  # que anduvo tardó 4:09; sin ella, el agente gasta el techo buscando.
+  tid="$(printf '%s\n' "$rojo" | grep -oE '\bT[0-9]+[a-z]?\b' | head -1)"
+  arch="$(cd "$BASE" && ls tareas/${tid}-*.md 2>/dev/null | head -1)"
+  if [ -z "$arch" ]; then
+    echo "  ⊘ rojo $n: no pude ubicar el archivo de «${tid}», lo salteo"
+    fallo="${fallo:+$fallo; }$tid sin archivo"
+    continue
+  fi
+  echo "  · rojo $n/$(printf '%s\n' "$ROJOS" | grep -c .): $tid → $arch"
+  (
+    cd "$BASE" || exit 1
+    export XDG_DATA_HOME="$BASE/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
+    if [ -n "${MODELO:-}" ]; then COMO=(--model "colabhive/$MODELO"); else COMO=(--agent arquitecto); fi
+    con_limite "${LIMITE_AGENTE:-1800}" opencode run "${COMO[@]}" \
+      "Editá UN SOLO archivo: $arch. El preflight del plan encontró esto: $rojo. Abrilo con read y corregilo con write. Tenés dos salidas y elegís vos: (a) que el enunciado use el nombre de tabla que la migración YA crea, o (b) que el enunciado prometa CREAR esa tabla, con las palabras 'crear la tabla'. No cambies nada más del archivo: ni los criterios de terminado, ni el archivo de test, ni el nombre de su clase. Si la contradicción no se puede resolver sin inventar una decisión de producto, no edites y decilo con la palabra HUECO." 2>&1
+  ) >> "$LOG_VIGILADO" 2>&1
+  rc=$?
+  if [ "$rc" = 142 ]; then
+    fallo="${fallo:+$fallo; }$tid: $(motivo_del_corte "$LOG_VIGILADO")"
+  else
+    err="$(error_del_agente "$LOG_VIGILADO" 2>/dev/null)"
+    [ -n "$err" ] && fallo="${fallo:+$fallo; }$tid: $err"
+  fi
+done <<ROJOS_FIN
+$ROJOS
+ROJOS_FIN
+[ -n "$fallo" ] && echo "  ⚠ no todos los rojos se pudieron tratar: $fallo"
 
-if [ "$RC" = 142 ]; then
-  echo "  ✗ el arquitecto no respondió: $(motivo_del_corte "$LOG_VIGILADO")"
-  restaurar; exit 1
-fi
-ERR_PLAT="$(error_del_agente "$LOG_VIGILADO" 2>/dev/null)"
-if [ -n "$ERR_PLAT" ]; then
-  echo "  ✗ no se pudo replanificar: $ERR_PLAT"
-  echo "     Es de la plataforma o la herramienta, no del arquitecto. Reintentá."
-  restaurar; exit 1
-fi
 if grep -qE '^[ \t]*[*#>-]*[ \t]*HUECO\b' "$LOG_VIGILADO" 2>/dev/null; then
   echo "  ⃠ el arquitecto dice que falta una decisión que no es suya:"
   grep -A3 -E '^[ \t]*[*#>-]*[ \t]*HUECO\b' "$LOG_VIGILADO" | head -6 | sed 's/^/     /'
