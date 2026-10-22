@@ -170,6 +170,24 @@ TABLAS_DEL_SISTEMA = {"information_schema", "mysql", "performance_schema", "sys"
                       "_migraciones", "dual"}
 
 
+# Directorios que no son el código del proyecto. Se juzga por PARTES del path y no por
+# subcadena: el filtro decía `"/.venv" in str(f)`, y con `PROYECTO=.` las rutas salen
+# relativas —`.venv/lib/python3.12/...`, sin barra delante— así que no matcheaba y el chequeo
+# se comía las dependencias enteras.
+#
+# Medido el 2026-10-21 contra el mismo proyecto: 2 rojos con `PROYECTO=ejemplo-clasificados`
+# o con ruta absoluta, **37** con `PROYECTO=.`, 35 de ellos de `pip/_vendor/distlib`. El
+# mismo chequeo y dos veredictos distintos según cómo se nombre el proyecto, y `PROYECTO="."`
+# es lo que `ubicar_proyecto` deja cuando se corre desde la raíz del proyecto: el preflight
+# habría detenido el plan por tablas de pip. Un chequeo cuyo resultado depende de cómo lo
+# invocás no mide el sujeto, mide la invocación.
+AJENOS = {".venv", "_env", "__pycache__", "node_modules", ".git", "site-packages"}
+
+
+def es_del_proyecto(f: pathlib.Path) -> bool:
+    return not (AJENOS & set(f.parts))
+
+
 def tablas_que_crean_las_migraciones(base: pathlib.Path):
     """Las que alguna migración CREA. Las `_down.sql` no cuentan: son la reversa."""
     creadas = {}
@@ -192,8 +210,7 @@ def tablas_que_consulta_el_codigo(base: pathlib.Path):
     """`{tabla: [archivo:línea, ...]}` leyendo sólo cadenas que parecen SQL."""
     usadas = {}
     for f in sorted(base.rglob("*.py")):
-        s = str(f)
-        if any(x in s for x in ("/.venv", "/_env", "__pycache__", "/node_modules/")):
+        if not es_del_proyecto(f):
             continue
         try:
             arbol = ast.parse(f.read_text())
@@ -410,7 +427,7 @@ def main():
     codigo = {}
     for f in sorted(base.rglob("*.py")):
         s = str(f)
-        if any(x in s for x in ("/tests/", "/_env", "/.venv", "__pycache__", "/node_modules/")):
+        if "tests" in f.parts or not es_del_proyecto(f):
             continue
         try:
             txt = f.read_text()

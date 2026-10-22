@@ -6590,3 +6590,56 @@ class TestElPreflightTieneCaminoAlArquitecto(unittest.TestCase):
         self.assertEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
         self.assertNotIn("NO_DEBERIA_CORRER", r.stdout)
         self.assertIn("no hay nada que replanificar", r.stdout)
+
+
+class TestElVeredictoNoDependeDeComoLoInvocas(unittest.TestCase):
+    """El filtro de dependencias de `coherencia.py` buscaba la subcadena `/.venv`, y con
+    `PROYECTO=.` las rutas salen relativas —`.venv/lib/python3.12/...`, sin barra delante— así
+    que no matcheaba nada y el chequeo se comía las dependencias enteras.
+
+    Medido el 2026-10-21 contra ejemplo-clasificados: **2 rojos** con `PROYECTO=<carpeta>` o
+    con ruta absoluta, **37** con `PROYECTO=.`, 35 de ellos tablas de `pip/_vendor/distlib`.
+    Y `PROYECTO="."` es exactamente lo que `ubicar_proyecto` deja cuando el método se corre
+    desde la raíz del proyecto, así que el preflight habría detenido el plan por tablas de
+    pip con el sujeto más equivocado posible.
+
+    Un chequeo cuyo resultado depende de cómo lo invocás no mide el sujeto: mide la
+    invocación. Lo que este test fija es la INVARIANCIA, no el número."""
+
+    def proyecto(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-invar-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "tareas").mkdir()
+        (d / "tareas" / "T01-x.md").write_text(
+            "# T01 — Una cosa\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/x.py\n\n## Objetivo\n\nUsar la tabla `usuarios`.\n")
+        (d / "migraciones").mkdir()
+        (d / "migraciones" / "001_initial.sql").write_text(
+            "CREATE TABLE usuarios (id INT PRIMARY KEY);\n")
+        # Una dependencia con SQL adentro, como pip/_vendor/distlib, que NO es del proyecto.
+        dep = d / ".venv" / "lib" / "python3.12" / "site-packages" / "libreria"
+        dep.mkdir(parents=True)
+        (dep / "cache.py").write_text(
+            'def leer(c):\n    c.execute("SELECT * FROM tabla_de_la_libreria")\n')
+        (d / "app").mkdir()
+        (d / "app" / "x.py").write_text(
+            'def leer(c):\n    c.execute("SELECT * FROM usuarios")\n')
+        return d
+
+    def test_las_tres_formas_de_nombrar_el_proyecto_dan_el_mismo_veredicto(self):
+        d = self.proyecto()
+        desde_afuera = correr(f'PROYECTO="{d.name}" python3 "{SCRIPTS}/coherencia.py"', d.parent)
+        absoluta = correr(f'PROYECTO="{d}" python3 "{SCRIPTS}/coherencia.py"', RAIZ)
+        desde_adentro = correr(f'PROYECTO=. python3 "{SCRIPTS}/coherencia.py"', d)
+        codigos = {"relativa": desde_afuera.returncode, "absoluta": absoluta.returncode,
+                   "punto": desde_adentro.returncode}
+        self.assertEqual({0}, set(codigos.values()),
+                         f"el mismo proyecto da veredictos distintos según cómo se nombre: "
+                         f"{codigos}\n--- punto:\n{desde_adentro.stdout}")
+
+    def test_una_tabla_que_vive_en_una_dependencia_no_es_del_proyecto(self):
+        """Y el caso concreto: la tabla de la librería no se le cobra al plan."""
+        d = self.proyecto()
+        r = correr(f'PROYECTO=. python3 "{SCRIPTS}/coherencia.py"', d)
+        self.assertNotIn("tabla_de_la_libreria", r.stdout,
+                         f"el plan no es responsable del SQL de sus dependencias:\n{r.stdout}")
