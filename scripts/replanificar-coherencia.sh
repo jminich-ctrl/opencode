@@ -32,6 +32,12 @@ if [ -z "$ROJOS" ]; then
   echo "✓ el preflight no tiene rojos: no hay nada que replanificar"
   exit 0
 fi
+# Las tablas que YA existen, para ponerlas en el prompt. Sin esto el agente se las va a
+# buscar, y buscar es justo lo que no entra en el techo de la sesión: medido, la corrida de
+# T26 leyó cinco archivos —el enunciado, la migración, `auth.py`, `datos/users.py` y el
+# test— antes de que la memoria la cortara. No decide por él: cuál de las dos salidas tomar
+# sigue siendo del que planifica.
+TABLAS="$(PROYECTO="$BASE" python3 "$AQUI/coherencia.py" --tablas 2>/dev/null | tr '\n' '; ')"
 echo "▶ el arquitecto replanifica el plan. Lo que el preflight encontró:"
 printf '%s\n' "$ROJOS" | sed 's/^/     /'
 
@@ -87,7 +93,7 @@ while IFS= read -r rojo; do
     export XDG_DATA_HOME="$BASE/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
     if [ -n "${MODELO:-}" ]; then COMO=(--model "colabhive/$MODELO"); else COMO=(--agent arquitecto); fi
     con_limite "${LIMITE_AGENTE:-1800}" opencode run "${COMO[@]}" \
-      "Editá UN SOLO archivo: $arch. El preflight del plan encontró esto: $rojo. Abrilo con read y corregilo con write. Tenés dos salidas y elegís vos: (a) que el enunciado use el nombre de tabla que la migración YA crea, o (b) que el enunciado prometa CREAR esa tabla, con las palabras 'crear la tabla'. No cambies nada más del archivo: ni los criterios de terminado, ni el archivo de test, ni el nombre de su clase. Si la contradicción no se puede resolver sin inventar una decisión de producto, no edites y decilo con la palabra HUECO." 2>&1
+      "Editá UN SOLO archivo: $arch. El preflight del plan encontró esto: $rojo. Las tablas que las migraciones YA crean son: ${TABLAS:-ninguna}. Abrí $arch con read y corregilo con write. NO leas código ni tests: la decisión está entre ese enunciado y esa lista, y nada más. Tenés dos salidas y elegís vos: (a) que el enunciado use una tabla de la lista, o (b) que el enunciado prometa CREAR la tabla que nombra, con las palabras 'crear la tabla'. No cambies nada más del archivo: ni los criterios de terminado, ni el archivo de test, ni el nombre de su clase. Si no se puede resolver sin inventar una decisión de producto, no edites y decilo con la palabra HUECO." 2>&1
   ) >> "$LOG_VIGILADO" 2>&1
   rc=$?
   if [ "$rc" = 142 ]; then

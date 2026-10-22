@@ -302,6 +302,21 @@ def tareas_que_la_dan_por_hecha(textos: dict, tabla: str):
 
 def main():
     base = pathlib.Path(os.environ.get("PROYECTO", "."))
+    # `--tablas` imprime lo que las migraciones CREAN, una por línea, y sale.
+    #
+    # Es para el prompt de replanificar-coherencia.sh, y la razón es medida: sin ese dato el
+    # arquitecto se iba a buscarlo solo. Con el prompt que decía «elegís vos entre (a) y (b)»
+    # y sin la lista, la corrida de T26 leyó el enunciado, la migración, `auth.py`,
+    # `datos/users.py` y el test antes de que la memoria la cortara; la de T28, dos archivos.
+    # La única corrida que llegó a escribir —4:09— tenía el nombre de la tabla existente en el
+    # prompt. El dato no decide nada: cuál de las dos salidas tomar sigue siendo del que
+    # planifica. Lo que ahorra es la búsqueda, que es lo que no entra en el techo.
+    if "--tablas" in sys.argv:
+        if not (base / "tareas").is_dir():
+            base = pathlib.Path(".")
+        for t, sql in sorted(tablas_que_crean_las_migraciones(base).items()):
+            print(f"{t} (la crea {sql})")
+        return 0
     if not (base / "tareas").is_dir():
         base = pathlib.Path(".")
     if not (base / "tareas").is_dir():
