@@ -1,6 +1,6 @@
 # T05b — Avisos servicio (validación y dueño)
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T05a
 **Archivos que podés tocar:** backend/app/servicios/ads.py
 **Prohibido tocar:** 
