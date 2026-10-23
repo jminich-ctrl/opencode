@@ -29,6 +29,12 @@ def buscar_anuncios(texto: str, categoria: str | None = None) -> list[dict]:
     """
 ```
 
+## Archivos que deben existir
+
+- `backend/app/datos/search_ads.py` - datos de búsqueda
+- `backend/app/servicios/search.py` - lógica de búsqueda
+- `backend/app/rutas/search.py` - endpoint de búsqueda
+
 ## Tests
 
 > **Si te toca IMPLEMENTAR, esta sección no es trabajo tuyo.** El archivo de test ya
