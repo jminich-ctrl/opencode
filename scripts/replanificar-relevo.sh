@@ -95,6 +95,25 @@ PYR
 
   mal=""
   cmp -s "$archivo" "$archivo.previo" && mal="no reescribió nada"
+  # UNA TAREA, UN DOCUMENTO. El enunciado tiene que seguir siendo UN enunciado.
+  #
+  # El 2026-10-23 el relevo "replanificó" T28 agregando una versión nueva COMPLETA al final
+  # en vez de reemplazar la vieja: el archivo pasó de 59 a 96 líneas con dos `# T28`, dos
+  # `**Estado:**` y dos `## Tests`. Y los cuatro jueces lo aprobaron —validar-plan.py dijo
+  # que el plan validaba, los criterios habían AUMENTADO y la declaración de test duplicada
+  # coincidía con la original—, porque todos miran propiedades del contenido y ninguno
+  # pregunta si el documento sigue siendo uno.
+  #
+  # Es el mismo agujero que un bullet comido unas horas antes, en escala mayor: 37 líneas
+  # duplicadas en vez de un guion de menos. Lo que faltaba no era otro chequeo de contenido
+  # sino uno de INTEGRIDAD.
+  for enc in '^# T[0-9]' '^\*\*Estado:' '^## Tests'; do
+    n="$(grep -c "$enc" "$archivo" || true)"
+    # Sin «» alrededor de la variable: el patrón lleva `[`, `*` y `#`, y pegado a un
+    # multibyte el mensaje sale cortado («duplicado: 2 veces «?»). Es el mismo defecto de
+    # portabilidad que TestPortabilidadBash32 vigila y que ya cometí hoy con «$tid».
+    [ "${n:-0}" -le 1 ] || mal="${mal:+$mal; }el enunciado quedó duplicado: $n veces el patron $enc"
+  done
   CRIT_DESPUES="$(grep -c '^- \[ \]' "$archivo" || true)"
   [ "${CRIT_DESPUES:-0}" -lt "${CRIT_ANTES:-0}" ] && mal="${mal:+$mal; }achicó los criterios: $CRIT_ANTES → $CRIT_DESPUES"
   TEST_DESPUES="$(grep -oE '`[a-zA-Z0-9_/.]*tests?/[a-zA-Z0-9_.]+`.*clase `[A-Za-z0-9_]+`' "$archivo" | head -1)"

@@ -45,10 +45,28 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
   else
     FASE="El test '$TEST_TAREA' existe y falló la IMPLEMENTACIÓN contra él."
   fi
-  MOTIVO="$FASE  Lo que falló: $( { sed 's/\x1b\[[0-9;]*m//g' "${ULTIMO:-/dev/null}" 2>/dev/null \
+  # EL ERROR CONCRETO PRIMERO, la categoría sólo si no hay nada mejor.
+  #
+  # Este extractor buscaba `✗|por qué falla` y nada más. El 2026-10-23 el único `✗` del
+  # transcript de T28 era la línea genérica «✗ la suite está en rojo», así que el arquitecto
+  # recibió eso —una categoría— sobre una tarea cuyo test todavía no existe, y no cambió
+  # nada: con esa información no hay nada que arreglar. Ocho minutos de agente para nada.
+  #
+  # El dato estaba en el mismo archivo, en la línea 137:
+  #   E  AssertionError: Expected 'execute' to be called once. Called 0 times.
+  #
+  # Es LA MISMA lección que este script ya tiene escrita doce líneas más arriba —«es el
+  # mismo defecto que le encontré al gate: la categoría en vez del dato»— y volvió porque el
+  # arreglo anterior acotó CUÁNTO se pasaba (un transcript, la fase que falló) y no QUÉ. El
+  # patrón de búsqueda es el que el gate ya usa para su «por qué falla».
+  CONCRETO="$(sed 's/\x1b\[[0-9;]*m//g' "${ULTIMO:-/dev/null}" 2>/dev/null \
+    | grep -E '^E +|(Import|Module|Attribute|Type|Name|Assertion|Value)Error|^ *>? *assert ' \
+    | sed 's/^ *//' | sort -u | head -6)"
+  GENERICO="$( { sed 's/\x1b\[[0-9;]*m//g' "${ULTIMO:-/dev/null}" 2>/dev/null \
                  | grep -E '✗|por qué falla' | head -6
                sed 's/\x1b\[[0-9;]*m//g' "$RAIZ/../tests-$id/.tests.log" 2>/dev/null \
-                 | grep -E '^  ✗' | head -4; } | sort -u | tr '\n' ' ' | cut -c1-600)"
+                 | grep -E '^  ✗' | head -4; } | sort -u)"
+  MOTIVO="$FASE  Lo que falló: $(printf '%s\n%s\n' "$CONCRETO" "$GENERICO" | grep . | tr '\n' ' ' | cut -c1-600)"
   if [ -z "$MOTIVO" ]; then
     echo "✗ $id: no hay transcripts de fallo en $FALLIDOS ni en ../tests-$id."
     echo "   Replanificar sin el motivo es adivinar. Corré la tarea primero."
@@ -113,6 +131,25 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
     mv "$archivo.previo" "$archivo"
     continue
   fi
+  # UNA TAREA, UN DOCUMENTO. El enunciado tiene que seguir siendo UN enunciado.
+  #
+  # El 2026-10-23 el relevo "replanificó" T28 agregando una versión nueva COMPLETA al final
+  # en vez de reemplazar la vieja: el archivo pasó de 59 a 96 líneas con dos `# T28`, dos
+  # `**Estado:**` y dos `## Tests`. Y los cuatro jueces lo aprobaron —validar-plan.py dijo
+  # que el plan validaba, los criterios habían AUMENTADO y la declaración de test duplicada
+  # coincidía con la original—, porque todos miran propiedades del contenido y ninguno
+  # pregunta si el documento sigue siendo uno.
+  #
+  # Es el mismo agujero que un bullet comido unas horas antes, en escala mayor: 37 líneas
+  # duplicadas en vez de un guion de menos. Lo que faltaba no era otro chequeo de contenido
+  # sino uno de INTEGRIDAD.
+  for enc in '^# T[0-9]' '^\*\*Estado:' '^## Tests'; do
+    n="$(grep -c "$enc" "$archivo" || true)"
+    # Sin «» alrededor de la variable: el patrón lleva `[`, `*` y `#`, y pegado a un
+    # multibyte el mensaje sale cortado («duplicado: 2 veces «?»). Es el mismo defecto de
+    # portabilidad que TestPortabilidadBash32 vigila y que ya cometí hoy con «$tid».
+    [ "${n:-0}" -le 1 ] || mal="${mal:+$mal; }el enunciado quedó duplicado: $n veces el patron $enc"
+  done
   CRIT_DESPUES="$(grep -c '^- \[ \]' "$archivo" || true)"
   [ "${CRIT_DESPUES:-0}" -lt "${CRIT_ANTES:-0}" ] \
     && mal="achicó los criterios de terminado: de $CRIT_ANTES a $CRIT_DESPUES"
