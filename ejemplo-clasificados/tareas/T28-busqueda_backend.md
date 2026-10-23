@@ -1,6 +1,6 @@
 # T28 — Búsqueda backend (texto y categoría)
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T05a, T06c
 **Archivos que podés tocar:** backend/app/rutas/search.py, backend/app/servicios/search.py, backend/app/datos/search_ads.py
 **Prohibido tocar:** Ninguno

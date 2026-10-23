@@ -99,7 +99,7 @@ vez de la aplicación.
 | T13 | Sistema de diseño propio en SCSS | T30 | frontend/src/design/_variables.scss, frontend/src/design/_mixins.scss, frontend/src/design/main.scss | ✅ hecha |
 | T26 | Registro backend (creación de cuenta) | T03, T06c | backend/app/rutas/register.py, backend/app/servicios/register.py, backend/app/datos/users_register.py | ✅ hecha |
 | T27 | Registro frontend (página y servicio) | T31 | frontend/src/pages/Register.jsx, frontend/src/services/register.ts | ✅ hecha |
-| T28 | Búsqueda backend (texto y categoría) | T05a, T06c | backend/app/rutas/search.py, backend/app/servicios/search.py, backend/app/datos/search_ads.py | pendiente |
+| T28 | Búsqueda backend (texto y categoría) | T05a, T06c | backend/app/rutas/search.py, backend/app/servicios/search.py, backend/app/datos/search_ads.py | ✅ hecha |
 | T29 | Búsqueda frontend (UI y servicio) | T08 | frontend/src/components/SearchBar.jsx, frontend/src/services/search.ts | ✅ hecha |
 > Las etapas **no se declaran acá**: se deducen de la tabla de arriba, que es lo que
 > respeta las dependencias y los choques de archivo sin que nadie tenga que acordarse.
