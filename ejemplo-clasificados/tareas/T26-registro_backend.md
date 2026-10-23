@@ -1,6 +1,6 @@
 # T26 — Registro backend (creación de cuenta)
 
-**Estado:** ✅ hecha
+**Estado:** pendiente (reabierta el 2026-10-23: su implementación consultaba una tabla que ninguna migración crea, así que su gate verde fue falso)
 **Depende de:** T03, T06c
 **Archivos que podés tocar:** backend/app/rutas/register.py, backend/app/servicios/register.py, backend/app/datos/users_register.py
 **Prohibido tocar:** Ninguno

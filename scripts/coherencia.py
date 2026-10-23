@@ -300,6 +300,39 @@ def tareas_que_la_dan_por_hecha(textos: dict, tabla: str):
     return list(tablas_que_los_enunciados_dan_por_hechas(textos).get(tabla.lower(), []))
 
 
+# ¿De qué tarea es este archivo, y esa tarea ya corrió?
+#
+# Sin esto el preflight se trababa a sí mismo. El código de `users_register.py` contradice el
+# esquema, la tarea que lo arregla (T26) declara ese archivo entre los que puede tocar, y el
+# preflight hacía `exit 1` ANTES de dejarla correr: el chequeo impedía arreglar el defecto que
+# el chequeo señalaba. Y no es un caso raro: en un método tests-first el código siempre está
+# peor que el plan, porque el plan se corrige en segundos y el código necesita una corrida.
+#
+# La distinción que importa no es «hay una tarea» sino SI YA CORRIÓ:
+#   · tarea pendiente → aviso. Va a correr y su gate la va a juzgar.
+#   · tarea hecha     → ROJO, y el sujeto es el veredicto: figura hecha y su código no puede
+#                       funcionar, así que su gate dio un verde falso y hay que reabrirla.
+# Eso es lo contrario de ablandar: convierte un bloqueo mudo en la acusación correcta.
+RE_ESTADO = re.compile(r"^\*\*Estado:\*\*\s*(.+)$", re.M)
+RE_TOCAR = re.compile(r"^\*\*Archivos que podés tocar:\*\*\s*(.+)$", re.M)
+
+
+def duenio_del_archivo(textos: dict, ruta: str):
+    """`(TNN, hecha)` de la tarea que declara este archivo, o `(None, False)`."""
+    ruta = ruta.split(":")[0].lstrip("./")
+    for tid, texto in sorted(textos.items()):
+        m = RE_TOCAR.search(texto)
+        if not m:
+            continue
+        declarados = [a.strip().lstrip("./") for a in m.group(1).split(",")]
+        if not any(ruta == d or ruta.endswith("/" + d) or d.endswith("/" + ruta) for d in declarados):
+            continue
+        e = RE_ESTADO.search(texto)
+        estado = (e.group(1) if e else "").lower()
+        return tid, ("hecha" in estado or "✅" in estado)
+    return None, False
+
+
 def main():
     base = pathlib.Path(os.environ.get("PROYECTO", "."))
     # `--tablas` imprime lo que las migraciones CREAN, una por línea, y sale.
@@ -426,11 +459,25 @@ def main():
                                  f"y {', '.join(cargo)} se hace cargo: el plan puede arrancar, "
                                  f"pero hasta que esa tarea pase, todo lo que consulte `{tabla}` falla.")
             else:
-                rojos.append(("esquema",
-                              f"el código consulta la tabla `{tabla}` y ninguna migración la "
-                              f"crea — {donde}."
-                              f"{pista} Lo decide quien planifica: o la migración la crea, o el "
-                              f"código usa la que existe."))
+                tid_d, hecha = duenio_del_archivo(textos, lugares[0])
+                if tid_d and not hecha:
+                    cubiertos.append(
+                        f"el código consulta la tabla `{tabla}` y ninguna migración la crea "
+                        f"({donde}).{pista} {tid_d} declara ese archivo y está PENDIENTE: va a "
+                        f"correr y su gate la va a juzgar. El plan puede arrancar.")
+                elif tid_d and hecha:
+                    rojos.append(("esquema",
+                                  f"{tid_d} figura HECHA y su código consulta la tabla "
+                                  f"`{tabla}`, que ninguna migración crea — {donde}."
+                                  f"{pista} Su gate dio un veredicto falso: ese código no "
+                                  f"puede funcionar. Hay que REABRIR {tid_d}, no parchear a "
+                                  f"mano."))
+                else:
+                    rojos.append(("esquema",
+                                  f"el código consulta la tabla `{tabla}` y ninguna migración la "
+                                  f"crea — {donde}."
+                                  f"{pista} Ninguna tarea declara ese archivo: lo decide quien "
+                                  f"planifica, o la migración la crea, o el código usa la que existe."))
 
     # ── AVISO: un enunciado nombra `mod.func` y el CÓDIGO usa `mod.otra` ─────────────
     #
