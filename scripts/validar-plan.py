@@ -127,13 +127,31 @@ def cubierto(ruta, otros):
 
 
 # ── Cada archivo de tarea: las cabeceras que el gate y el runner leen de verdad
+vacios = []
 CABECERAS = ["**Estado:**", "**Depende de:**", "**Archivos que podés tocar:**"]
+# El campo que el gate LEE no debería quedar en blanco: un vacío no dice lo mismo que
+# «Ninguno». Pero es AVISO y no error, y el número es la razón.
+#
+# Medido en clasificados: 25 de 34 tareas tienen «**Prohibido tocar:**» vacío, 9 con valor, y
+# 4 de esas 9 dicen literalmente «Ninguno». En pacman todas tienen valor. O sea que en este
+# proyecto el vacío se viene usando como sinónimo de «Ninguno»: no es un campo mutilado, es
+# una convención inconsistente.
+#
+# Mi primera versión lo puso como ERROR y dejó 25 enunciados en rojo, deteniendo el plan para
+# pedir que alguien escriba «Ninguno» 25 veces. Eso es sobre-corrección —el mismo defecto que
+# cometí hoy reponiendo prefijos de markdown— y en el chequeo que decide si el plan arranca
+# cuesta una corrida entera.
+VACIOS_AVISAN = ["**Prohibido tocar:**"]
 for tid in sorted(set(tareas) & set(en_disco)):
     f = en_disco[tid][0]
     cuerpo = f.read_text()
     for c in CABECERAS:
         if c not in cuerpo:
             errores.append(f"{f.name} no tiene la línea {c}")
+    for c in VACIOS_AVISAN:
+        m_v = re.search(r"^" + re.escape(c) + r" *(.*)$", cuerpo, re.M)
+        if m_v and not m_v.group(1).strip():
+            vacios.append(f.name)
     # La cabecera del archivo contra la fila de la tabla. Son dos declaraciones de lo mismo
     # y nada las cruzaba: si el plan dice que T13 depende de T31 y su archivo dice T30, el
     # runner usa la tabla para ordenar las etapas y el agente lee el archivo. Lo creamos
@@ -409,6 +427,11 @@ else:
 # ── El estado del gate G0 tiene que estar firmado por alguien, no por el agente
 if re.search(r"\*\*Estado del gate G0:\*\*.*borrador", texto):
     avisos.append("el plan sigue marcado como «borrador»: G0 lo firma una persona")
+
+if vacios:
+    avisos.append(f"{len(vacios)} tarea(s) con **Prohibido tocar:** en blanco "
+                  f"({', '.join(sorted(vacios)[:3])}{'...' if len(vacios) > 3 else ''}): el "
+                  f"gate lee ese campo, conviene que diga «Ninguno» en vez de quedar vacío")
 
 for e in errores:
     print(f"  ✗ {e}")
