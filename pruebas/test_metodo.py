@@ -6483,20 +6483,32 @@ class TestUnEnunciadoQueDaPorHechaUnaTabla(unittest.TestCase):
         self.assertEqual(0, r.returncode, f"sin migraciones no hay con qué comparar:\n{r.stdout}")
 
     def test_el_control_contra_los_dos_proyectos_de_ejemplo(self):
-        """Contra clasificados tiene que encontrar los DOS casos reales —`users` en T26 y
-        `ads` en T28, que además todavía no se ejecutó— y contra pacman, que no tiene SQL,
-        ninguno. Si encuentra algo en pacman, el extractor está inventando."""
-        if not (RAIZ / "ejemplo-clasificados" / "tareas").is_dir():
-            self.skipTest("no está ejemplo-clasificados")
-        r = correr(f'PROYECTO=ejemplo-clasificados python3 "{SCRIPTS}/coherencia.py"', RAIZ)
-        self.assertIn("`users`", r.stdout, f"el cadáver de T26:\n{r.stdout}")
-        self.assertIn("`ads`", r.stdout, f"y el de T28, que todavía no se gastó:\n{r.stdout}")
+        """El control mide que el chequeo NO INVENTE, no que encuentre cadáveres concretos.
+
+        La primera versión exigía hallar `users` en T26 y `ads` en T28, que eran los dos casos
+        reales del 2026-10-23. Cuando el método los arregló —los corrigieron dos modelos
+        locales en dos segundos— este test se puso ROJO: ataba la suite a un estado
+        transitorio del ejemplo, así que **castigaba el progreso**. Es el defecto que este
+        repo ya tiene anotado —tests que miden la ubicación en vez de la propiedad— cometido
+        en el test de control.
+
+        La propiedad la miden los cinco tests de arriba, con proyectos temporales que
+        contienen la contradicción a propósito. Acá sólo se verifica lo que no depende de
+        cuándo se corra: que un proyecto sin SQL no produzca hallazgos de tabla, y que contra
+        un proyecto real el chequeo termine sin reventar."""
         pac = RAIZ / "ejemplo-pacman"
-        if not (pac / "tareas").is_dir():
-            self.skipTest("no está ejemplo-pacman")
-        r = correr(f'PROYECTO=ejemplo-pacman python3 "{SCRIPTS}/coherencia.py"', RAIZ)
-        self.assertNotIn("da por hecha la tabla", r.stdout,
-                         f"un proyecto sin SQL no puede tener tablas faltantes:\n{r.stdout}")
+        if (pac / "tareas").is_dir():
+            r = correr(f'PROYECTO=ejemplo-pacman python3 "{SCRIPTS}/coherencia.py"', RAIZ)
+            self.assertNotIn("da por hecha la tabla", r.stdout,
+                             f"un proyecto sin SQL no puede tener tablas faltantes:\n{r.stdout}")
+        cla = RAIZ / "ejemplo-clasificados"
+        if (cla / "tareas").is_dir():
+            r = correr(f'PROYECTO=ejemplo-clasificados python3 "{SCRIPTS}/coherencia.py"', RAIZ)
+            self.assertIn(r.returncode, (0, 1),
+                          f"contra un proyecto real tiene que dar veredicto, no reventar:"
+                          f"\n{r.stdout}{r.stderr}")
+            self.assertNotIn("Traceback", r.stdout + r.stderr,
+                             f"y sin excepciones:\n{r.stdout}{r.stderr}")
 
 
 class TestElPreflightTieneCaminoAlArquitecto(unittest.TestCase):
