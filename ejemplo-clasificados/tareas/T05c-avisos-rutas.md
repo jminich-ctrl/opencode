@@ -8,61 +8,72 @@
 
 ## Objetivo
 
-Los endpoints HTTP de los avisos, con la autorización del usuario.
-> **Esta tarea sale de partir T05.** T05 pedía las tres capas y los cinco endpoints en un
-> solo enunciado, y falló seis veces con seis diagnósticos distintos —presupuesto, un test
-> que contradecía el esquema, el dialecto SQL, la capa del test, la autenticación y el patch
-> mal apuntado—. Cada arreglo la hacía llegar un paso más lejos, que es la firma de una tarea
-> que pide demasiado de una vez. Y el plan ya partía así todo lo demás: favoritos en
-> T14/T15/T16 y mensajes en T20/T21/T22, una capa por tarea. T05 era la anomalía.
-
+Implementar los endpoints HTTP CRUD para los avisos, incluyendo la autorización del usuario.
 
 ## Alcance
 
-Entra:
-- `POST /ads`, `GET /ads`, `GET /ads/{id}`, `PUT /ads/{id}`, `DELETE /ads/{id}`.
-- Autenticación por `Authorization: Bearer <token>`.
-- Traducción de errores a códigos HTTP: 400 inválido, 401 sin sesión, 403 no es tu aviso, 404 no existe.
+Los endpoints a implementar son:
+- `POST /ads` - Crear un nuevo anuncio
+- `GET /ads` - Listar todos los anuncios
+- `GET /ads/{id}` - Obtener un anuncio específico
+- `PUT /ads/{id}` - Actualizar un anuncio existente
+- `DELETE /ads/{id}` - Eliminar un anuncio
 
-No entra:
-- Validación de datos ni SQL: ya están en T05b y T05a.
-- Favoritos ni mensajes.
+Todos los endpoints requieren autenticación mediante `Authorization: Bearer <token>`.
 
-## Contrato
+## Implementación
 
-```python
-# backend/app/rutas/ads.py
-router  # APIRouter — main.py monta solo los módulos de rutas/ que tengan `router`
-```
+### Estructura del módulo
+El archivo `backend/app/rutas/ads.py` debe contener:
+- Un `APIRouter` llamado `router`
+- Rutas para los cinco endpoints mencionados
+- Importaciones necesarias desde los módulos de servicios y autenticación
 
-| endpoint | 2xx | errores |
-|---|---|---|
-| `POST /ads` | 201 con `{"id": …}` | 400 inválido · 401 sin sesión |
-| `GET /ads` | 200 con la lista | — |
-| `GET /ads/{id}` | 200 con el aviso | 404 no existe |
-| `PUT /ads/{id}` | 200 | 400 · 401 · 403 no es tuyo · 404 |
-| `DELETE /ads/{id}` | 204 | 401 · 403 · 404 |
+### Flujo de autenticación
+Para validar la autenticación:
+1. Extraer el token del encabezado `Authorization: Bearer <token>`
+2. Usar la función `usuario_desde_token(token)` del módulo `backend/app/servicios/auth.py`
+3. Manejar errores de autenticación (401 sin sesión)
 
-**Cómo se sabe quién pide:** `usuario_desde_token(token)` de `servicios/auth.py`, que provee
-T04b. El token viaja en `Authorization: Bearer <token>`.
+### Manejo de errores
+Los códigos HTTP deben corresponder a los especificados en el contrato:
+- 400: Datos inválidos
+- 401: Sin sesión
+- 403: No es tu aviso (permisos)
+- 404: No existe
 
-**El test NO toca MySQL ni la base: mockea lo que esta capa USA, y lo mockea en ESTE módulo**
-—se parchea donde el nombre se busca, no donde se define (`AGENTS.md`)—:
+### Detalles de implementación
 
-```python
-with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7), \
-     patch('backend.app.rutas.ads.crear_anuncio', return_value=123) as mock_crear:
-    r = TestClient(app).post("/ads", json={...},
-                             headers={"Authorization": "Bearer cualquiera"})
-    assert r.status_code == 201
-```
+#### POST /ads
+- Recibe datos del anuncio en el cuerpo JSON
+- Valida los datos (se asume que ya está hecho en T05b y T05a)
+- Llama a `crear_anuncio(usuario_id, categoria_id, titulo, descripcion, precio_centavos)` del módulo `backend/app/servicios/ads.py`
+- Retorna 201 con `{"id": <id>}`
 
-Así la ruta puede importar como quiera (`from backend.app.servicios.ads import crear_anuncio`
-está bien) y no hace falta recordar ninguna convención de import. La versión anterior de esta
-tarea pedía parchear el módulo que DEFINE las funciones y exigirle a la ruta un estilo de
-import antinatural: el agente escribió el import directo las dos veces y se comió
-`assert 401 == 201` las dos. **Se apunta el patch donde el nombre se busca; no se le pide al
-código un estilo raro para que funcione un patch mal apuntado.**
+#### GET /ads
+- Retorna 200 con la lista de anuncios
+- **HUECO**: No existe función para listar todos los anuncios en la capa de servicios ni datos
+
+#### GET /ads/{id}
+- Retorna 200 con los detalles del anuncio
+- Maneja el caso 404 si el anuncio no existe
+- Llama a `obtener_anuncio(ad_id)` del módulo `backend/app/servicios/ads.py`
+
+#### PUT /ads/{id}
+- Recibe datos actualizados del anuncio en el cuerpo JSON
+- Valida los datos (se asume que ya está hecho en T05b y T05a)
+- Verifica que el usuario sea el dueño del anuncio (403 si no lo es)
+- Llama a `actualizar_anuncio(ad_id, usuario_id, titulo, descripcion, precio_centavos)` del módulo `backend/app/servicios/ads.py`
+- Retorna 200
+
+#### DELETE /ads/{id}
+- Verifica que el usuario sea el dueño del anuncio (403 si no lo es)
+- Llama a `eliminar_anuncio(ad_id, usuario_id)` del módulo `backend/app/servicios/ads.py`
+- Retorna 204
+
+## Pruebas
+
+Los tests para esta implementación se encuentran en `backend/tests/test_ads_rutas.py` y deben pasar sin tocar MySQL, usando mocks de las capas superiores.
 
 ## Tests
 
