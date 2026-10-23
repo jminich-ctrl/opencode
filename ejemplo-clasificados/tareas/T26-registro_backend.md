@@ -8,7 +8,7 @@
 
 ## Objetivo
 
-Permitir crear una cuenta de usuario mediante endpoint POST `/register` que almacene los datos en la tabla `users`.
+Permitir crear una cuenta de usuario mediante endpoint POST `/register` que almacene los datos en la tabla `usuarios`.
 
 ## Alcance
 
