@@ -88,7 +88,7 @@ vez de la aplicación.
 | T17 | Favoritos servicio frontend | T16, T08 | frontend/src/services/favorites.ts | pendiente |
 | T18 | Favoritos UI lista | T17 | frontend/src/pages/AdsList.jsx | pendiente |
 | T19 | Favoritos SCSS | T18 | frontend/src/design/_favorites.scss | pendiente |
-| T20 | Mensajes datos | T05a | backend/app/datos/messages.py | pendiente |
+| T20 | Mensajes datos | T05a | backend/app/datos/messages.py | ✅ hecha |
 | T21 | Mensajes servicio | T20 | backend/app/servicios/messages.py | pendiente |
 | T22 | Mensajes rutas | T21, T06c | backend/app/rutas/messages.py | pendiente |
 | T23 | Mensajes servicio frontend | T22 | frontend/src/services/messages.ts | pendiente |

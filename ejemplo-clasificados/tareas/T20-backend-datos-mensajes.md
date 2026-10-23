@@ -1,6 +1,6 @@
 # T20 — Backend datos mensajes
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T05a
 **Archivos que podés tocar:** backend/app/datos/messages.py
 **Prohibido tocar:** 
