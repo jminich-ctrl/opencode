@@ -1,6 +1,6 @@
 # T14 — Backend datos favoritos
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T05a
 **Archivos que podés tocar:** backend/app/datos/favorites.py
 **Prohibido tocar:** 
