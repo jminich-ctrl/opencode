@@ -28,7 +28,7 @@
           "reasoning": true,
           "temperature": true,
           "limit": {
-            "context": 116000,
+            "context": 120000,
             "output": 8625
           }
         },
@@ -58,7 +58,7 @@
           "reasoning": true,
           "temperature": true,
           "limit": {
-            "context": 53000,
+            "context": 120000,
             "output": 8192
           }
         },
@@ -98,8 +98,8 @@
           "reasoning": false,
           "temperature": true,
           "limit": {
-            "context": 32000,
-            "output": 16384
+            "context": 23000,
+            "output": 2875
           }
         },
         "669dce01-ebb7-4131-946b-cf18100b3e34": {
