@@ -8481,3 +8481,127 @@ class TestLoProhibidoNoSeExplicaEnProsa(unittest.TestCase):
             fuente = (SCRIPTS / n).read_text()
             self.assertIn("DÓNDE vive cada cosa", fuente, f"{n}")
             self.assertIn("import exacto", fuente, f"{n}")
+
+
+class TestLaVentanaDeclaradaNoEsLaUsable(unittest.TestCase):
+    """El monitoreo cruza el contexto DECLARADO contra el SERVIDO, y las dos cifras pueden
+    coincidir mientras el modelo no recupere nada del medio del prompt. Udgam Labs lo midió en
+    su propio modelo: la recuperación a 3.500 tokens pasó del 1% al 83% después de preentrenar
+    en ventana larga, con el mismo tamaño declarado antes y después.
+
+    Para este método importa más que para un chat: lo que mandamos es el enunciado más
+    AGENTS.md más los archivos que la tarea nombra. Si el modelo no recupera del medio, lo que
+    se degrada en silencio es el ENUNCIADO — y el veredicto que salga va a nombrar a la tarea.
+
+    Medido el 2026-10-24 contra los tres modelos de la corrida, al 10%, 50% y 90% de ~21.600
+    tokens: los tres recuperaron la aguja. El 27B tardó 34s contra 7-10s de los otros dos, y
+    contestó con su razonamiento adelante en vez de sólo el código."""
+
+    def servidor(self, responde):
+        """Un `/chat/completions` que contesta lo que diga `responde(prompt)`."""
+        import http.server, threading
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                pedido = json.loads(self.rfile.read(n).decode("utf-8", "replace"))
+                texto = responde(pedido["messages"][0]["content"])
+                cuerpo = json.dumps(
+                    {"choices": [{"message": {"content": texto}}]}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(cuerpo)))
+                self.end_headers()
+                self.wfile.write(cuerpo)
+
+            def log_message(self, *a):
+                pass
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return f"http://127.0.0.1:{srv.server_address[1]}/v1"
+
+    def medir(self, responde, **env):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-ventana-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        cfg = d / "opencode.json"
+        cfg.write_text(json.dumps({"provider": {"c": {"models": {
+            "m1": {"limit": {"context": 8000}}}}}}))
+        base = dict(TECHO_TOKENS="600", PROFUNDIDADES="0.5", CONFIG_OC=str(cfg))
+        base.update(env)
+        return correr(f'python3 "{SCRIPTS}/medir-ventana.py" m1', RAIZ,
+                      COLABHIVE_BASE_URL=self.servidor(responde),
+                      COLABHIVE_API_KEY="x", **base)
+
+    def test_un_modelo_que_recupera_la_aguja_da_verde(self):
+        r = self.medir(lambda p: "7314-QX")
+        self.assertEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("✓", r.stdout, f"\n{r.stdout}")
+
+    def test_un_modelo_que_NO_la_recupera_da_rojo_y_dice_dónde(self):
+        r = self.medir(lambda p: "no encontré ningún código")
+        self.assertNotEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("NO recuperan", r.stdout, f"\n{r.stdout}")
+        self.assertIn("50%", r.stdout, f"tiene que decir a qué profundidad:\n{r.stdout}")
+
+    def test_la_aguja_va_a_la_profundidad_pedida_y_no_al_final(self):
+        """Si la aguja quedara siempre al final, el test mediría el final del prompt —lo más
+        fácil de recuperar— y daría verde con cualquier modelo."""
+        visto = {}
+
+        def responde(prompt):
+            i = prompt.find("7314-QX")
+            visto["frac"] = i / max(len(prompt), 1)
+            return "7314-QX"
+
+        self.medir(responde, PROFUNDIDADES="0.25")
+        self.assertLess(visto["frac"], 0.45,
+                        f"al 25% la aguja tiene que estar en el primer tramo: "
+                        f"quedó en {visto['frac']:.2f}")
+
+    def test_la_evidencia_impresa_sostiene_el_veredicto(self):
+        """La primera versión mostraba los primeros 48 caracteres crudos, y para el 27B eso
+        era «We need answer user's request...» —su razonamiento— al lado de un ✓: el valor
+        estaba más adelante. Un ✓ junto a una evidencia que no lo muestra es ilegible en el
+        mejor caso y una mentira en el peor."""
+        r = self.medir(lambda p: "Pensemos. El usuario pide algo en castellano. " * 3
+                                 + "\n7314-QX")
+        self.assertEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        linea = [l for l in r.stdout.splitlines() if "✓" in l and "%" in l][0]
+        self.assertIn("7314-QX", linea,
+                      f"el renglón del ✓ tiene que mostrar la aguja:\n{linea}")
+
+    def test_un_corte_de_plataforma_no_es_un_modelo_que_falla(self):
+        """La lección del defecto 19: un chequeo que no pudo correr no dice «rojo» sobre el
+        sujeto que vino a medir. Acá un 503 no es un modelo que no recupera."""
+        import http.server, threading
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.send_response(503); self.send_header("Content-Length", "2")
+                self.end_headers(); self.wfile.write(b"{}")
+
+            def log_message(self, *a):
+                pass
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close); self.addCleanup(srv.shutdown)
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-ventana-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        cfg = d / "opencode.json"
+        cfg.write_text(json.dumps({"provider": {"c": {"models": {"m1": {}}}}}))
+        r = correr(f'python3 "{SCRIPTS}/medir-ventana.py" m1', RAIZ,
+                   COLABHIVE_BASE_URL=f"http://127.0.0.1:{srv.server_address[1]}/v1",
+                   COLABHIVE_API_KEY="x", TECHO_TOKENS="600", PROFUNDIDADES="0.5",
+                   CONFIG_OC=str(cfg), PACIENCIA="5")
+        self.assertIn("⊘", r.stdout, f"\n{r.stdout}{r.stderr}")
+        self.assertNotIn("NO recuperan", r.stdout,
+                         f"no se le puede cobrar al modelo un corte de plataforma:\n{r.stdout}")
+
+    def test_sin_plataforma_configurada_no_opina(self):
+        r = correr(f'python3 "{SCRIPTS}/medir-ventana.py" m1', RAIZ,
+                   COLABHIVE_BASE_URL="")
+        self.assertEqual(2, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("⊘", r.stderr, f"\n{r.stderr}")
