@@ -35,6 +35,7 @@ cd "$BASE"
 ROJOS="$(PROYECTO="$BASE" python3 "$AQUI/coherencia.py" 2>&1 | grep '✗' || true)"
 [ -n "$ROJOS" ] || { echo "✓ el preflight no tiene rojos: nada que replanificar"; exit 0; }
 TABLAS="$(PROYECTO="$BASE" python3 "$AQUI/coherencia.py" --tablas 2>/dev/null | tr '\n' ';')"
+COLUMNAS="$(PROYECTO="$BASE" python3 "$AQUI/coherencia.py" --columnas 2>/dev/null | tr '\n' ';')"
 echo "▶ replanificando sin canal de memoria. Lo que el preflight encontró:"
 printf '%s\n' "$ROJOS" | sed 's/^/     /'
 
@@ -51,15 +52,38 @@ fallo=""
 while IFS= read -r rojo; do
   [ -n "$rojo" ] || continue
   tid="$(printf '%s\n' "$rojo" | grep -oE '\bT[0-9]+[a-z]?\b' | head -1)"
+  # DOS CLASES DE ROJO, no una. Este script nació para las tablas y desde el 2026-10-24 el
+  # preflight también da rojos de COLUMNA. Sin esto decía «no pude ubicar archivo o tabla» y
+  # el rojo se quedaba sin nadie que lo trate.
+  #
+  # Y el canal plano es el vehículo correcto para los dos: el router con arnés le pide
+  # escribir al modelo del agente `arquitecto`, que está MEDIDO como el que no escribe
+  # —«Qwen3.8-27B razonamiento 6/6 · replanificando NO llamó a write», en el encabezado del
+  # relevo—. Hoy se vio otra vez: ante este mismo rojo se pasó el turno citando el prompt y
+  # razonándolo frase por frase, llegó a la conclusión correcta («anuncios has categoria_id»)
+  # y se le acabó antes de actuar. Por POST plano, el ejecutor devuelve la línea corregida en
+  # segundos.
   tabla="$(printf '%s\n' "$rojo" | grep -oE 'tabla `[a-z_]+`' | head -1 | tr -d '`' | awk '{print $2}')"
+  columna="$(printf '%s\n' "$rojo" | grep -oE 'columna `[a-z_]+`' | head -1 | tr -d '`' | awk '{print $2}')"
   arch="$(ls tareas/${tid}-*.md 2>/dev/null | head -1)"
-  [ -n "$arch" ] && [ -n "$tabla" ] || { fallo="${fallo:+$fallo; }$tid: no pude ubicar archivo o tabla"; continue; }
-  linea="$(grep -n "tabla \`$tabla\`" "$arch" | head -1)"
-  [ -n "$linea" ] || { fallo="${fallo:+$fallo; }$tid: no encontré la línea de \`$tabla\`"; continue; }
-  printf '  · %s · tabla `%s` · %s\n' "$tid" "$tabla" "$arch"
+  [ -n "$arch" ] || { fallo="${fallo:+$fallo; }$tid: no pude ubicar su archivo"; continue; }
+  if [ -n "$tabla" ]; then
+    QUE="tabla"; QUIEN="$tabla"
+    ESQUEMA="Tablas que las migraciones YA crean: $TABLAS"
+    SALIDAS="Elegís vos entre usar una tabla de la lista o que el enunciado prometa crear la que nombra."
+  elif [ -n "$columna" ]; then
+    QUE="columna"; QUIEN="$columna"
+    ESQUEMA="Columnas que las migraciones YA crean, por tabla: $COLUMNAS"
+    SALIDAS="Elegís vos entre usar una columna de esa lista o que el enunciado prometa agregar la que nombra con una migración."
+  else
+    fallo="${fallo:+$fallo; }$tid: el rojo no nombra tabla ni columna"; continue
+  fi
+  linea="$(grep -n "$QUE \`$QUIEN\`" "$arch" | head -1)"
+  [ -n "$linea" ] || { fallo="${fallo:+$fallo; }$tid: no encontré la línea de \`$QUIEN\`"; continue; }
+  printf '  · %s · %s `%s` · %s\n' "$tid" "$QUE" "$QUIEN" "$arch"
   t0=$(date +%s)
-  printf '%s\n\nTablas que las migraciones YA crean: %s\n\nLínea del enunciado, tal cual:\n%s\n\nDevolvé SOLO esa línea corregida, COMPLETA y con el mismo prefijo que tiene: si empieza con \"- \" (es un item de lista) la tuya también. Sin número de línea, sin explicación, sin comillas de bloque. Elegís vos entre usar una tabla de la lista o que el enunciado prometa crear la que nombra.\n' \
-    "$rojo" "$TABLAS" "${linea#*:}" > "$SALIDA/in.txt"
+  printf '%s\n\n%s\n\nLínea del enunciado, tal cual:\n%s\n\nDevolvé SOLO esa línea corregida, COMPLETA y con el mismo prefijo que tiene: si empieza con \"- \" (es un item de lista) la tuya también. Sin número de línea, sin explicación, sin comillas de bloque. %s\n' \
+    "$rojo" "$ESQUEMA" "${linea#*:}" "$SALIDAS" > "$SALIDA/in.txt"
   if ! PACIENCIA=400 python3 "$AQUI/pedir.py" "$MODELO" < "$SALIDA/in.txt" > "$SALIDA/out.txt" 2>"$SALIDA/err.txt"; then
     fallo="${fallo:+$fallo; }$tid: $(tr '\n' ' ' < "$SALIDA/err.txt" | cut -c1-60)"; continue
   fi
@@ -119,7 +143,11 @@ TESTS_DESPUES="$(grep -ohE '`[a-zA-Z0-9_/.]*tests?/[a-zA-Z0-9_.]+`[^|]*clase `[A
 # bien en 3 segundos y el veredicto fue «se descarta» porque apareció el rojo de
 # users_register.py, que el actor no podía tocar. Un juez que pide lo imposible reprueba al
 # que hizo bien su parte, que es el defecto que este repo viene persiguiendo desde el día uno.
-ENUN_DESPUES="$(PROYECTO="$BASE" python3 "$AQUI/coherencia.py" 2>&1 | grep '✗' | grep 'da por hecha la tabla' || true)"
+# El juez mide las dos clases de rojo de ENUNCIADO, que son las que este actor puede
+# arreglar. Miraba sólo «da por hecha la tabla», así que un rojo de columna sin corregir
+# pasaba por el juez sin que nadie lo notara: el chequeo que acepta el arreglo tiene que
+# cubrir lo mismo que el que lo pidió.
+ENUN_DESPUES="$(PROYECTO="$BASE" python3 "$AQUI/coherencia.py" 2>&1 | grep '✗' | grep -E 'da por hecha la tabla|nombra la columna' || true)"
 [ -n "$ENUN_DESPUES" ] && mal="${mal:+$mal; }quedan contradicciones de ENUNCIADO: $(printf '%s' "$ENUN_DESPUES" | head -2 | tr '\n' ' ' | cut -c1-120)"
 PLAN=PLAN.md python3 "$AQUI/validar-plan.py" >/dev/null 2>&1 || mal="${mal:+$mal; }el plan dejó de validar"
 

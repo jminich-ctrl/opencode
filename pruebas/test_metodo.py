@@ -7788,6 +7788,56 @@ class TestReplanificarSinCanalDeMemoria(unittest.TestCase):
                          f"arregló lo suyo y el juez lo reprobó por lo ajeno:\n{r.stdout}{r.stderr}")
         self.assertIn("usuarios", self.tarea(d))
 
+    def test_tambien_trata_los_rojos_de_COLUMNA(self):
+        """Este script nació para los rojos de tabla, y desde el 2026-10-24 el preflight
+        también da rojos de columna: sin esto decía «no pude ubicar archivo o tabla» y el rojo
+        se quedaba sin nadie que lo trate.
+
+        Y el canal plano es el vehículo correcto para los dos. El router con arnés le pide
+        escribir al modelo del agente `arquitecto`, que está MEDIDO como el que no escribe
+        —«Qwen3.8-27B razonamiento 6/6 · replanificando NO llamó a write»—. Ante este mismo
+        rojo se pasó el turno citando el prompt y razonándolo frase por frase, llegó a la
+        conclusión correcta y se le acabó antes de actuar."""
+        d = self.proyecto(linea="Filtro por columna `categoria`.")
+        m = d / "migraciones" / "001_initial.sql"
+        m.write_text("CREATE TABLE usuarios (id INT PRIMARY KEY);\n"
+                     "CREATE TABLE anuncios (\n    id INT, categoria_id INT\n);\n")
+        previo = correr(f'PROYECTO=. python3 "{SCRIPTS}/coherencia.py"', d)
+        self.assertIn("nombra la columna", previo.stdout,
+                      f"el fixture tiene que traer el rojo de columna:\n{previo.stdout}")
+        r = self.replanificar(d, "Filtro por columna `categoria_id`.")
+        self.assertEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("categoria_id", self.tarea(d), f"\n{self.tarea(d)}")
+
+    def test_al_modelo_le_pasa_el_esquema_de_COLUMNAS_y_no_el_de_tablas(self):
+        """El menú tiene que ser del problema: un arquitecto al que se le pide arreglar una
+        columna con la lista de tablas adivina."""
+        d = self.proyecto(linea="Filtro por columna `categoria`.")
+        m = d / "migraciones" / "001_initial.sql"
+        m.write_text("CREATE TABLE usuarios (id INT PRIMARY KEY);\n"
+                     "CREATE TABLE anuncios (\n    id INT, categoria_id INT\n);\n")
+        self.replanificar(d, "Filtro por columna `categoria_id`.")
+        enviado = (d.parent / "sin-memoria" / "in.txt").read_text()
+        self.assertIn("Columnas que las migraciones YA crean", enviado, f"\n{enviado[:300]}")
+        self.assertIn("categoria_id", enviado, f"\n{enviado[:300]}")
+        self.assertIn("agregar la que nombra", enviado,
+                      f"la salida (b) de un rojo de columna:\n{enviado[:400]}")
+
+    def test_el_juez_final_tambien_mira_los_rojos_de_columna(self):
+        """Miraba sólo «da por hecha la tabla», así que un rojo de columna sin corregir pasaba
+        por el juez sin que nadie lo notara: el chequeo que acepta el arreglo tiene que cubrir
+        lo mismo que el que lo pidió."""
+        d = self.proyecto(linea="Filtro por columna `categoria`.")
+        m = d / "migraciones" / "001_initial.sql"
+        m.write_text("CREATE TABLE usuarios (id INT PRIMARY KEY);\n"
+                     "CREATE TABLE anuncios (\n    id INT, categoria_id INT\n);\n")
+        antes = self.tarea(d)
+        # El modelo "corrige" a otra columna que TAMPOCO existe: el juez tiene que descartar.
+        r = self.replanificar(d, "Filtro por columna `inventada`.")
+        self.assertNotEqual(0, r.returncode,
+                            f"aceptó un arreglo que deja el rojo vivo:\n{r.stdout}{r.stderr}")
+        self.assertEqual(antes, self.tarea(d), "y tiene que restaurar el enunciado")
+
     def test_sin_rojos_no_gasta_un_modelo(self):
         d = self.proyecto(linea="Guardar los datos en la tabla `usuarios`.")
         r = self.replanificar(d, "NO DEBERIA LLAMARSE")
