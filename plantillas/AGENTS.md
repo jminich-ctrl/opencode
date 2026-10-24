@@ -49,6 +49,31 @@ que los tests son el entregable y tienen que ser buenos.
   salida real. Si tu test no pasa contra tu propia implementación, uno de los dos está mal
   y lo arreglás vos.
 
+### Si la tarea es la CAPA DE DATOS
+
+Mockear `conexion()` para probar la capa de datos no sale bien, y está medido: el
+2026-10-24 dos tareas fallaron por los dos únicos caminos que ese mock deja.
+
+- **Si el test clava la cadena SQL** —`mock_cursor.execute.assert_called_once_with("SELECT
+  ...")`— los mutantes mueren y el test se acepta. Pero la base nunca se toca, así que una
+  consulta imposible pasa igual: el test que el gate aprobó para T28 fijaba `categoria` y
+  `precio`, dos columnas que no existen, y la implementación que lo haga pasar va a escribir
+  esa consulta para que MySQL la rechace. No es un test que deja pasar el bug: lo OBLIGA.
+- **Si el test no afirma nada sobre la consulta**, sobreviven los mutantes —borrar el
+  `cur.execute(` no cambia el resultado— y el validador lo rechaza, con razón.
+
+Un test de capa de datos tiene que correr contra la base REAL: ahí el esquema rechaza la
+columna que no existe, que es exactamente lo que se quiere que pase.
+
+PERO eso todavía no es seguro en este método, y hay que saberlo: todos los worktrees comparten
+el MySQL de 127.0.0.1:33306 y nadie lo limpia entre corridas. El validador corre el mismo test
+dos veces —una sin la implementación y otra con ella— así que la segunda choca con lo que
+insertó la primera: el 2026-10-24 eso dio `Duplicate entry 'test@example.com' for key
+'usuarios.email'` y el veredicto le echó la culpa al test.
+
+Mientras eso no esté resuelto, una tarea de capa de datos no tiene un camino limpio. Decilo
+en vez de inventar un test que pase: es un hueco del método, no de la tarea.
+
 ## Antes de decir que terminaste
 
 1. Corré `bash scripts/gate.sh` y mostrá la **salida real**, sin resumirla.

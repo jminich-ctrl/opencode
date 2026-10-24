@@ -8957,3 +8957,40 @@ class TestUnTestMockeadoNoPuedeClavarUnaConsultaImposible(unittest.TestCase):
         r = correr(f'PROYECTO=. python3 "{SCRIPTS}/coherencia.py"', d)
         self.assertIn("cosas.inventada", r.stdout,
                       f"una consulta clavada en un TEST tiene que cruzarse igual:\n{r.stdout}")
+
+
+class TestLaCapaDeDatosNoSePruebaConMocks(unittest.TestCase):
+    """Las dos cosas que tenía anotadas como problemas separados son el mismo problema.
+
+    La regla del proyecto dice «mockeá la función de la CAPA DE DATOS por su ruta», y sirve
+    para probar SERVICIOS. Pero cuando la tarea ES la capa de datos, abajo no hay nada que
+    mockear salvo `conexion()` — y eso deja exactamente dos salidas, las dos medidas el
+    2026-10-24 en dos tareas distintas:
+
+      · clavar la cadena SQL → los mutantes mueren, el test se acepta, y una consulta
+        imposible queda OBLIGADA (T28: `categoria` y `precio`, que no existen);
+      · no afirmar nada sobre la consulta → sobreviven los mutantes y se rechaza (T26).
+
+    O sea que un test de capa de datos mockeado no puede salir bien. La salida es la base
+    real, donde el esquema rechaza la columna inexistente — y eso depende del aislamiento de
+    la base, que no existe. Las dos cosas son una."""
+
+    def test_la_plantilla_dice_que_la_capa_de_datos_va_contra_la_base_real(self):
+        t = (PLANTILLAS / "AGENTS.md").read_text()
+        self.assertIn("CAPA DE DATOS", t, "la plantilla no distingue ese caso")
+        i = t.index("CAPA DE DATOS")
+        bloque = t[i:i + 2200]
+        self.assertIn("base REAL", bloque, f"\n{bloque[:300]}")
+        self.assertIn("OBLIGA", bloque,
+                      "tiene que decir que el mock apretado no deja pasar el bug: lo obliga")
+
+    def test_y_dice_que_todavia_no_es_seguro_y_por_que(self):
+        """Una regla cuya precondición no se cumple es una trampa. La base compartida no se
+        limpia entre corridas, así que mandar «usá la base real» sin decirlo haría que el
+        próximo choque con el `Duplicate entry` y no entienda por qué."""
+        t = (PLANTILLAS / "AGENTS.md").read_text()
+        i = t.index("CAPA DE DATOS")
+        bloque = t[i:i + 2200]
+        self.assertIn("Duplicate entry", bloque, f"\n{bloque[-600:]}")
+        self.assertIn("hueco del método", bloque,
+                      "y que lo diga en vez de inventar un test que pase")
