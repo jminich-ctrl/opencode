@@ -50,6 +50,23 @@ def correr(cmd, cwd, **env):
                           errors="replace", env=e)
 
 
+# Lo que resistió el borrado, para que la suite lo diga en vez de dejarlo callado.
+NO_BORRADOS = []
+
+
+def _a_la_fuerza(func, ruta, _exc):
+    """Manejador de `rmtree`: los objetos de git son de sólo lectura (444) y no se borran sin
+    tocarles el permiso. Si tampoco se puede así, se anota — no se traga.
+
+    Vive a nivel de módulo y no como cierre dentro de `tirar` para que un test pueda
+    alcanzarlo: lo que no se puede medir es lo que vuelve a romperse en silencio."""
+    try:
+        os.chmod(ruta, 0o700)
+        func(ruta)
+    except OSError as e:
+        NO_BORRADOS.append((str(ruta), str(e)))
+
+
 class Proyecto:
     """Un repo de juguete con la forma que el método espera, para perturbar y tirar."""
 
@@ -121,14 +138,18 @@ class Proyecto:
         # La suite dejó 147 directorios temporales en un día de corridas, y el `ignore_errors`
         # hacía que nadie se enterara — un `rm` que falla en silencio es la misma clase de
         # problema que un chequeo que no puede correr y dice que pasó.
-        def forzar(func, ruta, _exc):
-            try:
-                os.chmod(ruta, 0o700)
-                func(ruta)
-            except OSError:
-                pass
-
-        shutil.rmtree(self.repo, onerror=forzar)
+        #
+        # Ese arreglo movió el silencio un nivel y no lo sacó: el `except OSError: pass` del
+        # manejador hacía exactamente lo que el párrafo de arriba denuncia, dos líneas más
+        # abajo. Ahora lo que resiste se ANOTA y la suite lo dice. Importa de verdad: hoy
+        # llené el disco dos veces, y quedan 8,9 GiB.
+        antes = len(NO_BORRADOS)
+        shutil.rmtree(self.repo, onerror=_a_la_fuerza)
+        nuevos = len(NO_BORRADOS) - antes
+        if nuevos or os.path.exists(self.repo):
+            print(f"⚠ quedó basura en disco: {self.repo} — {nuevos} ruta(s) resistieron el "
+                  f"chmod. Un rm que falla en silencio es un chequeo que no puede correr y "
+                  f"dice que pasó.", file=sys.stderr)
 
 
 class CasoBase(unittest.TestCase):
@@ -7177,3 +7198,57 @@ class TestLaSondaMideLosModelosQueLaCorridaVaAUsar(unittest.TestCase):
                          {l.split()[0] for l in lineas}, f"\n{r.stdout}")
         razona = [l for l in lineas if l.startswith("m-razona")][0]
         self.assertEqual("arquitecto,plan,reviewer", razona.split()[1], f"\n{r.stdout}")
+
+
+class TestLaSuiteNoDejaBasuraEnSilencio(unittest.TestCase):
+    """`Proyecto.tirar` arrancó con `ignore_errors=True`, que dejó 147 directorios temporales
+    en un día de corridas sin que nadie se enterara. El arreglo puso un manejador que hace
+    `chmod` y reintenta —los objetos de git son 444 y `rmtree` no los toca— pero terminaba en
+    `except OSError: pass`: el silencio se movió un nivel y no se fue. El comentario denunciaba
+    «un rm que falla en silencio» dos líneas arriba del `pass`.
+
+    No es higiene de andamio: hoy llené el disco dos veces y quedan 8,9 GiB. Una suite que
+    pierde un directorio por corrida y no lo dice es una suite que un día no corre.
+
+    El manejador se midió inyectándole la falla, porque la otra forma —fabricar un archivo
+    que de verdad resista el `chmod`— no es portable: un usuario normal siempre puede
+    cambiarle el permiso a sus propios archivos."""
+
+    def test_tirar_borra_un_repo_de_git_con_objetos_de_solo_lectura(self):
+        """El defecto original: `rmtree` a secas falla con los 444 de .git/objects."""
+        p = Proyecto()
+        repo = p.repo
+        self.assertTrue((repo / ".git").is_dir(), "el andamio tiene que haber creado el repo")
+        p.tirar()
+        self.assertFalse(os.path.exists(repo), "tirar() tiene que dejar el disco limpio")
+
+    def test_si_el_chmod_falla_se_anota_en_vez_de_tragarse(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-basura-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        victima = d / "resiste.txt"
+        victima.write_text("x")
+        antes = len(NO_BORRADOS)
+        chmod_real = os.chmod
+        os.chmod = lambda *a, **k: (_ for _ in ()).throw(OSError("chmod falla a propósito"))
+        try:
+            _a_la_fuerza(os.unlink, victima, None)
+        finally:
+            os.chmod = chmod_real
+        self.assertEqual(antes + 1, len(NO_BORRADOS),
+                         "el manejador se tragó la falla: nadie se va a enterar")
+        self.assertIn("resiste.txt", NO_BORRADOS[-1][0],
+                      f"y tiene que anotar QUÉ ruta quedó: {NO_BORRADOS[-1]}")
+        NO_BORRADOS.pop()
+
+    def test_el_manejador_es_alcanzable_desde_un_test(self):
+        """Era un cierre dentro de `tirar`: ningún test podía llamarlo, y lo que no se puede
+        medir es lo que vuelve a romperse. El test fija que siga siendo alcanzable."""
+        self.assertTrue(callable(_a_la_fuerza))
+        # Sin la sangría adentro del patrón. La primera versión de este test buscaba la
+        # cadena literal con los 16 espacios del cierre viejo, así que una mutación con otra
+        # sangría le pasaba por al lado: de tres tests mutados, dos quedaron verdes. Es el
+        # mismo defecto de extractor frágil que el `HUECO` de hoy y el `grep '→'` de
+        # mutar.py, cometido en el test que lo vigila.
+        fuente = (RAIZ / "pruebas" / "test_metodo.py").read_text()
+        self.assertIsNone(re.search(r"except OSError[^\n]*:\s*\n\s*pass\b", fuente),
+                          "volvió el `pass` que se tragaba la falla del borrado")
