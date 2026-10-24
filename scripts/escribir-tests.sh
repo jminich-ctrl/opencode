@@ -182,6 +182,32 @@ for id in "$@"; do
   if [ -x "$BASE/.venv/bin/python" ]; then export PY_PROYECTO="$BASE/.venv/bin/python"; fi
 
 
+  # LA FOTO DEL WORKTREE SUCIO, antes de que el agente toque nada.
+  #
+  # El chequeo de alcance compara contra HEAD, así que le cobra a la tarea TODO lo que
+  # difiera del commit — incluido lo que el propio runner dejó en el worktree antes de
+  # lanzar al agente: `.tests-base`, los enlaces a .venv y .entorno, lo que venga.
+  #
+  # Cadáver del 2026-10-23: T05c fue rechazada con «tocó archivos que no le corresponden:
+  # backend/app/datos/ads.py backend/app/servicios/ads.py». Su transcript tiene DOS Write y
+  # los dos son legítimos —su test y su único archivo declarado—; de datos/ads.py no hay ni
+  # una mención en todo el log. Esos dos archivos los había commiteado T05b veinticinco
+  # minutos antes, en `b06a1cd T05b: gate verde`.
+  #
+  # O sea: la tarea escribió sólo lo suyo y el método la acusó por el trabajo de su hermana.
+  # Es la segunda vez que este mismo gate atribuye a una tarea los cambios de otra: la
+  # primera fue el «rompiste tests que andaban antes» del 21 de octubre, que tampoco era
+  # causal. Y es el defecto central de esta investigación —un veredicto que nombra al sujeto
+  # equivocado— en el chequeo que decide si el trabajo del agente entra al tronco.
+  #
+  # Restar la foto hace el chequeo correcto por construcción, sin depender de saber QUÉ
+  # ensució el worktree: lo que ya estaba antes no lo hizo el agente.
+  ( cd "$wt/$PROYECTO" 2>/dev/null || cd "$wt"
+    { git diff --name-only --relative HEAD 2>/dev/null; git ls-files --others --exclude-standard; } \
+      | sort -u > "$wt/.sucio-antes" ) || : > "$wt/.sucio-antes"
+  heredados="$(grep -c . "$wt/.sucio-antes" 2>/dev/null || echo 0)"
+  [ "${heredados:-0}" -gt 0 ] && echo "  · el worktree ya traía $heredados archivo(s) cambiado(s): no se le cobran a la tarea"
+
   log="$wt/.tests.log"
   # El reloj que detecta el cuelgue es el de inactividad sobre este log: el agente que
   # trabaja escribe todo el tiempo, el colgado no escribe nada.
@@ -262,7 +288,10 @@ for id in "$@"; do
   RUTAS_OK="$(sed -n 's/^\*\*Archivos que podés tocar:\*\* *//p' "tareas/$(basename "$archivo")" \
               | tr ',' '\n' | grep -oE '[A-Za-z0-9_./-]+(\.[A-Za-z0-9]+|/)' | sort -u)"
   PERMITIDOS="$(echo "$RUTAS_OK" | sed 's#/$#/.*#; s#^#^#; s#$#$#' | tr '\n' '|' | sed 's/|$//')"
-  TOCADOS="$(git diff --name-only --relative HEAD 2>/dev/null; git ls-files --others --exclude-standard)"
+  # Lo que el agente tocó = lo que difiere ahora MENOS lo que ya difería antes de que corra.
+  TOCADOS="$( { git diff --name-only --relative HEAD 2>/dev/null; git ls-files --others --exclude-standard; } \
+              | sort -u | comm -23 - "$wt/.sucio-antes" 2>/dev/null \
+              || { git diff --name-only --relative HEAD 2>/dev/null; git ls-files --others --exclude-standard; } )"
   # Ojo: `$$` en bash es el PID, no un `$` literal. Armar el patrón en una variable aparte
   # evita esa clase de error, que en un grep no falla: deja de matchear y todo queda "fuera".
   # El lock lo escribe nuestro `npm install` al preparar el entorno, no el agente.
