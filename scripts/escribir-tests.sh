@@ -460,6 +460,38 @@ for id in "$@"; do
         DETALLE="$(eval "$prueba" 2>&1 \
                    | grep -E '^E +|^(FAILED|FAIL:) |^ *(FAIL|×) |(Assertion|Type|Reference|Syntax)Error|Cannot find|^Error: ' \
                    | head -4 | tr '\n' ' ' | tr -s ' ' | cut -c1-400)"
+        # ESTADO QUE QUEDÓ, no un test malo. Y el método se lo cobraba al test.
+        #
+        # Medido el 2026-10-24 en T26: el validador corre el MISMO test DOS VECES —una sin la
+        # implementación, para comprobar que falla, y otra con ella— contra una base con
+        # estado. La primera pasada insertó `test@example.com`, la segunda chocó con el UNIQUE
+        # de `usuarios.email`, y el veredicto que salió fue «el test no pasa ni con la
+        # implementación del propio agente»: le cobró al test lo que dejó su propia primera
+        # pasada. Dos intentos del ejecutor gastados en eso.
+        #
+        # El gate ya tiene este concepto escrito para su lado —ENTORNO_MOVIDO: «todos los
+        # worktrees comparten el MySQL de 127.0.0.1:33306, lo que una etapa deja la siguiente
+        # lo encuentra; es del entorno y no del código, así que no se le cobra a la tarea»—
+        # pero su lista de firmas reconoce «Table doesn't exist», «Access denied» y
+        # «Can't connect», no un choque de UNIQUE. Acá faltaba entero.
+        #
+        # No se reintenta: la segunda pasada va a encontrar la misma fila. Y no se ablanda
+        # nada —el test no se acepta igual—; lo único que cambia es A QUIÉN se le cobra, que es
+        # lo que estuvo mal en la mayoría de los defectos de estos días.
+        if printf '%s' "$DETALLE" | grep -qiE "IntegrityError|Duplicate entry|\b1062,|UNIQUE constraint failed"; then
+          echo "  ⊘ $id: el test choca con datos que YA estaban en la base, no con su lógica."
+          echo "     $DETALLE"
+          echo "     Lo causa el MÉTODO: este validador corre el mismo test dos veces —una sin"
+          echo "     la implementación y otra con ella— contra una base con estado, así que la"
+          echo "     segunda encuentra lo que insertó la primera. Y todos los worktrees"
+          echo "     comparten el MySQL de 127.0.0.1:33306: lo que una corrida deja, la"
+          echo "     siguiente lo encuentra."
+          echo "     No se le cobra a la tarea ni se reintenta contra ella: hay que limpiar la"
+          echo "     base entre pasadas o aislarla por corrida. Log: $log"
+          cd "$RAIZ" || true
+          conservar_intento "$wt" "${id:-${TAREA:-tests}}"
+          break
+        fi
         malo "el test no pasa ni con la implementación del propio agente.${DETALLE:+ Falla así: $DETALLE}"
       fi
     fi

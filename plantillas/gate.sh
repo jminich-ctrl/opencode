@@ -262,7 +262,13 @@ veredicto_con_linea_base() {
     # no del código»— extendido a las firmas de infraestructura. Y no ablanda nada: no
     # declara verde, detiene igual. Lo único que cambia es a QUIÉN se le cobra, que es
     # exactamente lo que estuvo mal en nueve de los doce defectos de estos días.
-    if printf '%s\n' "$SALIDA" | grep -qiE "Table '[^']*' doesn't exist|Unknown database|Can't connect to( local)? MySQL|CR_CONN_HOST_ERROR|Access denied for user|Connection refused|ECONNREFUSED|\(200[36]|2013,"; then
+    # La lista reconocía fallas de CONEXIÓN y de esquema ausente, y le faltaba la más común
+    # de una base compartida: el ESTADO QUE QUEDÓ. Medido el 2026-10-24: un test insertó
+    # `test@example.com`, y desde entonces toda corrida choca con el UNIQUE de
+    # `usuarios.email` — «Duplicate entry», que esta lista no veía, así que el veredicto salía
+    # como «rompiste tests que andaban antes de esta tarea». El sujeto equivocado otra vez, y
+    # sobre el mismo MySQL del que este bloque ya habla dos líneas más abajo.
+    if printf '%s\n' "$SALIDA" | grep -qiE "Table '[^']*' doesn't exist|Unknown database|Can't connect to( local)? MySQL|CR_CONN_HOST_ERROR|Access denied for user|Connection refused|ECONNREFUSED|\(200[36]|2013,|Duplicate entry|IntegrityError|\b1062,|UNIQUE constraint failed"; then
       rojo "el entorno se movió: estas fallas no son de la tarea"
       printf '%s\n' "$nuevas" | head -5 | sed 's/^/     /'
       printf '%s\n' "$SALIDA" | grep -ioE "Table '[^']*' doesn't exist|Unknown database[^\"]*|Can't connect to( local)? MySQL[^\"]*|CR_CONN_HOST_ERROR|Access denied for user[^\"]*|Connection refused" \

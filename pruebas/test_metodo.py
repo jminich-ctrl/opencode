@@ -8755,3 +8755,81 @@ class TestElRouterLePasaElMenuDelProblemaQueRecibe(unittest.TestCase):
             patrones |= set(re.findall(r"'(\^[^']*HUECO[^']*)'", fuente))
         self.assertEqual(1, len(patrones),
                          f"los tres scripts tienen que buscar HUECO igual: {patrones}")
+
+
+class TestElEstadoQueQuedoNoSeLeCobraAlTest(unittest.TestCase):
+    """El validador de tests-first corre el MISMO test DOS VECES: una sin la implementación,
+    para comprobar que falla, y otra con ella. Contra una base con estado, la segunda pasada
+    encuentra lo que insertó la primera.
+
+    Medido el 2026-10-24 en T26: la primera pasada insertó `test@example.com`, la segunda
+    chocó con el UNIQUE de `usuarios.email`, y el veredicto fue «el test no pasa ni con la
+    implementación del propio agente». Le cobró al test lo que dejó su propia primera pasada,
+    y el ejecutor gastó dos intentos en eso.
+
+    El gate ya tenía el concepto escrito para su lado —ENTORNO_MOVIDO: «todos los worktrees
+    comparten el MySQL de 127.0.0.1:33306, lo que una etapa deja la siguiente lo encuentra; es
+    del entorno y no del código, así que no se le cobra a la tarea»— pero su lista de firmas
+    reconocía «Table doesn't exist», «Access denied» y «Can't connect», no un choque de
+    UNIQUE. En el validador de tests faltaba entero.
+
+    No ablanda nada: el test no se acepta igual. Lo único que cambia es A QUIÉN se le cobra."""
+
+    FIRMAS = ["pymysql.err.IntegrityError: (1062, \"Duplicate entry 'x' for key 'u.email'\")",
+              "sqlite3.IntegrityError: UNIQUE constraint failed: usuarios.email",
+              "E   Duplicate entry 'test@example.com' for key 'usuarios.email'"]
+    NO_SON = ["AssertionError: assert 401 == 201",
+              "ModuleNotFoundError: No module named 'backend'",
+              "E   TypeError: insert_user() missing 1 required positional argument"]
+
+    def patron_del_validador(self):
+        """El patrón TAL COMO ESTÁ en el script: un test que lo copia mide la copia."""
+        fuente = (SCRIPTS / "escribir-tests.sh").read_text()
+        m = re.search(r'grep -qiE "([^"]*IntegrityError[^"]*)"', fuente)
+        self.assertIsNotNone(m, "el validador no reconoce la firma del estado que quedó")
+        return m.group(1)
+
+    def patron_del_gate(self):
+        fuente = (PLANTILLAS / "gate.sh").read_text()
+        m = re.search(r'grep -qiE "([^"]*Duplicate entry[^"]*)"', fuente)
+        self.assertIsNotNone(m, "el gate no reconoce la firma del estado que quedó")
+        return m.group(1)
+
+    def test_el_validador_reconoce_el_choque_de_unique(self):
+        patron = self.patron_del_validador()
+        for firma in self.FIRMAS:
+            r = subprocess.run(["grep", "-qiE", patron], input=firma + "\n",
+                               text=True, capture_output=True)
+            self.assertEqual(0, r.returncode, f"no ve «{firma[:50]}»")
+
+    def test_y_no_confunde_un_test_realmente_malo(self):
+        """Si esta firma se disparara con cualquier fallo, el validador dejaría de rechazar
+        tests malos — y ése es su trabajo. El riesgo de ablandar es real y va medido."""
+        patron = self.patron_del_validador()
+        for firma in self.NO_SON:
+            r = subprocess.run(["grep", "-qiE", patron], input=firma + "\n",
+                               text=True, capture_output=True)
+            self.assertEqual(1, r.returncode, f"se dispara con «{firma[:50]}»")
+
+    def test_el_gate_tambien_la_reconoce(self):
+        """Los dos lados, no uno: el validador la ve al escribir el test y el gate al juzgar la
+        implementación. Es la forma que este repo repite, y hoy ya costó cuatro defectos."""
+        patron = self.patron_del_gate()
+        for firma in self.FIRMAS:
+            r = subprocess.run(["grep", "-qiE", patron], input=firma + "\n",
+                               text=True, capture_output=True)
+            self.assertEqual(0, r.returncode, f"el gate no ve «{firma[:50]}»")
+
+    def test_el_mensaje_nombra_al_metodo_y_no_al_test(self):
+        """Un veredicto que no dice de quién es el problema deja que el próximo lo diagnostique
+        de cero. El de hoy decía «el test no pasa ni con la implementación del propio agente»,
+        que es exactamente el sujeto equivocado."""
+        fuente = (SCRIPTS / "escribir-tests.sh").read_text()
+        i = fuente.index("IntegrityError")
+        bloque = fuente[i:i + 1600]
+        self.assertIn("Lo causa el MÉTODO", bloque, f"\n{bloque[:400]}")
+        # «reintenta» y no la frase entera: mi primera versión buscaba «no se reintenta» y el
+        # mensaje dice «ni se reintenta contra ella». Fijar la redacción exacta de una frase en
+        # prosa es sobre-especificar, y hoy ya me pasó con la plantilla.
+        self.assertIn("reintenta", bloque,
+                      "la segunda pasada va a encontrar la misma fila: reintentar es gastar")
