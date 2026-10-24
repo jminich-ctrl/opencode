@@ -1573,11 +1573,22 @@ class TestLaSeñalDeVidaNoEsElSilencio(unittest.TestCase):
     # socket aceptado, así que el server lo cerraba y lsof informaba CLOSE_WAIT, no
     # ESTABLISHED. El test fallaba y la culpa parecía de la implementación. Hay que
     # guardar el socket aceptado para que la conexión siga viva.
-    CON_CONEXION = (
-        "python3 -c \"import socket,threading,time;"
-        "srv=socket.socket();srv.bind(('127.0.0.1',0));srv.listen(1);vivos=[];"
-        "threading.Thread(target=lambda: vivos.append(srv.accept()),daemon=True).start();"
-        "c=socket.create_connection(srv.getsockname());time.sleep(55)\"")
+    _PY_CONEXION = ("import socket,threading,time;"
+                    "srv=socket.socket();srv.bind(('127.0.0.1',0));srv.listen(1);vivos=[];"
+                    "threading.Thread(target=lambda: vivos.append(srv.accept()),"
+                    "daemon=True).start();"
+                    "c=socket.create_connection(srv.getsockname());time.sleep(55)")
+    CON_CONEXION = 'python3 -c ' + shlex.quote(_PY_CONEXION)
+    # El mismo, pero el que tiene la conexión SE CAMBIA DE GRUPO con `setsid`.
+    #
+    # Es lo que hace el arnés real: medido el 2026-10-24, con el agente dentro de un `bash -c`
+    # la conexión al modelo no aparece en el grupo y el vigilante corta a los 15s. Mi primera
+    # versión de este caso usaba `bash -c` a secas y NO medía nada: un nieto hereda el pgid del
+    # padre, así que `lsof -g` lo veía igual y la mutación a «sólo el grupo» quedaba verde.
+    # Lo que saca al proceso del grupo es el `setsid`, no el envoltorio.
+    _PY_FUERA_DEL_GRUPO = "import os;os.setsid();" + _PY_CONEXION
+    FUERA_DEL_GRUPO = ("bash -c " + shlex.quote("python3 -c "
+                       + shlex.quote(_PY_FUERA_DEL_GRUPO) + "; true"))
 
     def test_un_agente_callado_con_conexion_abierta_no_se_corta(self):
         r = self.correr_vigilado(self.CON_CONEXION)
@@ -1590,6 +1601,26 @@ class TestLaSeñalDeVidaNoEsElSilencio(unittest.TestCase):
         self.assertIn("rc=142", r.stdout,
                       "callado y sin ninguna conexión abierta: eso es un cuelgue y hay "
                       "que cortarlo")
+
+    def test_la_conexion_se_ve_aunque_el_agente_este_detras_de_un_envoltorio(self):
+        """`lsof -g` mira el GRUPO de procesos, y el grupo no es el árbol: basta un envoltorio
+        entre `con_limite` y el agente para que la conexión al modelo quede afuera del grupo
+        que se consulta, y entonces el vigilante mata por «sin ninguna conexión abierta» a un
+        agente que está esperando al modelo.
+
+        Medido el 2026-10-24 con el arnés real y el modelo que razona:
+
+            agente como hijo DIRECTO de con_limite  →  150s callado, NO se cortó por silencio
+            el mismo agente dentro de `bash -c`     →  cortado a los 15s, «sin conexión»
+
+        Hoy ningún call site envuelve al agente, así que no era un defecto activo: era una
+        trampa para el próximo que agregue uno, y el síntoma habría sido «el agente se colgó»
+        —el sujeto equivocado, otra vez—. El `; true` del envoltorio está para que bash NO
+        haga exec del comando: sin eso no hay nieto y el test no mide nada."""
+        r = self.correr_vigilado(self.FUERA_DEL_GRUPO)
+        self.assertIn("rc=0", r.stdout,
+                      "la conexión la tiene un NIETO del proceso vigilado; mirar sólo el "
+                      f"grupo la pierde. Salida: {r.stdout!r} {r.stderr[-300:]!r}")
 
     def test_si_no_se_puede_mirar_la_conexion_se_corta_igual(self):
         """⊘ aplicado al vigilante: un chequeo que no pudo correr no dice «está vivo».

@@ -969,7 +969,7 @@ con_limite() {
             # —generar un archivo largo son minutos sin imprimir una letra— y se reinicia
             # el reloj del silencio. El límite total sigue siendo el techo, así que esto
             # no puede esperar para siempre.
-            conex="$(conexiones_del_grupo "$pid")"
+            conex="$(conexiones_vivas "$pid")"
             if [ "$conex" != "SIN_LSOF" ] && [ "${conex:-0}" -gt 0 ]; then
               quieto=0
               continue
@@ -1094,10 +1094,45 @@ plataforma_responde_la_corrida() {
   return 0
 }
 
-conexiones_del_grupo() {
-  local lsof_bin="${LSOF:-lsof}"
+# Los PIDs del ÁRBOL: el proceso y todos sus descendientes.
+#
+# Hace falta porque `lsof -g` mira el GRUPO de procesos, y el grupo no es el árbol: basta un
+# envoltorio entre `con_limite` y el agente para que la conexión al modelo quede afuera del
+# grupo que se consulta. Medido el 2026-10-24 con el arnés real:
+#
+#   agente como hijo DIRECTO de con_limite  →  150s callado, NO se cortó por silencio
+#   el mismo agente dentro de `bash -c`     →  cortado a los 15s, «sin ninguna conexión»
+#
+# O sea que la protección dependía de un detalle estructural invisible en el call site. Hoy
+# ninguno envuelve al agente, así que esto no era un defecto activo: era una trampa puesta
+# para el próximo que agregue uno, y nada lo habría avisado —el síntoma es «el agente se
+# colgó», con el sujeto equivocado—.
+descendientes() {
+  local raiz="$1" h
+  echo "$raiz"
+  for h in $(pgrep -P "$raiz" 2>/dev/null); do
+    descendientes "$h"
+  done
+}
+
+# ¿Tiene el agente alguna conexión abierta? Callado no es lo mismo que colgado: generar un
+# archivo largo son minutos sin imprimir una letra, y mientras eso pasa el socket al modelo
+# sigue ESTABLISHED.
+#
+# Devuelve un número (0 = ninguna) o `SIN_LSOF` si el chequeo no se puede hacer. Es una
+# pregunta de PRESENCIA, no un conteo: la unión de grupo y árbol puede contar dos veces la
+# misma conexión, y al único lector le importa si es mayor que cero.
+#
+# Se conserva el chequeo del grupo ADEMÁS del árbol porque son dos formas de perder al
+# proceso: un hijo que se cambia de grupo sale del primero, y un proceso que se desprende del
+# padre sale del segundo. Union, no reemplazo.
+conexiones_vivas() {
+  local lsof_bin="${LSOF:-lsof}" pids
   command -v "$lsof_bin" >/dev/null 2>&1 || { echo "SIN_LSOF"; return; }
-  "$lsof_bin" -nP -g "$1" 2>/dev/null | grep -c ESTABLISHED
+  pids="$(descendientes "$1" | sort -u | tr '\n' ',' | sed 's/,$//')"
+  { "$lsof_bin" -nP -g "$1" 2>/dev/null
+    [ -n "$pids" ] && "$lsof_bin" -nP -p "$pids" 2>/dev/null
+  } | grep -c ESTABLISHED
 }
 
 # Por qué se cortó el último `con_limite`: "inactividad 90s" o "límite total 1200s".
