@@ -1,6 +1,6 @@
 # T20 — Backend datos mensajes
 
-**Estado:** ✅ hecha
+**Estado:** pendiente
 **Depende de:** T05a
 **Archivos que podés tocar:** backend/app/datos/messages.py
 **Prohibido tocar:** 
@@ -47,3 +47,10 @@ Los tests de esta tarea se escriben **antes** que la implementación, en una cor
 ## Verificación humana (si aplica)
 
 N/A
+## Reabierta
+
+su codigo usa remitente_id, destinatario_id, contenido y fecha_envio, y la tabla mensajes tiene de_usuario_id, a_usuario_id, cuerpo y creado_en
+
+Se reabrió con scripts/reabrir.sh el 2026-10-24 18:47 UTC. Su código anterior
+se sacó del tronco (copia en ../reabrir-T20-previo): esta tarea vuelve a pasar por tests-first,
+así que el test tiene que fallar antes de que exista la implementación.

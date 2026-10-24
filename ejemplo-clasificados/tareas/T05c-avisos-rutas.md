@@ -1,7 +1,7 @@
 # T05c — Avisos rutas (endpoints CRUD)
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
-**Depende de:** T05b, T04b, T06c
+**Depende de:** T05b, T04b, T06c, T28
 **Archivos que podés tocar:** backend/app/rutas/ads.py
 **Prohibido tocar:** 
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`, que usa el runner, no puede elegir un subagente
@@ -56,10 +56,13 @@ Los códigos HTTP deben corresponder a los especificados en el contrato:
   (import exacto: `from backend.app.servicios.search import buscar_anuncios`). Sin texto ni
   categoría, esa función devuelve todos los anuncios: su consulta arranca en
   `WHERE 1=1` y sólo agrega condiciones cuando recibe filtros.
-- Los campos que devuelve son `id`, `usuario_id`, `titulo` y `categoria`, y eso es TODO lo
-  que el listado expone. No incluye `descripcion` ni `precio_centavos`: si alguna vez hacen
-  falta en el listado, se amplía la consulta de `backend/app/datos/search_ads.py`, que es de
-  T28 y está cerrada — o sea que no es trabajo de esta tarea.
+- Los campos que devuelve son los que esa función devuelva: el listado NO define su propio
+  conjunto de campos ni amplía la consulta de la capa de datos. Si al listado le falta algún
+  campo, es un hueco del plan y lo decide una persona; no se resuelve desde esta tarea.
+- Esta tarea DEPENDE de T28, que es la que entrega `buscar_anuncios`. Mientras T28 no haya
+  corrido, el módulo no está en el tronco: por eso T28 figura en «Depende de» y no sólo acá.
+  La primera versión de este enunciado no la declaraba, y el deductor de etapas puso las dos
+  en la MISMA etapa, o sea en paralelo, contra un módulo que todavía no existía.
 
 #### GET /ads/{id}
 - Retorna 200 con los detalles del anuncio

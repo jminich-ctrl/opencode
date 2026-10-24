@@ -1,6 +1,6 @@
 # T26 — Registro backend (creación de cuenta)
 
-**Estado:** ✅ hecha
+**Estado:** pendiente
 **Depende de:** T03, T06c
 **Archivos que podés tocar:** backend/app/rutas/register.py, backend/app/servicios/register.py, backend/app/datos/users_register.py
 **Prohibido tocar:** Ninguno
@@ -100,3 +100,11 @@ Los tests de esta tarea se escriben **antes** que la implementación, en una cor
 - Bug fuera del alcance: reportalo, no lo arregles.
 - El plan no cierra: pará y decilo, no improvises.
 - Necesitás tocar un archivo prohibido: pará y decilo.
+
+## Reabierta
+
+su codigo inserta la columna password_hash y la tabla usuarios tiene clave_hash y clave_salt, las dos NOT NULL sin default
+
+Se reabrió con scripts/reabrir.sh el 2026-10-24 18:47 UTC. Su código anterior
+se sacó del tronco (copia en ../reabrir-T26-previo): esta tarea vuelve a pasar por tests-first,
+así que el test tiene que fallar antes de que exista la implementación.

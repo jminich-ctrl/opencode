@@ -1,6 +1,6 @@
 # T28 — Búsqueda backend (texto y categoría)
 
-**Estado:** ✅ hecha
+**Estado:** pendiente
 **Depende de:** T05a, T06c
 **Archivos que podés tocar:** backend/app/rutas/search.py, backend/app/servicios/search.py, backend/app/datos/search_ads.py
 **Prohibido tocar:** Ninguno
@@ -63,3 +63,11 @@ Los tests de esta tarea se escriben **antes** que la implementación, en una cor
 - Bug fuera del alcance: reportalo, no lo arregles.
 - El plan no cierra: pará y decilo.
 - Necesitás tocar un archivo prohibido: pará y decilo.
+
+## Reabierta
+
+su codigo consulta la columna categoria y la tabla anuncios tiene categoria_id
+
+Se reabrió con scripts/reabrir.sh el 2026-10-24 18:47 UTC. Su código anterior
+se sacó del tronco (copia en ../reabrir-T28-previo): esta tarea vuelve a pasar por tests-first,
+así que el test tiene que fallar antes de que exista la implementación.
