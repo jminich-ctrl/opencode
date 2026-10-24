@@ -7891,3 +7891,190 @@ class TestElEntornoDeLaPlataformaNoPisaAQuienLlama(unittest.TestCase):
         self.assertEqual([], culpables,
                          "volvió la copia del cargador de entorno; usá "
                          f"cargar_entorno_colabhive: {culpables}")
+
+
+class TestLaFotoDelAlcanceNoRevientaConElWorktreeLimpio(unittest.TestCase):
+    """`grep -c .` imprime `0` Y SALE CON 1 cuando no hay líneas, así que el `|| echo 0` que
+    tenía al lado disparaba TAMBIÉN y la variable quedaba con «0\\n0». El `[ -gt ]` reventaba
+    con «[: 0 0: integer expression expected».
+
+    Y pasaba en el caso MÁS COMÚN —el worktree limpio—, así que el aviso «el worktree ya traía
+    N archivos cambiados» no podía imprimirse nunca y en su lugar salía un error de bash en el
+    log de la corrida. Una medición que no mide y encima ensucia la evidencia que uno lee
+    después para diagnosticar.
+
+    Lo destapó la corrida REAL de T05c, no esta suite: ningún test miraba esa línea. Por eso
+    este test extrae las dos líneas DEL SCRIPT y las corre: un test que copia el código mide
+    la copia."""
+
+    def bloque(self):
+        """Las líneas del script que calculan e informan `heredados`, tal como están."""
+        fuente = (SCRIPTS / "escribir-tests.sh").read_text()
+        lineas = [l for l in fuente.splitlines()
+                  if l.strip().startswith("heredados=") or '"$heredados" -gt 0' in l]
+        self.assertEqual(2, len(lineas), f"no encontré las dos líneas: {lineas}")
+        return "wt=\"$1\"\n" + "\n".join(l.strip() for l in lineas) + '\necho FIN\n'
+
+    def correr_con(self, contenido):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-foto-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / ".sucio-antes").write_text(contenido)
+        guion = d / "g.sh"
+        guion.write_text(self.bloque())
+        return correr(f'bash "{guion}" "{d}"', RAIZ)
+
+    def test_con_el_worktree_limpio_no_dice_nada_y_no_revienta(self):
+        r = self.correr_con("")
+        self.assertIn("FIN", r.stdout, f"\n{r.stdout}{r.stderr}")
+        self.assertNotIn("integer expression", r.stderr,
+                         f"revienta con el caso más común:\n{r.stderr}")
+        self.assertNotIn("el worktree ya traía", r.stdout,
+                         "no había nada heredado: no hay nada que avisar")
+
+    def test_con_archivos_heredados_los_cuenta_y_lo_dice(self):
+        """El otro lado: el aviso existe porque el chequeo de alcance RESTA esos archivos, y
+        quien lee el log tiene que saber que se restaron."""
+        r = self.correr_con("app/a.py\napp/b.py\n")
+        self.assertIn("2 archivo(s)", r.stdout, f"\n{r.stdout}{r.stderr}")
+        self.assertNotIn("integer expression", r.stderr, f"\n{r.stderr}")
+
+
+class TestLasColumnasTambienSeCruzanContraLaMigracion(unittest.TestCase):
+    """El chequeo de tablas mira un nivel y faltaba el de abajo. Medido el 2026-10-24 contra
+    ejemplo-clasificados, SEIS columnas inventadas en tres archivos, los tres de tareas con
+    gate VERDE:
+
+        anuncios.categoria        la tabla tiene `categoria_id`     (T28, hecha)
+        usuarios.password_hash    la tabla tiene `clave_hash`       (T26, hecha)
+        mensajes.remitente_id     la tabla tiene `de_usuario_id`    (T20, cerrada HOY)
+        mensajes.destinatario_id  la tabla tiene `a_usuario_id`
+        mensajes.contenido        la tabla tiene `cuerpo`
+        mensajes.fecha_envio      la tabla tiene `creado_en`
+
+    Ninguno de esos códigos puede correr, y los tres pasaron su gate porque sus tests simulan
+    la base: nadie comparaba la consulta contra el esquema. Lo encontró el ejecutor de OTRA
+    tarea, al que el guardia de alcance frenó por tocar un archivo ajeno —estaba corrigiendo
+    `categoria` por `categoria_id`—: el método tenía el dato adentro de un rechazo y lo tiraba.
+
+    La mitad de estos tests son de FALSOS ROJOS a propósito. Un rojo de este chequeo detiene
+    el plan, así que lo que hay que medir no es sólo que vea el defecto: es que se calle
+    cuando no puede afirmar nada."""
+
+    def proyecto(self, consulta, estado="pendiente", esquema="id INT, nombre VARCHAR(50)"):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-cols-")).resolve()
+        self.addCleanup(shutil.rmtree, str(tmp), True)
+        d = tmp / "repo"; d.mkdir()
+        correr("git init -q . && git config user.email a@b && git config user.name a", d)
+        (d / "tareas").mkdir()
+        (d / "tareas" / "T01-cosas.md").write_text(
+            f"# T01 — Cosas\n\n**Estado:** {estado}\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/datos/cosas.py\n**Prohibido tocar:** Ninguno\n\n"
+            "## Objetivo\n\nLeer cosas.\n\n## Terminado cuando\n\n- [ ] anda\n")
+        (d / "migraciones").mkdir()
+        (d / "migraciones" / "001_initial.sql").write_text(
+            f"CREATE TABLE cosas (\n    {esquema}\n);\n")
+        (d / "app" / "datos").mkdir(parents=True)
+        (d / "app" / "datos" / "cosas.py").write_text(
+            f'def leer():\n    return db.execute({consulta!r})\n')
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n## Tareas\n\n"
+            "| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
+            f"| T01 | Cosas | — | `app/datos/cosas.py` | {estado} |\n")
+        return d
+
+    def coherencia(self, d):
+        return correr(f'PROYECTO=. python3 "{SCRIPTS}/coherencia.py"', d)
+
+    # ── lo que TIENE que ver
+
+    def test_una_columna_que_la_migracion_no_crea_con_la_tarea_cerrada_es_rojo(self):
+        d = self.proyecto("SELECT id, titulo FROM cosas", estado="✅ hecha")
+        r = self.coherencia(d)
+        self.assertNotEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("cosas.titulo", r.stdout, f"\n{r.stdout}")
+        self.assertIn("REABRIR T01", r.stdout,
+                      f"una tarea cerrada con código que no puede correr se REABRE, no se "
+                      f"parchea desde otra:\n{r.stdout}")
+
+    def test_el_veredicto_dice_qué_columnas_tiene_la_tabla(self):
+        """Y no una adivinanza por parecido. Medido: para `destinatario_id` el `difflib`
+        sugería `de_usuario_id` y para `remitente_id` sugería `a_usuario_id` —las dos
+        INVERTIDAS—. Una pista equivocada adentro de un veredicto es peor que ninguna."""
+        d = self.proyecto("SELECT id, titulo FROM cosas", estado="✅ hecha")
+        r = self.coherencia(d)
+        self.assertIn("La tabla tiene:", r.stdout, f"\n{r.stdout}")
+        self.assertIn("`nombre`", r.stdout, f"\n{r.stdout}")
+
+    def test_las_columnas_de_un_INSERT_tambien_se_cruzan(self):
+        """La otra superficie explícita, y la del cadáver de `users_register.py`:
+        `INSERT INTO usuarios (email, password_hash)` contra una tabla con `clave_hash`."""
+        d = self.proyecto("INSERT INTO cosas (id, inventada) VALUES (%s, %s)",
+                          estado="✅ hecha")
+        r = self.coherencia(d)
+        self.assertNotEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("cosas.inventada", r.stdout, f"\n{r.stdout}")
+
+    def test_con_la_tarea_pendiente_avisa_pero_no_detiene_el_plan(self):
+        """La tarea que declara el archivo va a correr y su gate la va a juzgar: detener el
+        plan acá sería impedir su propio arreglo. Misma regla que el chequeo de tablas."""
+        d = self.proyecto("SELECT id, titulo FROM cosas", estado="pendiente")
+        r = self.coherencia(d)
+        self.assertEqual(0, r.returncode,
+                         f"con dueño pendiente el plan puede arrancar:\n{r.stdout}{r.stderr}")
+        self.assertIn("cosas.titulo", r.stdout, f"pero tiene que decirlo:\n{r.stdout}")
+
+    # ── lo que tiene que CALLAR, que es la mitad del valor
+
+    def test_un_asterisco_no_afirma_ninguna_columna(self):
+        d = self.proyecto("SELECT * FROM cosas", estado="✅ hecha")
+        self.assertEqual(0, self.coherencia(d).returncode)
+
+    def test_un_JOIN_no_permite_saber_de_qué_tabla_viene_la_columna(self):
+        d = self.proyecto("SELECT id, otra FROM cosas JOIN otras ON cosas.id = otras.id",
+                          estado="✅ hecha")
+        # La tabla del JOIN también tiene que existir, o salta el chequeo de TABLAS y este
+        # test mediría esa otra dimensión. Mi primera versión no la creaba y el rojo que
+        # obtuve era correcto, pero de otro chequeo.
+        m = d / "migraciones" / "001_initial.sql"
+        m.write_text(m.read_text() + "CREATE TABLE otras (\n    id INT, otra INT\n);\n")
+        r = self.coherencia(d)
+        self.assertEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+
+    def test_una_funcion_o_un_alias_en_la_lista_hacen_callar_al_chequeo(self):
+        for consulta in ("SELECT COUNT(id) FROM cosas",
+                         "SELECT id AS clave FROM cosas",
+                         "SELECT cosas.id FROM cosas"):
+            with self.subTest(consulta=consulta):
+                d = self.proyecto(consulta, estado="✅ hecha")
+                r = self.coherencia(d)
+                self.assertEqual(0, r.returncode, f"{consulta}:\n{r.stdout}{r.stderr}")
+
+    def test_una_columna_agregada_por_ALTER_TABLE_existe(self):
+        """Sin esto, una migración posterior que agrega un campo deja al chequeo acusando al
+        código que lo usa: el defecto tendría el sujeto exactamente invertido."""
+        d = self.proyecto("SELECT id, extra FROM cosas", estado="✅ hecha")
+        (d / "migraciones" / "002_extra.sql").write_text(
+            "ALTER TABLE cosas ADD COLUMN extra INT NOT NULL;\n")
+        r = self.coherencia(d)
+        self.assertEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+
+    def test_los_parentesis_anidados_del_esquema_no_se_comen_columnas(self):
+        """`VARCHAR(255)` y `FOREIGN KEY (x) REFERENCES y(id)` anidan paréntesis. Un regex
+        perezoso corta el cuerpo del CREATE TABLE en el primer `)` y pierde la mitad de las
+        columnas — y un chequeo de columnas que no ve todas las columnas no informa de menos:
+        INVENTA rojos. Por eso el delimitador es un contador de paréntesis."""
+        d = self.proyecto("SELECT id, nombre, precio FROM cosas", estado="✅ hecha",
+                          esquema=("id INT AUTO_INCREMENT PRIMARY KEY,\n"
+                                   "    nombre VARCHAR(255) NOT NULL,\n"
+                                   "    precio DECIMAL(10,2) NOT NULL,\n"
+                                   "    FOREIGN KEY (id) REFERENCES otras(id)"))
+        r = self.coherencia(d)
+        self.assertEqual(0, r.returncode,
+                         f"se comió columnas del esquema y acusó al código:\n{r.stdout}")
+
+    def test_sin_migraciones_el_chequeo_no_opina(self):
+        """Un chequeo que no puede medir no opina: la misma regla que el método aplica a los
+        corredores de tests. Sin esquema no hay con qué comparar."""
+        d = self.proyecto("SELECT id, titulo FROM cosas", estado="✅ hecha")
+        shutil.rmtree(d / "migraciones")
+        self.assertEqual(0, self.coherencia(d).returncode)

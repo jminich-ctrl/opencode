@@ -205,8 +205,14 @@ for id in "$@"; do
   ( cd "$wt/$PROYECTO" 2>/dev/null || cd "$wt"
     { git diff --name-only --relative HEAD 2>/dev/null; git ls-files --others --exclude-standard; } \
       | sort -u > "$wt/.sucio-antes" ) || : > "$wt/.sucio-antes"
-  heredados="$(grep -c . "$wt/.sucio-antes" 2>/dev/null || echo 0)"
-  [ "${heredados:-0}" -gt 0 ] && echo "  · el worktree ya traía $heredados archivo(s) cambiado(s): no se le cobran a la tarea"
+  # `grep -c .` imprime 0 Y SALE CON 1 cuando no hay líneas, así que el `|| echo 0` disparaba
+  # TAMBIÉN y la variable quedaba con «0\n0». El `[ -gt ]` reventaba con
+  # «[: 0 0: integer expression expected», y justo en el caso más común —el worktree limpio—:
+  # el aviso no podía imprimirse nunca y en su lugar salía un error de bash en el log de la
+  # corrida. Una medición que no mide y encima ensucia la evidencia que uno lee después.
+  # Lo destapó la corrida real de T05c, no la suite: ningún test miraba esta línea.
+  heredados="$(grep -c . "$wt/.sucio-antes" 2>/dev/null)"; heredados="${heredados:-0}"
+  [ "$heredados" -gt 0 ] 2>/dev/null && echo "  · el worktree ya traía $heredados archivo(s) cambiado(s): no se le cobran a la tarea"
 
   log="$wt/.tests.log"
   # El reloj que detecta el cuelgue es el de inactividad sobre este log: el agente que

@@ -206,6 +206,162 @@ def tablas_que_crean_las_migraciones(base: pathlib.Path):
     return creadas
 
 
+# ── Columnas: un nivel más abajo que las tablas, y el que faltaba ─────────────────────
+#
+# Cadáver del 2026-10-24. La tabla `anuncios` se crea con `categoria_id`, y
+# `backend/app/datos/search_ads.py` —de T28, marcada ✅ hecha— hace:
+#
+#     SELECT id, usuario_id, titulo, categoria FROM anuncios WHERE 1=1
+#     ...  condiciones.append("categoria = %s")
+#
+# Esa columna no existe: el código NO PUEDE correr. Su gate dio verde porque sus tests
+# simulan la base y nadie compara la consulta contra el esquema. El chequeo de tablas no lo
+# ve —la tabla `anuncios` sí existe— y lo encontró, de casualidad, el ejecutor de otra tarea
+# al que el guardia de alcance frenó por tocar un archivo ajeno: el método tenía el dato
+# dentro de un rechazo.
+#
+# Se juzgan SÓLO superficies explícitas, por la misma razón que el chequeo de tablas mira
+# sólo literales que parecen SQL: un rojo en el preflight detiene el plan, y un falso rojo
+# cuesta una corrida entera.
+#   · la lista de un `SELECT ... FROM <una tabla>`, sin `*`, sin JOIN, sin funciones, sin
+#     nombres calificados y sin alias;
+#   · las columnas declaradas de un `INSERT INTO <t> (...)`.
+# El `WHERE` queda afuera a propósito: sacarlo de ahí pide parsear expresiones, y preferí un
+# chequeo que ve menos a uno que inventa. El caso de T28 cae igual por la lista del SELECT.
+
+# Palabras que abren una restricción y no son una columna.
+NO_SON_COLUMNAS = {"primary", "foreign", "unique", "key", "index", "constraint", "check",
+                   "fulltext", "spatial", "period"}
+
+
+def _cuerpos_create_table(txt: str):
+    """`[(tabla, cuerpo)]`, delimitando con un CONTADOR de paréntesis y no con un regex.
+
+    `VARCHAR(255)` y `FOREIGN KEY (x) REFERENCES y(id)` anidan paréntesis: un regex perezoso
+    corta el cuerpo en el primer `)` —el del VARCHAR— y pierde la mitad de las columnas. Y un
+    chequeo de columnas que no ve todas las columnas no informa de menos: INVENTA rojos.
+    """
+    for m in re.finditer(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"
+                         r"`?([A-Za-z_][A-Za-z0-9_]*)`?\s*\(", txt, re.I):
+        i, nivel = m.end(), 1
+        while i < len(txt) and nivel:
+            if txt[i] == "(":
+                nivel += 1
+            elif txt[i] == ")":
+                nivel -= 1
+            i += 1
+        yield m.group(1).lower(), txt[m.end():i - 1]
+
+
+def _partir_en_el_primer_nivel(cuerpo: str):
+    """Las comas de ARRIBA, no las de adentro de `DECIMAL(10,2)`."""
+    partes, nivel, actual = [], 0, []
+    for ch in cuerpo:
+        if ch == "(":
+            nivel += 1
+        elif ch == ")":
+            nivel -= 1
+        if ch == "," and nivel == 0:
+            partes.append("".join(actual)); actual = []
+        else:
+            actual.append(ch)
+    partes.append("".join(actual))
+    return partes
+
+
+def columnas_que_crean_las_migraciones(base: pathlib.Path):
+    """`{tabla: {columna, ...}}`. Las `_down.sql` no cuentan: son la reversa."""
+    creadas = {}
+    for sql in sorted(base.rglob("*.sql")):
+        partes = {x.lower() for x in sql.parts}
+        if not ({"migraciones", "migrations"} & partes):
+            continue
+        if sql.name.endswith("_down.sql"):
+            continue
+        try:
+            txt = sql.read_text()
+        except OSError:
+            continue
+        for tabla, cuerpo in _cuerpos_create_table(txt):
+            cols = creadas.setdefault(tabla, set())
+            for item in _partir_en_el_primer_nivel(cuerpo):
+                item = item.strip()
+                if not item:
+                    continue
+                primera = re.split(r"[\s(]+", item, 1)[0].strip("`").lower()
+                if primera in NO_SON_COLUMNAS:
+                    continue
+                if re.fullmatch(r"[a-z_][a-z0-9_]*", primera):
+                    cols.add(primera)
+        # `ALTER TABLE t ADD COLUMN c` también crea columna: sin esto, una migración posterior
+        # que agrega un campo deja al chequeo acusando al código que lo usa.
+        for m in re.finditer(r"ALTER\s+TABLE\s+`?([a-z_][a-z0-9_]*)`?\s+ADD\s+"
+                             r"(?:COLUMN\s+)?`?([a-z_][a-z0-9_]*)`?", txt, re.I):
+            creadas.setdefault(m.group(1).lower(), set()).add(m.group(2).lower())
+    return creadas
+
+
+RE_SELECT_DE_UNA_TABLA = re.compile(
+    r"\bSELECT\s+(.+?)\s+FROM\s+`?([a-z_][a-z0-9_]*)`?(?![a-z0-9_])", re.I | re.S)
+RE_INSERT_CON_COLUMNAS = re.compile(
+    r"\bINSERT\s+INTO\s+`?([a-z_][a-z0-9_]*)`?\s*\(([^)]*)\)", re.I)
+
+
+def _columnas_de_una_lista(lista: str):
+    """Los nombres de columna de una lista explícita, o `None` si no se puede afirmar.
+
+    Devuelve `None` —y el chequeo se calla— en cuanto aparece algo que no es un nombre pelado:
+    `*`, una función, un nombre calificado, un alias. Preferir callarse es la regla: el rojo
+    de este chequeo detiene el plan.
+    """
+    lista = re.sub(r"^\s*(?:DISTINCT|ALL)\s+", "", lista, flags=re.I)
+    cols = set()
+    for item in _partir_en_el_primer_nivel(lista):
+        item = item.strip().strip("`")
+        if not item or "*" in item or "(" in item or "." in item:
+            return None
+        if not re.fullmatch(r"[a-z_][a-z0-9_]*", item, re.I):
+            return None
+        cols.add(item.lower())
+    return cols or None
+
+
+def columnas_que_consulta_el_codigo(base: pathlib.Path):
+    """`{(tabla, columna): [archivo:línea, ...]}` desde literales que parecen SQL."""
+    usadas = {}
+    for f in sorted(base.rglob("*.py")):
+        if not es_del_proyecto(f):
+            continue
+        try:
+            arbol = ast.parse(f.read_text())
+        except (OSError, SyntaxError):
+            continue
+        for nodo in ast.walk(arbol):
+            if not (isinstance(nodo, ast.Constant) and isinstance(nodo.value, str)):
+                continue
+            txt = nodo.value
+            if not RE_PARECE_SQL.search(txt):
+                continue
+            donde = (f"{f.relative_to(base) if f.is_relative_to(base) else f}"
+                     f":{nodo.lineno}")
+            # Con un JOIN una columna puede venir de cualquiera de las tablas: no se puede
+            # afirmar de cuál, así que no se afirma nada.
+            if not re.search(r"\bJOIN\b", txt, re.I):
+                for m in RE_SELECT_DE_UNA_TABLA.finditer(txt):
+                    cols = _columnas_de_una_lista(m.group(1))
+                    if not cols:
+                        continue
+                    for c in cols:
+                        usadas.setdefault((m.group(2).lower(), c), []).append(donde)
+            for m in RE_INSERT_CON_COLUMNAS.finditer(txt):
+                cols = _columnas_de_una_lista(m.group(2))
+                if not cols:
+                    continue
+                for c in cols:
+                    usadas.setdefault((m.group(1).lower(), c), []).append(donde)
+    return usadas
+
+
 def tablas_que_consulta_el_codigo(base: pathlib.Path):
     """`{tabla: [archivo:línea, ...]}` leyendo sólo cadenas que parecen SQL."""
     usadas = {}
@@ -333,6 +489,30 @@ def duenio_del_archivo(textos: dict, ruta: str):
     return None, False
 
 
+def duenios_del_archivo(textos: dict, ruta: str):
+    """`[(TNN, hecha), ...]` de TODAS las tareas que declaran este archivo.
+
+    `duenio_del_archivo` devuelve sólo la primera, y para decidir si un rojo detiene el plan
+    hace falta saber si queda alguna PENDIENTE: `datos/messages.py` lo declaran tres tareas
+    —una hecha y dos pendientes— y con la primera sola el veredicto sería «reabrir» sobre una
+    tarea cuyo arreglo ya está planificado.
+    """
+    ruta = ruta.split(":")[0].lstrip("./")
+    encontrados = []
+    for tid, texto in sorted(textos.items()):
+        m = RE_TOCAR.search(texto)
+        if not m:
+            continue
+        declarados = [a.strip().lstrip("./") for a in m.group(1).split(",")]
+        if not any(ruta == d or ruta.endswith("/" + d) or d.endswith("/" + ruta)
+                   for d in declarados):
+            continue
+        e = RE_ESTADO.search(texto)
+        estado = (e.group(1) if e else "").lower()
+        encontrados.append((tid, "hecha" in estado or "✅" in estado))
+    return encontrados
+
+
 def main():
     base = pathlib.Path(os.environ.get("PROYECTO", "."))
     # `--tablas` imprime lo que las migraciones CREAN, una por línea, y sale.
@@ -413,6 +593,7 @@ def main():
     # corredores de tests: un ⊘ no es un pase, pero tampoco un rojo.
     cubiertos = []
     creadas = tablas_que_crean_las_migraciones(base)
+    creadas_cols = columnas_que_crean_las_migraciones(base)
     dichas = set()
     if creadas:
         for tabla, quienes in sorted(tablas_que_los_enunciados_dan_por_hechas(textos).items()):
@@ -478,6 +659,67 @@ def main():
                                   f"crea — {donde}."
                                   f"{pista} Ninguna tarea declara ese archivo: lo decide quien "
                                   f"planifica, o la migración la crea, o el código usa la que existe."))
+
+    # ── ROJO: una COLUMNA que el código consulta y ninguna migración crea ──────────
+    #
+    # Un nivel más abajo que el chequeo de tablas, y es el que faltaba. Medido el 2026-10-24
+    # contra ejemplo-clasificados: SEIS columnas inventadas en tres archivos, y los tres de
+    # tareas con gate VERDE.
+    #
+    #   anuncios.categoria          la tabla tiene `categoria_id`      (T28, hecha)
+    #   usuarios.password_hash      la tabla tiene `clave_hash`        (T26, hecha)
+    #   mensajes.remitente_id       la tabla tiene `de_usuario_id`     (T20, hecha hoy)
+    #   mensajes.destinatario_id    la tabla tiene `a_usuario_id`
+    #   mensajes.contenido          la tabla tiene `cuerpo`
+    #   mensajes.fecha_envio        la tabla tiene `creado_en`
+    #
+    # Ninguno de esos códigos puede correr, y los tres pasaron su gate porque sus tests
+    # simulan la base: nadie comparaba la consulta contra el esquema. El de T20 se cerró HOY.
+    #
+    # Lo encontró el ejecutor de OTRA tarea, al que el guardia de alcance frenó por tocar un
+    # archivo ajeno —estaba corrigiendo `categoria` por `categoria_id`—. O sea que el método
+    # tenía el dato adentro de un rechazo y no lo leía: el rechazo era correcto, y la
+    # información que traía se tiraba.
+    if creadas_cols:
+        for (tabla, col), lugares in sorted(columnas_que_consulta_el_codigo(base).items()):
+            if tabla not in creadas_cols or col in creadas_cols[tabla]:
+                continue
+            # Sin adivinanza por parecido, A DIFERENCIA del chequeo de tablas. Medido: para
+            # `destinatario_id` sugería `de_usuario_id` y para `remitente_id` sugería
+            # `a_usuario_id` —las dos INVERTIDAS— y para `contenido` sugería `creado_en`. Una
+            # pista equivocada dentro de un veredicto es peor que ninguna: es la familia del
+            # sujeto equivocado, y acá el nombre correcto no se puede deducir de la ortografía
+            # porque el esquema está en castellano y el código en otra convención.
+            #
+            # Lo que sí sirve es el DATO: las columnas que la tabla tiene. Son pocas y están
+            # a mano.
+            pista = f" La tabla tiene: {', '.join('`%s`' % c for c in sorted(creadas_cols[tabla]))}."
+            donde = f"{lugares[0]}{' y ' + str(len(lugares) - 1) + ' más' if len(lugares) > 1 else ''}"
+            # TODOS los que declaran el archivo, no el primero. Con `messages.py` son tres
+            # —T20 hecha, T21 y T22 pendientes— y la diferencia decide el veredicto: si alguna
+            # está PENDIENTE va a correr y su gate la va a juzgar, así que el plan puede
+            # arrancar. Tomar sólo el primero convertiría eso en un rojo que detiene el plan
+            # para pedir que se reabra una tarea cuyo arreglo ya está planificado.
+            duenios = duenios_del_archivo(textos, lugares[0])
+            pendientes = [tid for tid, hecha in duenios if not hecha]
+            cerradas = [tid for tid, hecha in duenios if hecha]
+            if pendientes:
+                cubiertos.append(
+                    f"el código consulta `{tabla}.{col}` y la migración no crea esa columna "
+                    f"({donde}).{pista} {', '.join(pendientes)} declara ese archivo y está "
+                    f"PENDIENTE: va a correr y su gate la va a juzgar. El plan puede arrancar.")
+            elif cerradas:
+                rojos.append(("esquema",
+                              f"{', '.join(cerradas)} figura HECHA y su código consulta "
+                              f"`{tabla}.{col}`, que ninguna migración crea — {donde}."
+                              f"{pista} Su gate dio un veredicto falso: esa consulta no puede "
+                              f"correr. Hay que REABRIR {', '.join(cerradas)}, no parchear a "
+                              f"mano desde otra tarea."))
+            else:
+                rojos.append(("esquema",
+                              f"el código consulta `{tabla}.{col}` y ninguna migración crea esa "
+                              f"columna — {donde}.{pista} Ninguna tarea declara ese archivo: lo "
+                              f"decide quien planifica."))
 
     # ── AVISO: un enunciado nombra `mod.func` y el CÓDIGO usa `mod.otra` ─────────────
     #
