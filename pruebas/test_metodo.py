@@ -4576,8 +4576,14 @@ class TestNadieCruzabaLasTareasEntreSi(unittest.TestCase):
             "- Cambiar el esquema. Acá decía «hash con `hashlib.scrypt`» y era un defecto.\n\n"
             "## Contrato\n\n```python\ndef crear(email, password) -> int:\n    ...\n```\n")
         r = self.correr(d)
-        self.assertNotIn("⚠", r.stdout,
+        # La aserción va contra EL AVISO QUE ESTE TEST MIDE, no contra cualquier `⚠`. La
+        # primera versión decía `assertNotIn("⚠", ...)` y se puso roja cuando el cruce empezó
+        # a informar su cobertura —«1 de 1 tarea no declara imports»—, que es un aviso correcto
+        # y de otro asunto. Una aserción más amplia que su sujeto convierte cualquier mejora
+        # del chequeo en un rojo que no habla de lo que el test vino a fijar.
+        self.assertNotIn("nombra `", r.stdout,
                          f"la cita del defecto viejo no es una declaración:\n{r.stdout}")
+        self.assertNotIn("hashlib", r.stdout, f"\n{r.stdout}")
 
 
 class TestElBrazoNuloDelValidadorDeTests(unittest.TestCase):
