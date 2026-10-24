@@ -50,6 +50,17 @@ def correr(cmd, cwd, **env):
                           errors="replace", env=e)
 
 
+def _test_en_curso():
+    """El nombre del test que está corriendo, leído de la pila. `unittest` no lo publica en
+    ninguna variable, y la alternativa —pasarlo a mano en cada construcción— se olvida en la
+    primera llamada nueva."""
+    import traceback
+    for cuadro in reversed(traceback.extract_stack()):
+        if cuadro.name.startswith("test") or cuadro.name in ("setUp", "setUpClass"):
+            return f"{pathlib.Path(cuadro.filename).name}:{cuadro.lineno} {cuadro.name}"
+    return "desconocido"
+
+
 # Lo que resistió el borrado, para que la suite lo diga en vez de dejarlo callado.
 NO_BORRADOS = []
 
@@ -77,6 +88,18 @@ class Proyecto:
         # raíz, esos bugs no se reproducen y los tests dan verde con el bug puesto — lo
         # comprobamos reintroduciéndolos.
         self.repo = pathlib.Path(tempfile.mkdtemp(prefix="prueba-metodo-"))
+        # Quién lo creó, escrito ADENTRO del directorio. Hoy encontré 56 de estos huérfanos
+        # en /var/folders —del 21 al 24 de octubre, un repo de juguete completo cada uno— y
+        # no había forma de saber qué test los dejó: todos idénticos, sin logs, sin marca.
+        # Un directorio que queda tirado y no dice de quién es obliga a adivinar, que es
+        # exactamente lo que este método existe para no hacer. La evidencia viene con su
+        # sujeto.
+        # Sin `try`: si esto falla justo después de un `mkdtemp` que funcionó, es un
+        # problema que hay que ver. Mi primera versión lo envolvió en `except OSError: pass`
+        # y la guarda de este mismo archivo —la que vigila que no vuelva ese `pass`— lo
+        # atrapó en el acto. Tenía razón: una marca que falla callada deja el directorio
+        # huérfano otra vez sin sujeto, que es el defecto que la marca viene a arreglar.
+        (self.repo / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
         # `donde` es la ubicación del proyecto DENTRO del repo. Variarla es la relación
         # metamórfica del test de abajo: el veredicto no puede depender de dónde está.
         self.dir = self.repo if donde == "." else (self.repo / donde)
@@ -95,8 +118,13 @@ class Proyecto:
             shutil.copy(SCRIPTS / aux, self.dir / "scripts" / aux)
         (self.dir / "src" / "__init__.py").touch()
         (self.dir / "tests" / "__init__.py").touch()
+        # `.quien-lo-creo` va ignorado: lo escribe el andamio en la raíz del repo ANTES del
+        # `git add -A`, y sin esto entraría en los commits del proyecto de juguete y
+        # aparecería en cada `git status` que los tests miran. Una marca de diagnóstico que
+        # cambia el sujeto medido es peor que no tenerla.
         (self.repo / ".gitignore").write_text(
-            "__pycache__/\n*.pyc\n.tarea.log\n.base-ref\n.metricas/\n.opencode-data/\n")
+            "__pycache__/\n*.pyc\n.tarea.log\n.base-ref\n.metricas/\n.opencode-data/\n"
+            ".quien-lo-creo\n")
         self.escribir_tarea("T01", "src/cosa.py")
         (self.dir / "tests" / "test_cosa.py").write_text(
             "import unittest\nfrom src.cosa import f\n\n"
@@ -143,6 +171,14 @@ class Proyecto:
         # manejador hacía exactamente lo que el párrafo de arriba denuncia, dos líneas más
         # abajo. Ahora lo que resiste se ANOTA y la suite lo dice. Importa de verdad: hoy
         # llené el disco dos veces, y quedan 8,9 GiB.
+        # Llamarlo dos veces no es basura en disco. Los dos tests de contabilidad del
+        # veredicto tiran su proyecto en un `finally` y después `unittest` corre su propio
+        # `tearDown` sobre el mismo: la segunda pasada daba FileNotFoundError, el manejador
+        # la anotaba como «resistió» y el aviso acusaba de dejar basura un directorio
+        # correctamente borrado. Un falso positivo en el chequeo que acabo de agregar, y del
+        # mismo tipo que todo lo de hoy: el veredicto nombraba al sujeto equivocado.
+        if not os.path.exists(self.repo):
+            return
         antes = len(NO_BORRADOS)
         shutil.rmtree(self.repo, onerror=_a_la_fuerza)
         nuevos = len(NO_BORRADOS) - antes
@@ -154,10 +190,34 @@ class Proyecto:
 
 class CasoBase(unittest.TestCase):
     def setUp(self):
-        self.p = Proyecto()
+        self.p = self._proyecto_marcado()
 
     def tearDown(self):
         self.p.tirar()
+
+    def _proyecto_marcado(self):
+        p = Proyecto()
+        # El nombre exacto del test, encima del que puso `Proyecto`. `unittest` llama a
+        # `setUp` ANTES de entrar al método, así que su cuadro no está en la pila y la marca
+        # del andamio sólo puede decir «setUp»: con 300 tests que heredan de esta clase, eso
+        # no nombra a nadie. Acá sí se sabe quién es.
+        (p.repo / ".quien-lo-creo").write_text(self.id() + "\n")
+        return p
+
+    def rehacer_proyecto(self):
+        """Un proyecto fresco en MEDIO de un test, sin dejar huérfano el anterior.
+
+        Los dos tests de contabilidad del veredicto llamaban a `self.setUp()` dentro de su
+        bucle de escenarios. `setUp` pisa `self.p` con un proyecto nuevo, así que el que
+        `unittest` había creado antes de entrar al método quedaba abandonado y nadie lo tiraba
+        jamás: un directorio por test, dos tests, dos por corrida. Había 55 acumulados en
+        /var/folders del 21 al 24 de octubre —un repo de juguete completo cada uno, todos
+        idénticos— y ninguno decía de quién era.
+
+        Quien necesite rearmar el escenario usa esto y no `setUp`: la diferencia es el `tirar`
+        del anterior."""
+        self.p.tirar()
+        self.p = self._proyecto_marcado()
 
     def assertRojo(self, r, porque="", motivo=None):
         """Rojo Y por el motivo correcto.
@@ -1847,7 +1907,7 @@ class TestContabilidadDelVeredicto(CasoBase):
     def test_el_veredicto_cuenta_exactamente_las_marcas_impresas(self):
         for nombre, preparar, tarea in self.escenarios():
             with self.subTest(escenario=nombre):
-                self.setUp()
+                self.rehacer_proyecto()
                 try:
                     preparar()
                     r = self.p.gate(tarea)
@@ -1871,7 +1931,7 @@ class TestContabilidadDelVeredicto(CasoBase):
         veredicto cambie: tres de los mutantes que sobrevivieron eran exactamente eso."""
         for nombre, preparar, tarea in self.escenarios():
             with self.subTest(escenario=nombre):
-                self.setUp()
+                self.rehacer_proyecto()
                 try:
                     preparar()
                     salida = self.p.gate(tarea).stdout
@@ -7239,6 +7299,71 @@ class TestLaSuiteNoDejaBasuraEnSilencio(unittest.TestCase):
         self.assertIn("resiste.txt", NO_BORRADOS[-1][0],
                       f"y tiene que anotar QUÉ ruta quedó: {NO_BORRADOS[-1]}")
         NO_BORRADOS.pop()
+
+    def test_tirar_dos_veces_no_es_basura_en_disco(self):
+        """El falso positivo que el aviso nuevo produjo en su primera corrida. Los dos tests
+        de contabilidad del veredicto tiran su proyecto en un `finally` y después `unittest`
+        corre su propio `tearDown` sobre el mismo: la segunda pasada daba FileNotFoundError,
+        el manejador la anotaba como «resistió» y el aviso acusaba de dejar basura un
+        directorio correctamente borrado. Dos avisos falsos por corrida, del mismo tipo que
+        todo lo de hoy: el veredicto nombraba al sujeto equivocado."""
+        p = Proyecto()
+        p.tirar()
+        antes = len(NO_BORRADOS)
+        p.tirar()
+        self.assertEqual(antes, len(NO_BORRADOS),
+                         "tirar lo ya tirado no es una ruta que resistió")
+
+    def test_rehacer_proyecto_no_deja_huerfano_el_anterior(self):
+        """El defecto real detrás de los 55 directorios de /var/folders: un test que llama a
+        `self.setUp()` para rearmar el escenario pisa `self.p` y abandona el proyecto que
+        `unittest` ya había creado. `rehacer_proyecto` tira el anterior primero."""
+        caso = TestValidarPlan("test_plan_sano_valida")
+        caso.setUp()
+        try:
+            primero = caso.p.repo
+            caso.rehacer_proyecto()
+            segundo = caso.p.repo
+            self.assertNotEqual(primero, segundo, "tiene que ser un proyecto NUEVO")
+            self.assertFalse(os.path.exists(primero),
+                             f"dejó huérfano el anterior: {primero}")
+            self.assertTrue(os.path.exists(segundo))
+        finally:
+            caso.tearDown()
+
+    def test_ningun_test_llama_a_setUp_a_mano(self):
+        """El pie de banco que causó todo esto. `setUp` crea un proyecto y pisa `self.p`:
+        llamarlo desde el cuerpo de un test abandona el anterior en silencio. Quien necesite
+        rearmar el escenario tiene `rehacer_proyecto`, que tira el anterior primero."""
+        fuente = (RAIZ / "pruebas" / "test_metodo.py").read_text()
+        # La llamada PELADA y nada más. La primera versión buscaba la subcadena y se
+        # matcheaba a sí misma, a su propia prosa y a los dos docstrings que explican el
+        # defecto: tres falsos positivos de tres. Mismo defecto de extractor que el `HUECO`
+        # de esta mañana, por tercera vez hoy y otra vez en el test que vigila.
+        culpables = [f"línea {n}" for n, l in enumerate(fuente.splitlines(), 1)
+                     if l.strip() == "self.setUp()"]
+        self.assertEqual([], culpables,
+                         "un test llama a setUp() a mano y deja un proyecto huérfano por "
+                         f"corrida: {culpables}. Usá rehacer_proyecto().")
+
+    def test_un_huerfano_dice_de_quien_es(self):
+        """Había 55 en /var/folders, del 21 al 24 de octubre, todos idénticos y sin una marca
+        que los distinguiera: no se podía nombrar al sujeto sin adivinar."""
+        p = Proyecto()
+        self.addCleanup(p.tirar)
+        marca = (p.repo / ".quien-lo-creo").read_text()
+        self.assertIn("test_un_huerfano_dice_de_quien_es", marca,
+                      f"la marca tiene que nombrar al test que lo creó: {marca!r}")
+
+    def test_la_marca_no_ensucia_el_worktree_del_juguete(self):
+        """La marca cae en la raíz del repo de juguete ANTES del `git add -A`. Sin ignorarla,
+        entraría en los commits y aparecería en cada `git status` que los tests miran: una
+        marca de diagnóstico que cambia el sujeto medido es peor que no tenerla."""
+        p = Proyecto()
+        self.addCleanup(p.tirar)
+        r = correr("git status --short", p.repo)
+        self.assertEqual("", r.stdout.strip(),
+                         f"el juguete tiene que arrancar limpio:\n{r.stdout}")
 
     def test_el_manejador_es_alcanzable_desde_un_test(self):
         """Era un cierre dentro de `tirar`: ningún test podía llamarlo, y lo que no se puede
