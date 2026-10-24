@@ -3587,6 +3587,39 @@ class TestValidarPlan(CasoBase):
         self.assertVerde(self.validar(), "los genéricos no son plantillas sin completar")
 
 
+    def test_un_enunciado_que_declara_un_HUECO_da_rojo(self):
+        """El defecto que costó un día entero. El 2026-10-24, T05c de clasificados tenía en su
+        línea 55 «- **HUECO**: No existe función para listar todos los anuncios en la capa de
+        servicios ni datos», escrita por la replanificación de `51f5c3f`.
+
+        El arquitecto obedeció la instrucción (3) del prompt —«si el problema es que la tarea
+        necesita algo que ninguna tarea del plan entrega, decilo con la palabra HUECO»— y la
+        escribió donde se le pidió escribir: en el cuerpo de la tarea. El relevo busca HUECO en
+        el TRANSCRIPT, y nadie miraba el enunciado que SALE. Los cuatro jueces lo aprobaron, se
+        commiteó, y el ejecutor chocó con el hueco: entregó un `GET /ads` que devuelve `501 No
+        implementado` y escribió en dos archivos que no eran suyos buscando la función que no
+        existe.
+
+        Después de eso yo diagnostiqué tres veces mal —el enunciado, el alcance, el modelo—
+        mientras la respuesta estaba escrita en el archivo. Un enunciado que declara un hueco
+        no es un enunciado: es una decisión de producto pendiente."""
+        t = self.p.dir / "tareas" / "T01-cosa.md"
+        t.write_text(t.read_text() + "\n- **HUECO**: no existe función para listar las cosas\n")
+        r = self.validar()
+        self.assertRojo(r, "HUECO")
+        self.assertIn("listar las cosas", r.stdout + r.stderr,
+                      f"el rojo tiene que decir QUÉ falta, no que falta algo — es la misma "
+                      f"lección que el motivo que era una categoría:\n{r.stdout}{r.stderr}")
+
+    def test_la_palabra_hueco_en_una_frase_no_es_una_declaracion(self):
+        """El marcador es una línea, no una palabra suelta: `HUECO` en mayúsculas al principio
+        del renglón. Si cualquier mención lo disparara, el chequeo volvería rojo cualquier
+        enunciado que hable de huecos —una grilla con huecos, un hueco en la pared— y un
+        chequeo que se dispara con la prosa es un chequeo que se apaga."""
+        t = self.p.dir / "tareas" / "T01-cosa.md"
+        t.write_text(t.read_text() + "\nEl laberinto tiene un hueco en la pared de arriba.\n")
+        self.assertVerde(self.validar())
+
 class TestCobertura(CasoBase):
     def cobertura(self):
         return correr(f"ENCARGO=OBJETIVO.md PLAN=PLAN.md python3 {SCRIPTS}/cobertura.py", self.p.dir)

@@ -142,6 +142,7 @@ CABECERAS = ["**Estado:**", "**Depende de:**", "**Archivos que podés tocar:**"]
 # cometí hoy reponiendo prefijos de markdown— y en el chequeo que decide si el plan arranca
 # cuesta una corrida entera.
 VACIOS_AVISAN = ["**Prohibido tocar:**"]
+HUECO = re.compile(r"^[ \t0-9.)*#>_-]*HUECO\b(.*)$", re.M)
 for tid in sorted(set(tareas) & set(en_disco)):
     f = en_disco[tid][0]
     cuerpo = f.read_text()
@@ -152,6 +153,34 @@ for tid in sorted(set(tareas) & set(en_disco)):
         m_v = re.search(r"^" + re.escape(c) + r" *(.*)$", cuerpo, re.M)
         if m_v and not m_v.group(1).strip():
             vacios.append(f.name)
+    # ── Un enunciado que declara un HUECO no es un enunciado.
+    #
+    # `HUECO` es la palabra que el método reserva para «esto lo necesita la tarea y ninguna
+    # tarea del plan lo entrega». Los dos replanificadores la buscan en el TRANSCRIPT del
+    # arquitecto para frenar y llamar a una persona. Nadie la buscaba en el enunciado que SALE.
+    #
+    # El 2026-10-24, T05c de clasificados tenía en su línea 55:
+    #   - **HUECO**: No existe función para listar todos los anuncios en la capa de servicios
+    # Lo escribió la replanificación de `51f5c3f`. El arquitecto obedeció la instrucción (3)
+    # del prompt —«si la tarea necesita algo que ninguna tarea del plan entrega, decilo con la
+    # palabra HUECO»— y la escribió donde se le pidió escribir: en el cuerpo de la tarea. El
+    # arnés mira el log, el log no la tenía, los cuatro jueces del relevo la aprobaron, y yo
+    # la commiteé con el mensaje «el enunciado no decía que las rutas exigen autenticación».
+    #
+    # Después el ejecutor chocó con el hueco: entregó un `GET /ads` que devuelve «501 No
+    # implementado» y escribió en dos archivos que no eran suyos buscando la función que no
+    # existe. Yo diagnostiqué tres veces —el enunciado, el alcance, el modelo— mientras la
+    # respuesta estaba escrita en el archivo que estaba leyendo.
+    #
+    # Es un chequeo de una línea sobre un artefacto que ya existía, y es el defecto que este
+    # método persigue en todas sus formas: el dato estaba, nadie lo miraba.
+    for m_h in HUECO.finditer(cuerpo):
+        falta = m_h.group(1).strip(" *:\u2014-\t") or "no dice qué"
+        errores.append(
+            f"{f.name} declara un HUECO en su propio enunciado: «{falta[:140]}». Una tarea no "
+            f"puede pedir algo que ninguna tarea del plan entrega: eso lo decide quien "
+            f"planifica, agregando lo que falta a la tarea que corresponda o sacándolo del "
+            f"alcance. Mientras esté escrito, el agente va a chocar con el hueco.")
     # La cabecera del archivo contra la fila de la tabla. Son dos declaraciones de lo mismo
     # y nada las cruzaba: si el plan dice que T13 depende de T31 y su archivo dice T30, el
     # runner usa la tabla para ordenar las etapas y el agente lee el archivo. Lo creamos
