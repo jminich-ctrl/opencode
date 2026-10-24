@@ -8428,3 +8428,56 @@ class TestLaTemperaturaNoLaElijeElServidor(unittest.TestCase):
                              f"{n} arma su propio POST y se saltea la decisión de "
                              f"temperatura: {propios}")
             self.assertIn("pedir.py", fuente, f"{n} tiene que pasar por pedir.py")
+
+
+class TestLoProhibidoNoSeExplicaEnProsa(unittest.TestCase):
+    """Cadáver del 2026-10-24, y es mío. El enunciado de T05c decía, en el cuerpo:
+
+        «si alguna vez hacen falta esos campos, se amplía la consulta de
+         backend/app/datos/search_ads.py, que es de T28 y está cerrada — o sea que no es
+         trabajo de esta tarea»
+
+    El ejecutor fue y editó ese archivo. La prohibición estaba escrita, en castellano, dos
+    líneas DESPUÉS de la receta: le di el cómo y después le dije que no. El guardia de alcance
+    lo rechazó —correctamente— y de paso destapó que ese archivo tenía una columna inexistente.
+
+    Udgam Labs midió la misma cosa por otro lado: a su modelo de 95M, un número IRRELEVANTE
+    insertado en el problema le baja el acierto de 54,7% a 20,7%. Un dato que no hace falta no
+    es neutro: compite por la atención.
+
+    NO hay chequeo automático para esto, y lo probé: la regla «no nombres archivos ajenos» es
+    inchequeable porque el método PIDE nombrarlos —«decí dónde vive cada cosa: archivo exacto,
+    import exacto» es lo más útil que un enunciado hace—, y la variante mecánica que busqué
+    —«nombra un archivo que no existe»— da 13 positivos en clasificados y todos son el propio
+    archivo de test de cada tarea, que por tests-first todavía no existe. Sin cadáver no hay
+    chequeo: la regla va donde tiene efecto, que es el prompt y la plantilla."""
+
+    def test_la_plantilla_de_tarea_lo_dice_donde_se_declara_el_campo(self):
+        # Sin fijar la caja: un test que exige «no en prosa» en minúscula se puso rojo porque
+        # la plantilla lo escribe en mayúscula para que se vea. Fijar la ortografía de una
+        # frase en prosa es sobre-especificar: lo que importa es que la regla esté ahí.
+        t = (PLANTILLAS / "TAREA.md").read_text().lower()
+        encabezado = t[:t.index("**prohibido tocar:**")]
+        self.assertIn("no en prosa", encabezado,
+                      "la regla tiene que estar JUNTO al campo que se llena, no al final del "
+                      "archivo: quien completa la plantilla lee lo que tiene al lado")
+        self.assertIn("cómo", encabezado, "y decir que no se explica el cómo")
+
+    def test_los_dos_prompts_que_escriben_enunciados_la_llevan(self):
+        """Los dos, no uno: la forma que este repo repite es el arreglo que vive en un hermano
+        y no en el otro, y hoy ya costó cuatro defectos."""
+        for n in ("replanificar.sh", "replanificar-relevo.sh"):
+            fuente = (SCRIPTS / n).read_text()
+            self.assertIn("Prohibido tocar», no en prosa", fuente,
+                          f"{n} no le pide al arquitecto que la prohibición vaya al campo")
+            self.assertIn("NO expliques cómo hacer lo que prohibís", fuente,
+                          f"{n} no le pide que no dé la receta de lo prohibido")
+
+    def test_y_sigue_pidiendo_el_import_exacto(self):
+        """El otro lado: la regla NO puede terminar desalentando que el enunciado diga dónde
+        vive cada cosa. Eso es lo que resolvió T05c, y es la recomendación con la que el 27B
+        cerró su diagnóstico. Una regla que se come a la buena se aplicó demasiado."""
+        for n in ("replanificar.sh", "replanificar-relevo.sh"):
+            fuente = (SCRIPTS / n).read_text()
+            self.assertIn("DÓNDE vive cada cosa", fuente, f"{n}")
+            self.assertIn("import exacto", fuente, f"{n}")

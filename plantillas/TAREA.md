@@ -6,6 +6,20 @@
      gate verifica que no se toquen. Tampoco `scripts/`, que es el verificador mismo.
      `validar-plan.py` rechaza una tarea que los declare: sería insatisfacible. -->
 **Archivos que podés tocar:** <rutas exactas>
+<!-- LO PROHIBIDO VA ACÁ Y NO EN PROSA, y no se explica cómo hacerlo.
+     Medido el 2026-10-24: el enunciado de T05c decía, en el cuerpo, «si alguna vez hacen
+     falta esos campos, se amplía la consulta de backend/app/datos/search_ads.py, que es de
+     T28 y está cerrada — o sea que no es trabajo de esta tarea». El ejecutor fue y editó ese
+     archivo. La prohibición estaba escrita, en castellano, dos líneas antes de la receta.
+     Le di el cómo y después le dije que no.
+     Udgam Labs midió la misma cosa de otra forma: a su modelo de 95M, un número IRRELEVANTE
+     insertado en el enunciado le baja el acierto de 54,7% a 20,7%. Un dato que no hace falta
+     no es neutro: compite por la atención.
+     Dos reglas, entonces:
+       · lo que no se puede tocar se declara en este campo, que es el que el gate lee;
+       · nombrar un archivo ajeno está BIEN si es para decir dónde vive algo que la tarea
+         importa —eso es lo más útil que un enunciado hace— y está MAL si viene con
+         instrucciones de cómo modificarlo. -->
 **Prohibido tocar:** <rutas que el agente no debe abrir para escribir>
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`, que usa el runner, no puede elegir un subagente
 
