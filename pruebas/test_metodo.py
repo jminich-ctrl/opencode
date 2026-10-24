@@ -8678,3 +8678,80 @@ class TestElEnunciadoTampocoPuedePedirUnaColumnaQueNoExiste(unittest.TestCase):
         d = self.proyecto("Filtro por columna `titulo`.")
         shutil.rmtree(d / "migraciones")
         self.assertEqual(0, self.coherencia(d).returncode)
+
+
+class TestElRouterLePasaElMenuDelProblemaQueRecibe(unittest.TestCase):
+    """`replanificar-coherencia.sh` toma cualquier `✗` del preflight y se lo da al arquitecto.
+    Su prompt era SIEMPRE de tablas: «las tablas que las migraciones ya crean son...» y «usá
+    una tabla de la lista o prometé crear la tabla que nombra».
+
+    Desde el 2026-10-24 hay rojos de COLUMNA, y a ésos ese menú no les sirve: le pide arreglar
+    un nombre de columna ofreciéndole opciones sobre tablas, y acompañado de la lista
+    equivocada. Un arquitecto al que se le pide arreglar X con las opciones de Y adivina — y
+    adivinar es lo único que este método no le pide a nadie.
+
+    El cadáver es del mismo día: el enunciado de T28 decía «filtro por columna `categoria`»,
+    la tabla `anuncios` tiene `categoria_id`, y lo único que lo detectó fue MySQL con «Unknown
+    column», después de dos intentos de agente."""
+
+    def proyecto(self, cuerpo):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-router-")).resolve()
+        self.addCleanup(shutil.rmtree, str(tmp), True)
+        d = tmp / "repo"; d.mkdir()
+        correr("git init -q . && git config user.email a@b && git config user.name a", d)
+        (d / "tareas").mkdir()
+        (d / "tareas" / "T40-cosas.md").write_text(
+            "# T40 — Cosas\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/datos/cosas.py\n**Prohibido tocar:** Ninguno\n\n"
+            "## Objetivo\n\n" + cuerpo + "\n\n## Terminado cuando\n\n- [ ] anda\n")
+        (d / "migraciones").mkdir()
+        (d / "migraciones" / "001_initial.sql").write_text(
+            "CREATE TABLE cosas (\n    id INT, nombre VARCHAR(50)\n);\n")
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n## Tareas\n\n"
+            "| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
+            "| T40 | Cosas | — | `app/datos/cosas.py` | pendiente |\n")
+        bin_ = d / ".bin"; bin_.mkdir()
+        (bin_ / "opencode").write_text(
+            '#!/usr/bin/env bash\necho "$*" >> "$PROMPTS"\necho "no toqué nada"\n')
+        (bin_ / "opencode").chmod(0o755)
+        return d
+
+    def correr_router(self, d):
+        prompts = d.parent / "prompts.txt"
+        r = correr(f'PATH="{d}/.bin:$PATH" PROMPTS="{prompts}" PROYECTO=. LIMITE_AGENTE=60 '
+                   f'MODELO=m1 bash "{SCRIPTS}/replanificar-coherencia.sh"', d)
+        return r, (prompts.read_text() if prompts.exists() else "")
+
+    def test_un_rojo_de_columna_recibe_las_columnas_y_el_menu_de_columnas(self):
+        d = self.proyecto("Filtro por columna `titulo`.")
+        r, prompt = self.correr_router(d)
+        self.assertIn("columnas que las migraciones YA crean", prompt,
+                      f"le pasó la lista equivocada:\n{prompt[:400]}")
+        self.assertIn("cosas: id, nombre", prompt,
+                      f"y tiene que traer el esquema real:\n{prompt[:400]}")
+        self.assertIn("agregar la columna", prompt,
+                      f"la salida (b) de un rojo de columna es agregarla, no crear una tabla:"
+                      f"\n{prompt[:400]}")
+        self.assertNotIn("CREAR la tabla", prompt,
+                         f"ése es el menú del otro problema:\n{prompt[:400]}")
+
+    def test_un_rojo_de_tabla_sigue_recibiendo_el_menu_de_tablas(self):
+        """El otro lado: arreglar el caso nuevo no puede romper el que ya andaba. Ese prompt
+        de tablas es el que logró la única corrida que replanificó en 4:09."""
+        d = self.proyecto("Guardar los datos en la tabla `inventada`.")
+        r, prompt = self.correr_router(d)
+        self.assertIn("tablas que las migraciones YA crean", prompt, f"\n{prompt[:400]}")
+        self.assertIn("CREAR la tabla", prompt, f"\n{prompt[:400]}")
+        self.assertNotIn("agregar la columna", prompt, f"\n{prompt[:400]}")
+
+    def test_el_patron_de_HUECO_es_el_mismo_que_en_los_hermanos(self):
+        """Arreglé el patrón en `replanificar.sh` y `replanificar-relevo.sh` por la mañana y
+        me salté ÉSTE, que es el que enruta. Tercera vez en el día con la misma forma: el
+        arreglo que vive en un hermano y no en el otro."""
+        patrones = set()
+        for n in ("replanificar.sh", "replanificar-relevo.sh", "replanificar-coherencia.sh"):
+            fuente = (SCRIPTS / n).read_text()
+            patrones |= set(re.findall(r"'(\^[^']*HUECO[^']*)'", fuente))
+        self.assertEqual(1, len(patrones),
+                         f"los tres scripts tienen que buscar HUECO igual: {patrones}")

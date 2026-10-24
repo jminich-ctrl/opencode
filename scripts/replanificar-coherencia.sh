@@ -38,6 +38,11 @@ fi
 # test— antes de que la memoria la cortara. No decide por él: cuál de las dos salidas tomar
 # sigue siendo del que planifica.
 TABLAS="$(PROYECTO="$BASE" python3 "$AQUI/coherencia.py" --tablas 2>/dev/null | tr '\n' '; ')"
+# Y las COLUMNAS, porque desde el 2026-10-24 hay rojos de columna y a ésos la lista de tablas
+# no les sirve: es el menú del problema equivocado. El cadáver es del mismo día: el enunciado
+# de T28 decía «filtro por columna categoria», la tabla anuncios tiene `categoria_id`, y lo
+# único que lo detectó fue MySQL con «Unknown column», después de dos intentos de agente.
+COLUMNAS="$(PROYECTO="$BASE" python3 "$AQUI/coherencia.py" --columnas 2>/dev/null | tr '\n' '; ')"
 echo "▶ el arquitecto replanifica el plan. Lo que el preflight encontró:"
 printf '%s\n' "$ROJOS" | sed 's/^/     /'
 
@@ -88,12 +93,25 @@ while IFS= read -r rojo; do
     continue
   fi
   echo "  · rojo $n/$(printf '%s\n' "$ROJOS" | grep -c .): $tid → $arch"
+  # EL MENÚ TIENE QUE SER DEL PROBLEMA QUE SE LE PASA. El prompt era siempre de tablas
+  # —«usá una tabla de la lista o prometé crear la tabla»— y desde hoy hay rojos de COLUMNA:
+  # a ésos ese menú no les sirve, y la lista que los acompañaba era de tablas. Un arquitecto
+  # al que se le pide arreglar X con las opciones de Y adivina, y adivinar es lo único que
+  # este método no le pide a nadie.
+  case "$rojo" in
+    *"la columna"*|*"nombra la columna"*)
+      ESQUEMA="Las columnas que las migraciones YA crean, por tabla, son: ${COLUMNAS:-ninguna}."
+      SALIDAS="Tenés dos salidas y elegís vos: (a) que el enunciado use una columna de esa lista, o (b) que el enunciado prometa AGREGAR la columna que nombra con una migración, con las palabras 'agregar la columna'." ;;
+    *)
+      ESQUEMA="Las tablas que las migraciones YA crean son: ${TABLAS:-ninguna}."
+      SALIDAS="Tenés dos salidas y elegís vos: (a) que el enunciado use una tabla de la lista, o (b) que el enunciado prometa CREAR la tabla que nombra, con las palabras 'crear la tabla'." ;;
+  esac
   (
     cd "$BASE" || exit 1
     export XDG_DATA_HOME="$BASE/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
     if [ -n "${MODELO:-}" ]; then COMO=(--model "colabhive/$MODELO"); else COMO=(--agent arquitecto); fi
     con_limite "${LIMITE_AGENTE:-1800}" opencode run "${COMO[@]}" \
-      "Editá UN SOLO archivo: $arch. El preflight del plan encontró esto: $rojo. Las tablas que las migraciones YA crean son: ${TABLAS:-ninguna}. Abrí $arch con read y corregilo con write. NO leas código ni tests: la decisión está entre ese enunciado y esa lista, y nada más. Tenés dos salidas y elegís vos: (a) que el enunciado use una tabla de la lista, o (b) que el enunciado prometa CREAR la tabla que nombra, con las palabras 'crear la tabla'. No cambies nada más del archivo: ni los criterios de terminado, ni el archivo de test, ni el nombre de su clase. Si no se puede resolver sin inventar una decisión de producto, no edites y decilo con la palabra HUECO." 2>&1
+      "Editá UN SOLO archivo: $arch. El preflight del plan encontró esto: $rojo. $ESQUEMA Abrí $arch con read y corregilo con write. NO leas código ni tests: la decisión está entre ese enunciado y ese esquema, y nada más. $SALIDAS No cambies nada más del archivo: ni los criterios de terminado, ni el archivo de test, ni el nombre de su clase. Si no se puede resolver sin inventar una decisión de producto, no edites y decilo con la palabra HUECO." 2>&1
   ) >> "$LOG_VIGILADO" 2>&1
   rc=$?
   if [ "$rc" = 142 ]; then
@@ -107,9 +125,9 @@ $ROJOS
 ROJOS_FIN
 [ -n "$fallo" ] && echo "  ⚠ no todos los rojos se pudieron tratar: $fallo"
 
-if grep -qE '^[ \t]*[*#>-]*[ \t]*HUECO\b' "$LOG_VIGILADO" 2>/dev/null; then
+if grep -qE '^[0-9.)[:space:]*#>_-]*HUECO' "$LOG_VIGILADO" 2>/dev/null; then
   echo "  ⃠ el arquitecto dice que falta una decisión que no es suya:"
-  grep -A3 -E '^[ \t]*[*#>-]*[ \t]*HUECO\b' "$LOG_VIGILADO" | head -6 | sed 's/^/     /'
+  grep -A3 -E '^[0-9.)[:space:]*#>_-]*HUECO' "$LOG_VIGILADO" | head -6 | sed 's/^/     /'
   echo "     Eso lo decide una persona: es del encargo, no del plan."
   restaurar; exit 1
 fi

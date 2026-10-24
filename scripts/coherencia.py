@@ -571,6 +571,16 @@ def main():
         for t, sql in sorted(tablas_que_crean_las_migraciones(base).items()):
             print(f"{t} (la crea {sql})")
         return 0
+    # Y las COLUMNAS, por la misma razón: desde hoy hay rojos de columna, y el router les
+    # pasaba al arquitecto la lista de TABLAS —el menú del problema equivocado— mientras le
+    # pedía arreglar un nombre de columna. Buscar el esquema es justo lo que no entra en el
+    # techo de la sesión.
+    if "--columnas" in sys.argv:
+        if not (base / "tareas").is_dir():
+            base = pathlib.Path(".")
+        for tabla, cols in sorted(columnas_que_crean_las_migraciones(base).items()):
+            print(f"{tabla}: {', '.join(sorted(cols))}")
+        return 0
     if not (base / "tareas").is_dir():
         base = pathlib.Path(".")
     if not (base / "tareas").is_dir():
