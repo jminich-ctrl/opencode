@@ -39,7 +39,7 @@ fi
 # Y la plataforma tiene que responder. Arrancar diez etapas contra una API caída gasta
 # horas de reintentos y produce diagnósticos que señalan al agente.
 if [ "$SOLO_VER" != "1" ]; then
-  plataforma_responde || exit 1
+  plataforma_responde_la_corrida || exit 1
 fi
 
 # Y los contextos declarados tienen que ser los reales. Declarar `limit.context` más

@@ -981,6 +981,86 @@ con_limite() {
 # Lo que NO cubre, y conviene saberlo: opencode mantiene la conexión viva entre peticiones,
 # así que un cuelgue POSTERIOR a conectarse no baja el contador. Para ésos quedan el
 # límite total y `error_del_agente`.
+# Los modelos que la corrida va a usar DE VERDAD, uno por línea: «<id> <papel>,<papel>».
+#
+# TODOS los agentes declarados, no una lista escrita acá a mano. Los scripts piden
+# `arquitecto` y `ejecutor`, pero OpenCode usa por su cuenta `title`, `summary` y
+# `compaction` para la maquinaria de la sesión: si ésos están caídos, la sesión del agente se
+# cae igual y el veredicto va a decir que falló la tarea. Una lista a mano envejece con el
+# primer papel nuevo, que es la forma que este repo repite.
+modelos_de_la_corrida() {
+  local cfg="${CONFIG_OC:-$HOME/.config/opencode/opencode.json}"
+  [ -f "$cfg" ] || return 1
+  command -v python3 >/dev/null 2>&1 || return 1
+  python3 - "$cfg" <<'PYCORR' 2>/dev/null
+import json, sys
+try:
+    cfg = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+por_modelo = {}
+orden = []
+for nombre, a in sorted((cfg.get("agent") or {}).items()):
+    m = ((a or {}).get("model") or "").split("/")[-1]
+    if not m:
+        continue
+    if m not in por_modelo:
+        por_modelo[m] = []; orden.append(m)
+    por_modelo[m].append(nombre)
+for m in orden:
+    print(m, ",".join(por_modelo[m]))
+PYCORR
+}
+
+# La sonda del PREFLIGHT: todos los modelos que la corrida va a usar, no uno.
+#
+# `plataforma_responde` mide `modelo_del_agente ejecutor` y nada más. Una corrida usa varios
+# —en la config de hoy, 13 papeles declarados sobre 3 modelos distintos— y las réplicas se
+# caen de a una: el 2026-10-24 el monitoreo midió réplicas ancladas con `min=1` que quedaron
+# en `actuales=0`, y el 27B estuvo TRES HORAS caído mientras el ejecutor contestaba 200. Con
+# esa sonda el preflight daba verde y la corrida moría en la primera replanificación,
+# informando que falló la tarea.
+#
+# Un chequeo que mide un sujeto y autoriza a otro es el defecto central de este método, y
+# acá estaba en la puerta: es lo único que separa «no arrancar» de nueve etapas de agentes.
+#
+# El mensaje nombra los PAPELES y no sólo el id. «1af07b1f-5832 no responde» no le sirve a
+# nadie; «el modelo de arquitecto, plan, reviewer, seguridad no responde» se puede actuar.
+#
+# El que sigue mirando un solo modelo es `escribir-tests.sh`, y está bien: ahí la pregunta es
+# otra —«¿la plataforma está viva AHORA, o el cuelgue es de la herramienta?»— y se hace en
+# medio de un bucle de reintentos, donde sondear tres modelos cuesta minutos por intento.
+plataforma_responde_la_corrida() {
+  [ -n "${COLABHIVE_BASE_URL:-}" ] || return 0      # sin configurar, no opinamos
+  local lista m papeles caidos=0 probados=0
+  lista="$(modelos_de_la_corrida)"
+  if [ -z "$lista" ]; then
+    echo "  ⊘ no pude leer qué modelos usa la corrida: sondeo sólo el del ejecutor" >&2
+    plataforma_responde
+    return $?
+  fi
+  # Here-string y no tubería: el `while` de un pipe corre en un subshell y los contadores no
+  # sobreviven. Es el defecto que este repo ya tuvo tres veces, con guardas detrás de una
+  # tubería que no podían disparar.
+  while read -r m papeles; do
+    [ -n "$m" ] || continue
+    probados=$((probados+1))
+    if MODELO_SONDA="$m" plataforma_responde; then
+      echo "  ✓ responde el modelo de $(echo "$papeles" | tr ',' ' ')"
+    else
+      echo "✗ NO responde el modelo de $(echo "$papeles" | tr ',' ' ') ($m)" >&2
+      caidos=$((caidos+1))
+    fi
+  done <<<"$lista"
+  if [ "$caidos" -gt 0 ]; then
+    echo "✗ $caidos de $probados modelos de esta corrida no responden." >&2
+    echo "  Arrancar así gasta el presupuesto de cada tarea que toque ese papel, y el rojo" >&2
+    echo "  que salga va a nombrar la tarea en vez del modelo caído." >&2
+    return 1
+  fi
+  return 0
+}
+
 conexiones_del_grupo() {
   local lsof_bin="${LSOF:-lsof}"
   command -v "$lsof_bin" >/dev/null 2>&1 || { echo "SIN_LSOF"; return; }

@@ -7068,3 +7068,112 @@ class TestReplanificarSinMotivoNoReplanifica(unittest.TestCase):
                         f"con el motivo en la mano tiene que llamarlo:\n{salida}")
         self.assertIn("AssertionError", salida,
                       f"y pasarle el error CONCRETO, no la categoría:\n{salida}")
+
+
+class TestLaSondaMideLosModelosQueLaCorridaVaAUsar(unittest.TestCase):
+    """`plataforma_responde` mide UN modelo —`modelo_del_agente ejecutor`— y autoriza una
+    corrida que usa varios. En la config de hoy son 13 papeles declarados sobre 3 modelos
+    distintos, y las réplicas se caen de a una: el 2026-10-24 el monitoreo midió réplicas
+    ancladas con `min=1` que quedaron en `actuales=0`, y el 27B estuvo TRES HORAS caído
+    mientras el ejecutor contestaba 200.
+
+    Con esa sonda el preflight daba verde y la corrida moría en la primera replanificación,
+    informando que falló la tarea. Un chequeo que mide un sujeto y autoriza a otro es el
+    defecto central de este método, y acá estaba en la puerta: es lo único que separa «no
+    arrancar» de nueve etapas de agentes.
+
+    El servidor falso contesta 200 o 503 según el modelo que venga en el cuerpo del pedido,
+    así que estos tests miden el camino real —`/chat/completions` con herramientas— y no una
+    función imitada."""
+
+    PAPELES = {"arquitecto": "m-razona", "plan": "m-razona", "reviewer": "m-razona",
+               "ejecutor": "m-escribe", "build": "m-escribe",
+               "title": "m-chico", "summary": "m-chico"}
+
+    def entorno(self, caidos=()):
+        # Local, como en los otros dos andamios de servidor de este archivo.
+        import http.server, threading
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-sonda-corrida-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        cfg = d / "opencode.json"
+        cfg.write_text(json.dumps({
+            "provider": {"colabhive": {"models": {m: {} for m in set(self.PAPELES.values())}}},
+            "agent": {p: {"model": f"colabhive/{m}"} for p, m in self.PAPELES.items()}}))
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                cuerpo = self.rfile.read(n).decode("utf-8", "replace")
+                roto = any(f'"{m}"' in cuerpo for m in caidos)
+                self.send_response(503 if roto else 200)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+            def log_message(self, *a):
+                pass
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return cfg, f"http://127.0.0.1:{srv.server_address[1]}/v1"
+
+    def sondear(self, cfg, base, funcion):
+        return correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; {funcion}; echo "rc=$?"',
+                      RAIZ, COLABHIVE_BASE_URL=base, COLABHIVE_API_KEY="x",
+                      CONFIG_OC=str(cfg), ARRANQUE_FRIO=5)
+
+    def test_con_todos_arriba_da_verde_y_nombra_los_papeles(self):
+        cfg, base = self.entorno()
+        r = self.sondear(cfg, base, "plataforma_responde_la_corrida")
+        self.assertIn("rc=0", r.stdout, f"\n{r.stdout}{r.stderr}")
+        for papel in ("arquitecto", "ejecutor", "title"):
+            self.assertIn(papel, r.stdout + r.stderr,
+                          f"tiene que decir qué papeles probó:\n{r.stdout}{r.stderr}")
+
+    def test_el_modelo_del_arquitecto_caido_frena_la_corrida(self):
+        """El caso medido: el del ejecutor contesta y el del arquitecto no."""
+        cfg, base = self.entorno(caidos=("m-razona",))
+        r = self.sondear(cfg, base, "plataforma_responde_la_corrida")
+        self.assertNotIn("rc=0", r.stdout, f"dio verde con un modelo caído:\n{r.stdout}{r.stderr}")
+        salida = r.stdout + r.stderr
+        self.assertIn("arquitecto", salida,
+                      f"y tiene que nombrar el PAPEL, no sólo el id del modelo:\n{salida}")
+
+    def test_la_sonda_vieja_daba_verde_en_ese_mismo_escenario(self):
+        """El test que mide el defecto de frente, no el arreglo: con el modelo del arquitecto
+        caído y el del ejecutor sano, `plataforma_responde` autoriza la corrida. Si algún día
+        este test se pone rojo, es que la sonda vieja cambió y hay que mirar las dos."""
+        cfg, base = self.entorno(caidos=("m-razona",))
+        r = self.sondear(cfg, base, "plataforma_responde")
+        self.assertIn("rc=0", r.stdout,
+                      f"la sonda vieja mide el ejecutor y nada más; si esto cambió, revisar "
+                      f"`plataforma_responde_la_corrida`:\n{r.stdout}{r.stderr}")
+
+    def test_el_ejecutor_caido_tambien_frena(self):
+        """El otro lado, para que el verde no venga de probar siempre lo mismo."""
+        cfg, base = self.entorno(caidos=("m-escribe",))
+        r = self.sondear(cfg, base, "plataforma_responde_la_corrida")
+        self.assertNotIn("rc=0", r.stdout, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("ejecutor", r.stdout + r.stderr, f"\n{r.stdout}{r.stderr}")
+
+    def test_sin_agentes_declarados_cae_a_la_sonda_vieja_y_lo_dice(self):
+        """Un chequeo que no puede leer su insumo no dice «verde»: dice que no pudo, y hace lo
+        que puede. Callado sería un falso verde, que es el defecto 19 de esta investigación."""
+        cfg, base = self.entorno()
+        cfg.write_text(json.dumps({"provider": {"colabhive": {"models": {"m-escribe": {}}}}}))
+        r = self.sondear(cfg, base, "plataforma_responde_la_corrida")
+        self.assertIn("⊘", r.stdout + r.stderr,
+                      f"tiene que avisar que no pudo leer los papeles:\n{r.stdout}{r.stderr}")
+
+    def test_los_modelos_de_la_corrida_salen_sin_repetir_y_con_sus_papeles(self):
+        cfg, _ = self.entorno()
+        r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; modelos_de_la_corrida',
+                   RAIZ, CONFIG_OC=str(cfg))
+        lineas = [l for l in r.stdout.splitlines() if l.strip()]
+        self.assertEqual(3, len(lineas), f"tres modelos, siete papeles:\n{r.stdout}")
+        self.assertEqual({"m-razona", "m-escribe", "m-chico"},
+                         {l.split()[0] for l in lineas}, f"\n{r.stdout}")
+        razona = [l for l in lineas if l.startswith("m-razona")][0]
+        self.assertEqual("arquitecto,plan,reviewer", razona.split()[1], f"\n{r.stdout}")
