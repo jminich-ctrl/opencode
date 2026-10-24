@@ -99,9 +99,20 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
     echo "  ✗ el arquitecto no respondió: $(motivo_del_corte "$LOG_VIGILADO")"
     mv "$archivo.previo" "$archivo"; continue
   fi
-  if grep -qE '^[ \t]*[*#>-]*[ \t]*HUECO\b' "$LOG_VIGILADO" 2>/dev/null; then
+  # El patrón acepta marcas de markdown INTERCALADAS, y también la lista numerada. El
+  # 2026-10-24 el diagnóstico de T05c dijo «- **HUECO**: No existe función para listar todos
+  # los anuncios» y el regex viejo —`[*#>-]*` UNA sola vez antes de los espacios— no
+  # matcheaba «- **HUECO»: guión, espacio, asteriscos. El hueco del plan se perdió, el relevo
+  # siguió al paso 2 y gastó otro agente de 16 minutos en una tarea que requería una decisión
+  # de producto. Mismo defecto de extractor frágil que el `grep '→'` de mutar.py y el motivo
+  # que era una categoría.
+  #
+  # Las dos apariciones llevan el MISMO patrón. En `replanificar.sh` arreglé el `grep -q` que
+  # detecta y dejé el `grep -A3` que imprime con el viejo: el aviso se disparaba y no mostraba
+  # el hueco. Un arreglo a medias dentro del mismo `if`, que es la forma que este repo repite.
+  if grep -qE '^[0-9.)[:space:]*#>_-]*HUECO' "$LOG_VIGILADO" 2>/dev/null; then
     echo "  ⃠ el arquitecto dice que falta algo que ninguna tarea entrega:"
-    grep -A3 -E '^[ \t]*[*#>-]*[ \t]*HUECO\b' "$LOG_VIGILADO" | head -6 | sed 's/^/     /'
+    grep -A3 -E '^[0-9.)[:space:]*#>_-]*HUECO' "$LOG_VIGILADO" | head -6 | sed 's/^/     /'
     echo "     Eso lo decide una persona: es un hueco del plan, no de la tarea."
     mv "$archivo.previo" "$archivo"; continue
   fi

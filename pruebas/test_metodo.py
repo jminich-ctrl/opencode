@@ -6723,3 +6723,69 @@ class TestUnaCorridaPorRojo(unittest.TestCase):
             self.assertEqual(1, len(set(nombrados)),
                              f"cada corrida tiene que pedir UN archivo: {nombrados}")
         self.assertEqual(0, r.returncode, f"y el preflight queda limpio:\n{r.stdout}{r.stderr}")
+
+
+class TestElMarcadorDeHuecoSobreviveAlMarkdown(unittest.TestCase):
+    """El extractor de HUECO de los dos replanificadores pedía las marcas de markdown UNA vez
+    y antes de los espacios: `^[ \\t]*[*#>-]*[ \\t]*HUECO\\b`. El 2026-10-24 el 27B escribió
+
+        - **HUECO**: No existe función para listar todos los anuncios en la capa de servicios
+
+    —guión, espacio, asteriscos: marcas INTERCALADAS— y no matcheó. El hueco se perdió, el
+    relevo siguió al paso 2 y gastó otro agente de 16 minutos en una tarea que requería una
+    decisión de producto.
+
+    Es la tercera vez que un extractor frágil decide un veredicto: el `grep '→'` de mutar.py y
+    el motivo que era una categoría son el mismo defecto. Por eso el test mide la LÍNEA REAL,
+    no una inventada: lo que rompió el patrón fue la forma en que los modelos escriben."""
+
+    # La línea tal cual salió del diagnóstico del 27B, y las formas vecinas que cualquier
+    # modelo produce para lo mismo.
+    FORMAS = ["- **HUECO**: No existe función para listar todos los anuncios",
+              "**HUECO**: falta la función",
+              "HUECO: falta la función",
+              "  - HUECO — falta la función",
+              "### HUECO",
+              "> **HUECO:** falta la función",
+              "3. **HUECO**: falta la función"]
+    NO_SON = ["El laberinto tiene un hueco en la pared.",
+              "escribí la palabra HUECO y qué falta",
+              "- Whether there's a HUECO (a gap that no task delivers)"]
+
+    def patrones(self):
+        """Los patrones tal como están escritos en los scripts, uno por aparición. Se leen del
+        archivo a propósito: un test que copia el patrón mide la copia."""
+        hallados = []
+        for n in ("replanificar.sh", "replanificar-relevo.sh"):
+            texto = (SCRIPTS / n).read_text()
+            for m in re.finditer(r"grep -q?[A-Za-z]* +-?[A-Za-z]* *'(\^[^']*HUECO[^']*)'", texto):
+                hallados.append((n, m.group(1)))
+            for m in re.finditer(r"grep -A[0-9]+ -E +'(\^[^']*HUECO[^']*)'", texto):
+                hallados.append((n, m.group(1)))
+        return hallados
+
+    def test_los_dos_scripts_tienen_el_patron(self):
+        nombres = {n for n, _ in self.patrones()}
+        self.assertEqual({"replanificar.sh", "replanificar-relevo.sh"}, nombres,
+                         f"falta el extractor en alguno: {self.patrones()}")
+
+    def test_cada_patron_ve_la_linea_que_el_27B_escribio(self):
+        """Y TODAS las apariciones, no la primera: en `replanificar.sh` el `grep -q` que
+        DETECTA se arregló y el `grep -A3` que IMPRIME quedó con el patrón viejo, así que el
+        aviso se disparaba y no mostraba el hueco. Un arreglo a medias en el mismo `if`."""
+        for nombre, patron in self.patrones():
+            for linea in self.FORMAS:
+                r = subprocess.run(
+                    ["grep", "-qE", patron], input=linea + "\n", text=True, capture_output=True)
+                self.assertEqual(0, r.returncode,
+                                 f"{nombre}: el patrón {patron!r} no ve «{linea}»")
+
+    def test_y_no_confunde_la_prosa_ni_el_prompt_devuelto(self):
+        """El transcript trae el prompt adentro —«escribí la palabra HUECO y qué falta»— así
+        que un patrón sin ancla declararía un hueco en cada corrida."""
+        for nombre, patron in self.patrones():
+            for linea in self.NO_SON:
+                r = subprocess.run(["grep", "-qE", patron], input=linea + "\n",
+                                   text=True, capture_output=True)
+                self.assertEqual(1, r.returncode,
+                                 f"{nombre}: el patrón {patron!r} se dispara con «{linea}»")

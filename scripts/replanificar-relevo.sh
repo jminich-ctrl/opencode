@@ -56,9 +56,20 @@ for id in "$@"; do
   sed 's/\x1b\[[0-9;]*m//g' "$LOG_VIGILADO" | grep -vE '^(→|✱|\$) ' | grep -v '^\s*$' > "$DIAG"
   [ -s "$DIAG" ] || { echo "  ✗ $DIAGNOSTICA no dijo nada. Log: $LOG_VIGILADO"; continue; }
   echo "  ✓ diagnóstico de $(wc -c < "$DIAG" | tr -d ' ') bytes"
-  if grep -qE '^[ \t]*[*#>-]*[ \t]*HUECO\b' "$DIAG"; then
+  # El patrón acepta marcas de markdown INTERCALADAS, y también la lista numerada. El
+  # 2026-10-24 el diagnóstico de T05c dijo «- **HUECO**: No existe función para listar todos
+  # los anuncios» y el regex viejo —`[*#>-]*` UNA sola vez antes de los espacios— no
+  # matcheaba «- **HUECO»: guión, espacio, asteriscos. El hueco del plan se perdió, el relevo
+  # siguió al paso 2 y gastó otro agente de 16 minutos en una tarea que requería una decisión
+  # de producto. Mismo defecto de extractor frágil que el `grep '→'` de mutar.py y el motivo
+  # que era una categoría.
+  #
+  # Las dos apariciones llevan el MISMO patrón. En `replanificar.sh` arreglé el `grep -q` que
+  # detecta y dejé el `grep -A3` que imprime con el viejo: el aviso se disparaba y no mostraba
+  # el hueco. Un arreglo a medias dentro del mismo `if`, que es la forma que este repo repite.
+  if grep -qE '^[0-9.)[:space:]*#>_-]*HUECO' "$DIAG" 2>/dev/null; then
     echo "  ⃠ dice que falta algo que ninguna tarea entrega — lo decide una persona:"
-    grep -A2 -E '^[ \t]*[*#>-]*[ \t]*HUECO\b' "$DIAG" | head -4 | sed 's/^/     /'
+    grep -A2 -E '^[0-9.)[:space:]*#>_-]*HUECO' "$DIAG" | head -4 | sed 's/^/     /'
     continue
   fi
 
