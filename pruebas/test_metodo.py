@@ -7377,3 +7377,221 @@ class TestLaSuiteNoDejaBasuraEnSilencio(unittest.TestCase):
         fuente = (RAIZ / "pruebas" / "test_metodo.py").read_text()
         self.assertIsNone(re.search(r"except OSError[^\n]*:\s*\n\s*pass\b", fuente),
                           "volvió el `pass` que se tragaba la falla del borrado")
+
+
+class TestElCanalSinMemoria(unittest.TestCase):
+    """El canal sin memoria —`pedir.py`, `limpiar.py`, `enjambre.sh`, `conversar.sh`— vivía en
+    el scratchpad de una sesión, sin un solo test en esta suite. Es lo que resolvió una
+    contradicción del plan en 2 segundos con dos modelos locales, mientras siete corridas del
+    arnés con memoria morían con `memory_session_expired` a los 7-13 minutos para corregir UNA
+    palabra de un archivo.
+
+    O sea: el camino que FUNCIONA era el único sin red. Un método cuya parte más barata y más
+    efectiva no está en el repo ni se mide es un método que la va a perder.
+
+    El servidor falso contesta como `/chat/completions`, así que estos tests miden el camino
+    real y no una función imitada."""
+
+    def servidor(self, respuestas, codigo=200, demora=0):
+        """`respuestas` es {modelo: texto}. Lo que no esté ahí da 503."""
+        import http.server, threading
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                pedido = json.loads(self.rfile.read(n).decode("utf-8", "replace"))
+                if demora:
+                    time.sleep(demora)
+                texto = respuestas.get(pedido.get("model"))
+                if texto is None or codigo != 200:
+                    self.send_response(503)
+                    self.send_header("Content-Length", "2")
+                    self.end_headers()
+                    self.wfile.write(b"{}")
+                    return
+                cuerpo = json.dumps(
+                    {"choices": [{"message": {"content": texto}}]}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(cuerpo)))
+                self.end_headers()
+                self.wfile.write(cuerpo)
+
+            def log_message(self, *a):
+                pass
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return f"http://127.0.0.1:{srv.server_address[1]}/v1"
+
+    def salida(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-sinmem-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        return d
+
+    # ── pedir.py: el POST pelado, sin sesión ni herramientas
+
+    def test_pedir_devuelve_el_contenido_del_modelo(self):
+        base = self.servidor({"m1": "la respuesta"})
+        d = self.salida()
+        (d / "p.txt").write_text("¿cuál?\n")
+        r = correr(f'python3 "{SCRIPTS}/pedir.py" m1 < "{d}/p.txt"', RAIZ,
+                   COLABHIVE_BASE_URL=base, COLABHIVE_API_KEY="x")
+        self.assertEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertEqual("la respuesta", r.stdout.strip())
+
+    def test_pedir_falla_con_codigo_distinto_de_cero_y_lo_dice_por_stderr(self):
+        """Un canal que falla en silencio es peor que no tenerlo: el que lee la tabla del
+        enjambre tiene que poder distinguir «dijo esto» de «no contestó»."""
+        base = self.servidor({})
+        d = self.salida()
+        (d / "p.txt").write_text("¿cuál?\n")
+        r = correr(f'python3 "{SCRIPTS}/pedir.py" m1 < "{d}/p.txt"', RAIZ,
+                   COLABHIVE_BASE_URL=base, COLABHIVE_API_KEY="x")
+        self.assertNotEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("ERROR", r.stderr, f"\n{r.stdout}{r.stderr}")
+
+    def test_pedir_respeta_PACIENCIA(self):
+        """El método tiene medido que un modelo desalojado tarda 253s en levantarse y que el
+        POST es lo que lo arranca. Con una paciencia corta el pedido muere justo antes de que
+        termine de cargar, y el que lee la tabla concluye «este modelo no responde» cuando lo
+        que pasó es que no lo esperamos: el mismo error que la sonda de 45s contra un arranque
+        de 91-106s, que ya costó tres lanzamientos."""
+        base = self.servidor({"m1": "tarde pero seguro"}, demora=2)
+        d = self.salida()
+        (d / "p.txt").write_text("¿cuál?\n")
+        corto = correr(f'python3 "{SCRIPTS}/pedir.py" m1 < "{d}/p.txt"', RAIZ,
+                       COLABHIVE_BASE_URL=base, COLABHIVE_API_KEY="x", PACIENCIA=1)
+        self.assertNotEqual(0, corto.returncode,
+                            "con menos paciencia que la demora tiene que fallar (si no, este "
+                            f"test no prueba que la use):\n{corto.stdout}{corto.stderr}")
+        largo = correr(f'python3 "{SCRIPTS}/pedir.py" m1 < "{d}/p.txt"', RAIZ,
+                       COLABHIVE_BASE_URL=base, COLABHIVE_API_KEY="x", PACIENCIA=30)
+        self.assertEqual(0, largo.returncode, f"\n{largo.stdout}{largo.stderr}")
+        self.assertIn("tarde pero seguro", largo.stdout)
+
+    # ── limpiar.py: la regla de «dónde termina el razonamiento»
+
+    def limpiar(self, texto, *extra):
+        d = self.salida()
+        (d / "r.txt").write_text(texto)
+        r = correr(f'python3 "{SCRIPTS}/limpiar.py" {" ".join(extra)} "{d}/r.txt"', RAIZ)
+        self.assertEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        return r.stdout.strip()
+
+    def test_limpiar_saca_el_razonamiento_y_las_cercas(self):
+        """El caso del 2026-10-23: el ejecutor devolvió un test correcto envuelto en ```python
+        a pesar de que el prompt lo prohibía, y el chequeo lo informó como «✗ sintaxis:
+        invalid syntax (line 1)». El contenido estaba bien; el extractor no."""
+        self.assertEqual(
+            "def f():\n    return 1",
+            self.limpiar("pienso<think>dudo</think>\n```python\ndef f():\n    return 1\n```\n"))
+
+    def test_limpiar_no_rompe_un_texto_sin_cercas_ni_razonamiento(self):
+        self.assertEqual("usar-existente", self.limpiar("usar-existente\n"))
+
+    def test_la_ultima_linea_sale_del_texto_YA_normalizado(self):
+        """La copia incrustada en `enjambre.sh` tomaba la última línea del texto CRUDO, así que
+        para una respuesta en cercas devolvía «```» —la cerca de cierre— y la tabla del
+        enjambre mostraba eso como la respuesta del modelo. Tercera vez que un extractor no
+        acuerda con el formato de su fuente."""
+        salida = self.limpiar("pienso<think>dudo</think>\n```\nprimera\nla buena\n```\n",
+                              "--ultima-linea")
+        self.assertEqual("la buena", salida)
+        self.assertNotIn("`", salida)
+
+    def test_la_regla_del_razonamiento_vive_en_un_solo_lado(self):
+        """`</think>` partido a mano aparecía en `enjambre.sh` y en `conversar.sh` además de
+        en `limpiar.py`. Una regla copiada en tres lados es una regla que va a divergir, y hoy
+        esa forma ya costó dos defectos."""
+        self.assertNotIn("</think>", (SCRIPTS / "enjambre.sh").read_text(),
+                         "enjambre.sh volvió a traerse la regla: usá limpiar.py")
+
+    # ── enjambre.sh: varios modelos, y la evidencia cruda guardada
+
+    def test_el_enjambre_guarda_la_salida_cruda_de_cada_modelo(self):
+        """La extracción se hace sobre el ARCHIVO y no en la tubería: la primera versión
+        extraía con `sed/tail` al vuelo, se trajo el razonamiento en vez de la respuesta y
+        encima descartaba la evidencia que permitiría notarlo."""
+        base = self.servidor({"id-a": "pienso<think>…</think>\nrespuesta de A",
+                              "id-b": "respuesta de B"})
+        d = self.salida()
+        (d / "p.txt").write_text("¿cuál?\n")
+        r = correr(f'bash "{SCRIPTS}/enjambre.sh" "{d}/p.txt" id-a:alfa id-b:beta', RAIZ,
+                   COLABHIVE_BASE_URL=base, COLABHIVE_API_KEY="x", SALIDA=str(d))
+        self.assertIn("respuesta de A", r.stdout, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("respuesta de B", r.stdout, f"\n{r.stdout}{r.stderr}")
+        crudo = (d / "enj-alfa.out").read_text()
+        self.assertIn("<think>", crudo,
+                      "la salida cruda tiene que conservar el razonamiento: es la evidencia")
+
+    def test_un_modelo_caido_no_se_lleva_el_enjambre_y_queda_marcado(self):
+        """Medido: de 18 pedidos, 17 dieron 502. Si el primer 502 cortara la corrida, no
+        habría enjambre nunca."""
+        base = self.servidor({"id-b": "respuesta de B"})
+        d = self.salida()
+        (d / "p.txt").write_text("¿cuál?\n")
+        r = correr(f'bash "{SCRIPTS}/enjambre.sh" "{d}/p.txt" id-a:alfa id-b:beta', RAIZ,
+                   COLABHIVE_BASE_URL=base, COLABHIVE_API_KEY="x", SALIDA=str(d))
+        self.assertIn("✗", r.stdout, f"el caído tiene que quedar marcado:\n{r.stdout}")
+        self.assertIn("respuesta de B", r.stdout,
+                      f"y el que contesta tiene que aparecer igual:\n{r.stdout}")
+
+    def test_el_enjambre_no_llama_a_nadie_con_el_prompt_vacio(self):
+        """Gastar modelos sobre un prompt vacío produce una tabla de respuestas a la nada, que
+        es peor que un error: parece un dato."""
+        base = self.servidor({"id-a": "no deberia"})
+        d = self.salida()
+        (d / "p.txt").write_text("")
+        r = correr(f'bash "{SCRIPTS}/enjambre.sh" "{d}/p.txt" id-a:alfa', RAIZ,
+                   COLABHIVE_BASE_URL=base, COLABHIVE_API_KEY="x", SALIDA=str(d))
+        self.assertNotEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertNotIn("no deberia", r.stdout)
+
+    # ── conversar.sh: el quórum, y el insumo que no se arrastra
+
+    def conversar(self, respuestas, d, rondas=1, **env):
+        base = self.servidor(respuestas)
+        (d / "ctx.txt").write_text("Hay que decidir algo.\n")
+        return correr(f'bash "{SCRIPTS}/conversar.sh" "{d}/ctx.txt" {rondas} '
+                      f'id-a:alfa id-b:beta id-c:gama', RAIZ,
+                      COLABHIVE_BASE_URL=base, COLABHIVE_API_KEY="x", SALIDA=str(d), **env)
+
+    VOTO = ("DECISION: usar-existente\nPORQUE: ya existe\n"
+            "LINEA: usar la que está\n")
+
+    def test_una_segunda_conversacion_no_hereda_los_votos_de_la_primera(self):
+        """El defecto que encontré al traerlo al repo: `conversacion.md` se truncaba y
+        `votos.txt` no, así que la segunda corrida contaba las posiciones de la primera como
+        actuales. El chequeo de quórum y el de convergencia medían una mezcla de dos
+        conversaciones y lo informaban como si fuera una — el mismo insumo contaminado que el
+        chequeo de alcance que le cobraba a la tarea el trabajo de su hermana."""
+        d = self.salida()
+        primera = self.conversar({"id-a": self.VOTO, "id-b": self.VOTO, "id-c": self.VOTO}, d)
+        self.assertIn("convergieron", primera.stdout, f"\n{primera.stdout}{primera.stderr}")
+        # Ahora NADIE contesta: sin herencia, no puede haber quórum.
+        segunda = self.conversar({}, d)
+        self.assertIn("sin quórum", segunda.stdout,
+                      f"heredó los votos de la conversación anterior:\n{segunda.stdout}")
+        self.assertNotIn("convergieron", segunda.stdout, f"\n{segunda.stdout}")
+
+    def test_unanimidad_sin_quorum_no_es_consenso(self):
+        """El 2026-10-23 este chequeo cantó «✓ convergieron» con tres de cuatro participantes
+        caídos por 502 y el cuarto repitiendo la plantilla del prompt."""
+        d = self.salida()
+        r = self.conversar({"id-a": self.VOTO}, d)
+        self.assertIn("sin quórum", r.stdout, f"\n{r.stdout}{r.stderr}")
+        self.assertNotIn("✓ convergieron", r.stdout, f"\n{r.stdout}")
+
+    def test_un_modelo_que_copia_la_plantilla_no_cuenta_como_voto(self):
+        """Lo que pasó de verdad: Qwen3.8-27B devolvió «usar-existente | crear-nueva» —la
+        plantilla— y se registró como una posición legítima. Un formato que se puede repetir
+        en vez de rellenar invita a eso."""
+        d = self.salida()
+        plantilla = ("DECISION: <escribí UNA de estas dos palabras: usar-existente | "
+                     "crear-nueva>\nPORQUE: <una oración>\nLINEA: <la línea>\n")
+        r = self.conversar({"id-a": self.VOTO, "id-b": self.VOTO, "id-c": plantilla}, d)
+        self.assertIn("no respondió en el formato", r.stdout, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("sin quórum", r.stdout,
+                      f"dos votos válidos de tres no alcanzan el quórum de 3:\n{r.stdout}")
