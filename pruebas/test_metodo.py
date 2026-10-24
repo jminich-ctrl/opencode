@@ -8222,3 +8222,126 @@ class TestReabrirUnaTareaConVeredictoFalso(unittest.TestCase):
         r = correr(f'PROYECTO=. bash "{SCRIPTS}/reabrir.sh" T99 x', d)
         self.assertNotEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
         self.assertIn("no existe", r.stdout + r.stderr)
+
+
+class TestElQueProveeUnImportCorreAntesDelQueLoConsume(unittest.TestCase):
+    """El cruce de imports pregunta si ALGUIEN provee el símbolo. Esto pregunta si lo provee
+    EN SU MOMENTO, que no es lo mismo y es lo que decide si la corrida sirve.
+
+    Cadáver del 2026-10-24, y es mío: decidí que `GET /ads` de T05c liste con
+    `buscar_anuncios`, que es de T28, y no declaré esa dependencia. El cruce daba VERDE —T28
+    lo provee— y el deductor de etapas puso las dos en la MISMA etapa, en paralelo, contra un
+    módulo que no estaba en el tronco. El agente de T05c habría chocado con un ImportError y
+    el veredicto habría nombrado a T05c.
+
+    Es la familia que `_etapas.py` ya atiende para choques de archivo —«paralelizaba tareas que
+    sí chocan»— sin el equivalente para imports. El deductor ordena por `Depende de`: si la
+    dependencia no está declarada, no hay nada que ordenar."""
+
+    def proyecto(self, deps_consumidor="—", estado_proveedor="pendiente", en_tronco=False):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-orden-")).resolve()
+        self.addCleanup(shutil.rmtree, str(tmp), True)
+        d = tmp / "repo"; d.mkdir()
+        correr("git init -q . && git config user.email a@b && git config user.name a", d)
+        (d / "tareas").mkdir()
+        # El proveedor declara la función en su contrato.
+        (d / "tareas" / "T30-provee.md").write_text(
+            f"# T30 — Provee\n\n**Estado:** {estado_proveedor}\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/servicios/busca.py\n"
+            "**Prohibido tocar:** Ninguno\n\n## Objetivo\n\nBuscar.\n\n"
+            "## Contrato\n\n```python\ndef buscar(texto):\n    ...\n```\n\n"
+            "## Terminado cuando\n\n- [ ] anda\n")
+        # El consumidor lo nombra EN PROSA, que es la forma que el método pide.
+        (d / "tareas" / "T31-consume.md").write_text(
+            f"# T31 — Consume\n\n**Estado:** pendiente\n**Depende de:** {deps_consumidor}\n"
+            "**Archivos que podés tocar:** app/rutas/busca.py\n"
+            "**Prohibido tocar:** Ninguno\n\n## Objetivo\n\nExponer la búsqueda.\n\n"
+            "- Llama a `buscar(None)` del módulo `app/servicios/busca.py`\n"
+            "  (import exacto: `from app.servicios.busca import buscar`).\n\n"
+            "## Terminado cuando\n\n- [ ] anda\n")
+        if en_tronco:
+            (d / "app" / "servicios").mkdir(parents=True)
+            (d / "app" / "servicios" / "busca.py").write_text("def buscar(texto):\n    return []\n")
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n## Tareas\n\n"
+            "| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
+            f"| T30 | Provee | — | `app/servicios/busca.py` | {estado_proveedor} |\n"
+            f"| T31 | Consume | {deps_consumidor} | `app/rutas/busca.py` | pendiente |\n")
+        return d
+
+    def coherencia(self, d):
+        return correr(f'PROYECTO=. python3 "{SCRIPTS}/coherencia.py"', d)
+
+    def test_sin_la_dependencia_declarada_es_rojo_y_nombra_a_las_dos(self):
+        d = self.proyecto(deps_consumidor="—")
+        r = self.coherencia(d)
+        self.assertNotEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("T31 importa `buscar`", r.stdout, f"\n{r.stdout}")
+        self.assertIn("T30", r.stdout, f"tiene que nombrar al proveedor:\n{r.stdout}")
+        self.assertIn("ImportError", r.stdout,
+                      f"y decir a quién se le va a cobrar el error:\n{r.stdout}")
+
+    def test_con_la_dependencia_declarada_no_dice_nada(self):
+        d = self.proyecto(deps_consumidor="T30")
+        r = self.coherencia(d)
+        self.assertEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertNotIn("orden:", r.stdout, f"\n{r.stdout}")
+
+    def test_la_dependencia_TRANSITIVA_alcanza(self):
+        """Si T31 depende de T32 y T32 de T30, el deductor ya pone T30 antes: exigir la arista
+        directa sería un falso rojo, y un falso rojo en el preflight cuesta una corrida."""
+        d = self.proyecto(deps_consumidor="T32")
+        (d / "tareas" / "T32-medio.md").write_text(
+            "# T32 — Medio\n\n**Estado:** pendiente\n**Depende de:** T30\n"
+            "**Archivos que podés tocar:** app/servicios/medio.py\n"
+            "**Prohibido tocar:** Ninguno\n\n## Objetivo\n\nAlgo.\n\n"
+            "## Terminado cuando\n\n- [ ] anda\n")
+        plan = d / "PLAN.md"
+        plan.write_text(plan.read_text()
+                        + "| T32 | Medio | T30 | `app/servicios/medio.py` | pendiente |\n")
+        r = self.coherencia(d)
+        self.assertEqual(0, r.returncode, f"la transitiva tiene que alcanzar:\n{r.stdout}")
+
+    def test_si_el_modulo_ya_esta_en_el_tronco_no_hay_orden_que_exigir(self):
+        """El consumidor puede correr: el módulo está. Que el proveedor lo reescriba después es
+        otra cosa, y la juzga su propio gate."""
+        d = self.proyecto(deps_consumidor="—", en_tronco=True)
+        self.assertEqual(0, self.coherencia(d).returncode)
+
+    def test_si_el_proveedor_ya_esta_hecho_tampoco(self):
+        d = self.proyecto(deps_consumidor="—", estado_proveedor="✅ hecha", en_tronco=True)
+        self.assertEqual(0, self.coherencia(d).returncode)
+
+    def test_el_cruce_lee_los_imports_escritos_en_prosa(self):
+        """No es una forma suelta: es la que el método PIDE. El prompt del replanificador dice
+        «decí DÓNDE vive cada cosa: archivo exacto, import exacto», el arquitecto obedece y lo
+        escribe entre backticks en el cuerpo — y el cruce leía sólo lo que estaba adentro de
+        `## Contrato`. El método pedía una forma y después no la leía."""
+        d = self.proyecto(deps_consumidor="—")
+        r = self.coherencia(d)
+        self.assertIn("buscar", r.stdout,
+                      f"el import de la prosa tiene que entrar al cruce:\n{r.stdout}")
+
+    def test_dice_cuántas_tareas_no_pudo_cruzar(self):
+        """Medido el 2026-10-24: en pacman 19 de 19 tareas no declaran ningún import, y el
+        veredicto decía «✓ 19 tareas cruzadas: ningún import huérfano». El ✓ hablaba de un
+        trabajo que no hizo. Un chequeo que no puede medir no dice verde: dice cuánto midió."""
+        d = self.proyecto(deps_consumidor="T30")
+        r = self.coherencia(d)
+        self.assertIn("cobertura:", r.stdout,
+                      f"T30 no declara imports: eso tiene que figurar:\n{r.stdout}")
+        self.assertIn("1 de 2", r.stdout, f"\n{r.stdout}")
+
+    def test_un_modulo_escrito_con_la_raiz_del_corredor_no_es_un_huerfano(self):
+        """`from app.main import app` para `backend/app/main.py`: los enunciados escriben el
+        import como lo ve el corredor de tests, cuyo rootdir es `backend/`. Resolver sólo
+        contra la raíz del proyecto daba dos rojos FALSOS en cuanto el cruce empezó a leer la
+        prosa — y el chequeo viejo tenía la misma debilidad, latente."""
+        d = self.proyecto(deps_consumidor="T30")
+        (d / "backend" / "app").mkdir(parents=True)
+        (d / "backend" / "app" / "main.py").write_text("app = object()\n")
+        t = d / "tareas" / "T31-consume.md"
+        t.write_text(t.read_text() + "\nEl test hace `from app.main import app`.\n")
+        r = self.coherencia(d)
+        self.assertEqual(0, r.returncode,
+                         f"el archivo existe en backend/app/main.py:\n{r.stdout}{r.stderr}")

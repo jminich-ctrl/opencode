@@ -73,10 +73,46 @@ def tareas(base: pathlib.Path):
         yield f.name.split("-")[0], f
 
 
+# Un import escrito EN PROSA, entre backticks. No es una forma suelta: es la que el método
+# PIDE. El prompt del replanificador dice «lo más útil que podés hacer es decir DÓNDE vive
+# cada cosa que la tarea nombra: archivo exacto, import exacto», y el diagnóstico del 27B que
+# resolvió T05c termina con esa recomendación. El arquitecto obedece y lo escribe así:
+#
+#     - Llama a `buscar_anuncios(None)` del módulo `backend/app/servicios/search.py`
+#       (import exacto: `from backend.app.servicios.search import buscar_anuncios`).
+#
+# Y el cruce de imports no lo veía: sólo leía líneas adentro de `## Contrato`. O sea que el
+# método pedía una forma y después no la leía. Medido el 2026-10-24: 7 imports en prosa en
+# clasificados, y T05c —la única tarea sin bloque `## Contrato`— quedaba sin cruzar entera
+# mientras el veredicto decía «34 tareas cruzadas».
+RE_IMPORT_EN_PROSA = re.compile(r"`(from\s+[A-Za-z_][\w.]*\s+import\s+[^`]+)`")
+
+
+def candidatos_del_modulo(base: pathlib.Path, modulo: str):
+    """Rutas posibles de un módulo, incluidas las que terminan en él.
+
+    Los enunciados escriben el import COMO LO VE EL CORREDOR DE TESTS, cuyo rootdir es
+    `backend/`: `from app.main import app` para `backend/app/main.py`. Resolver sólo contra la
+    raíz del proyecto daba dos rojos FALSOS —T06a y T06c, las dos sobre un archivo que existe—
+    en cuanto el cruce empezó a leer los imports escritos en prosa.
+    El chequeo viejo tenía la misma debilidad y estaba latente: nunca había visto esos imports.
+    """
+    rel = pathlib.Path(modulo.replace(".", "/") + ".py")
+    salida = [base / rel, base.parent / rel]
+    if len(rel.parts) > 1:
+        salida.append(pathlib.Path(*rel.parts[1:]))
+    sufijo = "/" + str(rel)
+    for f in base.rglob(rel.name):
+        if es_del_proyecto(f) and str(f).endswith(sufijo):
+            salida.append(f)
+    return salida
+
+
 def imports_del_contrato(texto: str):
-    """(módulo, símbolo) de cada import dentro del bloque ## Contrato."""
+    """(módulo, símbolo) de cada import del bloque ## Contrato Y de los escritos en prosa."""
     salida = []
-    for bloque in RE_BLOQUE.findall(texto):
+    for bloque in list(RE_BLOQUE.findall(texto)) + [
+            "\n".join(RE_IMPORT_EN_PROSA.findall(texto))]:
         for linea in bloque.splitlines():
             linea = linea.strip()
             if not linea.startswith(("from ", "import ")):
@@ -569,6 +605,23 @@ def main():
 
     rojos, avisos = [], []
 
+    # Cuántas tareas NO se pudieron cruzar. El veredicto decía «✓ 19 tareas cruzadas: ningún
+    # import huérfano» habiendo leído 11: en pacman 8 de 19 no tienen bloque `## Contrato` ni
+    # imports en prosa, así que para ellas el chequeo no leyó nada y el ✓ hablaba de un trabajo
+    # que no hizo. Es aviso y no error —una tarea puede no importar nada legítimamente— pero
+    # el número tiene que estar: un chequeo que no puede medir no dice verde, dice cuánto midió.
+    sin_cruzar = sorted(tid for tid, texto in textos.items()
+                        if not imports_del_contrato(texto))
+    # Va aparte y no en `avisos`: esa lista lleva un remate fijo sobre nombrar el algoritmo
+    # en vez del archivo, que no tiene nada que ver con esto. Un aviso con una explicación
+    # ajena pegada es un aviso que el que lo lee va a aprender a ignorar.
+    aviso_cobertura = ""
+    if sin_cruzar:
+        aviso_cobertura = (f"{len(sin_cruzar)} de {len(textos)} tarea(s) no declaran ningún "
+                           f"import —ni en `## Contrato` ni en prosa— así que el cruce no tuvo "
+                           f"nada que leer en ellas: {' '.join(sin_cruzar[:6])}"
+                           f"{' ...' if len(sin_cruzar) > 6 else ''}")
+
     # ── ROJO: un import del contrato que nadie provee ────────────────────────────────
     for tid, texto in sorted(textos.items()):
         for modulo, simbolo in imports_del_contrato(texto):
@@ -578,13 +631,74 @@ def main():
             if simbolo is None or raiz in sys.stdlib_module_names or raiz in TERCEROS:
                 continue
             # ¿Está en el tronco?
-            rel = pathlib.Path(modulo.replace(".", "/") + ".py")
-            candidatos = [base / rel, base.parent / rel, pathlib.Path(*rel.parts[1:])]
+            candidatos = candidatos_del_modulo(base, modulo)
             en_tronco = any(c.is_file() and simbolo in simbolos_de(c) for c in candidatos)
             if en_tronco or simbolo in provee:
                 continue
             rojos.append((tid, f"importa `{simbolo}` de `{modulo}` y no existe en el tronco "
                                f"ni lo declara el contrato de ninguna tarea"))
+
+    # ── ROJO: el que PROVEE un import corre después del que lo CONSUME ──────────────
+    #
+    # El chequeo de arriba pregunta si ALGUIEN provee el símbolo. Esto pregunta si lo provee
+    # EN SU MOMENTO, que no es lo mismo y es lo que decide si la corrida sirve.
+    #
+    # Cadáver del 2026-10-24, y es mío. Decidí que `GET /ads` de T05c liste con
+    # `buscar_anuncios`, que es de T28, y no declaré esa dependencia en el enunciado. El
+    # chequeo de imports daba VERDE —T28 lo provee— y el deductor de etapas puso las dos en la
+    # MISMA etapa, o sea en paralelo, contra un módulo que no estaba en el tronco. El agente de
+    # T05c habría chocado con un ImportError, y el veredicto habría nombrado a T05c.
+    #
+    # Es la familia que `_etapas.py` ya atiende para choques de ARCHIVO —«paralelizaba tareas
+    # que sí chocan»— sin el equivalente para imports. El deductor ordena por `Depende de`: si
+    # la dependencia no está declarada, no hay nada que ordenar.
+    #
+    # Se exige la dependencia TRANSITIVA, no la directa: si T05c depende de T05b y T05b de
+    # T28, el deductor ya pone T28 antes y exigir la arista directa sería un falso rojo. Y
+    # sólo se juzga si el módulo NO está en el tronco: si está, el consumidor puede correr
+    # —otra cosa es que el proveedor lo reescriba, y eso lo juzga su gate—.
+    def _cierre(tid, vistos=None):
+        """Las tareas de las que `tid` depende, directa o indirectamente."""
+        vistos = vistos if vistos is not None else set()
+        for d in deps_declaradas.get(tid, set()):
+            if d in vistos:
+                continue
+            vistos.add(d)
+            _cierre(d, vistos)
+        return vistos
+
+    deps_declaradas = {}
+    for tid, texto in textos.items():
+        m = re.search(r"^\*\*Depende de:\*\*\s*(.+)$", texto, re.M)
+        deps_declaradas[tid] = (set(re.findall(r"T\d+[a-z]?", m.group(1))) - {tid}) if m else set()
+
+    pendiente = {}
+    for tid, texto in textos.items():
+        e = RE_ESTADO.search(texto)
+        est = (e.group(1) if e else "").lower()
+        pendiente[tid] = not ("hecha" in est or "✅" in est)
+
+    for tid, texto in sorted(textos.items()):
+        antes = _cierre(tid)
+        for modulo, simbolo in imports_del_contrato(texto):
+            raiz = modulo.split(".")[0]
+            if simbolo is None or raiz in sys.stdlib_module_names or raiz in TERCEROS:
+                continue
+            # ¿Está ya en el tronco? Entonces el consumidor puede correr.
+            if any(c.is_file() for c in candidatos_del_modulo(base, modulo)):
+                continue
+            proveedores = [p for p in provee.get(simbolo, [])
+                           if p != tid and pendiente.get(p, False)]
+            sin_ordenar = [p for p in proveedores if p not in antes]
+            if not proveedores or not sin_ordenar:
+                continue
+            rojos.append(("orden",
+                          f"{tid} importa `{simbolo}` de `{modulo}`, que entrega "
+                          f"{', '.join(sorted(set(sin_ordenar)))} —y no la declara en «Depende "
+                          f"de»—. El módulo no está en el tronco y el deductor de etapas ordena "
+                          f"por ese campo: sin la dependencia declarada las puede poner en la "
+                          f"MISMA etapa, en paralelo, y el agente va a chocar con un "
+                          f"ImportError que el veredicto le va a cobrar a {tid}."))
 
     # ── ROJO: una tabla que el código consulta y ninguna migración crea ─────────────
     #
@@ -761,7 +875,9 @@ def main():
         print(f"  ⚠ {detalle}")
         print(f"     Puede ser legítimo. Si tienen que coincidir, el enunciado no debe nombrar"
               f" el algoritmo sino EL ARCHIVO donde vive el que ya se usa.")
-    avisos_total = len(avisos) + len(cubiertos)
+    if aviso_cobertura:
+        print(f"  ⚠ cobertura: {aviso_cobertura}")
+    avisos_total = len(avisos) + len(cubiertos) + (1 if aviso_cobertura else 0)
     if not rojos and not avisos_total:
         print(f"  ✓ {len(textos)} tareas cruzadas: ningún import huérfano, ningún módulo en disputa")
     elif not rojos:
