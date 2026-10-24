@@ -497,6 +497,35 @@ for id in "$@"; do
     fi
   fi
 
+  # ── 5. El test contra el ESQUEMA, antes de aceptarlo.
+  #
+  # Un test completamente mockeado puede clavar una consulta imposible y pasar los cuatro
+  # chequeos anteriores. Medido el 2026-10-24: el test que el gate ACEPTÓ para T28 fijaba
+  #
+  #   mock_cursor.execute.assert_called_once_with(
+  #     "SELECT id, usuario_id, titulo, categoria, precio FROM anuncios WHERE 1=1 ...")
+  #
+  # y ni `categoria` ni `precio` existen —son `categoria_id` y `precio_centavos`—. Pasó porque
+  # la base nunca se toca: el mock acepta cualquier cadena. Y los mutantes MUEREN, porque
+  # `assert_called_once_with` fija la cadena exacta: el chequeo de mutación lo satisface un
+  # test que clava una consulta equivocada.
+  #
+  # Eso no es un test que deja pasar el bug: es un test que lo OBLIGA. La implementación que
+  # lo haga pasar va a escribir esa consulta, y MySQL la va a rechazar en la primera corrida
+  # real — con el veredicto apuntando a la tarea que la escribió.
+  #
+  # El chequeo existía y corría DESPUÉS: el preflight de la corrida siguiente lo marcaba, con
+  # el test ya copiado al tronco. La información estaba en el momento equivocado, que es la
+  # forma que este repo persigue desde el primer día. El juez es el mismo `coherencia.py` que
+  # lo encontró; acá se le pregunta por el archivo que está a punto de entrar.
+  if [ "$fallos" -eq 0 ] && [ -f "$AQUI/coherencia.py" ]; then
+    ESQ="$( (cd "$wt/$PROYECTO" && PROYECTO=. python3 "$AQUI/coherencia.py" 2>&1 \
+             | grep '✗' | grep -F "$ruta") || true)"
+    if [ -n "$ESQ" ]; then
+      malo "el test clava una consulta que el esquema no acepta: $(printf '%s' "$ESQ" | head -2 | tr '\n' ' ' | cut -c1-320)"
+    fi
+  fi
+
   if [ "$fallos" -eq 0 ]; then
     # Al tronco llega SÓLO el test. La referencia se queda en el worktree, que se tira.
     mkdir -p "$(dirname "$BASE/$ruta")"

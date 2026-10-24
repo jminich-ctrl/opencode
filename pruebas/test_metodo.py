@@ -8883,3 +8883,77 @@ class TestElEstadoQueQuedoNoSeLeCobraAlTest(unittest.TestCase):
         # prosa es sobre-especificar, y hoy ya me pasó con la plantilla.
         self.assertIn("reintenta", bloque,
                       "la segunda pasada va a encontrar la misma fila: reintentar es gastar")
+
+
+class TestUnTestMockeadoNoPuedeClavarUnaConsultaImposible(unittest.TestCase):
+    """El falso verde más fuerte del 2026-10-24, y el gate lo ACEPTÓ.
+
+    El test que el validador aprobó para T28 fijaba:
+
+        mock_cursor.execute.assert_called_once_with(
+          "SELECT id, usuario_id, titulo, categoria, precio FROM anuncios WHERE 1=1 ...")
+
+    Ni `categoria` ni `precio` existen: son `categoria_id` y `precio_centavos`. Pasó los
+    cuatro chequeos porque está completamente mockeado —la base nunca se toca, el mock acepta
+    cualquier cadena— y los mutantes MUEREN, porque `assert_called_once_with` fija la cadena
+    exacta. O sea que el chequeo de mutación lo satisface un test que clava una consulta
+    equivocada.
+
+    Eso no es un test que deja pasar el bug: es un test que lo OBLIGA. La implementación que
+    lo haga pasar va a escribir esa consulta y MySQL la va a rechazar, con el veredicto
+    apuntando a la tarea que la escribió.
+
+    Y el chequeo existía: `coherencia.py` lo marcó… en el preflight de la corrida SIGUIENTE,
+    con el test ya en el tronco. La información estaba en el momento equivocado."""
+
+    def test_el_validador_pregunta_por_el_esquema_antes_de_aceptar(self):
+        """El orden importa y es lo único que cambió: el mismo juez, antes del `cp` al tronco.
+        Sin esto el chequeo corre cuando el daño ya está hecho."""
+        fuente = (SCRIPTS / "escribir-tests.sh").read_text()
+        i = fuente.index("coherencia.py")
+        j = fuente.index('cp "$ruta" "$BASE/$ruta"')
+        self.assertLess(i, j,
+                        "el chequeo de esquema tiene que correr ANTES de copiar el test al "
+                        "tronco: después es el preflight de la corrida siguiente")
+
+    def test_filtra_por_el_archivo_que_esta_entrando(self):
+        """Si no filtrara, cualquier rojo preexistente del proyecto rechazaría un test
+        correcto: el veredicto nombraría a esta tarea por un problema ajeno, que es el defecto
+        que este repo persigue."""
+        fuente = (SCRIPTS / "escribir-tests.sh").read_text()
+        # Hasta el `malo` que cierra el bloque, no una ventana de N caracteres: mi primera
+        # versión cortó a los 1400 y el comentario del bloque es más largo, así que el test
+        # miraba de menos y daba rojo por su propia ventana.
+        desde = fuente.index("5. El test contra el ESQUEMA")
+        bloque = fuente[desde:fuente.index("el test clava una consulta", desde)]
+        self.assertIn('grep -F "$ruta"', bloque,
+                      f"tiene que mirar sólo los rojos que nombran el test que entra:"
+                      f"\n{bloque[-400:]}")
+
+    def test_el_chequeo_de_columnas_ve_los_archivos_de_test(self):
+        """Lo que lo hace posible: `coherencia.py` no excluye `tests/`. Si los excluyera —y es
+        una exclusión que varios chequeos de este archivo SÍ hacen— un test mockeado podría
+        clavar cualquier consulta sin que nadie la cruzara nunca."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-testmock-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        correr("git init -q . && git config user.email a@b && git config user.name a", d)
+        (d / "tareas").mkdir()
+        (d / "tareas" / "T40-cosas.md").write_text(
+            "# T40 — Cosas\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/datos/cosas.py\n**Prohibido tocar:** Ninguno\n\n"
+            "## Objetivo\n\nLeer cosas.\n\n## Terminado cuando\n\n- [ ] anda\n")
+        (d / "migraciones").mkdir()
+        (d / "migraciones" / "001_initial.sql").write_text(
+            "CREATE TABLE cosas (\n    id INT, nombre VARCHAR(50)\n);\n")
+        (d / "tests").mkdir()
+        (d / "tests" / "test_cosas.py").write_text(
+            "def test_consulta():\n"
+            "    esperado = 'SELECT id, inventada FROM cosas'\n"
+            "    assert esperado\n")
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n## Tareas\n\n"
+            "| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
+            "| T40 | Cosas | — | `app/datos/cosas.py` | pendiente |\n")
+        r = correr(f'PROYECTO=. python3 "{SCRIPTS}/coherencia.py"', d)
+        self.assertIn("cosas.inventada", r.stdout,
+                      f"una consulta clavada en un TEST tiene que cruzarse igual:\n{r.stdout}")
