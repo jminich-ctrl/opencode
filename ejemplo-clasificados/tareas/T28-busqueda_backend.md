@@ -14,7 +14,7 @@ Implementar búsqueda de anuncios por texto libre y filtrado por categoría medi
 
 Entra:
 - Parámetros query `q` (texto) y `category` (opcional).
-- Búsqueda en la tabla `anuncios` usando LIKE para texto y filtro por columna `categoria`.
+- Búsqueda en la tabla `anuncios` usando LIKE para texto y filtro por columna `categoria_id`.
 - Retorno de lista de anuncios.
 
 No entra:
