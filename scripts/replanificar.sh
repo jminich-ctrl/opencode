@@ -82,6 +82,10 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
   echo "$MOTIVO" | sed 's/^/     /'
 
   export LOG_VIGILADO="$BASE/.replan-$id.log"
+  # El arquitecto corre sobre el proyecto REAL, no sobre un worktree. Acá sí tiene que
+  # escribir —el archivo de tarea es su entregable— y nada más que eso.
+  # Ver `revisar_escrituras_de_mas` en _comun.sh.
+  FOTO="$BASE/.replan-$id-antes.log"; foto_proyecto "$FOTO"
   (
     cd "$BASE" || exit 1
     export XDG_DATA_HOME="$BASE/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
@@ -99,6 +103,8 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
     echo "  ✗ el arquitecto no respondió: $(motivo_del_corte "$LOG_VIGILADO")"
     mv "$archivo.previo" "$archivo"; continue
   fi
+  revisar_escrituras_de_mas "$FOTO" "$id" "el arquitecto" \
+    "tareas/$(basename "$archivo")\$" || true
   # El patrón acepta marcas de markdown INTERCALADAS, y también la lista numerada. El
   # 2026-10-24 el diagnóstico de T05c dijo «- **HUECO**: No existe función para listar todos
   # los anuncios» y el regex viejo —`[*#>-]*` UNA sola vez antes de los espacios— no

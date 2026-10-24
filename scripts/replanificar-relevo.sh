@@ -41,6 +41,10 @@ for id in "$@"; do
   DIAG="$BASE/.diagnostico-$id.md"; rm -f "$DIAG"
   echo "▶ $id · paso 1: diagnostica $DIAGNOSTICA"
   export LOG_VIGILADO="$BASE/.relevo-$id-diag.log"
+  # Este paso tiene la prohibición más explícita del método —«NO escribas ningún archivo: tu
+  # respuesta ES el entregable»— y era el menos vigilado: su único chequeo posterior mira si
+  # el transcript quedó vacío. Ver `revisar_escrituras_de_mas` en _comun.sh.
+  FOTO="$BASE/.relevo-$id-antes.log"; foto_proyecto "$FOTO"
   ( cd "$BASE" || exit 1
     export XDG_DATA_HOME="$BASE/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
     con_limite "${LIMITE_AGENTE:-1800}" opencode run --model "colabhive/$DIAGNOSTICA" \
@@ -48,6 +52,7 @@ for id in "$@"; do
   ) > "$LOG_VIGILADO" 2>&1
   E="$(error_del_agente "$LOG_VIGILADO" 2>/dev/null)"
   [ -n "$E" ] && { echo "  ✗ el diagnóstico no se pudo hacer: $E"; continue; }
+  revisar_escrituras_de_mas "$FOTO" "$id" "$DIAGNOSTICA (paso 1, diagnostica)" || true
   # El diagnóstico se LEVANTA del transcript, no se le pide que lo escriba. Medido tres
   # veces con dos modelos: el que razona mejor no llama a `write` —el 27B produjo 19 KB de
   # análisis correcto y cero archivos—. Pedirle que escriba es pedirle lo que no hace.
@@ -85,6 +90,10 @@ for id in "$@"; do
   CAMBIABLE="$BASE/.replan-$id-cuerpo.md"; rm -f "$CAMBIABLE"
   echo "▶ $id · paso 2: reescribe $ESCRIBE"
   export LOG_VIGILADO="$BASE/.relevo-$id-esc.log"
+  # Foto NUEVA: entre los dos pasos el arnés escribió el diagnóstico y el `.previo`, y
+  # cobrárselos al segundo agente sería el mismo veredicto con el sujeto equivocado que el
+  # chequeo de alcance cometía con el worktree sucio.
+  foto_proyecto "$FOTO"
   ( cd "$BASE" || exit 1
     export XDG_DATA_HOME="$BASE/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
     con_limite "${LIMITE_AGENTE:-1800}" opencode run --model "colabhive/$ESCRIBE" \
@@ -92,6 +101,11 @@ for id in "$@"; do
   ) > "$LOG_VIGILADO" 2>&1
   E="$(error_del_agente "$LOG_VIGILADO" 2>/dev/null)"
   if [ -n "$E" ]; then echo "  ✗ la reescritura no se pudo hacer: $E"; mv "$archivo.previo" "$archivo"; continue; fi
+  # Antes de juzgar el cuerpo: qué más escribió. El 2026-10-24 la corrida terminó con
+  # `exit=0` diciendo sólo «✗ no escribió el cuerpo nuevo» mientras dejaba 89 líneas de
+  # implementación en el tronco. Lo único que se le permite escribir es el cuerpo.
+  revisar_escrituras_de_mas "$FOTO" "$id" "$ESCRIBE (paso 2, reescribe)" \
+    "\.replan-$id-cuerpo\.md\$" || true
   if [ ! -s "$CAMBIABLE" ]; then echo "  ✗ $ESCRIBE no escribió el cuerpo nuevo"; mv "$archivo.previo" "$archivo"; continue; fi
 
   # Reensamblado: encabezado original + cuerpo nuevo + Tests y criterios originales.

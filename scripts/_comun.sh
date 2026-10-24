@@ -386,6 +386,93 @@ conservar_intento() {
   fi
 }
 
+# ── El tronco no es un worktree: lo que un agente escribe de más, se mide y se saca.
+#
+# `replanificar.sh` y `replanificar-relevo.sh` corren `cd "$BASE"` sobre el proyecto REAL,
+# no sobre una copia: sus agentes tienen permiso de escritura sobre el tronco. El prompt se
+# lo prohíbe —«NO modifiques ningún archivo del plan ni de las tareas. NO escribas ningún
+# archivo: tu respuesta ES el entregable»— y nadie lo verificaba. Un prompt no es un permiso.
+#
+# Medido el 2026-10-24: el relevo de T05c corrió de 10:16:44 a 10:27:07 y el que tenía que
+# reescribir el enunciado IMPLEMENTÓ la tarea. Dejó `backend/app/rutas/ads.py` —89 líneas,
+# sin seguimiento— en el tronco a las 10:26:51, y la corrida terminó con `exit=0` diciendo
+# sólo «✗ no escribió el cuerpo nuevo»: cierto en la letra y callado en lo grave.
+#
+# Lo que estaba en juego no era el archivo de más sino la corrida siguiente: ese código iba
+# a quedar ahí para que el próximo intento de tests-first de T05c lo encontrara ya hecho
+# —justo lo que `validar-plan.py` prohíbe— y para que el paso 0 del gate viera «implementó
+# la feature, el test pasa» y concluyera «el test no prueba nada», que es el diagnóstico
+# equivocado. Dos corridas distintas unidas por un archivo que nadie puso en ninguna foto.
+#
+# La foto de `escribir-tests.sh` no alcanza: mide el worktree del ejecutor, y esto pasa
+# fuera de todo worktree. Vive acá y no copiado en los dos replanificadores porque es UNA
+# regla con DOS lectores, y una regla copiada en dos lados es una regla que va a divergir.
+
+# La foto de ANTES. Igual que `.sucio-antes` del chequeo de alcance: lo que ya estaba no lo
+# escribió el agente. El archivo de destino aparece en su propia foto —la redirección lo
+# crea antes de que corra el `git`— y por eso se resta solo.
+foto_proyecto() {
+  local destino="$1"
+  ( cd "$BASE" 2>/dev/null || exit 1
+    { git diff --name-only --relative HEAD 2>/dev/null
+      git ls-files --others --exclude-standard 2>/dev/null; } | sort -u ) > "$destino" \
+    || : > "$destino"
+}
+
+# Lo que apareció después de la foto y no estaba permitido, por stdout y relativo a $BASE.
+#
+# Sin foto NO dice «limpio»: avisa que no pudo medir. Un chequeo que informa verde cuando le
+# falta el instrumento es el defecto que este archivo entero persigue.
+escrituras_de_mas() {
+  local foto="$1" permitido="$2"
+  if [ ! -f "$foto" ]; then
+    echo "  ⚠ sin foto del tronco ($foto): no se puede medir qué escribió el agente" >&2
+    return 0
+  fi
+  ( cd "$BASE" 2>/dev/null || exit 0
+    { git diff --name-only --relative HEAD 2>/dev/null
+      git ls-files --others --exclude-standard 2>/dev/null; } | sort -u \
+      | comm -23 - "$foto" | grep -vE "$permitido" | grep . ) || true
+}
+
+# Saca del tronco lo que el agente escribió sin permiso y lo deja aparte. NO lo borra: el
+# 2026-10-24 ese archivo de más era la prueba de un HUECO del plan. Tenía un `GET /ads` que
+# devolvía `501 No implementado` con el comentario «esta funcionalidad no está implementada
+# en el servicio de ads según el alcance de la tarea T05c», escrito por el propio modelo
+# antes de que nadie se lo preguntara, y coincidía con el diagnóstico del 27B. Borrarlo
+# habría borrado la evidencia del defecto, que es lo único que este método produce.
+sacar_escrituras_de_mas() {
+  local id="$1"; shift
+  local dest="$RAIZ/../relevo-escribio-$id" f
+  for f in "$@"; do
+    mkdir -p "$dest/$(dirname "$f")"
+    if git -C "$BASE" ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+      cp "$BASE/$f" "$dest/$f" 2>/dev/null && git -C "$BASE" checkout -- "$f" 2>/dev/null
+    else
+      mv "$BASE/$f" "$dest/$f" 2>/dev/null
+    fi
+  done
+  echo "$dest"
+}
+
+# El guardia entero, para que cada replanificador llame UNA línea:
+#
+#   revisar_escrituras_de_mas <foto> <id> <quién> [patrón extra permitido]
+#
+# Permitido siempre: el andamio que el arnés mismo escribe dentro del proyecto. El `[^/]*`
+# del log y la barra del directorio están para que el permiso no tape un archivo del agente
+# que apenas empiece parecido. Devuelve 1 si hubo algo de más.
+revisar_escrituras_de_mas() {
+  local foto="$1" id="$2" quien="$3" extra="${4:-}" demas
+  local permitido="^(\\.relevo-[^/]*\\.log|\\.replan-[^/]*\\.log|\\.opencode-data/|\\.oc/${extra:+|$extra})"
+  demas="$(escrituras_de_mas "$foto" "$permitido")"
+  [ -n "$demas" ] || return 0
+  echo "  ✗ $quien escribió en el tronco $(echo "$demas" | grep -c .) archivo/s y tenía PROHIBIDO escribir:"
+  echo "$demas" | sed 's/^/       /'
+  echo "     sacados del tronco, guardados en $(sacar_escrituras_de_mas "$id" $demas)"
+  return 1
+}
+
 # ¿Los archivos de esta tarea están commiteados?
 #
 #   tarea_sin_commitear <id>     0 = limpio, 1 = sucio (y lo imprime)

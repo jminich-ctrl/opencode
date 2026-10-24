@@ -6758,6 +6758,131 @@ class TestUnaCorridaPorRojo(unittest.TestCase):
         self.assertEqual(0, r.returncode, f"y el preflight queda limpio:\n{r.stdout}{r.stderr}")
 
 
+class TestElReplanificadorNoDejaEscribirEnElTronco(unittest.TestCase):
+    """Los dos replanificadores corren `cd "$BASE"` sobre el proyecto REAL, no sobre un
+    worktree: sus agentes pueden escribir en el tronco. El prompt se lo prohíbe —«NO escribas
+    ningún archivo: tu respuesta ES el entregable»— y nadie lo verificaba. Un prompt no es un
+    permiso.
+
+    Medido el 2026-10-24: el relevo de T05c corrió de 10:16:44 a 10:27:07 y el modelo que
+    tenía que reescribir el enunciado IMPLEMENTÓ la tarea. Dejó `backend/app/rutas/ads.py`
+    —89 líneas, sin seguimiento— en el tronco a las 10:26:51, y la corrida terminó con
+    `exit=0` diciendo sólo «✗ no escribió el cuerpo nuevo».
+
+    Lo que estaba en juego era la corrida SIGUIENTE: ese código quedaba ahí para que el
+    próximo intento de tests-first de T05c lo encontrara ya hecho —lo que `validar-plan.py`
+    prohíbe— y para que el paso 0 del gate viera «implementó la feature, el test pasa» y
+    concluyera «el test no prueba nada». Dos corridas unidas por un archivo que nadie puso en
+    ninguna foto: la de `escribir-tests.sh` mide el worktree del ejecutor, y esto pasa fuera
+    de todo worktree.
+
+    Estos tests no miran el texto del script: le ponen un `opencode` falso en el PATH que
+    escribe de más y miden qué queda en el tronco."""
+
+    def proyecto(self):
+        # El repo va en un SUBDIRECTORIO del temporal porque la cuarentena se escribe en
+        # `$RAIZ/..`, igual que `fallidos-<id>`: así todo lo que la corrida crea cae adentro
+        # del árbol que este test borra al terminar.
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-tronco-")).resolve()
+        self.addCleanup(shutil.rmtree, str(tmp), True)
+        d = tmp / "repo"; d.mkdir()
+        correr("git init -q . && git config user.email a@b && git config user.name a", d)
+        (d / "tareas").mkdir()
+        (d / "tareas" / "T40-avisos.md").write_text(
+            "# T40 — Avisos rutas\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/rutas/ads.py\n**Prohibido tocar:** Ninguno\n\n"
+            "## Objetivo\n\nImplementar los endpoints.\n\n"
+            "## Tests\n\nArchivo: `tests/test_ads.py`, clase `TestAds`\n\n"
+            "## Terminado cuando\n\n- [ ] andan los endpoints\n")
+        (d / "app" / "rutas").mkdir(parents=True)
+        (d / "app" / "rutas" / "ads.py").write_text("# vacío todavía\n")
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n## Tareas\n\n"
+            "| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
+            "| T40 | Avisos rutas | — | `app/rutas/ads.py` | pendiente |\n")
+        correr("git add -A && git commit -qm base", d)
+        return d
+
+    def opencode_falso(self, d, diagnostica, escribe):
+        """Un `opencode` que hace una cosa en el paso 1 y otra en el paso 2. Los distingue por
+        `.diagnostico-T40.md`, que el arnés escribe DESPUÉS del primer agente."""
+        bin_ = d / ".bin"; bin_.mkdir()
+        (bin_ / "opencode").write_text(
+            "#!/usr/bin/env bash\n"
+            "if [ -f .diagnostico-T40.md ]; then\n" + escribe + "\nelse\n" + diagnostica + "\nfi\n")
+        (bin_ / "opencode").chmod(0o755)
+        return f'PATH="{bin_}:$PATH"'
+
+    def correr_relevo(self, d, diagnostica, escribe):
+        env = self.opencode_falso(d, diagnostica, escribe)
+        return correr(f'{env} PROYECTO=. LIMITE_AGENTE=60 DIAGNOSTICA=m1 ESCRIBE=m2 '
+                      f'bash "{SCRIPTS}/replanificar-relevo.sh" T40', d)
+
+    # El caso real, con el nombre que tenía: el que debía escribir el enunciado implementó la
+    # tarea. El `echo` del cuerpo está para que el único reproche posible sea el archivo de
+    # más —si no escribiera el cuerpo, el script cortaría con «no escribió el cuerpo nuevo» y
+    # el test podría pasar por el motivo equivocado.
+    ESCRIBIO_CODIGO = ('echo "implementé la tarea, mi implementación está correcta"\n'
+                       'printf "@router.get(\\"/ads\\")\\ndef list_ads(): pass\\n" '
+                       '> app/rutas/ads.py\n'
+                       'printf "## Objetivo\\n\\nCuerpo nuevo con el diagnóstico aplicado.\\n" '
+                       '> .replan-T40-cuerpo.md\n')
+    DIAGNOSTICO_OK = 'echo "al enunciado le falta decir donde vive cada cosa que nombra"\n'
+
+    def test_el_que_reescribe_el_enunciado_no_puede_implementar_la_tarea(self):
+        d = self.proyecto()
+        antes = (d / "app" / "rutas" / "ads.py").read_text()
+        r = self.correr_relevo(d, self.DIAGNOSTICO_OK, self.ESCRIBIO_CODIGO)
+        salida = r.stdout + r.stderr
+        self.assertIn("PROHIBIDO escribir", salida,
+                      f"escribió código en el tronco y la corrida no lo dijo:\n{salida}")
+        self.assertIn("app/rutas/ads.py", salida, f"y tiene que NOMBRAR el archivo:\n{salida}")
+        self.assertEqual(antes, (d / "app" / "rutas" / "ads.py").read_text(),
+                         f"el tronco tiene que quedar como estaba:\n{salida}")
+
+    def test_lo_que_escribio_de_mas_se_guarda_y_no_se_borra(self):
+        """La evidencia es lo único que este método produce. El archivo de más del 2026-10-24
+        tenía un `GET /ads` con `501 No implementado` y el comentario «esta funcionalidad no
+        está implementada en el servicio de ads según el alcance de la tarea T05c»: era la
+        prueba, escrita por el propio modelo, del HUECO que el 27B diagnosticó aparte."""
+        d = self.proyecto()
+        r = self.correr_relevo(d, self.DIAGNOSTICO_OK, self.ESCRIBIO_CODIGO)
+        guardados = sorted(p for p in (d.parent).rglob("relevo-escribio-T40/**/ads.py"))
+        self.assertTrue(guardados,
+                        f"sacarlo del tronco no es tirarlo:\n{r.stdout}{r.stderr}\n"
+                        f"hay en {d.parent}: {[p.name for p in d.parent.iterdir()]}")
+        self.assertIn("list_ads", guardados[0].read_text(),
+                      "y lo guardado tiene que ser lo que el agente escribió")
+
+    def test_el_que_diagnostica_tampoco_puede_escribir(self):
+        """El paso 1 tiene la prohibición más explícita de todo el método —«NO escribas ningún
+        archivo»— y era el menos vigilado: su chequeo posterior sólo mira si el transcript
+        quedó vacío."""
+        d = self.proyecto()
+        antes = (d / "app" / "rutas" / "ads.py").read_text()
+        r = self.correr_relevo(d, 'echo "diagnostico"; echo "# mio" > app/rutas/ads.py',
+                               self.ESCRIBIO_CODIGO)
+        salida = r.stdout + r.stderr
+        self.assertIn("PROHIBIDO escribir", salida, f"\n{salida}")
+        self.assertIn("m1", salida.split("PROHIBIDO")[0].split("\n")[-1],
+                      f"el veredicto tiene que nombrar al agente del paso 1, no al del 2:\n{salida}")
+        self.assertEqual(antes, (d / "app" / "rutas" / "ads.py").read_text(), f"\n{salida}")
+
+    def test_un_relevo_que_hace_lo_suyo_no_recibe_ningun_reproche(self):
+        """El otro lado del chequeo: el andamio que el arnés mismo escribe en el proyecto —el
+        log, `.opencode-data/`, el cuerpo que el paso 2 TIENE que escribir— no es una escritura
+        de más. Un guardia que le cobra al agente el andamio del método es el mismo defecto
+        que este test persigue, con el sujeto invertido."""
+        d = self.proyecto()
+        r = self.correr_relevo(
+            d, self.DIAGNOSTICO_OK,
+            'printf "## Objetivo\\n\\nCuerpo nuevo con el diagnóstico aplicado.\\n" '
+            '> .replan-T40-cuerpo.md\n')
+        salida = r.stdout + r.stderr
+        self.assertNotIn("PROHIBIDO escribir", salida,
+                         f"no escribió nada de más y se lo reprochó:\n{salida}")
+
+
 class TestElMarcadorDeHuecoSobreviveAlMarkdown(unittest.TestCase):
     """El extractor de HUECO de los dos replanificadores pedía las marcas de markdown UNA vez
     y antes de los espacios: `^[ \\t]*[*#>-]*[ \\t]*HUECO\\b`. El 2026-10-24 el 27B escribió
