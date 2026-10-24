@@ -8351,3 +8351,80 @@ class TestElQueProveeUnImportCorreAntesDelQueLoConsume(unittest.TestCase):
         r = self.coherencia(d)
         self.assertEqual(0, r.returncode,
                          f"el archivo existe en backend/app/main.py:\n{r.stdout}{r.stderr}")
+
+
+class TestLaTemperaturaNoLaElijeElServidor(unittest.TestCase):
+    """Medido el 2026-10-24 contra el ejecutor real: sin mandar `temperature`, cinco llamadas
+    al MISMO prompt dieron dos respuestas distintas —`cantidad_de_avisos` tres veces y
+    `cantidad_avisos` dos—. Con `temperature: 0`, las cinco idénticas. La plataforma no usa
+    greedy por omisión y veníamos corriendo con un valor que nadie eligió.
+
+    Lo que eso rompe no es sólo el acierto —Udgam Labs midió que pasar de greedy a 0,7 le bajó
+    el acierto de llamadas a herramientas de 60% a 46%— sino EL BRAZO DE CONTROL, que es el
+    instrumento con el que este método decide si un resultado se le puede atribuir a un
+    modelo: `comparar-modelos.sh` razona sobre «salidas idénticas carácter por carácter en dos
+    tandas separadas por horas». Con temperatura no nula, eso era suerte.
+
+    Y queda como perilla porque hay un caso donde la diversidad es el punto: el best-of-N con
+    verificador. 48 intentos a temperatura 0 son el mismo intento 48 veces."""
+
+    def servidor(self):
+        """Un `/chat/completions` que DEVUELVE la temperatura que recibió."""
+        import http.server, threading
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                pedido = json.loads(self.rfile.read(n).decode("utf-8", "replace"))
+                visto = repr(pedido.get("temperature", "AUSENTE"))
+                cuerpo = json.dumps(
+                    {"choices": [{"message": {"content": f"temperatura={visto}"}}]}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(cuerpo)))
+                self.end_headers()
+                self.wfile.write(cuerpo)
+
+            def log_message(self, *a):
+                pass
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return f"http://127.0.0.1:{srv.server_address[1]}/v1"
+
+    def pedir(self, **env):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-temp-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "p.txt").write_text("¿cuál?\n")
+        return correr(f'python3 "{SCRIPTS}/pedir.py" m1 < "{d}/p.txt"', RAIZ,
+                      COLABHIVE_BASE_URL=self.servidor(), COLABHIVE_API_KEY="x", **env)
+
+    def test_por_omision_manda_cero_y_no_la_deja_al_servidor(self):
+        r = self.pedir()
+        self.assertIn("temperatura=0.0", r.stdout,
+                      f"si no la manda, la elige el servidor:\n{r.stdout}{r.stderr}")
+
+    def test_se_puede_subir_por_env_para_el_best_of_N(self):
+        """Determinismo para medir, diversidad para buscar. Clavarla en 0 haría imposible el
+        best-of-N con verificador, que es lo único que un modelo de 95M necesitó para pasar de
+        54,7% a 72,3%."""
+        r = self.pedir(TEMPERATURA="0.7")
+        self.assertIn("temperatura=0.7", r.stdout, f"\n{r.stdout}{r.stderr}")
+
+    def test_el_canal_entero_la_manda_no_solo_pedir(self):
+        """`enjambre.sh` y `conversar.sh` llaman a `pedir.py`, así que heredan la decisión. El
+        test lo fija: si alguno armara su propio POST, este chequeo lo dice."""
+        # Sobre las líneas de CÓDIGO, no sobre el archivo entero. La primera versión miró el
+        # texto completo y se tropezó con un COMENTARIO —«un POST plano a /chat/completions
+        # por cada rojo»— que describe el diseño en vez de implementarlo. Quinta vez hoy que
+        # una guarda mía matchea prosa: el patrón es mío, no del repo.
+        for n in ("enjambre.sh", "conversar.sh", "replan-sin-memoria.sh"):
+            fuente = (SCRIPTS / n).read_text()
+            codigo = [l for l in fuente.splitlines()
+                      if l.strip() and not l.strip().startswith("#")]
+            propios = [l.strip()[:70] for l in codigo if "chat/completions" in l]
+            self.assertEqual([], propios,
+                             f"{n} arma su propio POST y se saltea la decisión de "
+                             f"temperatura: {propios}")
+            self.assertIn("pedir.py", fuente, f"{n} tiene que pasar por pedir.py")

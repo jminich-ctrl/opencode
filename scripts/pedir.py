@@ -9,7 +9,27 @@ import json, os, sys, urllib.request
 base = os.environ["COLABHIVE_BASE_URL"]
 clave = os.environ["COLABHIVE_API_KEY"]
 modelo, prompt = sys.argv[1], sys.stdin.read()
+# TEMPERATURA 0 por omisión, y por qué importa más de lo que parece.
+#
+# Medido el 2026-10-24 contra el ejecutor: sin mandar `temperature`, cinco llamadas al MISMO
+# prompt dieron dos respuestas distintas —`cantidad_de_avisos` tres veces y
+# `cantidad_avisos` dos—. Con `temperature: 0`, las cinco idénticas. O sea que la plataforma
+# no usa greedy por omisión y veníamos corriendo con un valor que nadie eligió.
+#
+# Lo que eso rompe no es sólo el acierto —Udgam Labs midió que pasar de greedy a 0,7 le bajó
+# el acierto de llamadas a herramientas de 60% a 46%— sino EL BRAZO DE CONTROL, que es el
+# instrumento con el que este método decide si un resultado se le puede atribuir a un modelo.
+# `comparar-modelos.sh` dice «el control no se movió: salidas idénticas carácter por carácter
+# en dos tandas separadas por horas». Con temperatura no nula, eso era suerte.
+#
+# Se deja como perilla y no clavada porque hay un caso donde la diversidad es el punto: el
+# best-of-N con verificador. Lilavati, de 95M, pasa de 54,7% en un intento a 72,3% con 48
+# intentos y un verificador ponderando los votos, y 48 intentos a temperatura 0 son el mismo
+# intento 48 veces. Determinismo para medir, diversidad para buscar — y nunca sin saber cuál
+# de los dos se está usando.
+TEMPERATURA = float(os.environ.get("TEMPERATURA", "0"))
 cuerpo = json.dumps({"model": modelo, "max_tokens": 400,
+                     "temperature": TEMPERATURA,
                      "messages": [{"role": "user", "content": prompt}]}).encode()
 pedido = urllib.request.Request(base + "/chat/completions", data=cuerpo, headers={
     "Authorization": "Bearer " + clave, "Content-Type": "application/json"})
