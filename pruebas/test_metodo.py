@@ -8078,3 +8078,147 @@ class TestLasColumnasTambienSeCruzanContraLaMigracion(unittest.TestCase):
         d = self.proyecto("SELECT id, titulo FROM cosas", estado="✅ hecha")
         shutil.rmtree(d / "migraciones")
         self.assertEqual(0, self.coherencia(d).returncode)
+
+
+class TestReabrirUnaTareaConVeredictoFalso(unittest.TestCase):
+    """`coherencia.py` termina sus rojos más graves con «Su gate dio un veredicto falso: ese
+    código no puede funcionar. Hay que REABRIR TNN, no parchear a mano» — y el método no tenía
+    con qué. Ordenaba una operación y dejaba su ejecución a mano, que es de donde este repo
+    dice, en varios comentarios, que vienen sus defectos.
+
+    Reabrir son cuatro cosas, y hacer tres está peor que no hacer ninguna: el estado en el
+    archivo, el estado en la tabla del plan, sacar el código que la tarea produjo, y dejar
+    escrito por qué. Estos tests miden las cuatro por separado, porque la que se olvide va a
+    ser la que deje la tarea en un estado que ningún lector entiende igual."""
+
+    def proyecto(self):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-reabrir-")).resolve()
+        self.addCleanup(shutil.rmtree, str(tmp), True)
+        d = tmp / "repo"; d.mkdir()
+        correr("git init -q . && git config user.email a@b && git config user.name a", d)
+        (d / "tareas").mkdir()
+        (d / "tareas" / "T07-cosas.md").write_text(
+            "# T07 — Cosas\n\n**Estado:** ✅ hecha\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/datos/cosas.py\n**Prohibido tocar:** Ninguno\n\n"
+            "## Objetivo\n\nLeer cosas.\n\n"
+            "## Tests\n\nArchivo: `tests/test_cosas.py`, clase `TestCosas`\n\n"
+            "## Terminado cuando\n\n- [ ] anda\n")
+        (d / "migraciones").mkdir()
+        (d / "migraciones" / "001_initial.sql").write_text(
+            "CREATE TABLE cosas (\n    id INT, nombre VARCHAR(50)\n);\n")
+        (d / "app" / "datos").mkdir(parents=True)
+        (d / "app" / "datos" / "cosas.py").write_text(
+            "def leer():\n    return db.execute('SELECT id, titulo FROM cosas')\n")
+        (d / "tests").mkdir()
+        (d / "tests" / "test_cosas.py").write_text(
+            "class TestCosas:\n    def test_algo(self):\n        assert True\n")
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n## Tareas\n\n"
+            "| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
+            "| T07 | Cosas | — | `app/datos/cosas.py` | ✅ hecha |\n")
+        correr("git add -A && git commit -qm base", d)
+        return d
+
+    def reabrir(self, d, motivo="su código consulta una columna que la migración no crea"):
+        return correr(f'PROYECTO=. bash "{SCRIPTS}/reabrir.sh" T07 {shlex.quote(motivo)}', d)
+
+    def test_el_estado_queda_pendiente_en_el_archivo_Y_en_la_tabla(self):
+        """Marcar uno solo deja la tarea invisible para el otro lector: `validar-plan.py`
+        cruza las dos declaraciones y el deductor de etapas lee la tabla. Ya pasó al revés
+        —T01 se integró, quedó verde en el tronco, y la etapa 1 la volvía a lanzar—."""
+        d = self.proyecto()
+        r = self.reabrir(d)
+        self.assertEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        tarea = (d / "tareas" / "T07-cosas.md").read_text()
+        self.assertIn("**Estado:** pendiente", tarea, f"\n{tarea[:200]}")
+        self.assertNotIn("✅", tarea.split("## Objetivo")[0],
+                         "el encabezado no puede seguir diciendo hecha")
+        plan = (d / "PLAN.md").read_text()
+        self.assertNotIn("✅ hecha", plan, f"la tabla del plan quedó en hecha:\n{plan}")
+        self.assertIn("pendiente", plan, f"\n{plan}")
+
+    def test_saca_del_tronco_el_codigo_que_la_tarea_declara(self):
+        """La fase que escribe los tests valida que el test FALLE antes de que exista la
+        implementación. Con el código viejo en su lugar el test pasa de entrada y el gate
+        concluye «el test no prueba nada»: el diagnóstico equivocado."""
+        d = self.proyecto()
+        r = self.reabrir(d)
+        self.assertEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertFalse((d / "app" / "datos" / "cosas.py").exists(),
+                         "el código declarado tiene que salir del tronco")
+        self.assertFalse((d / "tests" / "test_cosas.py").exists(),
+                         "y su test también: si codifica el error, obliga a reproducirlo")
+
+    def test_el_codigo_sacado_no_se_pierde(self):
+        """Sacar no es tirar: es la evidencia de qué dio verde siendo falso."""
+        d = self.proyecto()
+        self.reabrir(d)
+        guardado = d.parent / "reabrir-T07-previo" / "codigo" / "app" / "datos" / "cosas.py"
+        self.assertTrue(guardado.exists(), f"no quedó copia; hay en {d.parent}: "
+                                           f"{[p.name for p in d.parent.iterdir()]}")
+        self.assertIn("SELECT id, titulo", guardado.read_text())
+
+    def test_deja_escrito_por_que_se_reabrio(self):
+        d = self.proyecto()
+        self.reabrir(d, motivo="la columna titulo no existe en la tabla")
+        tarea = (d / "tareas" / "T07-cosas.md").read_text()
+        self.assertIn("## Reabierta", tarea, f"\n{tarea[-400:]}")
+        self.assertIn("la columna titulo no existe", tarea, f"\n{tarea[-400:]}")
+
+    def test_la_nota_no_mete_identificadores_entre_backticks(self):
+        """Los chequeos leen los identificadores entre backticks de un enunciado como un
+        COMPROMISO de usarlos: una nota de reapertura que nombraba así la tabla equivocada
+        hizo que el chequeo de coherencia la tomara por una promesa del enunciado y el rojo se
+        duplicara. La nota informa a una persona, no declara un contrato."""
+        d = self.proyecto()
+        self.reabrir(d, motivo="la tabla `users` no existe: es `usuarios`")
+        nota = (d / "tareas" / "T07-cosas.md").read_text().split("## Reabierta")[1]
+        self.assertNotIn("`", nota, f"la nota metió backticks:\n{nota}")
+        self.assertIn("users", nota, "pero el dato tiene que seguir estando")
+
+    def test_mide_los_rojos_antes_y_despues_y_los_informa(self):
+        """La reapertura tiene un juez: si AGREGA contradicciones, se revierte entera. Lo que
+        este test mide es que la comparación OCURRA y se informe, no la rama de reversión.
+
+        Y lo digo porque no encontré estímulo realista para esa rama, después de dos intentos,
+        y las dos veces porque el método ya estaba bien:
+
+          · un motivo que prometía una tabla inexistente no agrega nada, porque el script le
+            saca los backticks a la nota y los chequeos exigen el identificador entre
+            backticks para leerlo como promesa del enunciado;
+          · sacar del tronco un módulo del que otra tarea PENDIENTE importa tampoco, porque al
+            reabrirla la tarea vuelve a ser su dueña declarada y el cruce de imports la cuenta
+            como proveedora.
+
+        Así que la reversión queda como red defensiva, sin cobertura, y queda dicho. Un test
+        que fabrica un estímulo artificial para tocar una rama mide el estímulo, no la rama."""
+        d = self.proyecto()
+        # Un SEGUNDO rojo que la reapertura de T07 no toca: así el «después» no puede ser
+        # cero, y el número informado se puede comparar con el real. Sin esto, con el contador
+        # clavado en 0 el renglón salía igual y mi test no medía nada: lo mostró mutar.
+        (d / "app" / "datos" / "otras.py").write_text(
+            "def leer():\n    return db.execute('SELECT id, inventada FROM cosas')\n")
+        (d / "tareas" / "T09-otras.md").write_text(
+            "# T09 — Otras\n\n**Estado:** ✅ hecha\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/datos/otras.py\n**Prohibido tocar:** Ninguno\n\n"
+            "## Objetivo\n\nLeer otras.\n\n## Terminado cuando\n\n- [ ] anda\n")
+        plan = d / "PLAN.md"
+        plan.write_text(plan.read_text()
+                        + "| T09 | Otras | — | `app/datos/otras.py` | ✅ hecha |\n")
+        correr("git add -A && git commit -qm t09", d)
+        r = self.reabrir(d)
+        self.assertEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        real = correr(f'PROYECTO=. python3 "{SCRIPTS}/coherencia.py"', d)
+        quedan = len([l for l in real.stdout.splitlines() if "✗" in l])
+        self.assertRegex(r.stdout, rf"rojos del preflight: \d+ → {quedan}\b",
+                         f"el número que informa tiene que ser el que mide de verdad "
+                         f"(quedan {quedan}):\n{r.stdout}")
+        self.assertGreater(quedan, 0,
+                           "si no quedara ninguno, este test no distinguiría un contador "
+                           "clavado en cero")
+
+    def test_sin_la_tarea_no_hace_nada_y_lo_dice(self):
+        d = self.proyecto()
+        r = correr(f'PROYECTO=. bash "{SCRIPTS}/reabrir.sh" T99 x', d)
+        self.assertNotEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("no existe", r.stdout + r.stderr)
