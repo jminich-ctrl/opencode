@@ -66,10 +66,21 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
                  | grep -E '✗|por qué falla' | head -6
                sed 's/\x1b\[[0-9;]*m//g' "$RAIZ/../tests-$id/.tests.log" 2>/dev/null \
                  | grep -E '^  ✗' | head -4; } | sort -u)"
-  MOTIVO="$FASE  Lo que falló: $(printf '%s\n%s\n' "$CONCRETO" "$GENERICO" | grep . | tr '\n' ' ' | cut -c1-600)"
-  if [ -z "$MOTIVO" ]; then
+  LO_QUE_FALLO="$(printf '%s\n%s\n' "$CONCRETO" "$GENERICO" | grep . | tr '\n' ' ' | cut -c1-600)"
+  MOTIVO="$FASE  Lo que falló: $LO_QUE_FALLO"
+  # La guarda mira LO QUE FALLÓ, no la oración armada. Miraba `$MOTIVO`, que arranca con
+  # `$FASE` y por lo tanto NUNCA está vacío: no podía dispararse jamás. El script replanificaba
+  # con «Lo que falló:» y nada detrás, o sea adivinando, que es exactamente lo que su propio
+  # mensaje dice que no hay que hacer. Y el arquitecto que recibe un motivo vacío no se queda
+  # quieto: inventa una causa, que es cómo T05c acumuló tres replanificaciones.
+  #
+  # Cuarta guarda que encuentro incapaz de dispararse —las otras tres estaban detrás de una
+  # tubería que ya había consumido el estado— y la cuarta vez que el defecto es el mismo: el
+  # chequeo mira una variable derivada en vez del dato.
+  if [ -z "$LO_QUE_FALLO" ]; then
     echo "✗ $id: no hay transcripts de fallo en $FALLIDOS ni en ../tests-$id."
-    echo "   Replanificar sin el motivo es adivinar. Corré la tarea primero."
+    echo "   Replanificar sin el motivo es adivinar: el arquitecto va a inventar una causa."
+    echo "   Corré la tarea primero."
     continue
   fi
 

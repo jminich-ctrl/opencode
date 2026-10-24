@@ -34,8 +34,24 @@ for id in "$@"; do
   else
     FASE="El test '$TEST_TAREA' existe y falló la IMPLEMENTACIÓN contra él."
   fi
-  MOTIVO="$FASE  Lo que falló: $(sed 's/\x1b\[[0-9;]*m//g' "${ULTIMO:-/dev/null}" 2>/dev/null \
+  LO_QUE_FALLO="$(sed 's/\x1b\[[0-9;]*m//g' "${ULTIMO:-/dev/null}" 2>/dev/null \
             | grep -E '✗|por qué falla' | head -6 | sort -u | tr '\n' ' ' | cut -c1-500)"
+  MOTIVO="$FASE  Lo que falló: $LO_QUE_FALLO"
+  # La guarda mira LO QUE FALLÓ, no la oración armada. Miraba `$MOTIVO`, que arranca con
+  # `$FASE` y por lo tanto NUNCA está vacío: no podía dispararse jamás. El script replanificaba
+  # con «Lo que falló:» y nada detrás, o sea adivinando, que es exactamente lo que su propio
+  # mensaje dice que no hay que hacer. Y el arquitecto que recibe un motivo vacío no se queda
+  # quieto: inventa una causa, que es cómo T05c acumuló tres replanificaciones.
+  #
+  # Cuarta guarda que encuentro incapaz de dispararse —las otras tres estaban detrás de una
+  # tubería que ya había consumido el estado— y la cuarta vez que el defecto es el mismo: el
+  # chequeo mira una variable derivada en vez del dato.
+  if [ -z "$LO_QUE_FALLO" ]; then
+    echo "✗ $id: no hay transcripts de fallo en $FALLIDOS ni en ../tests-$id."
+    echo "   Replanificar sin el motivo es adivinar: el arquitecto va a inventar una causa."
+    echo "   Corré la tarea primero."
+    continue
+  fi
 
   # ── 1. DIAGNOSTICAR. No toca ningún archivo del plan: sólo escribe su análisis.
   DIAG="$BASE/.diagnostico-$id.md"; rm -f "$DIAG"

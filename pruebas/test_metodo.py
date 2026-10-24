@@ -6947,3 +6947,84 @@ class TestElMarcadorDeHuecoSobreviveAlMarkdown(unittest.TestCase):
                                    text=True, capture_output=True)
                 self.assertEqual(1, r.returncode,
                                  f"{nombre}: el patrón {patron!r} se dispara con «{linea}»")
+
+
+class TestReplanificarSinMotivoNoReplanifica(unittest.TestCase):
+    """Los dos replanificadores arman el motivo así:
+
+        MOTIVO="$FASE  Lo que falló: $(...extracción del transcript...)"
+
+    y `replanificar.sh` lo protegía con `if [ -z "$MOTIVO" ]`, que NUNCA puede ser cierto:
+    `$FASE` siempre tiene texto. La guarda no podía dispararse jamás, así que el script
+    replanificaba con «Lo que falló:» y nada detrás —adivinando, que es exactamente lo que su
+    propio mensaje dice que no hay que hacer—. En el relevo la guarda no existía siquiera.
+
+    Y un arquitecto que recibe un motivo vacío no se queda quieto: inventa una causa. Es cómo
+    T05c acumuló tres replanificaciones sin que el hueco real apareciera.
+
+    Cuarta guarda que encuentro incapaz de dispararse, y la cuarta vez con el mismo defecto:
+    el chequeo mira una variable derivada en vez del dato. El test mide que el agente NO se
+    llame, porque gastarlo es el costo que la guarda evita."""
+
+    def proyecto(self):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-sinmotivo-")).resolve()
+        self.addCleanup(shutil.rmtree, str(tmp), True)
+        d = tmp / "repo"; d.mkdir()
+        correr("git init -q . && git config user.email a@b && git config user.name a", d)
+        (d / "tareas").mkdir()
+        (d / "tareas" / "T41-cosa.md").write_text(
+            "# T41 — Una cosa\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/cosa.py\n**Prohibido tocar:** Ninguno\n\n"
+            "## Objetivo\n\nQue haya una cosa.\n\n"
+            "## Tests\n\nArchivo: `tests/test_cosa.py`, clase `TestCosa`\n\n"
+            "## Terminado cuando\n\n- [ ] anda\n")
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n## Tareas\n\n"
+            "| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
+            "| T41 | Una cosa | — | `app/cosa.py` | pendiente |\n")
+        correr("git add -A && git commit -qm base", d)
+        bin_ = d / ".bin"; bin_.mkdir()
+        # Un agente que deja rastro de haber sido llamado. Si la guarda anda, no existe.
+        #
+        # La marca va AFUERA del proyecto: la primera versión la dejaba adentro y el guardia
+        # de escrituras de más —el de `relevo-escribio-<id>`— se la llevó a la cuarentena,
+        # así que el test falló midiendo mi andamio en vez del script. El guardia tenía razón.
+        (bin_ / "opencode").write_text(
+            '#!/usr/bin/env bash\ntouch "$(dirname "$0")/../../LO-LLAMARON"\n'
+            'echo "replanifiqué a ciegas"\n')
+        (bin_ / "opencode").chmod(0o755)
+        return d
+
+    def test_replanificar_no_gasta_un_agente_sin_transcript(self):
+        d = self.proyecto()
+        r = correr(f'PATH="{d}/.bin:$PATH" PROYECTO=. LIMITE_AGENTE=60 MODELO=m1 '
+                   f'bash "{SCRIPTS}/replanificar.sh" T41', d)
+        salida = r.stdout + r.stderr
+        self.assertFalse((d.parent / "LO-LLAMARON").exists(),
+                         f"llamó al arquitecto sin tener qué contarle:\n{salida}")
+        self.assertIn("no hay transcripts de fallo", salida, f"\n{salida}")
+
+    def test_el_relevo_tampoco(self):
+        """La misma regla con dos lectores. Acá no había ninguna guarda: el relevo gastaba DOS
+        agentes —el que diagnostica y el que escribe— sobre un motivo vacío."""
+        d = self.proyecto()
+        r = correr(f'PATH="{d}/.bin:$PATH" PROYECTO=. LIMITE_AGENTE=60 '
+                   f'DIAGNOSTICA=m1 ESCRIBE=m2 bash "{SCRIPTS}/replanificar-relevo.sh" T41', d)
+        salida = r.stdout + r.stderr
+        self.assertFalse((d.parent / "LO-LLAMARON").exists(),
+                         f"gastó agentes sin tener qué contarles:\n{salida}")
+        self.assertIn("no hay transcripts de fallo", salida, f"\n{salida}")
+
+    def test_con_transcript_si_replanifica(self):
+        """El otro lado: una guarda que frena siempre es peor que ninguna."""
+        d = self.proyecto()
+        fallidos = d.parent / "fallidos-T41"; fallidos.mkdir()
+        (fallidos / "intento-1.log").write_text(
+            "E  AssertionError: Expected 'execute' to be called once. Called 0 times.\n")
+        r = correr(f'PATH="{d}/.bin:$PATH" PROYECTO=. LIMITE_AGENTE=60 MODELO=m1 '
+                   f'bash "{SCRIPTS}/replanificar.sh" T41', d)
+        salida = r.stdout + r.stderr
+        self.assertTrue((d.parent / "LO-LLAMARON").exists(),
+                        f"con el motivo en la mano tiene que llamarlo:\n{salida}")
+        self.assertIn("AssertionError", salida,
+                      f"y pasarle el error CONCRETO, no la categoría:\n{salida}")
