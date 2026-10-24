@@ -52,7 +52,14 @@ Los códigos HTTP deben corresponder a los especificados en el contrato:
 
 #### GET /ads
 - Retorna 200 con la lista de anuncios
-- **HUECO**: No existe función para listar todos los anuncios en la capa de servicios ni datos
+- Llama a `buscar_anuncios(None)` del módulo `backend/app/servicios/search.py`
+  (import exacto: `from backend.app.servicios.search import buscar_anuncios`). Sin texto ni
+  categoría, esa función devuelve todos los anuncios: su consulta arranca en
+  `WHERE 1=1` y sólo agrega condiciones cuando recibe filtros.
+- Los campos que devuelve son `id`, `usuario_id`, `titulo` y `categoria`, y eso es TODO lo
+  que el listado expone. No incluye `descripcion` ni `precio_centavos`: si alguna vez hacen
+  falta en el listado, se amplía la consulta de `backend/app/datos/search_ads.py`, que es de
+  T28 y está cerrada — o sea que no es trabajo de esta tarea.
 
 #### GET /ads/{id}
 - Retorna 200 con los detalles del anuncio
