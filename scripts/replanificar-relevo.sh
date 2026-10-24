@@ -34,8 +34,22 @@ for id in "$@"; do
   else
     FASE="El test '$TEST_TAREA' existe y falló la IMPLEMENTACIÓN contra él."
   fi
-  LO_QUE_FALLO="$(sed 's/\x1b\[[0-9;]*m//g' "${ULTIMO:-/dev/null}" 2>/dev/null \
-            | grep -E '✗|por qué falla' | head -6 | sort -u | tr '\n' ' ' | cut -c1-500)"
+  # EL ERROR CONCRETO PRIMERO, la categoría sólo si no hay nada mejor. Es el arreglo de
+  # `1b44184`, que vivía sólo en `replanificar.sh`: acá el extractor era `✗|por qué falla` y
+  # nada más, o sea exactamente la categoría que ese commit sacó del otro lado. El 2026-10-23
+  # el único `✗` del transcript de T28 era «✗ la suite está en rojo» con el
+  # `ModuleNotFoundError: No module named 'backend.app.servicios.search_ads'` dos líneas más
+  # abajo, y el agente recibió la categoría: 16 minutos para no cambiar nada.
+  #
+  # Octava vez que el arreglo vive en un hermano y no en el otro, y la segunda vez en este
+  # mismo par de scripts en el mismo día. El patrón es el que el gate ya usa para su «por qué
+  # falla», idéntico al del hermano a propósito: si divergen, uno de los dos vuelve a mentir.
+  CONCRETO="$(sed 's/\x1b\[[0-9;]*m//g' "${ULTIMO:-/dev/null}" 2>/dev/null \
+    | grep -E '^E +|(Import|Module|Attribute|Type|Name|Assertion|Value)Error|^ *>? *assert ' \
+    | sed 's/^ *//' | sort -u | head -6)"
+  GENERICO="$(sed 's/\x1b\[[0-9;]*m//g' "${ULTIMO:-/dev/null}" 2>/dev/null \
+    | grep -E '✗|por qué falla' | head -6 | sort -u)"
+  LO_QUE_FALLO="$(printf '%s\n%s\n' "$CONCRETO" "$GENERICO" | grep . | tr '\n' ' ' | cut -c1-600)"
   MOTIVO="$FASE  Lo que falló: $LO_QUE_FALLO"
   # La guarda mira LO QUE FALLÓ, no la oración armada. Miraba `$MOTIVO`, que arranca con
   # `$FASE` y por lo tanto NUNCA está vacío: no podía dispararse jamás. El script replanificaba

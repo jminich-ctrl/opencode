@@ -6801,6 +6801,20 @@ class TestElReplanificadorNoDejaEscribirEnElTronco(unittest.TestCase):
             "| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
             "| T40 | Avisos rutas | — | `app/rutas/ads.py` | pendiente |\n")
         correr("git add -A && git commit -qm base", d)
+        # El transcript del fallo, que el relevo exige antes de gastar un agente: sin esto
+        # frena en «no hay transcripts de fallo» y estos tests no llegan al paso que miden.
+        #
+        # Lo encontró la suite COMPLETA, no la clase corrida sola: en aislamiento los cuatro
+        # tests seguían verdes porque la guarda que los frena se agregó después, y el cuarto
+        # —el que mide que no haya falso reproche— pasaba trivialmente por no llegar nunca al
+        # agente. Un verde que depende de que el script se detenga antes no mide nada.
+        # Con las dos formas que tiene un transcript real: la línea del gate y el error
+        # concreto. La primera versión puso sólo el `E  AssertionError` y el relevo siguió
+        # frenando, porque su extractor buscaba únicamente `✗|por qué falla`.
+        fallidos = d.parent / "fallidos-T40"; fallidos.mkdir()
+        (fallidos / "intento-1.log").write_text(
+            "  ✗ el test no pasa ni con la implementación del propio agente.\n"
+            "E  AssertionError: Expected 'execute' to be called once. Called 0 times.\n")
         return d
 
     def opencode_falso(self, d, diagnostica, escribe):
@@ -6867,6 +6881,32 @@ class TestElReplanificadorNoDejaEscribirEnElTronco(unittest.TestCase):
         self.assertIn("m1", salida.split("PROHIBIDO")[0].split("\n")[-1],
                       f"el veredicto tiene que nombrar al agente del paso 1, no al del 2:\n{salida}")
         self.assertEqual(antes, (d / "app" / "rutas" / "ads.py").read_text(), f"\n{salida}")
+
+    def test_el_relevo_le_pasa_el_error_concreto_y_no_la_categoria(self):
+        """El arreglo de `1b44184` vivía sólo en `replanificar.sh`. Acá el extractor era
+        `✗|por qué falla` y nada más —la categoría que ese commit sacó del otro lado—, así que
+        el 2026-10-23 el agente recibió «✗ la suite está en rojo» con el
+        `ModuleNotFoundError` dos líneas más abajo en el mismo archivo: 16 minutos para no
+        cambiar nada.
+
+        Octava vez que el arreglo vive en un hermano y no en el otro, y la segunda en este
+        mismo par de scripts en el mismo día."""
+        d = self.proyecto()
+        # El transcript real: la línea del gate es genérica, el dato está debajo.
+        (d.parent / "fallidos-T40" / "intento-1.log").write_text(
+            "  ✗ la suite está en rojo\n"
+            "E  ModuleNotFoundError: No module named 'app.servicios.listar'\n")
+        prompts = d.parent / "prompts.txt"
+        env = f'PATH="{d}/.bin:$PATH"'
+        bin_ = d / ".bin"; bin_.mkdir()
+        (bin_ / "opencode").write_text(
+            '#!/usr/bin/env bash\necho "$*" >> "$PROMPTS"\necho ok\n')
+        (bin_ / "opencode").chmod(0o755)
+        correr(f'{env} PROMPTS="{prompts}" PROYECTO=. LIMITE_AGENTE=60 '
+               f'DIAGNOSTICA=m1 ESCRIBE=m2 bash "{SCRIPTS}/replanificar-relevo.sh" T40', d)
+        texto = prompts.read_text() if prompts.exists() else ""
+        self.assertIn("ModuleNotFoundError", texto,
+                      f"le pasó la categoría y se guardó el dato:\n{texto[:600]}")
 
     def test_un_relevo_que_hace_lo_suyo_no_recibe_ningun_reproche(self):
         """El otro lado del chequeo: el andamio que el arnés mismo escribe en el proyecto —el
