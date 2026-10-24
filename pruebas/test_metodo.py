@@ -7595,3 +7595,177 @@ class TestElCanalSinMemoria(unittest.TestCase):
         self.assertIn("no respondió en el formato", r.stdout, f"\n{r.stdout}{r.stderr}")
         self.assertIn("sin quórum", r.stdout,
                       f"dos votos válidos de tres no alcanzan el quórum de 3:\n{r.stdout}")
+
+
+class TestReplanificarSinCanalDeMemoria(unittest.TestCase):
+    """`replan-sin-memoria.sh` arregla las contradicciones del preflight con un POST plano por
+    cada rojo: 7 corridas con sesión de memoria, 1 completó, cortes entre los 7 y los 13
+    minutos; por POST plano, 11 a 14 segundos. Lo que NO cambia son los jueces: el chequeo que
+    encontró el problema sigue siendo el que acepta el arreglo.
+
+    Tenía la ruta de una máquina y el proyecto de ejemplo escritos adentro, el modelo clavado
+    por UUID y el respaldo del plan dentro del proyecto. Y no tenía tests: el camino más
+    efectivo del método era el único sin medir."""
+
+    def proyecto(self, linea="Guardar los datos en la tabla `users`."):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-replansm-")).resolve()
+        self.addCleanup(shutil.rmtree, str(tmp), True)
+        d = tmp / "repo"; d.mkdir()
+        correr("git init -q . && git config user.email a@b && git config user.name a", d)
+        (d / "tareas").mkdir()
+        (d / "tareas" / "T26-registro.md").write_text(
+            "# T26 — Registro\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/x.py\n**Prohibido tocar:** Ninguno\n\n"
+            "## Objetivo\n\n" + linea + "\n\n## Terminado cuando\n\n- [ ] anda\n")
+        (d / "migraciones").mkdir()
+        (d / "migraciones" / "001_initial.sql").write_text(
+            "CREATE TABLE usuarios (id INT PRIMARY KEY);\n")
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n## Tareas\n\n"
+            "| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
+            "| T26 | Registro | — | `app/x.py` | pendiente |\n")
+        correr("git add -A && git commit -qm base", d)
+        return d
+
+    def servidor(self, respuesta):
+        import http.server, threading
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                self.rfile.read(n)
+                if respuesta is None:
+                    self.send_response(503); self.send_header("Content-Length", "2")
+                    self.end_headers(); self.wfile.write(b"{}")
+                    return
+                cuerpo = json.dumps(
+                    {"choices": [{"message": {"content": respuesta}}]}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(cuerpo)))
+                self.end_headers(); self.wfile.write(cuerpo)
+
+            def log_message(self, *a):
+                pass
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return f"http://127.0.0.1:{srv.server_address[1]}/v1"
+
+    def replanificar(self, d, respuesta):
+        base = self.servidor(respuesta)
+        salida = d.parent / "sin-memoria"
+        return correr(f'PROYECTO=. MODELO=m1 bash "{SCRIPTS}/replan-sin-memoria.sh"', d,
+                      COLABHIVE_BASE_URL=base, COLABHIVE_API_KEY="x", SALIDA=str(salida))
+
+    def tarea(self, d):
+        return (d / "tareas" / "T26-registro.md").read_text()
+
+    def test_corrige_la_contradiccion_y_el_preflight_la_acepta(self):
+        d = self.proyecto()
+        r = self.replanificar(d, "Guardar los datos en la tabla `usuarios`.")
+        self.assertEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("ya no se contradice", r.stdout, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("usuarios", self.tarea(d))
+
+    def test_el_prefijo_de_la_linea_lo_decide_el_ARCHIVO_y_no_el_modelo(self):
+        """Tres intentos fallaron antes de la versión que quedó, los tres distinto: el modelo
+        COMIÓ el «- » de un item y lo sacó de la lista; pidiéndoselo en el prompt lo AGREGÓ a
+        un párrafo; y el `sed` de normalización usaba `\\|`, que anda en GNU sed y no en el BSD
+        de macOS, así que no hacía nada. El modelo aporta el contenido, nunca la forma."""
+        d = self.proyecto(linea="- Guardar los datos en la tabla `users`.")
+        # El modelo devuelve la línea SIN el guión: el script tiene que reponerlo.
+        r = self.replanificar(d, "Guardar los datos en la tabla `usuarios`.")
+        self.assertEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("- Guardar los datos en la tabla `usuarios`.", self.tarea(d),
+                      f"perdió el prefijo del item:\n{self.tarea(d)}")
+
+    def test_y_tampoco_le_agrega_un_prefijo_a_un_parrafo(self):
+        """La sobre-corrección del segundo intento: el modelo devuelve un «- » que la línea no
+        tenía y el párrafo se convierte en item."""
+        d = self.proyecto()
+        r = self.replanificar(d, "- Guardar los datos en la tabla `usuarios`.")
+        self.assertEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("\nGuardar los datos en la tabla `usuarios`.", self.tarea(d),
+                      f"le agregó un prefijo que no tenía:\n{self.tarea(d)}")
+
+    def test_una_respuesta_inutilizable_deja_el_plan_como_estaba(self):
+        """Un arreglo a medias en tareas/ es peor que ninguno: la corrida siguiente arranca
+        sobre algo que nadie revisó."""
+        d = self.proyecto()
+        antes = self.tarea(d)
+        r = self.replanificar(d, "DECISION: no sé qué hacer")
+        self.assertNotEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertEqual(antes, self.tarea(d), "la tarea tiene que quedar intacta")
+
+    def test_si_la_plataforma_no_contesta_no_se_toca_el_plan(self):
+        d = self.proyecto()
+        antes = self.tarea(d)
+        r = self.replanificar(d, None)
+        self.assertNotEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertEqual(antes, self.tarea(d))
+
+    def test_no_deja_el_respaldo_del_plan_dentro_del_proyecto(self):
+        """Estaba en `.tareas-previo` adentro de `$BASE`: si el script muere a mitad de camino,
+        eso queda sin seguimiento en el tronco. Hoy un replanificador ya dejó 89 líneas de
+        implementación ahí sin que nadie lo midiera."""
+        # Se mide en el camino de FALLO: en el de éxito el script borra el respaldo igual,
+        # así que un test sobre el éxito no distingue dónde estaba. La primera versión de este
+        # test pasaba con el respaldo clavado adentro del proyecto.
+        d = self.proyecto()
+        r = self.replanificar(d, "DECISION: no sé qué hacer")
+        self.assertNotEqual(0, r.returncode, "este test mide el camino de fallo")
+        g = correr("git status --short", d)
+        self.assertNotIn("tareas-previo", g.stdout,
+                         f"dejó el respaldo sin seguimiento en el tronco:\n{g.stdout}")
+        self.assertFalse((d / ".tareas-previo").exists())
+
+    def test_el_juez_no_le_exige_arreglar_lo_que_el_actor_no_puede_tocar(self):
+        """La primera versión del juez exigía CERO rojos y descartó un arreglo correcto: las
+        líneas del enunciado quedaron bien en 3 segundos y el veredicto fue «se descarta»
+        porque seguía apareciendo el rojo de un archivo ya commiteado, que replanificar no
+        puede tocar. Un juez que pide lo imposible reprueba al que hizo bien su parte.
+
+        El fixture tiene las dos clases de rojo a la vez: una contradicción de ENUNCIADO, que
+        el actor sí arregla, y una de CÓDIGO —una tarea marcada hecha cuyo código consulta una
+        tabla que nadie crea— que sólo se arregla reabriendo esa tarea."""
+        d = self.proyecto()
+        (d / "app").mkdir()
+        (d / "app" / "registro.py").write_text(
+            "def leer():\n    return db.execute('SELECT * FROM sesiones')\n")
+        (d / "tareas" / "T27-sesion.md").write_text(
+            "# T27 — Sesión\n\n**Estado:** ✅ hecha\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/registro.py\n**Prohibido tocar:** Ninguno\n\n"
+            "## Objetivo\n\nLeer la sesión.\n\n## Terminado cuando\n\n- [ ] anda\n")
+        (d / "PLAN.md").write_text((d / "PLAN.md").read_text()
+                                   + "| T27 | Sesión | — | `app/registro.py` | ✅ hecha |\n")
+        correr("git add -A && git commit -qm t27", d)
+        previo = correr(f'PROYECTO=. python3 "{SCRIPTS}/coherencia.py"', d)
+        self.assertIn("da por hecha la tabla", previo.stdout,
+                      f"el fixture tiene que traer el rojo de ENUNCIADO:\n{previo.stdout}")
+        self.assertIn("figura HECHA", previo.stdout,
+                      f"y el de CÓDIGO que el actor no puede tocar:\n{previo.stdout}")
+        r = self.replanificar(d, "Guardar los datos en la tabla `usuarios`.")
+        self.assertEqual(0, r.returncode,
+                         f"arregló lo suyo y el juez lo reprobó por lo ajeno:\n{r.stdout}{r.stderr}")
+        self.assertIn("usuarios", self.tarea(d))
+
+    def test_sin_rojos_no_gasta_un_modelo(self):
+        d = self.proyecto(linea="Guardar los datos en la tabla `usuarios`.")
+        r = self.replanificar(d, "NO DEBERIA LLAMARSE")
+        self.assertEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("nada que replanificar", r.stdout, f"\n{r.stdout}")
+        self.assertNotIn("NO DEBERIA", self.tarea(d))
+
+    def test_ni_la_ruta_ni_el_proyecto_ni_el_modelo_estan_clavados(self):
+        """El script decía «replanifica el preflight» y replanificaba UN proyecto, en UNA casa,
+        contra UN uuid. Estos tests corren sobre un proyecto de juguete: si la ruta volviera a
+        estar clavada, ninguno de los de arriba pasaría. Esto fija las tres fuentes."""
+        fuente = (SCRIPTS / "replan-sin-memoria.sh").read_text()
+        codigo = [l for l in fuente.splitlines()
+                  if l.strip() and not l.strip().startswith("#")]
+        self.assertEqual([], [l for l in codigo if "/Users/" in l],
+                         "volvió una ruta absoluta de una máquina")
+        self.assertIn("ubicar_proyecto", fuente)
+        self.assertIn("modelo_del_agente ejecutor", fuente)

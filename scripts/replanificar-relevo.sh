@@ -18,7 +18,14 @@ set -uo pipefail
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$AQUI/_comun.sh"
 ubicar_proyecto
-[ -f "$HOME/.config/colabhive/env" ] && . "$HOME/.config/colabhive/env"
+# La config del entorno NO pisa lo que ya venga seteado. Estaba al revés, y un script que
+# sobrescribe la variable que le pasó quien lo llama no se puede apuntar a otra plataforma
+# —ni medir: el primer test de este canal le pegó a la plataforma REAL con un id de juguete y
+# recibió un 404—. Es parte de por qué este camino no tenía tests: era intestable por
+# construcción, y lo intestable es lo que se rompe sin que nadie se entere.
+if [ -z "${COLABHIVE_BASE_URL:-}" ] && [ -f "$HOME/.config/colabhive/env" ]; then
+  . "$HOME/.config/colabhive/env"
+fi
 [ $# -ge 1 ] || { echo "uso: DIAGNOSTICA=<id> ESCRIBE=<id> $0 TNN" >&2; exit 1; }
 : "${DIAGNOSTICA:?falta DIAGNOSTICA=<id de modelo>}"
 : "${ESCRIBE:?falta ESCRIBE=<id de modelo>}"
