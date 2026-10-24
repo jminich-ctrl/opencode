@@ -24,7 +24,7 @@ set -uo pipefail
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$AQUI/_comun.sh"
 ubicar_proyecto
-[ -f "$HOME/.config/colabhive/env" ] && . "$HOME/.config/colabhive/env"
+cargar_entorno_colabhive
 
 # ── El motivo, del chequeo y no de mi lectura del chequeo.
 ROJOS="$(PROYECTO="$BASE" python3 "$AQUI/coherencia.py" 2>&1 | grep '✗' || true)"

@@ -7769,3 +7769,94 @@ class TestReplanificarSinCanalDeMemoria(unittest.TestCase):
                          "volvió una ruta absoluta de una máquina")
         self.assertIn("ubicar_proyecto", fuente)
         self.assertIn("modelo_del_agente ejecutor", fuente)
+
+
+class TestElEntornoDeLaPlataformaNoPisaAQuienLlama(unittest.TestCase):
+    """Siete scripts tenían `[ -f ~/.config/colabhive/env ] && . ~/.config/colabhive/env`
+    copiado, y corría DESPUÉS de recibir el entorno: pisaba el `COLABHIVE_BASE_URL` que le
+    pasó quien los llama.
+
+    La consecuencia no es un detalle de estilo: ninguno de los siete se podía apuntar a otra
+    plataforma, así que ninguno se podía medir. El canal sin memoria —lo que arregla una
+    contradicción del plan en 11-14 segundos, contra los 7-13 minutos del arnés con memoria—
+    estuvo sin un solo test por esto, y su primer test le pegó a la plataforma REAL con un id
+    de juguete y recibió un 404. Lo intestable es lo que se rompe sin que nadie se entere."""
+
+    def casa(self, url="http://del-archivo", clave="clave-del-archivo"):
+        """Un HOME de juguete con el archivo de entorno que los scripts leen."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-entorno-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / ".config" / "colabhive").mkdir(parents=True)
+        (d / ".config" / "colabhive" / "env").write_text(
+            f'export COLABHIVE_BASE_URL="{url}"\nexport COLABHIVE_API_KEY="{clave}"\n')
+        return d
+
+    def cargar(self, casa, **env):
+        """Arranca de un entorno LIMPIO salvo lo que el test ponga a propósito.
+
+        La primera versión heredaba las variables de quien corre la suite, así que «lo que ya
+        viene seteado gana» tomaba la plataforma de producción y el test medía la máquina en
+        vez del cargador. Es, literalmente, el defecto que esta clase persigue, cometido en su
+        propio andamio: el entorno de afuera decidiendo el resultado.
+
+        Y la CLAVE no se imprime: se compara adentro del shell y sale «si» o «no». La primera
+        versión la echaba, y el mensaje de una falla la dejó escrita en la salida de la
+        suite. Un andamio no tiene por qué manipular el secreto para medir que llegó."""
+        env.setdefault("COLABHIVE_BASE_URL", "")
+        env.setdefault("COLABHIVE_API_KEY", "")
+        return correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; cargar_entorno_colabhive; '
+                      f'echo "rc=$?"; echo "URL=${{COLABHIVE_BASE_URL:-}}"; '
+                      f'echo "CLAVE_DEL_ARCHIVO=$([ "${{COLABHIVE_API_KEY:-}}" = '
+                      f'"clave-del-archivo" ] && echo si || echo no)"',
+                      RAIZ, HOME=str(casa), **env)
+
+    def test_lo_que_ya_viene_seteado_gana(self):
+        r = self.cargar(self.casa(), COLABHIVE_BASE_URL="http://del-invocante")
+        self.assertIn("URL=http://del-invocante", r.stdout,
+                      f"el archivo pisó a quien llama:\n{r.stdout}{r.stderr}")
+
+    def test_lo_que_falta_lo_rellena_el_archivo(self):
+        """El otro lado: si el cargador no rellenara nada, los scripts no andarían a mano."""
+        r = self.cargar(self.casa())
+        self.assertIn("URL=http://del-archivo", r.stdout, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("CLAVE_DEL_ARCHIVO=si", r.stdout, f"\n{r.stdout}{r.stderr}")
+
+    def test_mezcla_las_dos_fuentes_sin_perder_ninguna(self):
+        """El caso de una medición real: la URL apunta al servidor de prueba y la clave sale
+        de la config, porque el servidor de prueba no valida nada pero el script la exige."""
+        r = self.cargar(self.casa(), COLABHIVE_BASE_URL="http://del-invocante")
+        self.assertIn("URL=http://del-invocante", r.stdout, f"\n{r.stdout}")
+        self.assertIn("CLAVE_DEL_ARCHIVO=si", r.stdout, f"\n{r.stdout}")
+
+    def test_devuelve_cero_aunque_haya_rellenado(self):
+        """El invariante: un cargador de entorno nunca informa falla por haber hecho su
+        trabajo. Nueve scripts lo llaman y varios lo encadenan.
+
+        Lo que este test NO prueba es que el `return 0` del final sea necesario: lo medí
+        quitándolo y queda verde, porque el `export` de la línea anterior ya devuelve 0. Mi
+        comentario en `_comun.sh` afirmaba lo contrario y lo corregí. Vale decirlo acá: un
+        test cuya prosa promete más de lo que mide es confianza falsa."""
+        self.assertIn("rc=0", self.cargar(self.casa()).stdout)
+        self.assertIn("rc=0", self.cargar(self.casa(),
+                                          COLABHIVE_BASE_URL="http://x").stdout)
+
+    def test_sin_archivo_no_falla_ni_inventa(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-entorno-vacia-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        r = self.cargar(d, COLABHIVE_BASE_URL="http://del-invocante")
+        self.assertIn("rc=0", r.stdout, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("URL=http://del-invocante", r.stdout, f"\n{r.stdout}")
+
+    def test_ningun_script_sourcea_el_entorno_a_mano(self):
+        """Una regla con nueve lectores no se copia nueve veces: así es como una queda vieja y
+        nadie se entera. Es la forma que este repo repite y que hoy ya costó tres defectos."""
+        culpables = []
+        for s in sorted(SCRIPTS.glob("*.sh")):
+            if s.name == "_comun.sh":
+                continue
+            for linea in s.read_text().splitlines():
+                if "config/colabhive/env" in linea and not linea.strip().startswith("#"):
+                    culpables.append(f"{s.name}: {linea.strip()[:60]}")
+        self.assertEqual([], culpables,
+                         "volvió la copia del cargador de entorno; usá "
+                         f"cargar_entorno_colabhive: {culpables}")

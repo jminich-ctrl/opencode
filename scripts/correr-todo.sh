@@ -20,7 +20,7 @@
 set -uo pipefail
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$AQUI/_comun.sh"
-[ -f "$HOME/.config/colabhive/env" ] && . "$HOME/.config/colabhive/env"
+cargar_entorno_colabhive
 ubicar_proyecto
 DESDE="${1:-1}"
 SOLO_VER="${SOLO_VER:-0}"

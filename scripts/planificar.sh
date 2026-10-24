@@ -21,7 +21,7 @@ set -uo pipefail
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$AQUI/_comun.sh"
 ubicar_proyecto   # RAIZ, PROYECTO, BASE: ver _comun.sh
-[ -f "$HOME/.config/colabhive/env" ] && . "$HOME/.config/colabhive/env"
+cargar_entorno_colabhive
 
 AGENTE="${AGENTE:-arquitecto}"
 ENCARGO="${1:-OBJETIVO.md}"

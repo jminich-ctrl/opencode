@@ -21,7 +21,7 @@ PARALELAS="${PARALELAS:-8}"
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$AQUI/_comun.sh"
 ubicar_proyecto   # RAIZ, PROYECTO, BASE: ver _comun.sh
-[ -f "$HOME/.config/colabhive/env" ] && . "$HOME/.config/colabhive/env"
+cargar_entorno_colabhive
 [ $# -gt 0 ] || { echo "uso: $0 T01 [T02 ...]" >&2; exit 1; }
 [ $# -gt "$PARALELAS" ] && echo "· $# tareas, de a $PARALELAS por vez"
 

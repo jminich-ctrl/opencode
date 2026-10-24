@@ -23,9 +23,7 @@ ubicar_proyecto
 # —ni medir: el primer test de este canal le pegó a la plataforma REAL con un id de juguete y
 # recibió un 404—. Es parte de por qué este camino no tenía tests: era intestable por
 # construcción, y lo intestable es lo que se rompe sin que nadie se entere.
-if [ -z "${COLABHIVE_BASE_URL:-}" ] && [ -f "$HOME/.config/colabhive/env" ]; then
-  . "$HOME/.config/colabhive/env"
-fi
+cargar_entorno_colabhive
 [ $# -ge 1 ] || { echo "uso: DIAGNOSTICA=<id> ESCRIBE=<id> $0 TNN" >&2; exit 1; }
 : "${DIAGNOSTICA:?falta DIAGNOSTICA=<id de modelo>}"
 : "${ESCRIBE:?falta ESCRIBE=<id de modelo>}"

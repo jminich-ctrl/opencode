@@ -223,6 +223,39 @@ error_del_agente() {
 # el caro: consultaba un modelo que ningún agente usaba, que encima estaba frío y roto, se
 # comía el timeout, y la corrida entera se negaba a arrancar diciendo «la plataforma no
 # responde» con la plataforma perfectamente arriba.
+# El entorno de la plataforma, en UN solo lado y sin pisar a quien llama.
+#
+#   cargar_entorno_colabhive
+#
+# Siete scripts tenían `[ -f ~/.config/colabhive/env ] && . ~/.config/colabhive/env` copiado,
+# y corría DESPUÉS de recibir el entorno, así que pisaba el `COLABHIVE_BASE_URL` que le pasó
+# quien los llama. Ninguno de los siete se podía apuntar a otra plataforma —ni medir—, y lo
+# intestable es lo que se rompe sin que nadie se entere: el canal sin memoria estuvo meses
+# sin un test por esto, y su primer test le pegó a la plataforma REAL con un id de juguete y
+# recibió un 404.
+#
+# Lo que ya viene seteado GANA; el archivo sólo rellena lo que falte. Y vive acá porque es una
+# regla con siete lectores, y una regla copiada en siete lados es una regla que va a divergir
+# —la forma que este repo repite, y que hoy ya costó tres defectos—.
+cargar_entorno_colabhive() {
+  [ -f "$HOME/.config/colabhive/env" ] || return 0
+  local url="${COLABHIVE_BASE_URL:-}" clave="${COLABHIVE_API_KEY:-}"
+  . "$HOME/.config/colabhive/env"
+  [ -n "$url" ] && COLABHIVE_BASE_URL="$url"
+  [ -n "$clave" ] && COLABHIVE_API_KEY="$clave"
+  export COLABHIVE_BASE_URL COLABHIVE_API_KEY
+  # `return 0` explícito. Hoy no hace falta —el `export` de arriba ya devuelve 0— y lo mido
+  # así: quitándolo, los tests siguen verdes. Queda como red para el día en que alguien
+  # agregue un `[ -n ... ] &&` al final, porque entonces la función devolvería 1 por no haber
+  # tenido nada que rellenar, y un cargador de entorno que informa falla por haber hecho su
+  # trabajo rompe a todo el que lo llame con `&&`.
+  #
+  # Lo escribo así porque la primera versión de este comentario decía que sin el `return` la
+  # función YA devolvía 1, y era falso: el `export` está en medio. Un comentario que afirma un
+  # mecanismo que no ocurre es la misma clase de problema que un chequeo que no mide.
+  return 0
+}
+
 modelo_del_agente() {
   local agente="${1:-ejecutor}" cfg="${CONFIG_OC:-$HOME/.config/opencode/opencode.json}"
   [ -f "$cfg" ] || return 1
