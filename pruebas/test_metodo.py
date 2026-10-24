@@ -8605,3 +8605,76 @@ class TestLaVentanaDeclaradaNoEsLaUsable(unittest.TestCase):
                    COLABHIVE_BASE_URL="")
         self.assertEqual(2, r.returncode, f"\n{r.stdout}{r.stderr}")
         self.assertIn("⊘", r.stderr, f"\n{r.stderr}")
+
+
+class TestElEnunciadoTampocoPuedePedirUnaColumnaQueNoExiste(unittest.TestCase):
+    """El chequeo de tablas tiene DOS lados: lo que dicen los enunciados y lo que hace el
+    código. El de columnas tenía sólo el del código, y la asimetría se cobró el 2026-10-24.
+
+    Secuencia completa, porque es la más instructiva del día. El chequeo de columnas encontró
+    que `datos/search_ads.py` consultaba `anuncios.categoria`, que no existe. Reabrí T28, lo
+    que SACÓ ese código del tronco — y con el código fuera el chequeo se quedó sin nada que
+    leer: preflight en verde. Lancé la corrida, el ejecutor reescribió el test siguiendo el
+    enunciado, que dice «filtro por columna `categoria`», y MySQL lo rechazó:
+
+        pymysql.err.OperationalError: (1054, "Unknown column 'categoria' in 'field list'")
+
+    El defecto sobrevivió a su propio arreglo porque vivía en el TEXTO, y el único que lo
+    detectó fue la base de datos, después de dos intentos de agente."""
+
+    def proyecto(self, cuerpo, esquema="id INT, nombre VARCHAR(50)"):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-colenun-")).resolve()
+        self.addCleanup(shutil.rmtree, str(tmp), True)
+        d = tmp / "repo"; d.mkdir()
+        correr("git init -q . && git config user.email a@b && git config user.name a", d)
+        (d / "tareas").mkdir()
+        (d / "tareas" / "T40-cosas.md").write_text(
+            "# T40 — Cosas\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/datos/cosas.py\n**Prohibido tocar:** Ninguno\n\n"
+            "## Objetivo\n\nLeer cosas.\n\n" + cuerpo + "\n\n"
+            "## Terminado cuando\n\n- [ ] anda\n")
+        (d / "migraciones").mkdir()
+        (d / "migraciones" / "001_initial.sql").write_text(
+            f"CREATE TABLE cosas (\n    {esquema}\n);\n")
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n## Tareas\n\n"
+            "| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
+            "| T40 | Cosas | — | `app/datos/cosas.py` | pendiente |\n")
+        return d
+
+    def coherencia(self, d):
+        return correr(f'PROYECTO=. python3 "{SCRIPTS}/coherencia.py"', d)
+
+    def test_columna_inexistente_en_el_enunciado_es_rojo(self):
+        d = self.proyecto("Filtro por columna `titulo`.")
+        r = self.coherencia(d)
+        self.assertNotEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("`titulo`", r.stdout, f"\n{r.stdout}")
+        self.assertIn("Unknown column", r.stdout,
+                      f"tiene que decir cómo va a fallar, no sólo que está mal:\n{r.stdout}")
+
+    def test_una_columna_que_existe_no_molesta(self):
+        d = self.proyecto("Filtro por columna `nombre`.")
+        self.assertEqual(0, self.coherencia(d).returncode)
+
+    def test_varias_columnas_en_una_frase(self):
+        d = self.proyecto("Devuelve las columnas `id`, `nombre` y `precio`.")
+        r = self.coherencia(d)
+        self.assertNotEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("`precio`", r.stdout, f"\n{r.stdout}")
+        self.assertNotIn("`nombre`", r.stdout, f"no puede marcar las que existen:\n{r.stdout}")
+
+    def test_un_identificador_suelto_entre_backticks_no_se_marca(self):
+        """El chequeo es estrecho A PROPÓSITO. Un `identificador` entre backticks puede ser
+        una variable, un campo de un JSON o una columna de una tabla de la interfaz. «columna
+        `x`» es una afirmación sobre el esquema; `x` solo, no.
+
+        El caso real: T26 nombra `password_hash` —que tampoco existe en el esquema— pero lo
+        nombra como lo que `login` compara, no como columna. Marcarlo sería adivinar."""
+        d = self.proyecto("El login compara contra `password_hash` y hay que guardar igual.")
+        self.assertEqual(0, self.coherencia(d).returncode)
+
+    def test_sin_migraciones_no_opina(self):
+        d = self.proyecto("Filtro por columna `titulo`.")
+        shutil.rmtree(d / "migraciones")
+        self.assertEqual(0, self.coherencia(d).returncode)

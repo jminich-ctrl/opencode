@@ -269,6 +269,11 @@ def tablas_que_crean_las_migraciones(base: pathlib.Path):
 NO_SON_COLUMNAS = {"primary", "foreign", "unique", "key", "index", "constraint", "check",
                    "fulltext", "spatial", "period"}
 
+# «columna `x`» o «columnas `x`, `y`» en un enunciado: una afirmación sobre el esquema. Se
+# exige la palabra porque un identificador suelto entre backticks puede ser cualquier cosa.
+RE_DICE_COLUMNA = re.compile(r"\bcolumnas?\s+((?:`[A-Za-z_][A-Za-z0-9_]*`[,\s]*(?:y|o)?[,\s]*)+)",
+                             re.I)
+
 
 def _cuerpos_create_table(txt: str):
     """`[(tabla, cuerpo)]`, delimitando con un CONTADOR de paréntesis y no con un regex.
@@ -773,6 +778,44 @@ def main():
                                   f"crea — {donde}."
                                   f"{pista} Ninguna tarea declara ese archivo: lo decide quien "
                                   f"planifica, o la migración la crea, o el código usa la que existe."))
+
+    # ── ROJO: un ENUNCIADO nombra una columna que ninguna migración crea ───────────
+    #
+    # El chequeo de tablas tiene DOS lados: lo que dicen los enunciados y lo que hace el
+    # código. El de columnas tenía sólo el del código, y la asimetría se cobró hoy.
+    #
+    # Secuencia completa del 2026-10-24. El chequeo de columnas encontró que
+    # `datos/search_ads.py` consultaba `anuncios.categoria`, que no existe. Reabrí T28, lo que
+    # SACÓ ese código del tronco — y con el código fuera, el chequeo se quedó sin nada que
+    # leer: preflight en verde. Lancé la corrida, el ejecutor reescribió el test siguiendo el
+    # enunciado, que dice «filtro por columna `categoria`», y MySQL lo rechazó:
+    #
+    #     pymysql.err.OperationalError: (1054, "Unknown column 'categoria' in 'field list'")
+    #
+    # O sea: el defecto sobrevivió a su propio arreglo porque vivía en el texto, y el único
+    # que lo detectó fue la base de datos, después de dos intentos de agente. El enunciado
+    # pide la columna que no existe y el ejecutor obedece: es el mismo razonamiento que el
+    # chequeo de tablas ya tiene escrito para su lado de enunciado.
+    #
+    # Se exige la palabra «columna» antes del identificador, y por eso es estrecho a
+    # propósito: un `identificador` suelto entre backticks puede ser una variable, un campo de
+    # un JSON o una columna de una tabla de la interfaz. «columna `x`» es una afirmación sobre
+    # el esquema, y ahí no hay que inferir nada. T26 nombra `password_hash` —que tampoco
+    # existe— pero lo nombra como lo que `login` compara, no como columna: no se marca, porque
+    # marcarlo sería adivinar.
+    if creadas_cols:
+        todas_las_columnas = {c for cols in creadas_cols.values() for c in cols}
+        for tid, texto in sorted(textos.items()):
+            for m in RE_DICE_COLUMNA.finditer(texto):
+                for col in re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", m.group(1)):
+                    if col.lower() in todas_las_columnas:
+                        continue
+                    rojos.append(("esquema",
+                                  f"{tid} nombra la columna `{col}` y ninguna migración la "
+                                  f"crea en ninguna tabla. Está en el ENUNCIADO: quien lo "
+                                  f"ejecute va a escribir esa consulta porque se la pidieron, "
+                                  f"y la base la va a rechazar con «Unknown column». Se "
+                                  f"corrige el enunciado antes de gastar un agente."))
 
     # ── ROJO: una COLUMNA que el código consulta y ninguna migración crea ──────────
     #
