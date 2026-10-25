@@ -3044,8 +3044,19 @@ class TestLoQueLaAuditoriaEncontro(unittest.TestCase):
         clasificados: 2 de los 4 tests aceptados ese día lo recibieron."""
         s = (SCRIPTS / "mutar.py").read_text()
         self.assertIn("return 2", s, "«nada que mutar» tiene que ser un ⊘, no un 0")
-        self.assertEqual(s.count("return 2"), 2,
-                         "los DOS caminos de «nada que mutar» tienen que devolver 2")
+        # Los DOS caminos por su MENSAJE, no contando ocurrencias de `return 2` en el archivo.
+        # El conteo exigía exactamente dos y se rompió al agregar un tercer camino legítimo
+        # —el del tope de tiempo inválido, que también es un ⊘—. Lo que este test vigila es
+        # que estos dos caminos no devuelvan 0; cuántos otros ⊘ existan no es asunto suyo.
+        for mensaje in ("no hay código Python cambiado que mutar bajo",
+                        "el diff no tiene nada que mutar con provecho"):
+            i = s.index(mensaje)
+            # Desde el mensaje hasta el próximo `return`: tiene que ser el 2.
+            tramo = s[i:]
+            j = tramo.index("return ")
+            self.assertTrue(tramo[j:].startswith("return 2"),
+                            f"el camino de «{mensaje[:40]}» no devuelve 2:\n"
+                            f"{tramo[j:j + 40]!r}")
         self.assertIn('split(",")', s, "CODIGO es una lista de prefijos, como dice el contrato")
         e = (SCRIPTS / "escribir-tests.sh").read_text()
         self.assertIn('RC_MUT" = "2"', e, "escribir-tests.sh tiene que distinguir el ⊘")
@@ -11055,6 +11066,24 @@ class TestUnMutanteQueCuelgaElProgramaColgabaElGate(CasoBase):
             "    def test_loop(self):\n        self.assertEqual(loop(3), 3)\n")
         self.p.git("add -A"); self.p.git("commit -qm loop")
 
+    def setUp(self):
+        super().setUp()
+        # Lo que este caso deja girando se limpia solo. El control de reintroducción del bug
+        # —matar el proceso en vez del árbol— deja nietos vivos POR DEFINICIÓN: el bug ES
+        # dejarlos. El test lo detecta y falla, que es lo correcto, pero la basura quedaba:
+        # el 2026-10-25 tres suites colgadas consumieron CPU veinte minutos y el monitoreo las
+        # informó como «medición activa», que me hizo dudar dos bloques seguidos de si había
+        # algo trabado. Un test que ensucia el entorno le cobra su defecto al siguiente.
+        # Se matan sólo los HUÉRFANOS —los que quedaron con padre 1— que es exactamente lo
+        # que el bug deja: un `pkill` por nombre se llevaría también la suite de un test en
+        # curso. Y el cwd es RAIZ y no el proyecto: los cleanup son LIFO, así que éste corre
+        # ÚLTIMO, cuando el directorio de juguete ya se borró, y pasarle ese cwd hacía
+        # explotar los cinco tests en el propio cleanup.
+        self.addCleanup(lambda: correr(
+            "for p in $(pgrep -f 'correr-suite.sh' 2>/dev/null); do "
+            "  [ \"$(ps -o ppid= -p $p 2>/dev/null | tr -d ' ')\" = 1 ] && kill -9 $p; "
+            "done; true", RAIZ))
+
     def mutar(self, tope=None):
         # `correr-suite.sh` y NO el comando pelado, porque es la diferencia que hace al
         # defecto visible: con un comando simple bash hace `exec` y SE CONVIERTE en python,
@@ -11068,17 +11097,21 @@ class TestUnMutanteQueCuelgaElProgramaColgabaElGate(CasoBase):
                       f"python3 {SCRIPTS}/mutar.py", self.p.dir)
 
     def test_el_mutante_que_cuelga_muere_por_tope_y_no_cuelga_la_corrida(self):
-        import time
+        """La medición es que la corrida VUELVE. Sin tope no vuelve nunca, así que si este
+        test termina, el tope cortó: no hace falta cronometrarlo.
+
+        Mi primera versión agregaba `assertLess(tardo, 60)`, y eso lo volvió INTERMITENTE:
+        falló cuando compartió máquina con la suite completa de 558 tests y pasó cuando corrió
+        sola. Un umbral de tiempo absoluto mide la carga de la máquina, no el arreglo — y un
+        verde intermitente es peor que un rojo, porque no se sabe qué guardia tenés."""
         self.con_loop()
-        t0 = time.monotonic()
         r = self.mutar(tope=5)
-        tardo = time.monotonic() - t0
         self.assertEqual(r.returncode, 0,
                          f"el mutante que cuelga tiene que MORIR:\n{r.stdout}{r.stderr}")
         self.assertIn("murieron", r.stdout, f"\n{r.stdout}")
-        # Lo que de verdad se mide: que TERMINE. Sin tope esto no vuelve nunca.
-        self.assertLess(tardo, 60,
-                        f"la corrida tardó {tardo:.0f}s: el tope no cortó nada")
+        # Y que el tope se haya aplicado de verdad, que es lo que hizo que vuelva.
+        self.assertIn("tope por mutante: 5s", r.stdout,
+                      f"no usó el tope que le pedí:\n{r.stdout}")
 
     def test_no_deja_procesos_colgados(self):
         """Matar el shell y no el árbol deja al nieto girando, y el que lo paga es la próxima
