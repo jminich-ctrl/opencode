@@ -73,8 +73,8 @@ vez de la aplicación.
 | T06a | Aplicación FastAPI (la instancia y /salud) | T02 | backend/app/main.py | ✅ hecha |
 | T06b | Montaje automático de routers | T06a | backend/app/main.py | ✅ hecha |
 | T06c | Normalizar los errores al contrato del plan | T06b | backend/app/main.py | ✅ hecha |
-| T04 | Auth backend (login, sesión) | T02, T03, T06c | backend/app/rutas/auth.py, backend/app/servicios/auth.py, backend/app/datos/users.py | ✅ hecha |
-| T04b | Verificar la sesión a partir del token | T04 | backend/app/servicios/auth.py | ✅ hecha |
+| T04 | Auth backend (login, sesión) | T02, T03, T06c | backend/app/rutas/auth.py, backend/app/servicios/auth.py, backend/app/datos/users.py | pendiente |
+| T04b | Verificar la sesión a partir del token | T04 | backend/app/servicios/auth.py | pendiente |
 | T05a | Avisos datos (CRUD en MySQL) | T03 | backend/app/datos/ads.py | ✅ hecha |
 | T05b | Avisos servicio (validación y dueño) | T05a | backend/app/servicios/ads.py | ✅ hecha |
 | T05c | Avisos rutas (endpoints CRUD) | T05b, T04b, T06c, T28 | backend/app/rutas/ads.py | pendiente |

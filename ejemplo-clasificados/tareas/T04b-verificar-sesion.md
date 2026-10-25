@@ -1,6 +1,6 @@
 # T04b — Verificar la sesión a partir del token
 
-**Estado:** ✅ hecha
+**Estado:** pendiente
 **Depende de:** T04
 **Archivos que podés tocar:** backend/app/servicios/auth.py
 **Prohibido tocar:** 
@@ -65,3 +65,11 @@ Los tests de esta tarea se escriben **antes** que la implementación, en una cor
 ## Verificación humana (si aplica)
 
 N/A
+
+## Reabierta
+
+la capa de datos de T04 no implementa nada: backend/app/datos/users.py tiene una sola funcion y devuelve None sin hacer nada, declarado en su propio comentario (Por ahora retornamos None como placeholder). Los tres tests de T04 la mockean, asi que el verde no lo gano el producto. Y usuario_desde_token de T04b devuelve el id de cualquier token bien formado sin consultar la base: con un id inexistente contesta ese id en vez de None. Las dos comparten backend/app/servicios/auth.py, asi que se reabren juntas
+
+Se reabrió con scripts/reabrir.sh el 2026-10-25 13:37 UTC. Su código anterior
+se sacó del tronco (copia en reabrir-T04+T04b-previo): esta tarea vuelve a pasar por tests-first,
+así que el test tiene que fallar antes de que exista la implementación.
