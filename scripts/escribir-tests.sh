@@ -485,22 +485,55 @@ for id in "$@"; do
         #
         # `experimentos/README.md` ya exige un brazo nulo para los experimentos por este
         # mismo motivo. Es el mismo control, en el lugar donde más barato sale.
+        #
+        # ARCHIVO POR ARCHIVO, y es el arreglo. Vaciaba los archivos de la tarea TODOS
+        # JUNTOS y una sola pasada decidía, así que bastaba que UNO fuera necesario para dar
+        # verde y los demás no se preguntaban nunca. Medido el 2026-10-25 en T04 de
+        # clasificados, cerrada como ✅ hecha: declara tres archivos, el test mockea
+        # `datos/users.py`, y ese archivo es un stub que lo dice en su propio comentario
+        # —«Por ahora retornamos None como placeholder»—. Vaciar los tres rompía el test por
+        # los otros dos; vaciar sólo `users.py` no cambia nada. Con ese stub el login no
+        # puede funcionar para ningún usuario, y la tarea está cerrada.
+        #
+        # Las tres tareas de clasificados con más de un archivo .py son T04, T26 y T28, y
+        # son las tres que fallaron. No es casualidad: es el molde ruta+servicio+datos, donde
+        # el test mockea la capa de datos y el brazo nulo conjunto no lo nota.
         if [ "$fallos" = "0" ]; then
-          if python3 "$AQUI/vaciar.py" $impl 2>/dev/null | grep -q "vaciada"; then
-            # La TERCERA pasada, y tiene el mismo problema que las dos de arriba: arrancaría
-            # con lo que dejaron ellas. No la había visto al conectar la limpieza, y la
-            # descubrió un test que contaba las pasadas y encontró tres donde yo dije dos.
+          PREGUNTADOS=0
+          for f in $impl; do
+            case "$f" in *.py) ;; *) continue ;; esac
+            SAL_V="$(python3 "$AQUI/vaciar.py" "$f" 2>&1)"; RC_V=$?
+            if [ "$RC_V" = "3" ]; then
+              # `vaciar.py` reconoció un stub. Siempre supo reconocerlo —su comentario decía
+              # «ya era un stub: no cuenta»— y la conclusión que sacaba era descartarlo.
+              malo "un archivo de la implementación YA es un stub: no hay nada que probar"
+              printf '%s\n' "$SAL_V" | sed 's/^  /     /'
+              echo "     Una función que devuelve None sin hacer nada no es una implementación."
+              python3 "$AQUI/vaciar.py" --restaurar >/dev/null 2>&1
+              break
+            elif [ "$RC_V" != "0" ]; then
+              echo "  ⊘ $f: no había funciones que vaciar, así que no se le puede preguntar"
+              continue
+            fi
+            # Cada pasada arranca con la base vacía, igual que las tres de arriba.
             limpiar_base_del_arbol "$wt"
+            PREGUNTADOS=$((PREGUNTADOS + 1))
             if eval "$prueba" >/dev/null 2>&1; then
-              malo "el test pasa con los cuerpos VACÍOS: verifica que el símbolo exista, no lo que hace"
-              echo "     Un stub que devuelve None lo satisface. Mirá si falta el caso positivo:"
-              echo "     un test de puros casos negativos no puede cubrir un criterio que afirma algo."
-            else
-              echo "  ✓ el brazo nulo falla: el test distingue algo de nada"
+              malo "el test pasa con los cuerpos de $f VACÍOS: no prueba ese archivo"
+              echo "     Un stub que devuelve None lo satisface. Dos causas posibles: falta el"
+              echo "     caso positivo —un test de puros negativos no cubre un criterio que"
+              echo "     afirma algo—, o estás mockeando lo que $f define, que es la tarea."
+              python3 "$AQUI/vaciar.py" --restaurar >/dev/null 2>&1
+              break
             fi
             python3 "$AQUI/vaciar.py" --restaurar >/dev/null 2>&1
-          else
-            echo "  ⊘ no pude armar el brazo nulo: no había funciones que vaciar"
+          done
+          if [ "$fallos" = "0" ]; then
+            if [ "$PREGUNTADOS" -gt 0 ]; then
+              echo "  ✓ el brazo nulo falla en los $PREGUNTADOS archivo(s): el test distingue algo de nada"
+            else
+              echo "  ⊘ no pude armar el brazo nulo: no había funciones que vaciar"
+            fi
           fi
         fi
       else

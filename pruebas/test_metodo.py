@@ -4686,7 +4686,7 @@ class TestElBrazoNuloDelValidadorDeTests(unittest.TestCase):
     def test_el_validador_corre_el_brazo_nulo(self):
         f = (SCRIPTS / "escribir-tests.sh").read_text()
         self.assertIn("vaciar.py", f, "el validador tiene que armar el brazo nulo")
-        self.assertIn("cuerpos VACÍOS", f, "y reprobar el test que lo satisface")
+        self.assertIn("VACÍOS", f, "y reprobar el test que lo satisface")
         self.assertIn("--restaurar", f, "y devolver la implementación después")
 
 
@@ -5874,8 +5874,14 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         r = correr(f'BASE=HEAD~1 CODIGO=app '
                    f'SUITE=\'python3 -m unittest tests.test_m -q\' '
                    f'python3 "{SCRIPTS}/mutar.py"', d)
-        self.assertEqual(r.returncode, 1,
-                         f"un test que no verifica comportamiento deja mutantes vivos:\n{r.stdout}")
+        # 1 o 3, y lo que este test mide es el MARCADOR, no cuál de los dos. Fijaba el 1 y
+        # se puso rojo al partirse el veredicto en sus dos lecturas: su caso sintético tiene
+        # el `etiqueta = 'alto'` dentro de un `if n > 10:` que este test nunca alcanza, así
+        # que el 3 —«la línea NO se ejecuta»— es el diagnóstico correcto. La aserción era más
+        # angosta que su sujeto: clavaba un código cuando lo que vigila es que el detalle
+        # llegue al reintento.
+        self.assertIn(r.returncode, (1, 3),
+                      f"un test que no verifica comportamiento deja mutantes vivos:\n{r.stdout}")
         self.assertIn("→", r.stdout,
                       f"sin el marcador, `escribir-tests.sh` extrae un detalle VACÍO y el "
                       f"reintento va a ciegas:\n{r.stdout}")
@@ -9503,3 +9509,153 @@ class TestUnaAsercionQueNoPuedeFallarConNingunaImplementacion(unittest.TestCase)
                       "si el auxiliar falta tiene que ser rojo, no un salteo silencioso")
         self.assertIn('"$RC_A" != "0"', bloque,
                       "un rc inesperado también es rojo: el chequeo no se puede saltear")
+
+
+class TestElBrazoNuloConVariosArchivosSeSatisfaceConUno(unittest.TestCase):
+    """El brazo nulo vaciaba los archivos de la tarea TODOS JUNTOS y una sola pasada
+    decidía, así que bastaba que UNO fuera necesario para dar verde: los demás no se
+    preguntaban nunca.
+
+    Medido el 2026-10-25 en T04 de clasificados, cerrada como ✅ hecha. Declara tres
+    archivos —`rutas/auth.py`, `servicios/auth.py`, `datos/users.py`—, sus tres tests
+    mockean `read_user_by_email`, y ese archivo es un stub que lo dice en su propio
+    comentario: «Por ahora retornamos None como placeholder». Vaciar los tres rompía el test
+    por los otros dos; vaciar sólo `users.py` no cambia nada. Con ese stub el login de
+    clasificados no funciona para ningún usuario, y la tarea está cerrada.
+
+    Las tres tareas de clasificados con más de un archivo .py son T04, T26 y T28, y son las
+    tres que fallaron. Es el molde ruta+servicio+datos, donde el test mockea la capa de datos
+    y el brazo nulo conjunto no lo nota.
+
+    Y el dato estaba: `vaciar.py` SIEMPRE supo reconocer el stub —su comentario decía «ya era
+    un stub: no cuenta»— y de ese reconocimiento sacaba la conclusión opuesta a la correcta.
+    Es el mismo patrón que el ejecutor de las 9 AM: el método tenía el dato adentro de un
+    descarte y lo tiraba."""
+
+    VACIAR = SCRIPTS / "vaciar.py"
+
+    def molde_de_T04(self):
+        """Ruta + servicio + datos, con el test mockeando la capa de datos. Es la forma de
+        T04, T26 y T28, y la que el brazo nulo conjunto no puede juzgar."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-brazo-")).resolve()
+        (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "app").mkdir()
+        (d / "app" / "__init__.py").touch()
+        # La capa de datos: un STUB, como el users.py de T04.
+        (d / "app" / "datos.py").write_text(
+            "def leer_usuario(email):\n"
+            "    \"\"\"El usuario como dict, o None.\"\"\"\n"
+            "    # Por ahora devolvemos None como placeholder\n"
+            "    return None\n")
+        # El servicio, que sí tiene lógica.
+        # `from app import datos` y no `from app.datos import leer_usuario`: así es T04
+        # —`from backend.app.datos import users`, `users.read_user_by_email(email)`— y es lo
+        # que hace que parchear la ruta del módulo tenga efecto. Con el `from … import
+        # nombre` el nombre queda ligado al importar y el parche no llega: mi primera versión
+        # del molde era infiel por eso y sus dos mediciones no medían nada.
+        (d / "app" / "servicio.py").write_text(
+            "from app import datos\n\n\n"
+            "def entrar(email, clave):\n"
+            "    u = datos.leer_usuario(email)\n"
+            "    if u is None or u['clave'] != clave:\n"
+            "        return None\n"
+            "    return u['id']\n")
+        # El test: mockea la capa de datos, que es un archivo DE LA TAREA.
+        (d / "test_login.py").write_text(
+            "from unittest.mock import patch\n"
+            "from app.servicio import entrar\n\n\n"
+            "@patch('app.datos.leer_usuario')\n"
+            "def test_entra(m):\n"
+            "    m.return_value = {'id': 7, 'clave': 'x'}\n"
+            "    assert entrar('a@b', 'x') == 7\n\n\n"
+            "@patch('app.datos.leer_usuario')\n"
+            "def test_clave_mala(m):\n"
+            "    m.return_value = {'id': 7, 'clave': 'x'}\n"
+            "    assert entrar('a@b', 'z') is None\n")
+        return d, "python3 -m pytest -q test_login.py"
+
+    def test_el_brazo_nulo_conjunto_da_verde_sobre_el_molde_de_T04(self):
+        """La medición del defecto: vaciar los dos archivos juntos ROMPE el test, así que el
+        brazo nulo conjunto acepta — y `app/datos.py` nunca se preguntó."""
+        d, suite = self.molde_de_T04()
+        self.assertEqual(correr(suite, d).returncode, 0, "el test pasa con la implementación")
+        correr(f"python3 {self.VACIAR} app/datos.py app/servicio.py", d)
+        self.assertNotEqual(correr(suite, d).returncode, 0,
+                            "vaciar los dos juntos rompe el test: por eso el brazo nulo "
+                            "conjunto daba verde y el stub pasaba")
+        correr(f"python3 {self.VACIAR} --restaurar", d)
+
+    def test_pero_vaciar_solo_la_capa_de_datos_no_cambia_nada(self):
+        """El otro lado de la misma medición, y es el veredicto que faltaba: el test no nota
+        que `app/datos.py` se quedó sin cuerpo, porque lo mockea."""
+        d, suite = self.molde_de_T04()
+        correr(f"python3 {self.VACIAR} app/datos.py", d)
+        self.assertEqual(correr(suite, d).returncode, 0,
+                         "el test no prueba app/datos.py: preguntándole de a uno se ve")
+        correr(f"python3 {self.VACIAR} --restaurar", d)
+
+    def test_vaciar_informa_el_stub_en_vez_de_descartarlo(self):
+        """`vaciar.py` reconocía el stub y lo descartaba del conteo. Ahora es el hallazgo."""
+        d, _ = self.molde_de_T04()
+        r = correr(f"python3 {self.VACIAR} app/datos.py", d)
+        self.assertEqual(r.returncode, 3,
+                         f"un stub entre los archivos de la tarea es un veredicto, no un ⊘:"
+                         f"\n{r.stdout}{r.stderr}")
+        self.assertIn("NO implementa nada", r.stdout, f"\n{r.stdout}")
+        self.assertIn("leer_usuario", r.stdout, "el hallazgo viene con su sujeto")
+        correr(f"python3 {self.VACIAR} --restaurar", d)
+
+    def test_un_archivo_con_logica_de_verdad_no_se_marca_como_stub(self):
+        """El control: `vaciar.py` no puede llamar stub a lo que tiene cuerpo."""
+        d, _ = self.molde_de_T04()
+        r = correr(f"python3 {self.VACIAR} app/servicio.py", d)
+        self.assertEqual(r.returncode, 0, f"{r.stdout}{r.stderr}")
+        self.assertNotIn("stub", r.stdout, f"\n{r.stdout}")
+        correr(f"python3 {self.VACIAR} --restaurar", d)
+
+    def test_una_funcion_vacia_entre_varias_con_cuerpo_es_aviso_y_no_rojo(self):
+        """El control que decide si esto se puede encender. Vaciando también el `.venv` de
+        clasificados aparecen 16 archivos con funciones que devuelven None y las 16 son
+        legítimas —clases base que la subclase sobreescribe, shims de compatibilidad— y las
+        16 viven rodeadas de decenas de funciones con cuerpo. Sin la distinción, el chequeo
+        marcaría la primera clase base que una tarea escriba.
+
+        No es degradar un rojo por su compañía, que es un defecto que este método ya cerró:
+        «este archivo no implementa nada» y «esta función de diez está vacía» son dos
+        afirmaciones distintas, y la segunda la contesta el brazo nulo de ese archivo."""
+        d, _ = self.molde_de_T04()
+        (d / "app" / "base.py").write_text(
+            "class Fuente:\n"
+            "    def extra(self):\n"
+            "        \"\"\"Lo que la subclase quiera agregar.\"\"\"\n"
+            "        return None\n\n"
+            "    def leer(self, k):\n"
+            "        return {'k': k}\n\n"
+            "    def escribir(self, k, v):\n"
+            "        return (k, v)\n")
+        r = correr(f"python3 {self.VACIAR} app/base.py", d)
+        self.assertEqual(r.returncode, 0,
+                         f"una clase base con un método vacío no es «no implementa nada»:"
+                         f"\n{r.stdout}{r.stderr}")
+        self.assertIn("⚠", r.stdout, f"pero tiene que decirlo:\n{r.stdout}")
+        self.assertNotIn("NO implementa nada", r.stdout, f"\n{r.stdout}")
+        correr(f"python3 {self.VACIAR} --restaurar", d)
+
+    def test_el_validador_pregunta_archivo_por_archivo(self):
+        """Se lee del CÓDIGO: los comentarios de este arreglo nombran el defecto varias
+        veces y un grep ingenuo matchearía la prosa."""
+        fuente = (SCRIPTS / "escribir-tests.sh").read_text()
+        codigo = "\n".join(l for l in fuente.split("\n") if not l.strip().startswith("#"))
+        i = codigo.index("4. El BRAZO NULO") if "4. El BRAZO NULO" in codigo else 0
+        bloque = codigo[codigo.index("PREGUNTADOS=0"):]
+        bloque = bloque[:bloque.index("else")]
+        self.assertIn("for f in $impl", bloque,
+                      f"el brazo nulo tiene que preguntar por cada archivo:\n{bloque}")
+        self.assertIn('vaciar.py" "$f"', bloque,
+                      "y vaciar UNO a la vez, no todos juntos")
+        self.assertIn('"$RC_V" = "3"', bloque,
+                      "y tratar el stub como rojo, que es el código que vaciar.py devuelve")
+        # La limpieza de la base, que tiene que seguir antes de CADA pasada.
+        self.assertIn("limpiar_base_del_arbol", bloque,
+                      "cada pasada arranca con la base vacía, igual que las tres de arriba")
