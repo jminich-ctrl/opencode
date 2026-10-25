@@ -603,7 +603,8 @@ for id in "$@"; do
             echo "     puede venir de cualquier corrida: no se le cobra a la tarea. Revisá"
             echo "     que el worktree tenga su propia base y que se tire al rehacerlo —su"
             echo "     nombre vive en su .entorno, así que hay que tirarla ANTES de borrar el"
-            echo "     directorio—. Log: $log"
+            echo "     directorio—. No se reintenta: la próxima pasada va a encontrar la"
+            echo "     misma fila. Log: $log"
             cd "$RAIZ" || true
             conservar_intento "$wt" "${id:-${TAREA:-tests}}"
             break

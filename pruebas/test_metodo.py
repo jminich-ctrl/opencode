@@ -4416,12 +4416,44 @@ class TestNoSeTiraElMaterialDeUnIntento(CasoBase):
             lineas = f.read_text().splitlines()
             for i, l in enumerate(lineas):
                 if "worktree remove --force" in l and not l.strip().startswith("#"):
-                    # La cobertura se declara en las 6 líneas de arriba: o llama al helper, o
-                    # dice «conservar_intento: no-aplica» con el motivo. Detectarlo por
-                    # distancia a una función era frágil; un marcador explícito se ve.
-                    ventana = "\n".join(lineas[max(0, i - 6):i])
-                    sitios.append((f"{f.name}:{i + 1}",
-                                   "conservar_intento" in ventana))
+                    # La cobertura se declara en las 6 líneas de CÓDIGO de arriba: o llama
+                    # al helper, o dice «conservar_intento: no-aplica» con el motivo.
+                    #
+                    # De código y no de texto, y es el arreglo: la ventana contaba líneas
+                    # crudas, así que un comentario largo empujaba al helper afuera y el
+                    # sitio aparecía huérfano sin haber cambiado. Pasó el 2026-10-25 al
+                    # documentar por qué la base se tira antes del `rm -rf`: once líneas de
+                    # explicación y el sitio quedó «descubierto». En un repo con esta densidad
+                    # de comentarios, medir distancia en texto es medir prosa — y el comentario
+                    # de este mismo test ya decía que detectar por distancia era frágil.
+                    # Se retrocede hasta acumular 6 líneas de CÓDIGO: la distancia no la
+                    # puede fijar la prosa, porque en este repo un comentario de once líneas
+                    # —como el que explica por qué la base se tira antes del `rm -rf`— empuja
+                    # al helper fuera de una ventana contada en texto y el sitio aparece
+                    # huérfano sin haber cambiado.
+                    j, codigo_visto = i, 0
+                    while j > 0 and codigo_visto < 6:
+                        j -= 1
+                        x = lineas[j].strip()
+                        if x and not x.startswith("#"):
+                            codigo_visto += 1
+                    tramo = lineas[j:i]
+                    # DOS búsquedas sobre dos conjuntos, que es lo que el comentario de este
+                    # test pedía desde el principio: «o llama al helper, o dice
+                    # conservar_intento: no-aplica con el motivo».
+                    #
+                    # La LLAMADA sólo cuenta en código. Buscar el nombre en el tramo completo
+                    # lo encuentra en el comentario que explica la llamada, así que sacándola
+                    # el test seguía verde — es el defecto que este mismo test dice haber
+                    # arreglado, y lo reintroduje al incluir los comentarios en la ventana
+                    # para no perder el marcador. Las dos cosas se pueden tener, separadas.
+                    llama = any("conservar_intento" in x and not x.strip().startswith("#")
+                                for x in tramo)
+                    # El MARCADOR sólo cuenta en comentarios, y es una frase explícita: una
+                    # mención suelta del nombre no declara nada.
+                    declara = any("conservar_intento: no-aplica" in x
+                                  for x in tramo if x.strip().startswith("#"))
+                    sitios.append((f"{f.name}:{i + 1}", llama or declara))
         self.assertGreaterEqual(len(sitios), 4, f"esperaba al menos 4 sitios, vi {sitios}")
         huerfanos = [n for n, cubierto in sitios if not cubierto]
         self.assertEqual(huerfanos, [],
@@ -8893,14 +8925,27 @@ class TestElEstadoQueQuedoNoSeLeCobraAlTest(unittest.TestCase):
         """Un veredicto que no dice de quién es el problema deja que el próximo lo diagnostique
         de cero. El de hoy decía «el test no pasa ni con la implementación del propio agente»,
         que es exactamente el sujeto equivocado."""
+        # Las DOS ramas nombran un sujeto, cada una el suyo. Este test fijaba la frase «Lo
+        # causa el MÉTODO», que era el único caso que había; desde que a quién se le cobra se
+        # MIDE —si la limpieza de esa pasada funcionó, la base arrancó vacía y el choque es
+        # del test— hay dos sujetos y el veredicto nombra el que corresponde. Es más de lo
+        # que este test pedía, no menos, así que lo que cambia es cómo se lo mide: la
+        # conducta de nombrar, no una redacción.
         fuente = (SCRIPTS / "escribir-tests.sh").read_text()
         i = fuente.index("IntegrityError")
-        bloque = fuente[i:i + 1600]
-        self.assertIn("Lo causa el MÉTODO", bloque, f"\n{bloque[:400]}")
+        bloque = fuente[i:i + 2400]
+        corte = bloque.index("else")
+        rama_test, rama_metodo = bloque[:corte], bloque[corte:]
+        self.assertIn("insertó ÉL MISMO", rama_test,
+                      f"con la base vacía el sujeto es el test:\n{rama_test[-500:]}")
+        self.assertIn("lo arregla el test", rama_test,
+                      "y tiene que decir quién lo arregla, no sólo quién lo causó")
+        self.assertIn("no se le cobra a la tarea", rama_metodo,
+                      f"sin poder limpiar, el sujeto no es la tarea:\n{rama_metodo[:600]}")
         # «reintenta» y no la frase entera: mi primera versión buscaba «no se reintenta» y el
         # mensaje dice «ni se reintenta contra ella». Fijar la redacción exacta de una frase en
         # prosa es sobre-especificar, y hoy ya me pasó con la plantilla.
-        self.assertIn("reintenta", bloque,
+        self.assertIn("reintenta", rama_metodo,
                       "la segunda pasada va a encontrar la misma fila: reintentar es gastar")
 
 
@@ -9178,9 +9223,15 @@ class TestLaBaseSeVaciaAntesDeCadaPasada(unittest.TestCase):
         # prosa; el patrón es mío.
         for i in pasadas:
             previas = [l.strip() for l in lineas[max(0, i - 6):i]]
-            self.assertIn('limpiar_base_del_arbol "$wt"', previas,
-                          f"la pasada de la línea {i + 1} arranca con lo que dejó la anterior:"
-                          f"\n" + "\n".join(previas))
+            # `in` sobre la lista exigía la línea EXACTA, y ahora la llamada lleva pegada la
+            # medición de si la limpieza funcionó —`&& BASE_VACIA_AL_EMPEZAR=1 || ...=0`—. Lo
+            # que este test vigila es que la pasada esté precedida de la limpieza, no cómo se
+            # escribe. La aserción va DENTRO del `for`: al reescribirla quedó un nivel afuera
+            # y el test pasó a mirar sólo la última pasada — un bucle sin aserción adentro no
+            # recorre nada, y el rojo de una pasada intermedia se perdía.
+            self.assertTrue(any('limpiar_base_del_arbol "$wt"' in l for l in previas),
+                            f"la pasada de la línea {i + 1} arranca con lo que dejó la "
+                            f"anterior:\n" + "\n".join(previas))
 
     def test_no_vacia_la_base_del_tronco(self):
         """Dos guardas, porque vaciar la base del proyecto sería borrarle los datos a una
