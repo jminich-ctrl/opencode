@@ -9167,3 +9167,92 @@ class TestLaBaseSeVaciaAntesDeCadaPasada(unittest.TestCase):
         self.assertIn("_migraciones", bloque, f"\n{bloque[:400]}")
         self.assertIn("FOREIGN_KEY_CHECKS", bloque,
                       "sin apagar las claves foráneas, truncar en el orden equivocado falla")
+
+
+class TestElRojoDeColumnaNoSeDegradaPorCompania(unittest.TestCase):
+    """El chequeo de columnas agrupaba por (tabla, columna) y atribuía al PRIMER archivo de la
+    lista, con los demás comprimidos en «y N más». Eso esconde al sujeto, y el 2026-10-25
+    escondió uno que importaba.
+
+    La implementación de T28 y su TEST nombraban la misma columna inexistente. `app/...`
+    ordena antes que `tests/...`, el dueño del primero estaba PENDIENTE, y todo el rojo se
+    degradó a «⚠ el plan puede arrancar». El test quedó dentro de «y 1 más» — y el chequeo
+    que lo habría rechazado antes de copiarlo al tronco busca `✗`. Así que el test entró, y
+    yo había dicho el día anterior que eso no podía volver a pasar.
+
+    Medido en un proyecto de juguete:
+
+        con implementación + test → ⚠ (app/datos/cosas.py:2 y 1 más), T40 pendiente
+        sólo el test             → ✗ tests/test_cosas.py:2, nadie lo declara
+
+    O sea que el MISMO defecto cambiaba de gravedad según qué más lo acompañara."""
+
+    def proyecto(self, con_implementacion):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-degrada-")).resolve()
+        self.addCleanup(shutil.rmtree, str(tmp), True)
+        d = tmp / "repo"; d.mkdir()
+        correr("git init -q . && git config user.email a@b && git config user.name a", d)
+        (d / "tareas").mkdir()
+        (d / "tareas" / "T40-cosas.md").write_text(
+            "# T40 — Cosas\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/datos/cosas.py\n**Prohibido tocar:** Ninguno\n\n"
+            "## Objetivo\n\nLeer cosas.\n\n## Terminado cuando\n\n- [ ] anda\n")
+        (d / "migraciones").mkdir()
+        (d / "migraciones" / "001_initial.sql").write_text(
+            "CREATE TABLE cosas (\n    id INT, nombre VARCHAR(50)\n);\n")
+        (d / "tests").mkdir()
+        (d / "tests" / "test_cosas.py").write_text(
+            "def test_x():\n    esperado = 'SELECT id, titulo FROM cosas'\n    assert esperado\n")
+        if con_implementacion:
+            (d / "app" / "datos").mkdir(parents=True)
+            (d / "app" / "datos" / "cosas.py").write_text(
+                "def leer():\n    return db.execute('SELECT id, titulo FROM cosas')\n")
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n## Tareas\n\n"
+            "| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
+            "| T40 | Cosas | — | `app/datos/cosas.py` | pendiente |\n")
+        return d
+
+    def test_el_test_da_rojo_aunque_la_implementacion_lo_acompañe(self):
+        """El caso exacto que se escapó."""
+        d = self.proyecto(con_implementacion=True)
+        r = correr(f'PROYECTO=. python3 "{SCRIPTS}/coherencia.py"', d)
+        rojos = [l for l in r.stdout.splitlines() if "✗" in l and "tests/test_cosas.py" in l]
+        self.assertTrue(rojos,
+                        f"el test tiene que traer su propio ✗, no quedar en «y N más»:"
+                        f"\n{r.stdout}")
+        self.assertNotEqual(0, r.returncode, f"\n{r.stdout}")
+
+    def test_y_la_implementacion_sigue_siendo_aviso_porque_su_tarea_corre(self):
+        """El otro lado: por archivo no significa todo en rojo. La implementación la declara
+        una tarea PENDIENTE que va a correr y cuyo gate la va a juzgar, así que el plan puede
+        arrancar — y eso tiene que seguir siendo un aviso."""
+        d = self.proyecto(con_implementacion=True)
+        r = correr(f'PROYECTO=. python3 "{SCRIPTS}/coherencia.py"', d)
+        avisos = [l for l in r.stdout.splitlines()
+                  if "⚠" in l and "app/datos/cosas.py" in l and "PENDIENTE" in l]
+        self.assertTrue(avisos, f"\n{r.stdout}")
+
+    def test_cada_archivo_trae_su_propio_lugar(self):
+        """Sin «y N más» mezclando archivos distintos: cada renglón nombra el archivo del que
+        habla, que es lo único que permite actuar."""
+        d = self.proyecto(con_implementacion=True)
+        r = correr(f'PROYECTO=. python3 "{SCRIPTS}/coherencia.py"', d)
+        for linea in r.stdout.splitlines():
+            if "cosas.titulo" not in linea:
+                continue
+            nombrados = {a for a in ("tests/test_cosas.py", "app/datos/cosas.py")
+                         if a in linea}
+            self.assertEqual(1, len(nombrados),
+                             f"un renglón que habla de dos archivos no nombra a ninguno:"
+                             f"\n{linea}")
+
+    def test_el_chequeo_previo_a_aceptar_no_depende_del_simbolo(self):
+        """Buscaba sólo `✗`, así que un rojo degradado a `⚠` por la compañía lo dejaba pasar.
+        Un test que clava una consulta imposible no se acepta ni si alguien «se hace cargo» del
+        archivo: el test OBLIGA la consulta, y la obliga para siempre."""
+        fuente = (SCRIPTS / "escribir-tests.sh").read_text()
+        i = fuente.index("5. El test contra el ESQUEMA")
+        bloque = fuente[i:fuente.index("el test clava una consulta", i)]
+        self.assertIn("⚠ esquema", bloque,
+                      f"tiene que mirar los avisos también:\n{bloque[-400:]}")

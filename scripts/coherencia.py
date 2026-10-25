@@ -848,7 +848,26 @@ def main():
     # tenía el dato adentro de un rechazo y no lo leía: el rechazo era correcto, y la
     # información que traía se tiraba.
     if creadas_cols:
-        for (tabla, col), lugares in sorted(columnas_que_consulta_el_codigo(base).items()):
+        # UN VEREDICTO POR ARCHIVO, no uno por (tabla, columna).
+        #
+        # Agrupaba por columna y atribuía al PRIMER archivo de la lista, con los demás
+        # comprimidos en «y N más». Eso esconde al sujeto, y el 2026-10-25 escondió uno que
+        # importaba: la implementación de T28 y su TEST nombraban la misma columna inexistente,
+        # `app/...` ordenaba antes que `tests/...`, el dueño del primero estaba PENDIENTE, y
+        # todo el rojo se degradó a «⚠ el plan puede arrancar». El test quedó dentro de «y 1
+        # más» — y el chequeo que lo habría rechazado antes de entrar al tronco busca `✗`.
+        # Medido en un proyecto de juguete:
+        #   con implementación + test → ⚠ (app/datos/cosas.py:2 y 1 más), T40 pendiente
+        #   sólo el test             → ✗ tests/test_cosas.py:2, nadie lo declara
+        # O sea que el mismo defecto cambiaba de gravedad según QUÉ MÁS lo acompañara.
+        #
+        # Por archivo, cada uno trae su propio dueño y su propia gravedad. Son más renglones;
+        # la compresión era mía y costaba el sujeto, que es lo único que este método cuida.
+        por_archivo = {}
+        for (tabla, col), lugares in columnas_que_consulta_el_codigo(base).items():
+            for donde_uno in lugares:
+                por_archivo.setdefault((donde_uno.split(":")[0], tabla, col), []).append(donde_uno)
+        for (archivo, tabla, col), lugares in sorted(por_archivo.items()):
             if tabla not in creadas_cols or col in creadas_cols[tabla]:
                 continue
             # Sin adivinanza por parecido, A DIFERENCIA del chequeo de tablas. Medido: para

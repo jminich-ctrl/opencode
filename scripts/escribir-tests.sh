@@ -528,8 +528,17 @@ for id in "$@"; do
   # forma que este repo persigue desde el primer día. El juez es el mismo `coherencia.py` que
   # lo encontró; acá se le pregunta por el archivo que está a punto de entrar.
   if [ "$fallos" -eq 0 ] && [ -f "$AQUI/coherencia.py" ]; then
+    # Cualquier renglón de esquema que NOMBRE este test, no sólo los `✗`. El 2026-10-25
+    # este chequeo no disparó y el test entró al tronco igual: el rojo de la columna se
+    # agrupaba por (tabla, columna) y se atribuía al primer archivo, así que con la
+    # implementación nombrando la misma columna el veredicto salió como `⚠` —el dueño de ESE
+    # archivo estaba pendiente— y el test quedó dentro de «y 1 más». Eso se arregló en
+    # `coherencia.py`, que ahora informa por archivo; esto deja de depender del símbolo.
+    #
+    # Un test que clava una consulta imposible no se acepta ni si alguien «se hace cargo» del
+    # archivo: el test obliga la consulta, y la obliga para siempre.
     ESQ="$( (cd "$wt/$PROYECTO" && PROYECTO=. python3 "$AQUI/coherencia.py" 2>&1 \
-             | grep '✗' | grep -F "$ruta") || true)"
+             | grep -E '✗|⚠ esquema' | grep -F "$ruta") || true)"
     if [ -n "$ESQ" ]; then
       malo "el test clava una consulta que el esquema no acepta: $(printf '%s' "$ESQ" | head -2 | tr '\n' ' ' | cut -c1-320)"
     fi
