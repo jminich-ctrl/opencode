@@ -66,6 +66,9 @@ for modelo in "$@"; do
   # volví a perder un log en este camino: arreglar un lado y no el otro es el patrón que
   # este repo repite.
   conservar_intento "$wt" "${TAREA:-comparar}-$n"
+  # La base ANTES del `rm -rf`, que se lleva el `.entorno` donde vive su nombre. Tercer
+  # camino con el mismo defecto: `escribir-tests.sh` y `correr-tarea.sh` lo tenían igual.
+  tirar_base_del_worktree "$wt"
   rm -rf "$wt"
   git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
   git -C "$RAIZ" branch -D "comparar/$TAREA-$n" 2>/dev/null

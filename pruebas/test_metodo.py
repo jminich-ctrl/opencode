@@ -114,7 +114,10 @@ class Proyecto:
         # de juguete, y eso no se notaba porque su paso fallaba ABIERTO. Al hacerlo fallar
         # cerrado, 22 tests se pusieron rojos de golpe y mostraron que el fixture nunca lo
         # había tenido. La prosa decía una cosa y el código otra, en el fixture esta vez.
-        for aux in ("_suprimidas.py", "_imports.py"):
+        # `mutar.py` entra en la lista: desde el 2026-10-25 el paso 4b del gate pregunta si
+        # el test distingue ESTA implementación, y sin el auxiliar el paso da rojo —a propósito,
+        # porque lo provee el método—. Un fixture al que le falta un auxiliar mide su ausencia.
+        for aux in ("_suprimidas.py", "_imports.py", "mutar.py"):
             shutil.copy(SCRIPTS / aux, self.dir / "scripts" / aux)
         (self.dir / "src" / "__init__.py").touch()
         (self.dir / "tests" / "__init__.py").touch()
@@ -10370,6 +10373,47 @@ class TestLaBaseDelWorktreeSeTiraAntesDeBorrarlo(unittest.TestCase):
                          "el `rm -rf` se lleva el .entorno, que es donde vive el nombre de la "
                          "base: tirarla después es no tirarla. Sitios: " + ", ".join(malos))
 
+    def test_todo_sitio_que_destruye_un_worktree_tira_su_base(self):
+        """Nueve sitios destruyen worktrees en este método y UNO no tiraba su base: el camino
+        del VERDE, en `marcar_hecha_y_limpiar`. Una tarea que cierra bien y se integra dejaba
+        su base viva en el servidor. Medido el 2026-10-25 después de integrar T15: su worktree
+        ya no estaba y `clasificados_trabajo_T15` seguía ahí.
+
+        El test de los cinco sitios declara ese sitio «no-aplica» para `conservar_intento`, y
+        es correcto —no hay intento que conservar cuando el código de la tarea vive en un
+        commit—. Pero la base no es el intento: la excepción de un chequeo se leyó como
+        excepción del otro, y ésa es la forma en que este repo pierde cobertura.
+
+        Los otros cuatro que faltaban eran `comparar-modelos.sh` y `congelar-banco.sh`, que
+        también preparan entorno y por lo tanto también derivan base propia."""
+        malos = []
+        for f in sorted(SCRIPTS.glob("*.sh")):
+            lineas = f.read_text().splitlines()
+            for i, l in enumerate(lineas):
+                if "worktree remove --force" not in l or l.strip().startswith("#"):
+                    continue
+                # Las 6 líneas de CÓDIGO de arriba, por el mismo motivo que el test de
+                # `conservar_intento`: contar texto deja que un comentario largo empuje la
+                # llamada afuera. Y la llamada sólo cuenta en código, no en la prosa que la
+                # explica.
+                j, visto = i, 0
+                while j > 0 and visto < 6:
+                    j -= 1
+                    x = lineas[j].strip()
+                    if x and not x.startswith("#"):
+                        visto += 1
+                tramo = lineas[j:i]
+                if any("tirar_base_del_worktree" in x and not x.strip().startswith("#")
+                       for x in tramo):
+                    continue
+                if any("tirar_base_del_worktree: no-aplica" in x
+                       for x in tramo if x.strip().startswith("#")):
+                    continue
+                malos.append(f"{f.name}:{i + 1}")
+        self.assertEqual(malos, [],
+                         "estos destruyen un worktree y dejan su base viva en el servidor: "
+                         + ", ".join(malos))
+
     def test_un_worktree_que_ya_no_esta_avisa_en_vez_de_callar(self):
         """Un worktree que no está en el disco no es «nada que hacer»: es que alguien llamó a
         esto después de borrarlo, y entonces la base queda viva y nadie se entera. El aviso
@@ -10480,3 +10524,106 @@ class TestAQuienSeLeCobraUnChoqueDeUniqueSeMide(unittest.TestCase):
         # Y el consejo que da ahora es el del defecto real, no el de lo ya arreglado.
         self.assertIn("tirarla ANTES de borrar", rama_no,
                       "el consejo tiene que apuntar a la causa medida")
+
+
+class TestElGateNoPreguntabaSiElTestDistingueESTAImplementacion(CasoBase):
+    """El paso 4 del gate revierte la implementación ENTERA y exige que la suite falle. Eso
+    distingue «con código» de «sin código», que no es lo mismo que «este código» de «este
+    código con un bug» — y el paso se llama «¿los tests distinguen?», así que prometía más de
+    lo que medía.
+
+    `escribir-tests.sh` SÍ muta, pero contra la implementación de REFERENCIA que escribió el
+    agente de tests. La implementación final la escribe otro agente, en otra etapa. Un
+    mutante que muere contra la referencia puede sobrevivir contra la final, y entre las dos
+    no había nadie.
+
+    Medido el 2026-10-25 en T20 de clasificados, con gate VERDE al primer intento: dos
+    mutantes sobreviven y uno es un bug latente. La línea
+
+        row["de_usuario_id"] if row["de_usuario_id"] != user_id else row["a_usuario_id"]
+
+    es «el otro usuario de la conversación»; invirtiendo el `!=` devuelve el PROPIO usuario y
+    el test no lo nota. Ese verde no se ganó, y sin este paso se integraba al tronco.
+
+    El paso vive en el gate del PROYECTO, que tiene tres copias divergentes —plantilla y los
+    dos ejemplos—. El código del paso usa `aux_del_metodo mutar.py`, que es el mecanismo que
+    el repo ya usa para los auxiliares que provee el método, así que lo que se duplica es la
+    invocación y no la lógica."""
+
+    def preparar(self, impl, test):
+        """El test COMMITEADO y la implementación SIN commitear, que es el estado real en que
+        el gate juzga una tarea: el test lo escribió la etapa anterior y vive en HEAD, y la
+        tarea sólo toca su implementación.
+
+        Mi primera versión escribía las dos cosas juntas, y el gate reprobaba —con razón— por
+        «tocó archivos intocables» y «fuera del alcance». Un fixture que no reproduce el
+        estado real mide el chequeo de al lado."""
+        (self.p.dir / "tests" / "test_cosa.py").write_text(test)
+        self.p.git("add -A"); self.p.git('commit -qm "tests de la etapa anterior"')
+        self.p.implementar(impl)
+        return self.p.gate("T01")
+
+    IMPL_CON_TOPE = ("def f():\n    return 42\n\n\n"
+                     "def tope(x):\n"
+                     "    if x >= 999:\n        return 999\n"
+                     "    return x\n")
+
+    def test_un_mutante_que_sobrevive_pone_el_gate_en_rojo(self):
+        """El caso de T20: el test cubre la línea y no verifica su comportamiento."""
+        r = self.preparar(
+            self.IMPL_CON_TOPE,
+            "import unittest\nfrom src.cosa import f, tope\n\n"
+            "class TestCosa(unittest.TestCase):\n"
+            "    def test_f(self):\n        self.assertEqual(f(), 42)\n"
+            "    def test_tope(self):\n        tope(5)\n")
+        self.assertIn("4b.", r.stdout, f"el paso no corrió:\n{r.stdout}")
+        self.assertIn("sobreviven mutantes", r.stdout, f"\n{r.stdout}")
+        self.assertIn("→", r.stdout, "y tiene que decir QUÉ mutante sobrevivió")
+        self.assertNotEqual(r.returncode, 0, "un mutante vivo es un verde que no se ganó")
+
+    def test_un_test_que_verifica_de_verdad_lo_deja_en_verde(self):
+        """El control, y decide si el paso se puede encender: no puede reprobar al test que
+        sí distingue, porque entonces ninguna tarea cerraría."""
+        r = self.preparar(
+            self.IMPL_CON_TOPE,
+            "import unittest\nfrom src.cosa import f, tope\n\n"
+            "class TestCosa(unittest.TestCase):\n"
+            "    def test_f(self):\n        self.assertEqual(f(), 42)\n"
+            "    def test_tope_corta(self):\n        self.assertEqual(tope(1000), 999)\n"
+            "    def test_tope_pasa(self):\n        self.assertEqual(tope(5), 5)\n")
+        self.assertIn("4b.", r.stdout, f"el paso no corrió:\n{r.stdout}")
+        self.assertIn("los mutantes de esta implementación mueren", r.stdout, f"\n{r.stdout}")
+
+    def test_una_linea_que_el_test_no_ejecuta_se_informa_como_tal(self):
+        """El otro veredicto, el que se separó esta mañana: si la línea NO se ejecuta, el
+        problema no son las aserciones. El mensaje tiene que mandar al lado correcto."""
+        r = self.preparar(
+            self.IMPL_CON_TOPE,
+            "import unittest\nfrom unittest.mock import patch\nimport src.cosa\n\n"
+            "class TestCosa(unittest.TestCase):\n"
+            "    @patch('src.cosa.tope')\n"
+            "    def test_tope(self, m):\n"
+            "        m.return_value = 7\n"
+            "        self.assertEqual(src.cosa.tope(5), 7)\n"
+            "    def test_f(self):\n        self.assertEqual(src.cosa.f(), 42)\n")
+        self.assertIn("4b.", r.stdout, f"el paso no corrió:\n{r.stdout}")
+        self.assertIn("NO EJECUTA", r.stdout, f"\n{r.stdout}")
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_las_tres_copias_del_gate_tienen_el_paso(self):
+        """El gate del proyecto tiene tres copias divergentes, y el comentario del paso 4 ya
+        denuncia lo que pasa: «el arreglo existía en un ejemplo de tres; la plantilla, que es
+        la que copia todo proyecto nuevo, seguía con el patrón». Un paso que falta en la
+        plantilla no existe para ningún proyecto futuro."""
+        faltan = []
+        for ruta in (PLANTILLAS / "gate.sh",
+                     RAIZ / "ejemplo-clasificados" / "scripts" / "gate.sh",
+                     RAIZ / "ejemplo-pacman" / "scripts" / "gate.sh"):
+            if not ruta.exists():
+                continue
+            texto = ruta.read_text()
+            if "4b." not in texto or "aux_del_metodo mutar.py" not in texto:
+                faltan.append(str(ruta.relative_to(RAIZ)))
+        self.assertEqual(faltan, [],
+                         "estas copias del gate no preguntan si el test distingue ESTA "
+                         "implementación: " + ", ".join(faltan))

@@ -571,6 +571,65 @@ $f"
   rm -rf "$TMP"
 fi
 
+# ── 4b. ¿Los tests distinguen ESTA implementación? (sólo en modo tarea)
+#
+# El paso 4 revierte la implementación ENTERA y exige que la suite falle. Eso distingue
+# «con código» de «sin código», que no es lo mismo que «este código» de «este código con un
+# bug»: el nombre del paso prometía más de lo que medía.
+#
+# `escribir-tests.sh` SÍ muta, pero contra la implementación de REFERENCIA que escribió el
+# agente de tests — y la implementación final la escribe otro agente, en otra etapa. Un
+# mutante que muere contra la referencia puede sobrevivir contra la final, y entre las dos no
+# había nadie.
+#
+# Medido el 2026-10-25 en T20 de clasificados, con gate VERDE al primer intento: dos mutantes
+# sobreviven, y uno es un bug latente. La línea
+#
+#     row["de_usuario_id"] if row["de_usuario_id"] != user_id else row["a_usuario_id"]
+#
+# es «el otro usuario de la conversación»; invirtiendo el `!=` devuelve el PROPIO usuario y
+# el test no lo nota. Ese verde no se ganó, y sin este paso se integraba.
+if [ -n "${TAREA:-}" ] && [ "${FALLOS:-0}" = "0" ]; then
+  echo "── 4b. ¿Los tests distinguen ESTA implementación?"
+  MUT="$(aux_del_metodo mutar.py || true)"
+  ESPERADO_M="$(test_de_la_tarea)"
+  PY_MUT="$(printf '%s\n' "${IMPL:-}" | grep -E '\.py$' || true)"
+  if [ -z "$MUT" ]; then
+    # ROJO y no ⊘: `mutar.py` lo provee el MÉTODO, igual que `_imports.py`, así que su
+    # ausencia es un problema de instalación y no una propiedad del proyecto juzgado. El gate
+    # ya trata así a sus otros auxiliares, y un ⊘ acá dejaría el único chequeo de que el test
+    # distingue ESTA implementación apagado sin que nadie lo decida.
+    rojo "falta scripts/mutar.py: no se puede verificar que el test distinga el cambio"
+    echo "     Lo provee el método en scripts/mutar.py. Esto es del método, no del código juzgado."
+  elif [ -z "$PY_MUT" ]; then
+    vacuo "la implementación de esta tarea no tiene archivos .py que mutar"
+  elif [ -z "$ESPERADO_M" ]; then
+    vacuo "la tarea no declara su test: no sé qué suite correr contra los mutantes"
+  else
+    RUTA_M="$(echo "$ESPERADO_M" | cut -d' ' -f1)"
+    CLASE_M="$(echo "$ESPERADO_M" | cut -d' ' -f2)"
+    CODIGO_M="$(for f in $PY_MUT; do dirname "$f"; done | sort -u | paste -sd, -)"
+    # `ARCHIVOS` y no sólo `CODIGO`: una tarea que CREA su implementación deja el archivo
+    # sin trackear, y `git diff` no lo lista. Nombrarlos es lo único que hace que un archivo
+    # nuevo se mute, y crear el archivo es el caso más común.
+    SAL_M="$(BASE=HEAD CODIGO="$CODIGO_M" ARCHIVOS="$(printf '%s ' $PY_MUT)" \
+             SUITE="bash scripts/correr-suite.sh \"$RUTA_M::$CLASE_M\"" \
+             "${PY_PROYECTO:-python3}" "$MUT" 2>&1)"; RC_M=$?
+    case "$RC_M" in
+      0) verde "los mutantes de esta implementación mueren: $CLASE_M distingue el cambio" ;;
+      2) vacuo "no hubo nada que mutar con provecho bajo «${CODIGO_M}»"
+         printf '%s\n' "$SAL_M" | sed 's/^/     /' ;;
+      3) rojo "hay líneas de la implementación que $CLASE_M NO EJECUTA"
+         printf '%s\n' "$SAL_M" | grep '→' | sed 's/^/     /'
+         echo "     Si mockeás lo que esta tarea define, estás reemplazando lo que vino a probar." ;;
+      1) rojo "sobreviven mutantes: $CLASE_M cubre esas líneas y no verifica su comportamiento"
+         printf '%s\n' "$SAL_M" | grep '→' | sed 's/^/     /' ;;
+      *) vacuo "mutar.py no pudo correr (código $RC_M)"
+         printf '%s\n' "$SAL_M" | sed 's/^/     /' ;;
+    esac
+  fi
+fi
+
 # ── 5. Coherencia (sólo en modo integración)
 # Los pasos 0-4 miran UNA tarea. Ninguno puede ver que diez diffs correctos por separado
 # dejaron la arquitectura peor: esa deriva sólo se ve mirando el conjunto, y por eso este

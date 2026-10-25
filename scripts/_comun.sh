@@ -1354,6 +1354,16 @@ PYFIN
   fi
   git -C "$RAIZ" commit -q -m "$id: hecha" >/dev/null 2>&1 || true
   # conservar_intento: no-aplica — la tarea cerró verde y su código ya está commiteado.
+  # La base se va con el worktree, también por el camino del VERDE. Este sitio es el quinto
+  # que destruye un worktree y era el único que no tiraba su base: una tarea que cierra bien y
+  # se integra dejaba su base viva en el servidor. Medido el 2026-10-25 después de integrar
+  # T15: su worktree ya no estaba y `clasificados_trabajo_T15` seguía ahí.
+  #
+  # El test de los cinco sitios declara este como «no-aplica» para `conservar_intento`, y es
+  # correcto —no hay intento que conservar cuando la tarea cerró verde y su código vive en un
+  # commit—. Pero la base no es el intento: eso sí aplica, y la excepción de un chequeo se
+  # leyó como excepción del otro.
+  tirar_base_del_worktree "$RAIZ/../trabajo-$id"
   git -C "$RAIZ" worktree remove --force "$RAIZ/../trabajo-$id" 2>/dev/null
   git -C "$RAIZ" branch -D "$rama" >/dev/null 2>&1
 }

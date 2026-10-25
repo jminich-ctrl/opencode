@@ -51,6 +51,12 @@ LIMITE = int(os.environ.get("LIMITE", "40"))
 # UN solo directorio. Con `CODIGO=backend/app,frontend/src` el `startswith` no matcheaba
 # nunca, en ningún proyecto.
 CODIGO = [c.strip().rstrip("/") for c in os.environ.get("CODIGO", "src").split(",") if c.strip()]
+# Archivos explícitos, separados por espacios. `git diff --name-only` NO lista los archivos
+# sin trackear, y una tarea que CREA su implementación —el caso más común— deja el archivo
+# así: el filtro no veía nada y esto devolvía 2 («nada que mutar»). Es el mismo agujero que
+# el paso 4 del gate ya documenta para su reversión, «archivos nuevos: nada que revertir».
+# Con `ARCHIVOS` el llamador dice cuáles son y no se adivina del índice de git.
+ARCHIVOS = [a for a in os.environ.get("ARCHIVOS", "").split() if a.strip()]
 
 # Heurísticas de aridez publicadas para Python, más las generales que aplican.
 ARIDAS_NOMBRE = re.compile(r"^(log|print|debug|warn|error|info|trace)", re.I)
@@ -301,15 +307,22 @@ def lineas_cambiadas(archivo):
     nums = set()
     for ini, n in re.findall(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", d, re.M):
         nums.update(range(int(ini), int(ini) + int(n or 1)))
+    if not nums and not subprocess.run(["git", "cat-file", "-e", f"{BASE}:{archivo}"],
+                                       capture_output=True).returncode == 0:
+        # El archivo no existe en BASE: es nuevo, y entonces TODAS sus líneas son cambio. Sin
+        # esto el diff sale vacío y un archivo nuevo no se muta — que es justo lo que hace una
+        # tarea que escribe su implementación desde cero.
+        nums = set(range(1, len(archivo.read_text().split("\n")) + 1))
     return nums
 
 
 def main():
-    archivos = [a for a in subprocess.run(
+    del_git = subprocess.run(
         ["git", "diff", "--name-only", "--relative", BASE],
         capture_output=True, text=True).stdout.split()
-        if a.endswith(".py") and "test" not in a
-        and any(a.startswith(c + "/") for c in CODIGO)]
+    archivos = [a for a in dict.fromkeys(del_git + ARCHIVOS)
+                if a.endswith(".py") and "test" not in a
+                and any(a.startswith(c + "/") for c in CODIGO)]
     if not archivos:
         # 2, no 0: «no había nada que mutar» es un ⊘ y NO un pase. Devolvía 0, y
         # `escribir-tests.sh` lo corre con `>/dev/null 2>&1` e imprime «✓ los mutantes mueren:

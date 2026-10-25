@@ -88,7 +88,8 @@ for f in "$BASE"/tareas/*.md; do
   # conservar_intento: no-aplica — es un worktree de CONSTRUCCIÓN del banco, no la
   # corrida de un agente: no hay intento que conservar. Lo que vale queda en la rama
   # item/… y en su .precondicion, que se commitean antes de esto.
-  rm -rf "$WT"; git -C "$RAIZ" worktree remove --force "$WT" 2>/dev/null
+  tirar_base_del_worktree "$WT"; rm -rf "$WT"
+  git -C "$RAIZ" worktree remove --force "$WT" 2>/dev/null
   git -C "$RAIZ" branch -D "$RAMA" 2>/dev/null
   git -C "$RAIZ" worktree add -q -b "$RAMA" "$WT" "$TESTIGO_SHA" 2>/dev/null || {
     printf '%-7s %-9s %-46s %s\n' "$id" "⊘" "$SEL" "no pude crear el worktree en $TESTIGO_SHA"
@@ -154,6 +155,7 @@ for f in "$BASE"/tareas/*.md; do
     # conservar_intento: no-aplica — es un worktree de CONSTRUCCIÓN del banco, no la
     # corrida de un agente: no hay intento que conservar. Lo que vale queda en la rama
     # item/… y en su .precondicion, que se commitean antes de esto.
+    tirar_base_del_worktree "$WT"
     git -C "$RAIZ" worktree remove --force "$WT" 2>/dev/null; git -C "$RAIZ" branch -D "$RAMA" 2>/dev/null
     CAIDOS=$((CAIDOS+1)); continue
   fi
@@ -216,6 +218,7 @@ for f in "$BASE"/tareas/*.md; do
     # conservar_intento: no-aplica — es un worktree de CONSTRUCCIÓN del banco, no la
     # corrida de un agente: no hay intento que conservar. Lo que vale queda en la rama
     # item/… y en su .precondicion, que se commitean antes de esto.
+    tirar_base_del_worktree "$WT"
     git -C "$RAIZ" worktree remove --force "$WT" 2>/dev/null
     git -C "$RAIZ" branch -D "$RAMA" 2>/dev/null
     CAIDOS=$((CAIDOS+1)); continue
@@ -253,6 +256,7 @@ for f in "$BASE"/tareas/*.md; do
   # conservar_intento: no-aplica — es un worktree de CONSTRUCCIÓN del banco, no la
   # corrida de un agente: no hay intento que conservar. Lo que vale queda en la rama
   # item/… y en su .precondicion, que se commitean antes de esto.
+  tirar_base_del_worktree "$WT"
   git -C "$RAIZ" worktree remove --force "$WT" 2>/dev/null
 done
 
