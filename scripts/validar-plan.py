@@ -379,14 +379,28 @@ for tid in sorted(set(tareas) & set(en_disco)):
         # quien lo lee, el chequeo de alcance lo reprueba. Era el caso de T03.
         asignados = {a.strip().strip("`") for otro in tareas.values()
                      for a in re.split(r"[,\s]+", otro["archivos"]) if a.strip().strip("`")}
+        # Y los tests que la TABLA DE TESTS del plan reparte: ésos también los escribe
+        # alguien, aunque la columna «Archivos» de la tabla de tareas no los repita. Sin
+        # esto, el único respaldo era que el archivo ya existiera, y eso hace que el
+        # veredicto dependa del estado del disco en vez del plan.
+        asignados |= {a for a, _c in tests_plan.values() if a}
         if cubierto(r, asignados):
             continue
         # Y un archivo que YA EXISTE no es un archivo que alguien tenga que escribir. El
         # chequeo usa la sección como aproximación a «te pido que lo escribas», que es
-        # razonable pero no distingue «escribí esto» de «leé esto». La existencia sí: T26
+        # razonable pero no distingue «escribí esto» de «leé esto». La existencia ayuda: T26
         # tiene que nombrar `backend/tests/test_auth_backend.py` para decir «el patch se hace
         # así», y ese test está en el repo desde T04. El alcance lo sigue cuidando el paso 2
         # del gate, que reprueba tocar lo que no es tuyo.
+        #
+        # Pero la existencia sola hacía que el veredicto dependiera del DISCO y no del plan,
+        # y eso bloqueaba la operación que el propio método ordena. Medido el 2026-10-25:
+        # `reabrir.sh T04` saca el código de T04 —incluido ese test— y entonces la
+        # referencia de LECTURA de T26 se convertía en un error de forma, el juez de
+        # `reabrir.sh` revertía, y T04 no se podía reabrir. `coherencia.py` termina sus rojos
+        # más graves con «hay que REABRIR TNN», así que el método ordenaba algo que él mismo
+        # rechazaba, y por el orden de las operaciones y no por el plan. Lo de arriba —la
+        # tabla de tests— lo resuelve sin mirar el disco.
         if (RAIZ / r).exists():
             continue
         errores.append(f"{arch.name} le pide escribir «{r}», y no está en su alcance ni en "

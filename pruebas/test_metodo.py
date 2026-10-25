@@ -9659,3 +9659,96 @@ class TestElBrazoNuloConVariosArchivosSeSatisfaceConUno(unittest.TestCase):
         # La limpieza de la base, que tiene que seguir antes de CADA pasada.
         self.assertIn("limpiar_base_del_arbol", bloque,
                       "cada pasada arranca con la base vacía, igual que las tres de arriba")
+
+
+class TestReabrirNoPuedeQuedarBloqueadoPorElDisco(unittest.TestCase):
+    """El método ordenaba una operación que él mismo rechazaba.
+
+    `coherencia.py` termina sus rojos más graves con «hay que REABRIR TNN», y
+    `reabrir.sh` existe para eso. Pero reabrir SACA del tronco el código que la tarea
+    produjo —si no, el test pasa de entrada y el gate concluye «el test no prueba nada»— y
+    `validar-plan.py` usaba la EXISTENCIA del archivo como respaldo para no marcar una
+    referencia de lectura:
+
+        T26 nombra `backend/tests/test_auth_backend.py` para decir cómo se hace el patch, y
+        ese test está en el repo desde T04.
+
+    Sacado el código de T04, esa referencia se convertía en «nadie lo va a escribir», el
+    juez de `reabrir.sh` revertía, y T04 no se podía reabrir. Medido el 2026-10-25 al
+    intentar reabrirla: el veredicto dependía del orden de las operaciones y no del plan.
+
+    La autoridad correcta estaba a mano y no mira el disco: la TABLA DE TESTS del plan ya
+    dice qué test escribe cada tarea."""
+
+    def proyecto(self, contrato_de_T02, con_tabla_de_tests=True):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-reabrir-")).resolve()
+        (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "tareas").mkdir()
+        tabla_tests = ("\n## Tests\n\n| Tarea | Archivo de test | Clase |\n|---|---|---|\n"
+                       "| T01 | tests/test_uno.py | TestUno |\n"
+                       "| T02 | tests/test_dos.py | TestDos |\n"
+                       if con_tabla_de_tests else "")
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n**Estado del gate G0:** aprobado por nadie el 2026-01-01\n\n"
+            "## Requisitos\n\n- `uno` — que haya uno\n\n"
+            "## Tareas\n\n| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
+            "| T01 | Uno | — | src/uno.py | pendiente |\n"
+            "| T02 | Dos | T01 | src/dos.py | pendiente |\n" + tabla_tests)
+        # Las dependencias y el test de cada tarea tienen que coincidir con el plan: el
+        # validador cruza las dos cosas, y mi primera versión del fixture las contradecía.
+        # Un fixture incoherente no mide el chequeo que uno quiere medir, mide el otro.
+        for tid, arch, dep, test, clase, contrato in (
+                ("T01", "src/uno.py", "—", "tests/test_uno.py", "TestUno",
+                 "- Escribí `src/uno.py`.\n"),
+                ("T02", "src/dos.py", "T01", "tests/test_dos.py", "TestDos",
+                 contrato_de_T02)):
+            (d / "tareas" / f"{tid}-cosa.md").write_text(
+                f"# {tid} — Cosa\n\n**Estado:** pendiente\n**Depende de:** {dep}\n"
+                f"**Archivos que podés tocar:** {arch}\n**Prohibido tocar:** Ninguno\n\n"
+                f"## Objetivo\n\nQue haya una cosa.\n\n"
+                f"## Contrato\n\n{contrato}\n"
+                f"## Tests (ya escritos, fallando)\n\n"
+                f"Archivo: `{test}`, clase `{clase}`.\n")
+        return d
+
+    def validar(self, d):
+        return correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py", d)
+
+    def test_nombrar_el_test_de_otra_tarea_vale_aunque_el_archivo_no_exista(self):
+        """El caso de T26 → T04: una referencia de lectura al test de otra tarea. En el
+        disco no está nada —es un proyecto nuevo— y la tabla de tests dice quién lo escribe."""
+        d = self.proyecto("- Seguí el patrón de `tests/test_uno.py`, que mockea la capa.\n")
+        r = self.validar(d)
+        self.assertEqual(r.returncode, 0,
+                         f"el test de otra tarea está repartido en la tabla de tests: "
+                         f"nombrarlo no es pedir que alguien lo escriba\n{r.stdout}{r.stderr}")
+
+    def test_sin_la_tabla_de_tests_el_mismo_plan_queda_en_rojo(self):
+        """El control de que lo que lo salva es la TABLA y no una laxitud nueva: el mismo
+        plan, sin la tabla que reparte los tests, sigue siendo un archivo que nadie escribe."""
+        d = self.proyecto("- Seguí el patrón de `tests/test_uno.py`, que mockea la capa.\n",
+                          con_tabla_de_tests=False)
+        r = self.validar(d)
+        self.assertNotEqual(r.returncode, 0,
+                            f"sin la tabla nadie escribe ese test:\n{r.stdout}")
+        self.assertIn("nadie lo va a escribir", r.stdout)
+
+    def test_el_archivo_que_ninguna_tarea_tiene_sigue_en_rojo(self):
+        """El otro control, y es el que importa: el chequeo existe para atrapar esto —fue el
+        caso real de T03— y no puede haberse apagado."""
+        d = self.proyecto("- Escribí `src/inexistente_xyz.py` con la lógica.\n")
+        r = self.validar(d)
+        self.assertNotEqual(r.returncode, 0, f"se apagó el chequeo:\n{r.stdout}")
+        self.assertIn("inexistente_xyz.py", r.stdout)
+        self.assertIn("nadie lo va a escribir", r.stdout)
+
+    def test_el_validador_no_decide_esto_mirando_el_disco(self):
+        """Se lee del CÓDIGO: los comentarios de este arreglo nombran el disco y la tabla
+        varias veces."""
+        fuente = (SCRIPTS / "validar-plan.py").read_text()
+        codigo = "\n".join(l for l in fuente.split("\n") if not l.strip().startswith("#"))
+        i = codigo.index("nadie lo va a escribir")
+        bloque = codigo[max(0, i - 900):i]
+        self.assertIn("tests_plan.values()", bloque,
+                      f"la tabla de tests tiene que entrar en los asignados:\n{bloque[-400:]}")
