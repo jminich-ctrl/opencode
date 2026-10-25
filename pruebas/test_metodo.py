@@ -8954,8 +8954,10 @@ class TestElEstadoQueQuedoNoSeLeCobraAlTest(unittest.TestCase):
         # conducta de nombrar, no una redacción.
         fuente = (SCRIPTS / "escribir-tests.sh").read_text()
         i = fuente.index("IntegrityError")
-        bloque = fuente[i:i + 2400]
-        corte = bloque.index("else")
+        bloque = fuente[i:i + 4200]
+        # Por el MARCADOR y no por el primer `else`: las tres ramas de la familia
+        # IntegrityError viven dentro de la primera, así que el `else` más cercano es interno.
+        corte = bloque.index("⊘ $id: el test choca con datos que YA estaban")
         rama_test, rama_metodo = bloque[:corte], bloque[corte:]
         self.assertIn("insertó ÉL MISMO", rama_test,
                       f"con la base vacía el sujeto es el test:\n{rama_test[-500:]}")
@@ -10546,10 +10548,14 @@ class TestAQuienSeLeCobraUnChoqueDeUniqueSeMide(unittest.TestCase):
     def test_con_la_base_vacia_el_choque_es_del_test_y_se_le_cobra(self):
         """La diferencia que importa: con la base vacía esto es un rojo del test —`malo`— y
         no un ⊘ que lo absuelve. El ⊘ no reintenta ni acepta; el rojo sí le habla al agente."""
+        # Se corta por el MARCADOR de la otra rama, no por el primer `else`. Desde que
+        # `IntegrityError` se partió en tres —duplicado, clave foránea, NOT NULL— el primer
+        # `else` es de las ramas internas y la extracción cortaba en el lugar equivocado. Una
+        # extracción posicional se rompe cuando alguien anida algo adentro, y hoy lo anidé yo.
         fuente = (SCRIPTS / "escribir-tests.sh").read_text()
         i = fuente.index('BASE_VACIA_AL_EMPEZAR:-0}" = "1"')
-        bloque = fuente[i:i + 900]
-        rama_si = bloque[:bloque.index("else")]
+        bloque = fuente[i:i + 3600]
+        rama_si = bloque[:bloque.index("⊘ $id: el test choca con datos que YA estaban")]
         self.assertIn("malo ", rama_si,
                       f"con la base vacía el choque es del test:\n{rama_si}")
         self.assertIn("insertó ÉL MISMO", rama_si, f"\n{rama_si}")
@@ -10562,8 +10568,9 @@ class TestAQuienSeLeCobraUnChoqueDeUniqueSeMide(unittest.TestCase):
         mismo error en la dirección contraria."""
         fuente = (SCRIPTS / "escribir-tests.sh").read_text()
         i = fuente.index('BASE_VACIA_AL_EMPEZAR:-0}" = "1"')
-        bloque = fuente[i:i + 1600]
-        rama_no = bloque[bloque.index("else"):]
+        bloque = fuente[i:i + 3600]
+        # Desde el marcador de esta rama, por el mismo motivo que arriba.
+        rama_no = bloque[bloque.index("⊘ $id: el test choca con datos que YA estaban"):]
         self.assertIn("⊘", rama_no, f"\n{rama_no[:400]}")
         self.assertIn("no se le cobra a la tarea", rama_no)
         # Y el consejo que da ahora es el del defecto real, no el de lo ya arreglado.
