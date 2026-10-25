@@ -9056,12 +9056,26 @@ class TestUnaBasePorWorktree(unittest.TestCase):
         """El prefijo del `.entorno` del tronco porque el método no sabe cómo se llama la base
         de un proyecto —lo decide su `entorno.sh`— y el sufijo del worktree, que es la unidad
         de aislamiento que el método ya tiene."""
+        # Un worktree de GIT de verdad, no dos directorios pelados. La función pregunta a
+        # git si el destino es un worktree —`--git-dir` contra `--git-common-dir`— porque
+        # decidirlo comparando `$DESTINO` con `$BASE` la hacía depender del directorio actual,
+        # y con el cwd adentro del worktree devolvía vacío: `entorno.sh` recibía `MYSQL_DB`
+        # vacío, usaba su valor por omisión, y el worktree quedaba apuntando a la BASE REAL
+        # del proyecto. Con directorios pelados este test medía una derivación que ya no
+        # existe, y era él el que había que actualizar.
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-basewt-")).resolve()
         self.addCleanup(shutil.rmtree, str(d), True)
-        (d / "tronco").mkdir()
-        (d / "tronco" / ".entorno").write_text("export MYSQL_DB=miproyecto\n")
-        (d / "tests-T42").mkdir()
-        guion = (f'BASE="{d}/tronco"; DESTINO="{d}/tests-T42"\n'
+        tronco = d / "tronco"
+        tronco.mkdir()
+        (tronco / ".entorno").write_text("export MYSQL_DB=miproyecto\n")
+        (tronco / "algo.txt").write_text("para tener un commit\n")
+        correr("git init -q .", tronco)
+        correr("git -c user.email=t@t -c user.name=t add algo.txt", tronco)
+        correr('git -c user.email=t@t -c user.name=t commit -qm base', tronco)
+        wt = d / "tests-T42"
+        correr(f"git worktree add -q --detach {wt} HEAD", tronco)
+        self.addCleanup(lambda: correr(f"git worktree remove --force {wt}", tronco))
+        guion = (f'BASE="{tronco}"; DESTINO="{wt}"; PROYECTO=.\n'
                  + self._funcion_nombre() + '\nbase_de_datos_del_arbol\n')
         g = d / "g.sh"; g.write_text(guion)
         r = correr(f'bash "{g}"', RAIZ)
@@ -9071,11 +9085,20 @@ class TestUnaBasePorWorktree(unittest.TestCase):
     def test_sobre_el_tronco_no_cambia_la_base(self):
         """Una corrida sobre el tronco tiene que seguir usando la base del proyecto: es la que
         una persona mira entre corridas."""
+        # Repo git de verdad, igual que el de arriba y por el mismo motivo: con directorios
+        # pelados este test daba verde por la razón EQUIVOCADA —esperaba vacío y lo obtenía
+        # porque el destino no era un repo, no porque fuera el tronco— y habría seguido verde
+        # con el arreglo puesto al revés.
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-basewt-")).resolve()
         self.addCleanup(shutil.rmtree, str(d), True)
-        (d / "tronco").mkdir()
-        (d / "tronco" / ".entorno").write_text("export MYSQL_DB=miproyecto\n")
-        guion = (f'BASE="{d}/tronco"; DESTINO="{d}/tronco"\n'
+        tronco = d / "tronco"
+        tronco.mkdir()
+        (tronco / ".entorno").write_text("export MYSQL_DB=miproyecto\n")
+        (tronco / "algo.txt").write_text("para tener un commit\n")
+        correr("git init -q .", tronco)
+        correr("git -c user.email=t@t -c user.name=t add algo.txt", tronco)
+        correr('git -c user.email=t@t -c user.name=t commit -qm base', tronco)
+        guion = (f'BASE="{tronco}"; DESTINO="{tronco}"; PROYECTO=.\n'
                  + self._funcion_nombre() + '\nbase_de_datos_del_arbol; echo "fin"\n')
         g = d / "g.sh"; g.write_text(guion)
         r = correr(f'bash "{g}"', RAIZ)
