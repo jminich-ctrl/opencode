@@ -130,8 +130,19 @@ for id in "$@"; do
   # O sea que la fábrica de dataset no recogía NADA del camino de tests, que es justo donde
   # el método mide que el agente falla más: 4 de 15 escribiendo tests, 0 implementando.
   conservar_intento "$wt" "${id:-${TAREA:-tests}}"
-  rm -rf "$wt"
+  # La base se tira ANTES del `rm -rf`, no después. `tirar_base_del_worktree` necesita leer
+  # el `.entorno` del worktree para saber CÓMO SE LLAMA la base, y el `rm -rf` se lo lleva:
+  # la llamada quedaba antes de `worktree remove` —que es lo que pide el encabezado de la
+  # función— y después del `rm -rf`, así que salía por su guarda sin tirar nada.
+  #
+  # Medido el 2026-10-25 en los tres intentos de T26: la base de un worktree NUNCA se tiraba
+  # entre intentos. El intento siguiente la encontraba con lo que dejó el anterior —el log lo
+  # delata, porque no vuelve a decir «aplicando migración»— y el validador chocaba con
+  # `Duplicate entry 'test@example.com'` en su segunda pasada. Eso se informaba como un ⊘
+  # cuya explicación decía «hay que limpiar la base entre pasadas o aislarla por corrida»:
+  # las dos cosas ya estaban hechas, y lo que faltaba era esto.
   tirar_base_del_worktree "$wt"
+  rm -rf "$wt"
   git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
   git -C "$RAIZ" branch -D "tests/$id" 2>/dev/null
   # El mismo guardia que correr-tarea.sh, y por la misma razón: el worktree sale de HEAD.
@@ -415,7 +426,10 @@ for id in "$@"; do
       fi
       for f in $impl; do cp "$tmp/$(echo "$f" | tr / _)" "$f"; done
       rm -rf "$tmp"
-      limpiar_base_del_arbol "$wt"
+      # Si esto limpió, la base arrancó VACÍA esta pasada, y entonces un choque de UNIQUE no
+      # lo puede haber puesto otra corrida: lo puso el propio test. Es el dato que convierte
+      # el ⊘ de abajo en un veredicto medido en vez de una atribución.
+      limpiar_base_del_arbol "$wt" && BASE_VACIA_AL_EMPEZAR=1 || BASE_VACIA_AL_EMPEZAR=0
       if eval "$prueba" >/dev/null 2>&1; then
         echo "  ✓ pasa con la implementación"
         git add -A >/dev/null 2>&1
@@ -565,18 +579,35 @@ for id in "$@"; do
         # nada —el test no se acepta igual—; lo único que cambia es A QUIÉN se le cobra, que es
         # lo que estuvo mal en la mayoría de los defectos de estos días.
         if printf '%s' "$DETALLE" | grep -qiE "IntegrityError|Duplicate entry|\b1062,|UNIQUE constraint failed"; then
-          echo "  ⊘ $id: el test choca con datos que YA estaban en la base, no con su lógica."
-          echo "     $DETALLE"
-          echo "     Lo causa el MÉTODO: este validador corre el mismo test dos veces —una sin"
-          echo "     la implementación y otra con ella— contra una base con estado, así que la"
-          echo "     segunda encuentra lo que insertó la primera. Y todos los worktrees"
-          echo "     comparten el MySQL de 127.0.0.1:33306: lo que una corrida deja, la"
-          echo "     siguiente lo encuentra."
-          echo "     No se le cobra a la tarea ni se reintenta contra ella: hay que limpiar la"
-          echo "     base entre pasadas o aislarla por corrida. Log: $log"
-          cd "$RAIZ" || true
-          conservar_intento "$wt" "${id:-${TAREA:-tests}}"
-          break
+          # A QUIÉN se le cobra se MIDE, no se atribuye. Si la limpieza de esta pasada
+          # funcionó, la base arrancó vacía y las filas que chocan las insertó este test en
+          # esta corrida: es del test. Si no se pudo limpiar, el estado puede venir de
+          # cualquier parte y no se le cobra a la tarea.
+          #
+          # El mensaje viejo afirmaba «lo causa el MÉTODO» siempre, y recomendaba «limpiar la
+          # base entre pasadas o aislarla por corrida». El 2026-10-25 las dos cosas ya
+          # estaban hechas y medidas, y la afirmación fue falsa tres corridas seguidas: me
+          # mandó a lo ya arreglado mientras el defecto real era que la base no se tiraba al
+          # rehacer el worktree. Un veredicto que nombra la causa equivocada cuesta más que
+          # uno que dice «no sé».
+          if [ "${BASE_VACIA_AL_EMPEZAR:-0}" = "1" ]; then
+            malo "el test choca con datos que insertó ÉL MISMO: la base arrancó vacía esta pasada."
+            echo "     $DETALLE"
+            echo "     La limpieza corrió y funcionó, así que no hay estado de otra corrida."
+            echo "     El test inserta la misma fila dos veces —o la inserta y no la limpia"
+            echo "     entre sus propios casos—. Eso lo arregla el test, no el entorno."
+          else
+            echo "  ⊘ $id: el test choca con datos que YA estaban en la base, no con su lógica."
+            echo "     $DETALLE"
+            echo "     Y no pude limpiar la base antes de esta pasada, así que ese estado"
+            echo "     puede venir de cualquier corrida: no se le cobra a la tarea. Revisá"
+            echo "     que el worktree tenga su propia base y que se tire al rehacerlo —su"
+            echo "     nombre vive en su .entorno, así que hay que tirarla ANTES de borrar el"
+            echo "     directorio—. Log: $log"
+            cd "$RAIZ" || true
+            conservar_intento "$wt" "${id:-${TAREA:-tests}}"
+            break
+          fi
         fi
         malo "el test no pasa ni con la implementación del propio agente.${DETALLE:+ Falla así: $DETALLE}"
       fi

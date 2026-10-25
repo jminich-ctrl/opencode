@@ -10272,3 +10272,143 @@ class TestElNombreDeLaBaseQueSeInformaEsElQueQuedaEscrito(unittest.TestCase):
         r = self.preparar(d)
         self.assertNotEqual(r.returncode, 0, f"\n{r.stdout}")
         self.assertIn("(vacío)", r.stdout, f"y tiene que decir que quedó vacío:\n{r.stdout}")
+
+
+class TestLaBaseDelWorktreeSeTiraAntesDeBorrarlo(unittest.TestCase):
+    """`tirar_base_del_worktree` necesita leer el `.entorno` del worktree para saber CÓMO SE
+    LLAMA la base. `escribir-tests.sh` la llamaba antes de `git worktree remove` —que es lo
+    que pide el encabezado de la función— y DESPUÉS de un `rm -rf "$wt"`, que se lleva el
+    `.entorno`. La función salía por su guarda sin tirar nada. La llamada cumplía la letra y
+    violaba el motivo.
+
+    Medido el 2026-10-25 en los tres intentos de T26: la base de un worktree NUNCA se tiraba
+    entre intentos. El intento siguiente la encontraba con lo que dejó el anterior —el log lo
+    delata, porque no vuelve a decir «aplicando migración»— y el validador chocaba con
+    `Duplicate entry 'test@example.com'` en su segunda pasada.
+
+    Y eso se informaba como un ⊘ cuya explicación decía «hay que limpiar la base entre
+    pasadas o aislarla por corrida»: las dos cosas ya estaban hechas y medidas ese mismo día,
+    y lo que faltaba era esto. Tres corridas de agente perseguí un defecto cuyo mensaje me
+    mandaba a lo ya arreglado."""
+
+    def test_la_llamada_va_antes_del_rm(self):
+        """Se lee del CÓDIGO y por POSICIÓN, que es lo que estaba mal: los comentarios de este
+        arreglo nombran las dos cosas en el orden correcto y un grep los encontraría igual."""
+        fuente = (SCRIPTS / "escribir-tests.sh").read_text()
+        codigo = [l for l in fuente.split("\n") if not l.strip().startswith("#")]
+        i_tirar = next(i for i, l in enumerate(codigo) if "tirar_base_del_worktree" in l)
+        i_rm = next(i for i, l in enumerate(codigo) if 'rm -rf "$wt"' in l)
+        self.assertLess(i_tirar, i_rm,
+                        "el `rm -rf` se lleva el .entorno, que es donde vive el nombre de la "
+                        "base: tirarla después es no tirarla")
+
+    def test_un_worktree_que_ya_no_esta_avisa_en_vez_de_callar(self):
+        """Un worktree que no está en el disco no es «nada que hacer»: es que alguien llamó a
+        esto después de borrarlo, y entonces la base queda viva y nadie se entera. El aviso
+        es lo que convierte un silencio en un dato."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-tirarbase-")).resolve()
+        (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "tareas").mkdir()
+        (d / "tareas" / "T01-cosa.md").write_text(
+            "# T01 — Cosa\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** src/cosa.py\n**Prohibido tocar:** Ninguno\n")
+        (d / "scripts").mkdir()
+        (d / "scripts" / "entorno.sh").write_text("#!/usr/bin/env bash\nexit 0\n")
+        (d / "scripts" / "entorno.sh").chmod(0o755)
+        correr("git init -q .", d)
+        correr("git -c user.email=t@t -c user.name=t add -A", d)
+        correr('git -c user.email=t@t -c user.name=t commit -qm base', d)
+        r = correr(f'PROYECTO=. bash -c \'. "{SCRIPTS}/_comun.sh"; ubicar_proyecto; '
+                   f'tirar_base_del_worktree /no/existe/nada\'', d)
+        salida = r.stdout + r.stderr
+        self.assertIn("ya no está", salida, f"se calló:\n{salida}")
+        self.assertIn("quedó viva", salida,
+                      "y tiene que decir la consecuencia, no sólo que no pudo")
+
+    def test_el_encabezado_de_la_funcion_ya_declaraba_el_requisito(self):
+        """La función documentaba exactamente este requisito y la llamada lo violaba. El test
+        existe para que la prosa y el código no vuelvan a decir cosas distintas: si alguien
+        saca la advertencia del encabezado, es que decidió otra cosa y hay que verlo."""
+        comun = (SCRIPTS / "_comun.sh").read_text()
+        # La DEFINICIÓN, no la primera mención: la primera está dentro del propio encabezado
+        # —la línea de uso— así que el slice hacia atrás tomaba el comentario de otra función.
+        i = comun.index("tirar_base_del_worktree() {")
+        encabezado = comun[max(0, i - 1400):i]
+        self.assertIn("ANTES", encabezado,
+                      f"el encabezado tiene que seguir declarando el orden:\n{encabezado[-400:]}")
+        self.assertIn(".entorno", encabezado, "y por qué: el nombre de la base vive ahí")
+
+
+class TestAQuienSeLeCobraUnChoqueDeUniqueSeMide(unittest.TestCase):
+    """El ⊘ del `Duplicate entry` afirmaba «Lo causa el MÉTODO» SIEMPRE, sin medirlo, y
+    recomendaba «limpiar la base entre pasadas o aislarla por corrida».
+
+    El 2026-10-25 las dos cosas ya estaban hechas y medidas ese mismo día, y la afirmación
+    fue falsa tres corridas seguidas de T26: me mandó a revisar lo ya arreglado mientras el
+    defecto real era otro —la base de un worktree no se tiraba al rehacerlo, porque la
+    llamada que la tira estaba después de un `rm -rf` que se lleva el `.entorno` donde vive
+    su nombre—. Un veredicto que nombra la causa equivocada cuesta más que uno que dice «no
+    sé»: perseguí el camino que me señalaba.
+
+    El dato que faltaba lo tenía el método: si su propia limpieza funcionó antes de esa
+    pasada, la base arrancó VACÍA, y entonces las filas que chocan las insertó el test en esa
+    misma corrida. Es del test. Si no pudo limpiar, el estado puede venir de cualquier parte
+    y no se le cobra a la tarea."""
+
+    def test_la_limpieza_informa_si_pudo_o_no(self):
+        """Terminaba en `|| true` y devolvía 0 siempre, así que quien la llamaba no podía
+        distinguir «la base quedó vacía» de «no pude»."""
+        comun = (SCRIPTS / "_comun.sh").read_text()
+        i = comun.index("limpiar_base_del_arbol() {")
+        cuerpo = comun[i:comun.index("\n}", i)]
+        # Sin los comentarios: el del arreglo CITA el `|| true` que saca, así que buscarlo en
+        # el texto crudo lo encuentra en la prosa. Séptima vez hoy que un test mío matchea un
+        # comentario, y esta vez en el test del arreglo que viene a medir en vez de afirmar.
+        codigo = "\n".join(l for l in cuerpo.split("\n") if not l.strip().startswith("#"))
+        self.assertNotIn("|| true", codigo,
+                         f"con `|| true` el resultado no se puede medir:\n{codigo}")
+
+    def test_el_validador_usa_ese_dato_para_decidir_a_quien_cobrarle(self):
+        """Se lee del CÓDIGO: los comentarios de este arreglo citan el mensaje viejo entero."""
+        fuente = (SCRIPTS / "escribir-tests.sh").read_text()
+        codigo = "\n".join(l for l in fuente.split("\n") if not l.strip().startswith("#"))
+        self.assertIn("BASE_VACIA_AL_EMPEZAR", codigo,
+                      "el validador no recuerda si pudo limpiar: no puede medir la culpa")
+        # Y el valor sale del RESULTADO de la limpieza, no de una suposición. Pedir que
+        # estén en la misma línea no medía esto: `limpiar_base_del_arbol "$wt";
+        # BASE_VACIA_AL_EMPEZAR=1` pasa, y es exactamente la suposición que el arreglo saca.
+        # Lo que hace falta es que la asignación sea CONDICIONAL al resultado.
+        linea = next(l for l in codigo.split("\n")
+                     if "BASE_VACIA_AL_EMPEZAR=1" in l)
+        self.assertRegex(linea, r"limpiar_base_del_arbol[^;]*&&\s*BASE_VACIA_AL_EMPEZAR=1",
+                         f"el valor tiene que depender de que la limpieza funcione:\n{linea}")
+        self.assertIn("|| BASE_VACIA_AL_EMPEZAR=0", linea,
+                      f"y el caso de que no funcione tiene que quedar en 0:\n{linea}")
+
+    def test_con_la_base_vacia_el_choque_es_del_test_y_se_le_cobra(self):
+        """La diferencia que importa: con la base vacía esto es un rojo del test —`malo`— y
+        no un ⊘ que lo absuelve. El ⊘ no reintenta ni acepta; el rojo sí le habla al agente."""
+        fuente = (SCRIPTS / "escribir-tests.sh").read_text()
+        i = fuente.index('BASE_VACIA_AL_EMPEZAR:-0}" = "1"')
+        bloque = fuente[i:i + 900]
+        rama_si = bloque[:bloque.index("else")]
+        self.assertIn("malo ", rama_si,
+                      f"con la base vacía el choque es del test:\n{rama_si}")
+        self.assertIn("insertó ÉL MISMO", rama_si, f"\n{rama_si}")
+        self.assertNotIn("Lo causa el MÉTODO", rama_si,
+                         "no puede seguir afirmando una causa que midió que es falsa")
+
+    def test_sin_haber_podido_limpiar_no_se_le_cobra_a_la_tarea(self):
+        """El otro lado, y es el que el ⊘ existe para proteger: si el método no pudo dejar la
+        base vacía, el estado puede venir de cualquier corrida y cobrárselo al test sería el
+        mismo error en la dirección contraria."""
+        fuente = (SCRIPTS / "escribir-tests.sh").read_text()
+        i = fuente.index('BASE_VACIA_AL_EMPEZAR:-0}" = "1"')
+        bloque = fuente[i:i + 1600]
+        rama_no = bloque[bloque.index("else"):]
+        self.assertIn("⊘", rama_no, f"\n{rama_no[:400]}")
+        self.assertIn("no se le cobra a la tarea", rama_no)
+        # Y el consejo que da ahora es el del defecto real, no el de lo ya arreglado.
+        self.assertIn("tirarla ANTES de borrar", rama_no,
+                      "el consejo tiene que apuntar a la causa medida")

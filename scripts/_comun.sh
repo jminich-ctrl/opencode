@@ -405,7 +405,13 @@ limpiar_base_del_arbol() {
   [ -f "$ent" ] && [ ! -L "$ent" ] || return 0
   db="$(sed -n 's/^export MYSQL_DB=//p' "$ent" | head -1 | tr -d "\"'")"
   [ -n "$db" ] || return 0
-  ( cd "$BASE" && MYSQL_DB="$db" bash scripts/entorno.sh --limpiar ) >/dev/null 2>&1 || true
+  # Devuelve si LIMPIÓ, y eso es lo que permite medir a quién cobrarle un choque de UNIQUE.
+  # Antes terminaba en `|| true` y devolvía 0 siempre, así que quien la llamaba no podía
+  # distinguir «la base quedó vacía» de «no pude». Con eso, el ⊘ del `Duplicate entry`
+  # afirmaba «lo causa el MÉTODO» sin haberlo medido — y el 2026-10-25 esa afirmación era
+  # falsa tres corridas seguidas: la base SÍ se limpiaba entre pasadas, y el estado venía del
+  # intento anterior porque su base no se tiraba al rehacer el worktree.
+  ( cd "$BASE" && MYSQL_DB="$db" bash scripts/entorno.sh --limpiar ) >/dev/null 2>&1
 }
 
 # La base de un worktree se va CON el worktree.
@@ -427,7 +433,17 @@ limpiar_base_del_arbol() {
 # no está, y nadie sabría qué tirar.
 tirar_base_del_worktree() {
   local wt="$1" proy ent db
-  [ -n "$wt" ] && [ -d "$wt" ] || return 0
+  [ -n "$wt" ] || return 0
+  # Un worktree que ya no está en el disco no es «nada que hacer»: es que alguien llamó a
+  # esto DESPUÉS de borrarlo, y entonces la base queda viva y nadie se entera. Fue
+  # exactamente lo que pasó en `escribir-tests.sh`, donde la llamada estaba después de un
+  # `rm -rf`. El aviso es el que convierte un silencio en un dato.
+  if [ ! -d "$wt" ]; then
+    echo "     ⚠ $wt ya no está: no pude saber qué base tirar. Si era un worktree con base" >&2
+    echo "        propia, quedó viva en el servidor. Hay que tirarla ANTES de borrar el" >&2
+    echo "        directorio, porque su nombre vive en su .entorno." >&2
+    return 0
+  fi
   proy="$wt/${PROYECTO:-.}"
   [ -x "$BASE/scripts/entorno.sh" ] || return 0
   ent="$proy/.entorno"
