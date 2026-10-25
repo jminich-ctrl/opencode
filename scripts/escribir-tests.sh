@@ -375,6 +375,9 @@ for id in "$@"; do
         cp "$f" "$tmp/$(echo "$f" | tr / _)"
         git checkout HEAD -- "$f" 2>/dev/null || rm -f "$f"
       done
+      # Cada pasada arranca con la base vacía. Sin esto, la segunda choca con lo que
+      # insertó la primera y el veredicto se lo cobra al test: ver `limpiar_base_del_arbol`.
+      limpiar_base_del_arbol "$wt"
       if eval "$prueba" >/dev/null 2>&1; then
         malo "el test PASA con el código de antes: no prueba nada"
       else
@@ -382,6 +385,7 @@ for id in "$@"; do
       fi
       for f in $impl; do cp "$tmp/$(echo "$f" | tr / _)" "$f"; done
       rm -rf "$tmp"
+      limpiar_base_del_arbol "$wt"
       if eval "$prueba" >/dev/null 2>&1; then
         echo "  ✓ pasa con la implementación"
         git add -A >/dev/null 2>&1
@@ -439,6 +443,10 @@ for id in "$@"; do
         # mismo motivo. Es el mismo control, en el lugar donde más barato sale.
         if [ "$fallos" = "0" ]; then
           if python3 "$AQUI/vaciar.py" $impl 2>/dev/null | grep -q "vaciada"; then
+            # La TERCERA pasada, y tiene el mismo problema que las dos de arriba: arrancaría
+            # con lo que dejaron ellas. No la había visto al conectar la limpieza, y la
+            # descubrió un test que contaba las pasadas y encontró tres donde yo dije dos.
+            limpiar_base_del_arbol "$wt"
             if eval "$prueba" >/dev/null 2>&1; then
               malo "el test pasa con los cuerpos VACÍOS: verifica que el símbolo exista, no lo que hace"
               echo "     Un stub que devuelve None lo satisface. Mirá si falta el caso positivo:"

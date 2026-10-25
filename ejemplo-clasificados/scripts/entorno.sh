@@ -116,6 +116,40 @@ if [ -x "$PROY/.mysql/dist/bin/mysql" ]; then PATH="$PROY/.mysql/dist/bin:$PATH"
 # NO se tira la base del tronco: ésa es la del proyecto, la que el humano mira entre corridas,
 # y un `--tirar` mal invocado no puede llevársela. Por eso se exige que el nombre no sea el
 # de por omisión.
+# ── `--limpiar`: deja la base vacía pero con el esquema puesto.
+#
+# Por qué hace falta ADEMÁS del aislamiento por worktree: el validador de tests corre el mismo
+# test DOS VECES —una sin la implementación y otra con ella— y el test inserta sus datos en la
+# preparación, con implementación o sin ella. Así que la segunda pasada choca con la fila que
+# dejó la primera SOBRE LA MISMA BASE, por nueva que sea. Medido el 2026-10-25: con la base
+# propia ya creada, T26 seguía dando
+#   Duplicate entry 'test@example.com' for key 'usuarios.email'
+#
+# Aislar por worktree era condición necesaria y no suficiente: lo que lo vuelve posible es que
+# ahora limpiar no le rompe nada a nadie, porque la base es de un solo árbol. Era la única
+# objeción que tenía esta salida.
+#
+# `_migraciones` NO se vacía: es la contabilidad del esquema, no datos de prueba. Vaciarla
+# haría que la próxima pasada reaplicara todo.
+if [ "${1:-}" = "--limpiar" ]; then
+  if [ "$BASE_DATOS" = "clasificados" ]; then
+    echo "✗ me pedís vaciar la base del tronco (\`clasificados\`). No lo hago." >&2
+    exit 1
+  fi
+  vivo || { echo "· el servidor no está arriba: no hay nada que limpiar"; exit 0; }
+  TABLAS="$(mysql --no-defaults --protocol=TCP -h 127.0.0.1 -P "$PUERTO" -u root "$BASE_DATOS" \
+            -N -B -e "SELECT table_name FROM information_schema.tables
+                      WHERE table_schema='$BASE_DATOS' AND table_name<>'_migraciones'" 2>/dev/null)"
+  [ -n "$TABLAS" ] || exit 0
+  SQL="SET FOREIGN_KEY_CHECKS=0;"
+  for tb in $TABLAS; do SQL="$SQL TRUNCATE TABLE \`$tb\`;"; done
+  SQL="$SQL SET FOREIGN_KEY_CHECKS=1;"
+  mysql --no-defaults --protocol=TCP -h 127.0.0.1 -P "$PUERTO" -u root "$BASE_DATOS" \
+        -e "$SQL" >/dev/null 2>&1 \
+    || { echo "⚠ no pude vaciar \`$BASE_DATOS\`" >&2; exit 1; }
+  exit 0
+fi
+
 if [ "${1:-}" = "--tirar" ]; then
   if [ "$BASE_DATOS" = "clasificados" ]; then
     echo "✗ me pedís tirar la base del tronco (\`clasificados\`). No lo hago." >&2

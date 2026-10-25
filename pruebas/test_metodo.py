@@ -9102,3 +9102,68 @@ class TestUnaBasePorWorktree(unittest.TestCase):
                     previas = "\n".join(lineas[max(0, i - 3):i])
                     self.assertIn("tirar_base_del_worktree", previas,
                                   f"{n}:{i + 1} borra el worktree sin tirar su base:\n{l}")
+
+
+class TestLaBaseSeVaciaAntesDeCadaPasada(unittest.TestCase):
+    """Aislar la base por worktree era NECESARIO y NO SUFICIENTE, y lo mostró la corrida.
+
+    Con la base propia ya creada y anunciada —«· base de datos de este worktree:
+    clasificados_tests_T26»— T26 SEGUÍA dando:
+
+        Duplicate entry 'test@example.com' for key 'usuarios.email'
+
+    Porque el choque no venía de una corrida anterior: viene de las DOS PASADAS del propio
+    validador —una sin la implementación y otra con ella— sobre la misma base. El test inserta
+    sus datos en la preparación, haya implementación o no, así que la segunda encuentra la fila
+    de la primera por nueva que sea la base.
+
+    Lo que el aislamiento habilitó es el arreglo: vaciar la base no le rompe nada a ninguna
+    tarea hermana, porque ahora es de un solo árbol. Era la única objeción que esta salida
+    tenía cuando se la planteé."""
+
+    def test_cada_pasada_de_la_suite_se_precede_de_la_limpieza(self):
+        lineas = (SCRIPTS / "escribir-tests.sh").read_text().splitlines()
+        # TODAS las pasadas que deciden, sin fijar el número: mi primera versión exigió DOS y
+        # el validador tiene TRES —me había olvidado del brazo nulo, que también corre la
+        # suite—. El test lo encontró, que es para lo que está; fijar el número habría
+        # convertido un hallazgo en un rojo sobre mi propia cuenta.
+        pasadas = [i for i, l in enumerate(lineas) if 'eval "$prueba" >/dev/null 2>&1; then' in l]
+        self.assertGreaterEqual(len(pasadas), 2,
+                                f"esperaba al menos dos pasadas; encontré {len(pasadas)}")
+        # Busca LA LLAMADA, no el nombre: mi primera versión miraba si el nombre aparecía en
+        # las líneas previas, y lo encontraba en el COMENTARIO que explica la llamada. Quitando
+        # la llamada, el test seguía verde. Sexta vez en dos días que una guarda mía matchea
+        # prosa; el patrón es mío.
+        for i in pasadas:
+            previas = [l.strip() for l in lineas[max(0, i - 6):i]]
+            self.assertIn('limpiar_base_del_arbol "$wt"', previas,
+                          f"la pasada de la línea {i + 1} arranca con lo que dejó la anterior:"
+                          f"\n" + "\n".join(previas))
+
+    def test_no_vacia_la_base_del_tronco(self):
+        """Dos guardas, porque vaciar la base del proyecto sería borrarle los datos a una
+        persona: el método no la toca si el `.entorno` es un ENLACE —ése es el del tronco— y el
+        proyecto se niega si el nombre es el de por omisión."""
+        comun = (SCRIPTS / "_comun.sh").read_text()
+        i = comun.index("limpiar_base_del_arbol() {")
+        bloque = comun[i:comun.index("\n}", i)]
+        self.assertIn('[ ! -L "$ent" ]', bloque, f"\n{bloque}")
+        ent = RAIZ / "ejemplo-clasificados" / "scripts" / "entorno.sh"
+        if not ent.exists():
+            self.skipTest("este repo ya no tiene ejemplo-clasificados")
+        r = correr(f'MYSQL_DB=clasificados bash "{ent}" --limpiar', ent.parent.parent)
+        self.assertNotEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("base del tronco", r.stdout + r.stderr, f"\n{r.stdout}{r.stderr}")
+
+    def test_conserva_la_contabilidad_del_esquema(self):
+        """`_migraciones` no se vacía: es la contabilidad del esquema, no datos de prueba.
+        Vaciarla haría que la pasada siguiente reaplicara todo."""
+        ent = RAIZ / "ejemplo-clasificados" / "scripts" / "entorno.sh"
+        if not ent.exists():
+            self.skipTest("este repo ya no tiene ejemplo-clasificados")
+        fuente = ent.read_text()
+        i = fuente.index("--limpiar")
+        bloque = fuente[i:i + 1800]
+        self.assertIn("_migraciones", bloque, f"\n{bloque[:400]}")
+        self.assertIn("FOREIGN_KEY_CHECKS", bloque,
+                      "sin apagar las claves foráneas, truncar en el orden equivocado falla")

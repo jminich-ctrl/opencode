@@ -381,6 +381,33 @@ plataforma_responde() {
 # que estaban por borrarse. Sin esto, cada corrida sigue destruyendo material.
 #
 #   conservar_intento <worktree> <id>
+# Deja la base del árbol vacía y con el esquema puesto, antes de una pasada de la suite.
+#
+#   limpiar_base_del_arbol <ruta del worktree>
+#
+# El validador de tests corre el MISMO test dos veces —una sin la implementación y otra con
+# ella— y el test inserta sus datos en la preparación, haya implementación o no. Así que la
+# segunda pasada choca con la fila que dejó la primera SOBRE LA MISMA BASE, por nueva que sea.
+# Medido el 2026-10-25: con la base propia ya creada y anunciada, T26 seguía dando
+# `Duplicate entry 'test@example.com' for key 'usuarios.email'`.
+#
+# O sea que aislar por worktree era NECESARIO y NO SUFICIENTE. Lo que el aislamiento habilita
+# es esto: vaciar la base no le rompe nada a ninguna tarea hermana, porque es de un solo
+# árbol. Era la única objeción que esta salida tenía.
+#
+# Vacía el PROYECTO y no el método, igual que el DROP: el método no sabe qué tablas hay.
+limpiar_base_del_arbol() {
+  local wt="$1" ent db
+  [ -n "$wt" ] && [ -d "$wt" ] || return 0
+  [ -x "$BASE/scripts/entorno.sh" ] || return 0
+  ent="$wt/${PROYECTO:-.}/.entorno"
+  # Un ENLACE es el `.entorno` del tronco: ésa es la base del proyecto y no se vacía.
+  [ -f "$ent" ] && [ ! -L "$ent" ] || return 0
+  db="$(sed -n 's/^export MYSQL_DB=//p' "$ent" | head -1 | tr -d "\"'")"
+  [ -n "$db" ] || return 0
+  ( cd "$BASE" && MYSQL_DB="$db" bash scripts/entorno.sh --limpiar ) >/dev/null 2>&1 || true
+}
+
 # La base de un worktree se va CON el worktree.
 #
 #   tirar_base_del_worktree <ruta del worktree>
