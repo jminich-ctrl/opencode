@@ -591,11 +591,32 @@ for id in "$@"; do
           # rehacer el worktree. Un veredicto que nombra la causa equivocada cuesta más que
           # uno que dice «no sé».
           if [ "${BASE_VACIA_AL_EMPEZAR:-0}" = "1" ]; then
-            malo "el test choca con datos que insertó ÉL MISMO: la base arrancó vacía esta pasada."
-            echo "     $DETALLE"
-            echo "     La limpieza corrió y funcionó, así que no hay estado de otra corrida."
-            echo "     El test inserta la misma fila dos veces —o la inserta y no la limpia"
-            echo "     entre sus propios casos—. Eso lo arregla el test, no el entorno."
+            # `IntegrityError` es una FAMILIA, no un error. Con la base vacía, un duplicado
+            # (1062) y una clave foránea fallida (1452) piden arreglos casi opuestos, y mi
+            # primera versión afirmaba «inserta la misma fila dos veces» para los dos.
+            #
+            # Medido el 2026-10-25 en T16: su test inserta favoritos para un usuario que no
+            # existe —la limpieza dejó la base vacía— y recibió «inserta la misma fila dos
+            # veces», que no describe nada de lo que pasó. Un veredicto que nombra la causa
+            # equivocada cuesta más que uno que dice «no sé»: es la tercera vez hoy.
+            if printf '%s' "$DETALLE" | grep -qiE "\b1452,|foreign key|FOREIGN KEY"; then
+              malo "el test referencia filas que no existen: la base arranca VACÍA cada pasada."
+              echo "     $DETALLE"
+              echo "     No es estado de otra corrida: la limpieza corrió y funcionó. El test"
+              echo "     da por sentados datos semilla —un usuario, un anuncio— que nadie creó."
+              echo "     Tiene que crear lo que referencia, en su propio setUp."
+            elif printf '%s' "$DETALLE" | grep -qiE "\b1048,|cannot be null|NOT NULL"; then
+              malo "el test deja sin valor una columna que no admite nulos."
+              echo "     $DETALLE"
+              echo "     La migración la declara NOT NULL sin default: hay que darle un valor"
+              echo "     o el enunciado está pidiendo una fila que el esquema no acepta."
+            else
+              malo "el test choca con datos que insertó ÉL MISMO: la base arrancó vacía esta pasada."
+              echo "     $DETALLE"
+              echo "     La limpieza corrió y funcionó, así que no hay estado de otra corrida."
+              echo "     El test inserta la misma fila dos veces —o la inserta y no la limpia"
+              echo "     entre sus propios casos—. Eso lo arregla el test, no el entorno."
+            fi
           else
             echo "  ⊘ $id: el test choca con datos que YA estaban en la base, no con su lógica."
             echo "     $DETALLE"

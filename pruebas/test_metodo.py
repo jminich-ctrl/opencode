@@ -10732,3 +10732,75 @@ class TestElPorQueFallaNoPuedeCitarAUnVecino(CasoBase):
                       f"el motivo sigue saliendo de la salida completa:\n{bloque[-400:]}")
         self.assertIn("correr-suite.sh \"$RUTA_PE::$CLASE_PE\"", bloque,
                       "y la corrida tiene que estar acotada al test de la tarea")
+
+
+class TestIntegrityErrorEsUnaFamiliaYNoUnError(unittest.TestCase):
+    """Con la base vacía, un duplicado y una clave foránea fallida piden arreglos casi
+    OPUESTOS, y el mensaje afirmaba «inserta la misma fila dos veces» para los dos.
+
+      · 1062 «Duplicate entry» → el test inserta la misma fila dos veces, o no limpia entre
+        sus propios casos. El arreglo está en el test;
+      · 1452 «foreign key constraint fails» → el test referencia filas que NO EXISTEN. La
+        base arranca vacía cada pasada, así que los datos semilla que da por sentados no
+        están. El arreglo es que los cree él, en su setUp;
+      · 1048 «cannot be null» → una columna NOT NULL sin valor. Puede ser del test o del
+        enunciado, que pide una fila que el esquema no acepta.
+
+    Medido el 2026-10-25 en T16, la primera tarea limpia que pasó por el validador con los
+    chequeos de ese día: su test inserta favoritos para un usuario inexistente y recibió
+    «inserta la misma fila dos veces», que no describe nada de lo que pasó. Un veredicto que
+    nombra la causa equivocada cuesta más que uno que dice «no sé», y es la tercera vez en el
+    día — las otras dos fueron el ⊘ que culpaba al método y el «por qué falla» que citaba a un
+    vecino.
+
+    El patrón que dispara la rama es `IntegrityError` genérico, y eso está bien: la familia
+    entera merece un veredicto medido. Lo que no puede es tener UN mensaje."""
+
+    def ramas(self):
+        """Sin comentarios. Los de este arreglo CITAN la frase vieja —«inserta la misma fila
+        dos veces»— para explicar que ya no se usa para la FK, así que buscarla en el texto
+        crudo la encuentra en la prosa. Octava vez en el día que un test mío matchea un
+        comentario; el patrón es mío y el filtro va en el helper, no en cada aserción."""
+        fuente = (SCRIPTS / "escribir-tests.sh").read_text()
+        codigo = "\n".join(l for l in fuente.split("\n") if not l.strip().startswith("#"))
+        i = codigo.index('BASE_VACIA_AL_EMPEZAR:-0}" = "1"')
+        return codigo[i:i + 2200]
+
+    def test_la_clave_foranea_tiene_su_propio_veredicto(self):
+        bloque = self.ramas()
+        self.assertIn("1452", bloque, f"no distingue la FK:\n{bloque[:400]}")
+        i = bloque.index("1452")
+        rama = bloque[i:bloque.index("elif", i)]
+        self.assertIn("no existen", rama, f"\n{rama}")
+        self.assertIn("setUp", rama,
+                      "y tiene que decir qué hacer: crear lo que referencia")
+        self.assertNotIn("la misma fila dos veces", rama,
+                         "una FK fallida no es un duplicado")
+
+    def test_el_not_null_tambien(self):
+        bloque = self.ramas()
+        self.assertIn("1048", bloque, f"no distingue el NOT NULL:\n{bloque[:400]}")
+        i = bloque.index("1048")
+        rama = bloque[i:bloque.index("else", i)]
+        self.assertIn("NOT NULL", rama, f"\n{rama}")
+        # Y no se lo cobra sólo al test: puede ser el enunciado pidiendo una fila imposible.
+        self.assertIn("enunciado", rama,
+                      "puede ser del enunciado, y el veredicto no puede cerrarlo de antemano")
+
+    def test_el_duplicado_conserva_el_suyo(self):
+        """El control: el veredicto que ya estaba medido no se pierde al agregar los otros."""
+        bloque = self.ramas()
+        i = bloque.rindex("la misma fila dos veces")
+        rama = bloque[max(0, i - 600):i + 200]
+        self.assertIn("insertó ÉL MISMO", rama, f"\n{rama}")
+        self.assertIn("no hay estado de otra corrida", rama)
+
+    def test_las_tres_ramas_le_cobran_al_test_y_no_al_metodo(self):
+        """Las tres son `malo`, no ⊘: con la base vacía el método hizo su parte, y el ⊘
+        existe para cuando NO pudo. Si una rama fuera ⊘, el agente no recibiría el rojo."""
+        bloque = self.ramas()
+        hasta_else = bloque[:bloque.rindex("else")]
+        self.assertEqual(hasta_else.count("malo "), 3,
+                         f"las tres ramas tienen que cobrarle al test:\n{hasta_else}")
+        self.assertNotIn("⊘", hasta_else,
+                         "con la base vacía no corresponde un ⊘: el método hizo su parte")
