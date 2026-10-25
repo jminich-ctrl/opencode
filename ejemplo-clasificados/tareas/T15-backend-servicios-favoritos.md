@@ -1,6 +1,6 @@
 # T15 — Backend servicios favoritos
 
-**Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
+**Estado:** ✅ hecha
 **Depende de:** T14
 **Archivos que podés tocar:** backend/app/servicios/favorites.py
 **Prohibido tocar:** 

@@ -83,7 +83,7 @@ vez de la aplicación.
 | T07 | Login page y servicio auth frontend | T31 | frontend/src/pages/Login.jsx, frontend/src/services/auth.ts | ✅ hecha |
 | T08 | Listado y detalle de avisos frontend | T07 | frontend/src/pages/AdsList.jsx, frontend/src/pages/AdDetail.jsx, frontend/src/services/ads.ts | ✅ hecha |
 | T14 | Favoritos datos | T05a | backend/app/datos/favorites.py | ✅ hecha |
-| T15 | Favoritos servicio | T14 | backend/app/servicios/favorites.py | pendiente |
+| T15 | Favoritos servicio | T14 | backend/app/servicios/favorites.py | ✅ hecha |
 | T16 | Favoritos rutas | T15, T06c | backend/app/rutas/favorites.py | pendiente |
 | T17 | Favoritos servicio frontend | T16, T08 | frontend/src/services/favorites.ts | pendiente |
 | T18 | Favoritos UI lista | T17 | frontend/src/pages/AdsList.jsx | pendiente |
