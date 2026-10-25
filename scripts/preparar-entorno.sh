@@ -143,6 +143,36 @@ if [ -x "$BASE/scripts/entorno.sh" ]; then
        ENTORNO_DESTINO="$DESTINO" MIGRACIONES_DESDE="$DESTINO" \
        bash scripts/entorno.sh ) || {
     echo "✗ los servicios del proyecto no están listos. El gate iba a reprobar por eso."; exit 1; }
+  # ── Lo que informamos tiene que ser lo que quedó escrito.
+  #
+  # El `.entorno` es la ÚNICA fuente de la base para todo lo que viene después: el test la
+  # lee de ahí, y `limpiar_base_del_arbol` también. Si el nombre que derivamos y el que quedó
+  # escrito no son el mismo, el método informa una base, limpia otra y el test usa una
+  # tercera — y el choque reaparece como `Duplicate entry` con el veredicto cobrado al test,
+  # que es el defecto que se cerró el 2026-10-25 y volvió a aparecer ese mismo día.
+  #
+  # Medido ese día en la corrida de T26: el método informó `clasificados_tests_T26`, el
+  # `.entorno` quedó diciendo `clasificados_tests_T26_tests_T26` —el sufijo dos veces— y las
+  # DOS bases existen en el servidor, con una fila cada una. `limpiar_base_del_arbol` vació
+  # la del `.entorno` y dejó la otra intacta.
+  #
+  # No pude reproducir cómo se duplica: tres pasadas seguidas de este script dan el mismo
+  # nombre, y `entorno.sh` no deriva nada —escribe el `MYSQL_DB` que recibe—. Así que esto no
+  # es el arreglo de la causa, es el chequeo que la va a atrapar con los dos nombres a la
+  # vista la próxima vez que pase. Un desacuerdo acá no se puede dejar pasar en silencio: es
+  # barato de ver y caro de diagnosticar después.
+  if [ -n "$DB_ARBOL" ] && [ -f "$DESTINO/.entorno" ]; then
+    DB_ESCRITA="$(sed -n 's/^export MYSQL_DB=//p' "$DESTINO/.entorno" | head -1 | tr -d "\"'")"
+    if [ "$DB_ESCRITA" != "$DB_ARBOL" ]; then
+      echo "✗ el nombre de la base no coincide con el que quedó escrito:"
+      echo "     derivado por el método: $DB_ARBOL"
+      echo "     escrito en $DESTINO/.entorno: ${DB_ESCRITA:-(vacío)}"
+      echo "   El .entorno es la única fuente para el test y para la limpieza. Con dos"
+      echo "   nombres, se limpia una base y se usa otra, y el choque vuelve como"
+      echo "   «Duplicate entry» cobrado al test."
+      exit 1
+    fi
+  fi
   HIZO=1
 fi
 

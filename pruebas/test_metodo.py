@@ -10056,3 +10056,84 @@ class TestLoViejoNoVuelveAPasarPorElInstrumentoNuevo(unittest.TestCase):
         r = self.auditar(d)
         self.assertEqual(r.returncode, 2, f"sin test declarado no hay nada que auditar:\n{r.stdout}")
         self.assertIn("ni el plan ni su archivo declaran su test", r.stdout, f"\n{r.stdout}")
+
+
+class TestElNombreDeLaBaseQueSeInformaEsElQueQuedaEscrito(unittest.TestCase):
+    """El `.entorno` es la ÚNICA fuente de la base para todo lo que viene después: el test la
+    lee de ahí y `limpiar_base_del_arbol` también. Si el nombre que el método deriva y el que
+    queda escrito no son el mismo, se informa una base, se limpia otra y el test usa una
+    tercera — y el choque reaparece como `Duplicate entry` con el veredicto cobrado al test,
+    que es el defecto que se cerró el 2026-10-25 y volvió a aparecer ese mismo día.
+
+    Medido en la corrida de T26 de ese día: el método informó `clasificados_tests_T26`, el
+    `.entorno` quedó diciendo `clasificados_tests_T26_tests_T26` —el sufijo dos veces— y las
+    DOS bases existían en el servidor con una fila cada una. `limpiar_base_del_arbol` vació la
+    del `.entorno` y dejó la otra intacta.
+
+    NO es el arreglo de la causa, y eso está dicho también en el script: tres pasadas seguidas
+    de `preparar-entorno.sh` dan el mismo nombre, y el `entorno.sh` del proyecto no deriva
+    nada —escribe el `MYSQL_DB` que recibe—. Es el chequeo que va a atrapar la causa con los
+    dos nombres a la vista la próxima vez que pase. Un desacuerdo acá es barato de ver y caro
+    de diagnosticar después."""
+
+    def proyecto(self, lo_que_escribe_entorno):
+        """Un proyecto con un `entorno.sh` de juguete: escribe el `.entorno` que le pidan, sin
+        MySQL ni migraciones. La condición que se mide es el desacuerdo de nombres, y para eso
+        no hace falta una base de verdad."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-nombrebase-")).resolve()
+        (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
+        self.addCleanup(shutil.rmtree, str(d), True)
+        proy = d / "proy"
+        (proy / "scripts").mkdir(parents=True)
+        # `ubicar_proyecto` exige `tareas/`: sin eso el script sale por stderr antes de
+        # llegar al chequeo, y los tres tests fallaban sin decir por qué.
+        (proy / "tareas").mkdir()
+        (proy / "tareas" / "T01-cosa.md").write_text(
+            "# T01 — Cosa\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** src/cosa.py\n**Prohibido tocar:** Ninguno\n")
+        (proy / ".gitignore").write_text(".entorno\n")
+        (proy / ".entorno").write_text("export MYSQL_DB=basedeljuguete\n")
+        ent = proy / "scripts" / "entorno.sh"
+        ent.write_text(
+            "#!/usr/bin/env bash\n"
+            'DESTINO="${ENTORNO_DESTINO:-.}"\n'
+            'mkdir -p "$DESTINO"\n'
+            f'printf "export MYSQL_DB=%s\\n" "{lo_que_escribe_entorno}" > "$DESTINO/.entorno"\n')
+        ent.chmod(0o755)
+        (proy / "PLAN.md").write_text("# Plan\n")
+        correr("git init -q .", d)
+        correr("git -c user.email=t@t -c user.name=t add -A", d)
+        correr('git -c user.email=t@t -c user.name=t commit -qm base', d)
+        return d
+
+    def preparar(self, d, nombre_wt="tests-TNN"):
+        wt = d.parent / nombre_wt
+        self.addCleanup(shutil.rmtree, str(wt), True)
+        correr(f"git worktree add -q --detach {wt} HEAD", d)
+        self.addCleanup(lambda: correr(f"git worktree remove --force {wt}", d))
+        return correr(f"PROYECTO=proy bash {SCRIPTS}/preparar-entorno.sh {wt}/proy", d)
+
+    def test_si_el_nombre_escrito_no_es_el_derivado_para(self):
+        """El caso de T26: el `.entorno` termina con otro nombre y nadie se entera."""
+        d = self.proyecto("basedeljuguete_tests_TNN_tests_TNN")
+        r = self.preparar(d)
+        self.assertNotEqual(r.returncode, 0,
+                            f"dos nombres para una base no se puede dejar pasar:\n{r.stdout}")
+        self.assertIn("no coincide", r.stdout, f"\n{r.stdout}")
+        # Los DOS nombres a la vista: sin eso, diagnosticarlo cuesta lo que costó hoy.
+        self.assertIn("basedeljuguete_tests_TNN", r.stdout, "falta el nombre derivado")
+        self.assertIn("basedeljuguete_tests_TNN_tests_TNN", r.stdout, "falta el escrito")
+
+    def test_si_coinciden_no_molesta(self):
+        """El control: el chequeo no puede frenar el caso bueno, que es todas las corridas."""
+        d = self.proyecto("basedeljuguete_tests_TNN")
+        r = self.preparar(d)
+        self.assertEqual(r.returncode, 0, f"frenó el caso bueno:\n{r.stdout}{r.stderr}")
+
+    def test_un_entorno_vacio_tambien_para(self):
+        """Un `.entorno` sin `MYSQL_DB` deja al test y a la limpieza sin fuente: el valor por
+        omisión del proyecto no es la base del worktree, así que es el mismo choque."""
+        d = self.proyecto("")
+        r = self.preparar(d)
+        self.assertNotEqual(r.returncode, 0, f"\n{r.stdout}")
+        self.assertIn("(vacío)", r.stdout, f"y tiene que decir que quedó vacío:\n{r.stdout}")
