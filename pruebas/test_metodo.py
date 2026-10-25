@@ -9752,3 +9752,120 @@ class TestReabrirNoPuedeQuedarBloqueadoPorElDisco(unittest.TestCase):
         bloque = codigo[max(0, i - 900):i]
         self.assertIn("tests_plan.values()", bloque,
                       f"la tabla de tests tiene que entrar en los asignados:\n{bloque[-400:]}")
+
+
+class TestReabrirNoPuedeRomperUnaTareaQueSigueHecha(unittest.TestCase):
+    """Reabrir rompe el test de la tarea que reabre: eso es tests-first y es el punto. Lo que
+    no puede es romper el de OTRA tarea que sigue marcada como hecha — ésa queda con su verde
+    cobrado y su código afuera, y el rojo se lo va a cobrar la próxima tarea que corra.
+
+    Medido el 2026-10-25 reabriendo T04 de clasificados: dejó 4 tests en error, uno de ellos
+    `test_sesion.py`, que es de T04b — una tarea ✅ hecha que declara el mismo
+    `backend/app/servicios/auth.py`. Los dos jueces que había miraban el plan y las
+    contradicciones de coherencia, y ninguno miraba el árbol.
+
+    El aviso viene con nombre propio porque las dos autoridades están a mano: la tabla de
+    tests del plan dice de quién es cada archivo de test, y el archivo de cada tarea dice su
+    estado. Quien decida la cascada no tiene que adivinar cuál."""
+
+    def proyecto(self, estado_de_T02="✅ hecha"):
+        """T01 y T02 comparten `src/compartido.py`, y T02 está cerrada. Es la forma de
+        T04/T04b: la segunda extiende lo que escribió la primera."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-tercerjuez-")).resolve()
+        (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
+        self.addCleanup(shutil.rmtree, str(d), True)
+        for sub in ("tareas", "scripts", "src", "tests"):
+            (d / sub).mkdir()
+        shutil.copy(PLANTILLAS / "correr-suite.sh", d / "scripts" / "correr-suite.sh")
+        (d / "src" / "__init__.py").touch()
+        (d / "tests" / "__init__.py").touch()
+        (d / "src" / "compartido.py").write_text(
+            "def uno():\n    return 1\n\n\ndef dos():\n    return 2\n")
+        # `unittest.TestCase` y no una clase pelada: la plantilla `correr-suite.sh` del
+        # proyecto de juguete corre unittest, que no descubre las clases estilo pytest. Mi
+        # primera versión del fixture no corría un solo test —«Ran 0 tests»— así que el juez
+        # no tenía nada que medir y el caso daba verde con el defecto puesto.
+        (d / "tests" / "test_uno.py").write_text(
+            "import unittest\nfrom src.compartido import uno\n\n\n"
+            "class TestUno(unittest.TestCase):\n"
+            "    def test_uno(self):\n        self.assertEqual(uno(), 1)\n")
+        (d / "tests" / "test_dos.py").write_text(
+            "import unittest\nfrom src.compartido import dos\n\n\n"
+            "class TestDos(unittest.TestCase):\n"
+            "    def test_dos(self):\n        self.assertEqual(dos(), 2)\n")
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n**Estado del gate G0:** aprobado por nadie el 2026-01-01\n\n"
+            "## Requisitos\n\n- `uno` — que haya uno\n\n"
+            "## Tareas\n\n| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
+            "| T01 | Uno | — | src/compartido.py | ✅ hecha |\n"
+            f"| T02 | Dos | T01 | src/compartido.py | {estado_de_T02} |\n"
+            "\n## Tests\n\n| Tarea | Archivo de test | Clase |\n|---|---|---|\n"
+            "| T01 | tests/test_uno.py | TestUno |\n"
+            "| T02 | tests/test_dos.py | TestDos |\n")
+        for tid, dep, test, clase, estado in (
+                ("T01", "—", "tests/test_uno.py", "TestUno", "✅ hecha"),
+                ("T02", "T01", "tests/test_dos.py", "TestDos", estado_de_T02)):
+            (d / "tareas" / f"{tid}-cosa.md").write_text(
+                f"# {tid} — Cosa\n\n**Estado:** {estado}\n**Depende de:** {dep}\n"
+                f"**Archivos que podés tocar:** src/compartido.py\n"
+                f"**Prohibido tocar:** Ninguno\n\n"
+                f"## Objetivo\n\nQue haya una cosa.\n\n"
+                f"## Contrato\n\n- Escribí `src/compartido.py`.\n\n"
+                f"## Tests (ya escritos, fallando)\n\n"
+                f"Archivo: `{test}`, clase `{clase}`.\n")
+        correr("git init -q .", d)
+        correr("git -c user.email=t@t -c user.name=t add -A", d)
+        correr('git -c user.email=t@t -c user.name=t commit -qm base', d)
+        return d
+
+    def test_reabrir_T01_se_revierte_porque_T02_sigue_hecha(self):
+        d = self.proyecto(estado_de_T02="✅ hecha")
+        antes = (d / "src" / "compartido.py").read_text()
+        r = correr(f"PROYECTO=. bash {SCRIPTS}/reabrir.sh T01 motivo", d)
+        self.assertNotEqual(r.returncode, 0, f"tenía que revertir:\n{r.stdout}{r.stderr}")
+        self.assertIn("marcadas como hechas", r.stdout, f"\n{r.stdout}")
+        self.assertIn("T02", r.stdout, "el aviso tiene que nombrar la tarea afectada")
+        self.assertEqual((d / "src" / "compartido.py").read_text(), antes,
+                         "revirtió el veredicto pero dejó el código afuera")
+        self.assertIn("**Estado:** ✅ hecha", (d / "tareas" / "T01-cosa.md").read_text(),
+                      "y el estado de la tarea tiene que volver")
+
+    def test_si_T02_ya_estaba_pendiente_la_reapertura_procede(self):
+        """El control, y es el que decide si el juez sirve: no puede bloquear toda
+        reapertura. Con T02 pendiente su test ya no es un verde cobrado, así que romperlo no
+        le quita nada a nadie."""
+        d = self.proyecto(estado_de_T02="pendiente")
+        r = correr(f"PROYECTO=. bash {SCRIPTS}/reabrir.sh T01 motivo", d)
+        self.assertEqual(r.returncode, 0,
+                         f"el juez no puede bloquear una reapertura legítima:"
+                         f"\n{r.stdout}{r.stderr}")
+        self.assertFalse((d / "src" / "compartido.py").exists(),
+                         "si procede, el código tiene que salir del tronco")
+
+    def test_el_juez_no_rasca_la_salida_de_la_suite(self):
+        """La primera versión buscaba `FAILED ruta::test` y `ERROR ruta`, que es el formato de
+        pytest. La plantilla `correr-suite.sh` de un proyecto con unittest imprime `FAILED
+        (errors=2)`, así que el grep matcheaba eso como si fuera un nombre de test y el juez
+        quedaba comparando basura — fallando ABIERTO en todo proyecto unittest, que es la
+        mitad de los ejemplos. Quinta vez que el que raspa busca una forma que el productor no
+        emite. Lo único que se usa es el código de salida, que es el contrato que el gate ya
+        usa para juzgar."""
+        fuente = (SCRIPTS / "reabrir.sh").read_text()
+        codigo = "\n".join(l for l in fuente.split("\n") if not l.strip().startswith("#"))
+        i = codigo.index("marcadas como hechas")
+        bloque = codigo[max(0, i - 2000):i]
+        self.assertNotIn("FAILED", bloque,
+                         f"el juez no puede depender del formato de un corredor:\n{bloque}")
+        self.assertIn("correr-suite.sh", bloque, "mide corriendo el test de la otra tarea")
+
+    def test_el_test_de_la_otra_tarea_sale_de_la_tabla_de_tests(self):
+        """Las dos tablas del plan tienen tres columnas y la de tareas viene primero —`| T04b
+        | Verificar sesión | T04 |`—, así que un grep por la fila de la tarea devuelve el
+        título y la dependencia. Tercera vez hoy que un extractor de este método lee la tabla
+        de al lado, y la suite ya tiene un test que dice «la segunda tabla no pisa la
+        primera»."""
+        d = self.proyecto(estado_de_T02="✅ hecha")
+        r = correr(f"PROYECTO=. bash {SCRIPTS}/reabrir.sh T01 motivo", d)
+        self.assertIn("su test tests/test_dos.py", r.stdout,
+                      f"el juez tiene que nombrar el test que midió, no decir que no pudo:"
+                      f"\n{r.stdout}")

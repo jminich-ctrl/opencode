@@ -40,6 +40,26 @@ archivo="$(ls "$BASE/tareas/${ID}"-*.md 2>/dev/null | head -1)"
 # NUEVOS por culpa de lo que escribimos acá.
 rojos_antes="$( (cd "$BASE" && PROYECTO=. python3 "$AQUI/coherencia.py" 2>&1 | grep -c '✗') || true)"
 
+# Para el tercer juez: qué tareas CERRADAS declaran alguno de los archivos que vamos a
+# sacar. Reabrir rompe el test de la tarea que reabre —eso es tests-first y es el punto—,
+# pero no puede romper el de una tarea que sigue marcada como hecha: ésa queda con su verde
+# cobrado y su código afuera, y el rojo se lo va a cobrar la próxima tarea que corra.
+#
+# Medido el 2026-10-25 reabriendo T04: dejó 4 tests en error, uno de ellos `test_sesion.py`,
+# que es de T04b — una tarea ✅ hecha que declara el mismo `backend/app/servicios/auth.py`.
+# Los dos jueces que había miraban el plan y las contradicciones, y ninguno el árbol.
+#
+# NO se rasca la salida de la suite, y esa fue la primera versión: buscaba `FAILED ruta::test`
+# y `ERROR ruta`, que es el formato de pytest. La plantilla `correr-suite.sh` de un proyecto
+# con unittest imprime `FAILED (errors=2)`, así que el grep matcheaba eso como si fuera un
+# nombre de test y el juez quedaba comparando basura — fallando ABIERTO en todo proyecto
+# unittest, que es la mitad de los ejemplos. Quinta vez que el que raspa busca una forma que
+# el productor no emite.
+#
+# Lo único que se usa es el CÓDIGO DE SALIDA de `correr-suite.sh`, que es el contrato que el
+# gate ya usa para juzgar, y se corre sólo el test de las tareas candidatas: las cerradas que
+# declaran un archivo que estamos sacando. Son una o dos, no toda la suite.
+
 RESPALDO="$RAIZ/../reabrir-$ID-previo"
 rm -rf "$RESPALDO"; mkdir -p "$RESPALDO"
 cp "$archivo" "$RESPALDO/$(basename "$archivo")"
@@ -104,6 +124,47 @@ mal=""
 rojos_despues="$( (cd "$BASE" && PROYECTO=. python3 "$AQUI/coherencia.py" 2>&1 | grep -c '✗') || true)"
 if [ "${rojos_despues:-0}" -gt "${rojos_antes:-0}" ]; then
   mal="${mal:+$mal; }la reapertura AGREGÓ contradicciones: $rojos_antes → $rojos_despues"
+fi
+
+# ── El tercer juez: ¿rompimos el test de alguna tarea que sigue marcada como hecha?
+#
+# Las dos autoridades están a mano: el alcance de cada tarea dice qué archivos produjo, y la
+# tabla de tests del plan dice cuál es su test. Con eso el aviso viene con nombre propio y
+# quien decida la cascada no tiene que adivinar cuál.
+ajenos=""
+for tf in "$BASE"/tareas/T*.md; do
+  otro="$(basename "$tf" | sed -E 's/^(T[0-9]+[a-z]?)-.*/\1/')"
+  [ "$otro" = "$ID" ] && continue
+  grep -qE '^\*\*Estado:\*\* *(✅|hecha)' "$tf" || continue
+  # ¿Declara alguno de los archivos que sacamos?
+  suyos="$(sed -n 's/^\*\*Archivos que podés tocar:\*\* *//p' "$tf" | tr ',' '\n' \
+           | sed 's/^ *//; s/ *$//' | grep . || true)"
+  comparte=""
+  for ruta in $declarados; do
+    printf '%s\n' "$suyos" | grep -qxF "$ruta" && comparte="$ruta"
+  done
+  [ -n "$comparte" ] || continue
+  # Confirmado por medición, no por deducción: se corre SU test y se mira el rc.
+  # De la tabla de TESTS, no de la de tareas. Las dos tienen tres columnas y la de tareas
+  # viene primero —`| T04b | Verificar sesión | T04 |`—, así que un grep por la fila de la
+  # tarea devuelve el título y la dependencia. Se exige que el campo PAREZCA una ruta de
+  # archivo, que es lo que distingue una tabla de la otra sin depender de su orden. Tercera
+  # vez hoy que un extractor de este método lee la tabla de al lado.
+  su_test="$(awk -F'|' -v t="$otro" '
+    $2 ~ "^ *"t" *$" { gsub(/ |`/, "", $3); if ($3 ~ /\//  && $3 ~ /\.[a-z]+$/) { print $3; exit } }
+  ' "$BASE/PLAN.md" 2>/dev/null)"
+  if [ -n "$su_test" ] && [ -f "$BASE/$su_test" ] && [ -f "$BASE/scripts/correr-suite.sh" ]; then
+    if ! (cd "$BASE" && bash scripts/correr-suite.sh "$su_test" >/dev/null 2>&1); then
+      ajenos="${ajenos}${ajenos:+, }$otro (su test $su_test, por $comparte)"
+    fi
+  else
+    # Sin test que correr no se puede medir, y el alcance compartido ya es motivo: se avisa
+    # en vez de callar. Un chequeo que no pudo correr no es un chequeo que pasó.
+    ajenos="${ajenos}${ajenos:+, }$otro (declara $comparte; no pude correr su test)"
+  fi
+done
+if [ -n "$ajenos" ]; then
+  mal="${mal:+$mal; }rompe tarea(s) que siguen marcadas como hechas: $ajenos"
 fi
 
 if [ -n "$mal" ]; then
