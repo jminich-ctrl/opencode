@@ -9927,3 +9927,132 @@ class TestReabrirNoPuedeRomperUnaTareaQueSigueHecha(unittest.TestCase):
         self.assertIn("su test tests/test_dos.py", r.stdout,
                       f"el juez tiene que nombrar el test que midió, no decir que no pudo:"
                       f"\n{r.stdout}")
+
+
+class TestLoViejoNoVuelveAPasarPorElInstrumentoNuevo(unittest.TestCase):
+    """El método mejora sus instrumentos y los instrumentos nuevos encuentran cosas en lo ya
+    cerrado — pero nada vuelve a pasar el material viejo por el instrumento nuevo. El gate
+    corre cuando la tarea se cierra, y después nadie vuelve, así que cada chequeo que se
+    agrega sólo protege lo que viene.
+
+    Medido el 2026-10-25. Ese día se agregaron cuatro chequeos y, pasando a mano los nueve
+    pares test↔implementación que el plan de clasificados permite preguntar, aparecieron DOS
+    verdes falsos entre 19 tareas cerradas: T04 —un archivo que no implementa nada y lo dice
+    en su propio comentario— y T04b, cuyo test fue reemplazado al arreglar el brazo nulo y
+    quedó ROJO en el tronco desde entonces sin que nadie se lo atribuyera.
+
+    `auditar-cerradas.sh` no inventa instrumentos: corre los que el validador ya usa, sobre
+    el material viejo. Y no toca nada —ni estados, ni código, ni plan—: informa, y reabrir es
+    otra decisión, otro comando y otros jueces."""
+
+    def proyecto(self, cuerpo_de_la_impl, estado="✅ hecha", con_tabla=True):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-auditar-")).resolve()
+        (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
+        self.addCleanup(shutil.rmtree, str(d), True)
+        for sub in ("tareas", "scripts", "src", "tests"):
+            (d / sub).mkdir()
+        shutil.copy(PLANTILLAS / "correr-suite.sh", d / "scripts" / "correr-suite.sh")
+        (d / "src" / "__init__.py").touch()
+        (d / "tests" / "__init__.py").touch()
+        (d / "src" / "cosa.py").write_text(cuerpo_de_la_impl)
+        (d / "tests" / "test_cosa.py").write_text(
+            "import unittest\nfrom unittest.mock import patch\nimport src.cosa\n\n\n"
+            "class TestCosa(unittest.TestCase):\n"
+            "    @patch('src.cosa.f')\n"
+            "    def test_f(self, m):\n"
+            "        m.return_value = 42\n"
+            "        self.assertEqual(src.cosa.f(), 42)\n")
+        tabla = ("\n## Tests\n\n| Tarea | Archivo de test | Clase |\n|---|---|---|\n"
+                 "| T01 | tests/test_cosa.py | TestCosa |\n" if con_tabla else "")
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n**Estado del gate G0:** aprobado por nadie el 2026-01-01\n\n"
+            "## Requisitos\n\n- `cosa` — que haya una cosa\n\n"
+            "## Tareas\n\n| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
+            f"| T01 | Una cosa | — | src/cosa.py | {estado} |\n" + tabla)
+        (d / "tareas" / "T01-cosa.md").write_text(
+            f"# T01 — Una cosa\n\n**Estado:** {estado}\n**Depende de:** —\n"
+            f"**Archivos que podés tocar:** src/cosa.py\n**Prohibido tocar:** Ninguno\n\n"
+            f"## Objetivo\n\nQue haya una cosa.\n\n## Contrato\n\n- Escribí `src/cosa.py`.\n\n"
+            f"## Tests (ya escritos, fallando)\n\nArchivo: `tests/test_cosa.py`, clase `TestCosa`.\n")
+        # `_comun.sh` exige estar dentro de un repo git: sin esto el auditor salía con
+        # «Corré esto desde adentro del repo git de tu proyecto» por stderr y stdout vacío,
+        # así que los tests fallaban sin decir por qué. Un fixture al que le falta el
+        # andamio mide el andamio.
+        correr("git init -q .", d)
+        correr("git -c user.email=t@t -c user.name=t add -A", d)
+        correr('git -c user.email=t@t -c user.name=t commit -qm base', d)
+        return d
+
+    def auditar(self, d):
+        return correr(f"PROYECTO=. bash {SCRIPTS}/auditar-cerradas.sh", d)
+
+    STUB = 'def f():\n    """Lo que sea."""\n    # Por ahora devolvemos None como placeholder\n    return None\n'
+    BUENA = "def f():\n    return 42\n"
+
+    def test_encuentra_la_tarea_cerrada_cuyo_archivo_no_implementa_nada(self):
+        """El caso de T04, reproducido: cerrada, con un stub, y el test lo mockea."""
+        r = self.auditar(self.proyecto(self.STUB))
+        self.assertEqual(r.returncode, 1, f"{r.stdout}{r.stderr}")
+        self.assertIn("no pasaría el gate de hoy", r.stdout)
+        self.assertIn("NO implementa nada", r.stdout, f"\n{r.stdout}")
+        self.assertIn("T01", r.stdout, "el hallazgo viene con su sujeto")
+
+    def test_una_tarea_cerrada_sana_no_se_marca(self):
+        """El control: el auditor no puede morder lo que está bien. Misma tarea, misma forma
+        de test —con mock incluido—, pero la implementación implementa."""
+        d = self.proyecto(self.BUENA)
+        # El test mockea, así que el brazo nulo lo va a rechazar. Lo que este control mide es
+        # que NO se marque como «no implementa nada», que es otro hallazgo.
+        r = self.auditar(d)
+        self.assertNotIn("NO implementa nada", r.stdout, f"\n{r.stdout}")
+
+    def test_no_toca_nada_del_proyecto(self):
+        """Auditar informa; cambiar es otra decisión y otro comando. Si el auditor dejara el
+        estado o el código cambiados, el método estaría tomando por su cuenta la decisión que
+        `reabrir.sh` somete a tres jueces."""
+        # Con la implementación BUENA, no con el stub: sobre un archivo que sólo tiene stubs
+        # `vaciar.py` no escribe nada —no hay cuerpos que vaciar— así que no hay nada que
+        # restaurar y el test daba verde con el `--restaurar` sacado. Otra aserción más
+        # angosta que su sujeto. Acá el archivo tiene cuerpo, se vacía de verdad, y si no se
+        # restaura el proyecto queda roto.
+        d = self.proyecto(self.BUENA)
+        antes_impl = (d / "src" / "cosa.py").read_text()
+        antes_tarea = (d / "tareas" / "T01-cosa.md").read_text()
+        antes_plan = (d / "PLAN.md").read_text()
+        self.auditar(d)
+        self.assertEqual((d / "src" / "cosa.py").read_text(), antes_impl,
+                         "dejó la implementación vaciada: el brazo nulo no restauró")
+        self.assertEqual((d / "tareas" / "T01-cosa.md").read_text(), antes_tarea)
+        self.assertEqual((d / "PLAN.md").read_text(), antes_plan)
+        self.assertEqual(list((d / "src").glob("*.vaciar-original")), [],
+                         "quedaron respaldos de vaciar.py tirados")
+
+    def test_cero_auditadas_no_es_un_pase(self):
+        """Mi primera versión informaba «✓ ninguna tarea cerrada falla los chequeos de hoy»
+        después de preguntar por NINGUNA. Es el defecto que esta herramienta vino a encontrar,
+        cometido en la herramienta, y lo encontró su primera corrida sobre `ejemplo-pacman`,
+        donde no pudo leer un solo test."""
+        d = self.proyecto(self.STUB, estado="pendiente")
+        r = self.auditar(d)
+        self.assertEqual(r.returncode, 2,
+                         f"cero auditadas es un ⊘, no un verde:\n{r.stdout}{r.stderr}")
+        self.assertIn("no es un pase", r.stdout, f"\n{r.stdout}")
+
+    def test_el_test_sale_del_plan_o_del_archivo_de_la_tarea(self):
+        """`ejemplo-pacman` no tiene tabla de tests: declara el test en cada tarea. Mirando
+        sólo el plan, el auditor no servía en la mitad de los ejemplos."""
+        r = self.auditar(self.proyecto(self.STUB, con_tabla=False))
+        self.assertEqual(r.returncode, 1,
+                         f"sin tabla de tests tiene que leerlo de la tarea:\n{r.stdout}")
+        self.assertIn("NO implementa nada", r.stdout)
+
+    def test_no_adivina_el_test_por_el_nombre_del_archivo(self):
+        """En pacman `tareas/T01-laberinto.md` y `tests/test_laberinto.py` se corresponden, y
+        deducirlo sería inferir lo que el plan no dice. Se informa el hueco con su sujeto."""
+        d = self.proyecto(self.STUB, con_tabla=False)
+        t = d / "tareas" / "T01-cosa.md"
+        t.write_text(t.read_text().replace(
+            "Archivo: `tests/test_cosa.py`, clase `TestCosa`.", "Los tests ya están escritos."))
+        r = self.auditar(d)
+        self.assertEqual(r.returncode, 2, f"sin test declarado no hay nada que auditar:\n{r.stdout}")
+        self.assertIn("ni el plan ni su archivo declaran su test", r.stdout, f"\n{r.stdout}")
