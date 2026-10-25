@@ -9372,3 +9372,134 @@ class TestUnMutanteQueSobreviveAdmiteDosLecturasOpuestas(CasoBase):
         self.assertIn("NO EJECUTA", bloque, f"\n{bloque[:400]}")
         self.assertNotIn("cubre las líneas", bloque[:bloque.index("else")],
                          "en la rama del 3 no puede afirmar que cubre las líneas")
+
+
+class TestUnaAsercionQueNoPuedeFallarConNingunaImplementacion(unittest.TestCase):
+    """Los cinco pasos del validador comparan el test contra VERSIONES DEL PRODUCTO, y por
+    eso ninguno ve el test que no mira el producto en absoluto.
+
+    Medido el 2026-10-25: T26 de clasificados tenía ACEPTADO este test, uno de los tres de
+    la tarea.
+
+        password = "mi_password_segura"
+        expected_hash = hashlib.sha256(password.encode()).hexdigest()
+        assert expected_hash == hashlib.sha256(password.encode()).hexdigest()
+
+    Los dos lados son la misma expresión: no hay implementación —ninguna, nunca— con la que
+    eso falle. Pasó «falla sin la implementación» porque sus compañeros de archivo importan
+    el módulo y el import es lo que revienta; pasó el brazo nulo por lo mismo; y los
+    mutantes no lo tocan porque muta el producto, que este test no llama. Se llamaba
+    `test_insert_user_hashea_con_sha256`, afirmando lo contrario de lo que la implementación
+    documenta —que el hasheo es del servicio, no de la capa de datos—, así que leerlo por
+    encima tranquilizaba.
+
+    El chequeo es estático y exacto, y va antes de gastar tres pasadas de suite."""
+
+    def correr(self, texto, nombre="test_x.py", extra=None):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-aserciones-")).resolve()
+        (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        (d / ".git").mkdir()                     # raíz del repo: define qué es «del producto»
+        (d / "src").mkdir()
+        (d / "src" / "__init__.py").touch()
+        (d / "src" / "cosa.py").write_text("def f(x):\n    return x * 2\n")
+        for n, t in (extra or {}).items():
+            (d / n).write_text(t)
+        (d / nombre).write_text(texto)
+        return correr(f"python3 {SCRIPTS}/_aserciones.py {nombre}", d)
+
+    def test_los_dos_lados_iguales_por_una_variable_se_atrapan(self):
+        """El caso literal de T26."""
+        r = self.correr("import hashlib\n\n\n"
+                        "def test_hashea(self):\n"
+                        "    clave = 'x'\n"
+                        "    esperado = hashlib.sha256(clave.encode()).hexdigest()\n"
+                        "    assert esperado == hashlib.sha256(clave.encode()).hexdigest()\n")
+        self.assertEqual(r.returncode, 1, f"{r.stdout}{r.stderr}")
+        self.assertIn("no pueden fallar", r.stdout)
+        self.assertIn("test_hashea", r.stdout, "el hallazgo tiene que venir con su sujeto")
+
+    def test_tambien_en_la_forma_de_unittest(self):
+        r = self.correr("import hashlib\nimport unittest\n\n\n"
+                        "class TestX(unittest.TestCase):\n"
+                        "    def test_hashea(self):\n"
+                        "        esperado = hashlib.sha256(b'x').hexdigest()\n"
+                        "        self.assertEqual(esperado, hashlib.sha256(b'x').hexdigest())\n")
+        self.assertEqual(r.returncode, 1, f"{r.stdout}{r.stderr}")
+
+    # ── Los controles. Son la mitad del chequeo: uno que muerde al test honesto se apaga.
+    def test_el_test_de_idempotencia_sobre_el_producto_no_se_marca(self):
+        """`assert f(x) == f(x)` sobre una función DEL PRODUCTO es una afirmación de verdad
+        sobre el producto —que es determinista— y tiene que pasar."""
+        r = self.correr("from src.cosa import f\n\n\n"
+                        "def test_determinista():\n"
+                        "    assert f(3) == f(3)\n")
+        self.assertEqual(r.returncode, 0, f"muerde al test honesto:\n{r.stdout}{r.stderr}")
+
+    def test_el_test_de_idempotencia_sobre_un_ayudante_propio_tampoco(self):
+        """Lo midieron dos tests de esta misma suite: `assertEqual(self.huella(d),
+        self.huella(d))`, que dice «la huella tiene que ser estable». Es la afirmación, no
+        una tautología, y el chequeo la marcaba."""
+        r = self.correr("import unittest\n\n\n"
+                        "class TestX(unittest.TestCase):\n"
+                        "    def huella(self):\n        return 1\n"
+                        "    def test_estable(self):\n"
+                        "        self.assertEqual(self.huella(), self.huella())\n")
+        self.assertEqual(r.returncode, 0, f"muerde al test honesto:\n{r.stdout}{r.stderr}")
+
+    def test_que_algo_no_cambio_despues_de_una_llamada_tampoco(self):
+        """`antes = f.read_text()` … `correr(...)` … `assertEqual(antes, f.read_text())` es
+        un test legítimo de que algo NO cambió, y los dos lados son el mismo árbol. Lo que
+        lo distingue es que en el medio pasó algo.
+
+        Eran 4 de los 6 falsos positivos de la primera versión, y por un bug mío: el orden
+        era `if Assign … elif hay_Call`, así que una asignación que CONTIENE una llamada
+        —`salida = correr(...)`, la forma más común que hay— entraba por la primera rama y
+        no invalidaba nada."""
+        r = self.correr("import pathlib\nimport unittest\n\n\n"
+                        "class TestX(unittest.TestCase):\n"
+                        "    def test_no_cambio(self):\n"
+                        "        p = pathlib.Path('src/cosa.py')\n"
+                        "        antes = p.read_text()\n"
+                        "        salida = p.stat()\n"
+                        "        self.assertEqual(antes, p.read_text())\n")
+        self.assertEqual(r.returncode, 0, f"muerde al test honesto:\n{r.stdout}{r.stderr}")
+
+    def test_los_tests_que_ya_existen_pasan_todos(self):
+        """El control de verdad, y el que decide si esto se puede encender: los 31 archivos
+        de test del repo —los dos proyectos ejemplo, las plantillas y esta suite, que sola
+        tiene miles de aserciones— no pueden dar un solo falso positivo. La primera versión
+        daba 6 y los 6 eran legítimos."""
+        tests = sorted(str(p) for d in ("ejemplo-clasificados", "ejemplo-pacman",
+                                        "pruebas", "plantillas")
+                       for p in (RAIZ / d).rglob("test_*.py"))
+        self.assertGreater(len(tests), 20, "el control no sirve si no encontró los tests")
+        r = correr(f"python3 {SCRIPTS}/_aserciones.py " + " ".join(tests), RAIZ)
+        self.assertEqual(r.returncode, 0,
+                         f"falso positivo sobre tests que ya existen:\n{r.stdout}")
+
+    def test_el_validador_lo_corre_y_falla_cerrado(self):
+        """Se lee del CÓDIGO y no de los comentarios: los de este arreglo nombran el chequeo
+        varias veces y un grep ingenuo matchearía la prosa.
+
+        Falla cerrado por la lección que el fixture de esta suite aprendió a los golpes: una
+        guarda `[ -f auxiliar ]` que saltea el paso cuando el auxiliar no está hace que el
+        paso no corra nunca y nadie se entere."""
+        fuente = (SCRIPTS / "escribir-tests.sh").read_text()
+        codigo = "\n".join(l for l in fuente.split("\n") if not l.strip().startswith("#"))
+        # La INVOCACIÓN, no la mención. La primera versión de este test buscaba
+        # «_aserciones.py» en el código y daba verde con la invocación apuntada a
+        # /dev/null, porque la guarda `[ ! -f ... ]` seguía nombrando el archivo. Un test
+        # que afirma menos que su sujeto: el bug reintroducido pasó entero.
+        invoca = [l for l in codigo.split("\n")
+                  if "_aserciones.py" in l and "python3" in l]
+        self.assertTrue(invoca, f"el validador no INVOCA el chequeo:\n{codigo[:0]}")
+        self.assertIn("_aserciones.py", invoca[0].split("python3", 1)[1],
+                      f"corre otra cosa, no el chequeo:\n{invoca[0]}")
+        i = codigo.index("_aserciones.py")
+        bloque = codigo[i - 200:i + 900]
+        self.assertIn("malo ", bloque, f"lo corre y no hace nada con el resultado:\n{bloque}")
+        self.assertIn('[ ! -f "$AQUI/_aserciones.py" ]', bloque,
+                      "si el auxiliar falta tiene que ser rojo, no un salteo silencioso")
+        self.assertIn('"$RC_A" != "0"', bloque,
+                      "un rc inesperado también es rojo: el chequeo no se puede saltear")

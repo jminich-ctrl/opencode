@@ -335,6 +335,36 @@ for id in "$@"; do
     fi
   fi
 
+  # La aserción que no puede fallar con NINGUNA implementación. Los cinco pasos de abajo
+  # comparan el test contra versiones del producto —sin la implementación, con ella, mutada,
+  # vaciada— y por eso ninguno ve el test que no mira el producto en absoluto. Medido el
+  # 2026-10-25: T26 tenía aceptado un `assert expected_hash ==
+  # hashlib.sha256(password.encode()).hexdigest()` donde la línea de arriba definía
+  # `expected_hash` con esa misma expresión. Pasó «falla sin la implementación» porque sus
+  # compañeros de archivo importan el módulo y el import es lo que revienta. Es estático y
+  # va antes de correr nada: no hace falta gastar tres pasadas de suite para saberlo.
+  #
+  # Falla CERRADO, y es a propósito. El fixture de la suite aprendió esto a los golpes: una
+  # guarda `[ -f auxiliar ]` que saltea el chequeo cuando el auxiliar no está hace que el
+  # paso no corra nunca y nadie se entere. Pasó con `_imports.py`, que quedó sin resolver en
+  # todo proyecto de juguete de la historia; al hacerlo fallar cerrado se pusieron rojos 22
+  # tests de golpe. Un chequeo que no pudo correr no es un chequeo que pasó.
+  if [ "$fallos" -eq 0 ] && [ -f "$ruta" ]; then
+    if [ ! -f "$AQUI/_aserciones.py" ]; then
+      malo "falta $AQUI/_aserciones.py: no se puede revisar si las aserciones pueden fallar"
+      echo "     Lo provee el método. Un chequeo que no pudo correr no es un chequeo que pasó."
+    else
+      SAL_A="$("${PY_PROYECTO:-python3}" "$AQUI/_aserciones.py" "$ruta" 2>&1)"; RC_A=$?
+      if [ "$RC_A" = "1" ]; then
+        malo "el test tiene aserciones que no pueden fallar con ninguna implementación"
+        printf '%s\n' "$SAL_A" | sed 's/^  /     /'
+      elif [ "$RC_A" != "0" ]; then
+        malo "_aserciones.py no pudo correr (rc=$RC_A): el chequeo no se puede saltear"
+        printf '%s\n' "$SAL_A" | sed 's/^/     /'
+      fi
+    fi
+  fi
+
   if [ "$fallos" -eq 0 ] && { [ ! -f "$ruta" ] \
        || ! grep -q "$DECLARA" "$ruta" 2>/dev/null \
        || ! grep -q "$clase" "$ruta" 2>/dev/null; }; then
