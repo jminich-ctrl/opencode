@@ -29,11 +29,24 @@ set -uo pipefail
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$AQUI/_comun.sh"
 ubicar_proyecto
-[ $# -ge 1 ] || { echo "uso: $0 TNN [motivo]" >&2; exit 1; }
-ID="$1"; MOTIVO="${2:-su gate dio un veredicto falso}"
+[ $# -ge 1 ] || { echo "uso: $0 TNN[,TMM,...] [motivo]" >&2; exit 1; }
+# VARIAS tareas, separadas por coma. Dos tareas pueden compartir un archivo —T04 y T04b
+# comparten `backend/app/servicios/auth.py`, la segunda extiende lo que escribió la
+# primera— y entonces reabrir una sola es imposible: el tercer juez la frena, con razón,
+# porque dejaría a la otra con su verde cobrado y su código afuera. La cascada no es una
+# comodidad, es la única forma de reabrir en ese caso, y el juez ya dice con nombre propio
+# cuáles van juntas.
+#
+# Separadas por coma y no por espacios para que el motivo no se confunda con un id.
+IDS="$(printf '%s' "$1" | tr ',' ' ')"
+MOTIVO="${2:-su gate dio un veredicto falso}"
 
-archivo="$(ls "$BASE/tareas/${ID}"-*.md 2>/dev/null | head -1)"
-[ -n "$archivo" ] || { echo "✗ $ID: no existe tareas/${ID}-*.md" >&2; exit 1; }
+ARCHIVOS_TAREA=""
+for ID in $IDS; do
+  a="$(ls "$BASE/tareas/${ID}"-*.md 2>/dev/null | head -1)"
+  [ -n "$a" ] || { echo "✗ $ID: no existe tareas/${ID}-*.md" >&2; exit 1; }
+  ARCHIVOS_TAREA="$ARCHIVOS_TAREA $a"
+done
 
 # Los rojos de ANTES, para poder comparar: lo que importa no es que queden rojos —el que
 # motivó la reapertura puede seguir ahí hasta que la tarea corra— sino que no aparezcan
@@ -60,14 +73,21 @@ rojos_antes="$( (cd "$BASE" && PROYECTO=. python3 "$AQUI/coherencia.py" 2>&1 | g
 # gate ya usa para juzgar, y se corre sólo el test de las tareas candidatas: las cerradas que
 # declaran un archivo que estamos sacando. Son una o dos, no toda la suite.
 
-RESPALDO="$RAIZ/../reabrir-$ID-previo"
+RESPALDO="$RAIZ/../reabrir-$(printf '%s' "$IDS" | tr ' ' '+')-previo"
 rm -rf "$RESPALDO"; mkdir -p "$RESPALDO"
-cp "$archivo" "$RESPALDO/$(basename "$archivo")"
+for archivo in $ARCHIVOS_TAREA; do cp "$archivo" "$RESPALDO/$(basename "$archivo")"; done
 [ -f "$BASE/PLAN.md" ] && cp "$BASE/PLAN.md" "$RESPALDO/PLAN.md"
 
-echo "▶ reabriendo $ID: $MOTIVO"
+echo "▶ reabriendo $(printf '%s' "$IDS" | tr ' ' ',')$([ "$(echo $IDS | wc -w)" -gt 1 ] && echo " (en cascada: comparten archivos)"): $MOTIVO"
 
-# ── 1 y 2: el estado, en los DOS lados.
+declarados=""
+sacados=0
+
+# ── 1 a 4, para cada tarea de la cascada. El estado en los dos lados, el código afuera y
+# la nota de por qué; los jueces corren UNA vez al final, sobre el conjunto, porque lo que
+# hay que juzgar es el árbol que queda.
+for ID in $IDS; do
+archivo="$(ls "$BASE/tareas/${ID}"-*.md 2>/dev/null | head -1)"
 sed -i '' 's/^\*\*Estado:\*\*.*/**Estado:** pendiente/' "$archivo" 2>/dev/null \
   || sed -i 's/^\*\*Estado:\*\*.*/**Estado:** pendiente/' "$archivo"
 if [ -f "$BASE/PLAN.md" ] && grep -qE "^\| *$ID *\|" "$BASE/PLAN.md"; then
@@ -91,10 +111,9 @@ fi
 #
 # El archivo de test incluido: si sus tests codifican el error —mockean la consulta
 # equivocada— conservarlos obliga al agente a reproducir el bug para que pasen.
-declarados="$(sed -n 's/^\*\*Archivos que podés tocar:\*\* *//p' "$archivo" \
+declarados="$declarados $(sed -n 's/^\*\*Archivos que podés tocar:\*\* *//p' "$archivo" \
               | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep . || true)"
 test_tarea="$(sed -n 's/.*Archivo: `\([^`]*\)`.*/\1/p' "$archivo" | head -1)"
-sacados=0
 for ruta in $declarados $test_tarea; do
   [ -n "$ruta" ] || continue
   [ -e "$BASE/$ruta" ] || continue
@@ -115,9 +134,10 @@ done
 # por una promesa del enunciado y el rojo se duplicó.
 printf '\n## Reabierta\n\n%s\n\nSe reabrió con scripts/reabrir.sh el %s. Su código anterior\nse sacó del tronco (copia en %s): esta tarea vuelve a pasar por tests-first,\nasí que el test tiene que fallar antes de que exista la implementación.\n' \
   "$(printf '%s' "$MOTIVO" | tr -d '`')" "$(date -u +'%Y-%m-%d %H:%M UTC')" \
-  "../reabrir-$ID-previo" >> "$archivo"
+  "$(basename "$RESPALDO")" >> "$archivo"
+done
 
-# ── Los jueces.
+# ── Los jueces, sobre el conjunto.
 mal=""
 (cd "$BASE" && PLAN=PLAN.md python3 "$AQUI/validar-plan.py" >/dev/null 2>&1) \
   || mal="el plan dejó de validar"
@@ -134,7 +154,13 @@ fi
 ajenos=""
 for tf in "$BASE"/tareas/T*.md; do
   otro="$(basename "$tf" | sed -E 's/^(T[0-9]+[a-z]?)-.*/\1/')"
-  [ "$otro" = "$ID" ] && continue
+  # Todas las de la cascada quedan fuera del juicio: sus tests TIENEN que romperse.
+  #
+  # Hoy esto es redundante —el paso 1 ya las dejó en `pendiente`, así que el filtro de
+  # estado de la línea de abajo las saltea— y lo digo en vez de fingir que lo verifica un
+  # test: quitarlo no pone roja la suite. Queda porque no depende de que el paso 1 haya
+  # funcionado, y un juez que se apoya en el éxito del paso que viene a juzgar no es un juez.
+  echo " $IDS " | grep -q " $otro " && continue
   grep -qE '^\*\*Estado:\*\* *(✅|hecha)' "$tf" || continue
   # ¿Declara alguno de los archivos que sacamos?
   suyos="$(sed -n 's/^\*\*Archivos que podés tocar:\*\* *//p' "$tf" | tr ',' '\n' \
@@ -169,7 +195,9 @@ fi
 
 if [ -n "$mal" ]; then
   echo "  ✗ se revierte: $mal"
-  cp "$RESPALDO/$(basename "$archivo")" "$archivo"
+  for a in $ARCHIVOS_TAREA; do
+    [ -f "$RESPALDO/$(basename "$a")" ] && cp "$RESPALDO/$(basename "$a")" "$a"
+  done
   [ -f "$RESPALDO/PLAN.md" ] && cp "$RESPALDO/PLAN.md" "$BASE/PLAN.md"
   if [ -d "$RESPALDO/codigo" ]; then
     (cd "$RESPALDO/codigo" && find . -type f | while read -r f; do
@@ -178,5 +206,5 @@ if [ -n "$mal" ]; then
   git -C "$RAIZ" add -A "$BASE" >/dev/null 2>&1
   exit 1
 fi
-echo "  ✓ $ID queda pendiente, su código está fuera del tronco y el plan valida"
+echo "  ✓ $(printf '%s' "$IDS" | tr ' ' ',') queda(n) pendiente(s), su código está fuera del tronco y el plan valida"
 echo "    (rojos del preflight: $rojos_antes → $rojos_despues; los que quedan los cierra la tarea al correr)"

@@ -9842,6 +9842,64 @@ class TestReabrirNoPuedeRomperUnaTareaQueSigueHecha(unittest.TestCase):
         self.assertFalse((d / "src" / "compartido.py").exists(),
                          "si procede, el código tiene que salir del tronco")
 
+    def test_la_cascada_reabre_las_dos_y_procede(self):
+        """Dos tareas cerradas que comparten un archivo no se pueden reabrir de a una: el
+        tercer juez frena la primera, con razón. La cascada no es una comodidad, es la única
+        forma de reabrir en ese caso — y el juez ya dice con nombre propio cuál es la otra.
+
+        Es el caso de T04 y T04b, que comparten `backend/app/servicios/auth.py` porque la
+        segunda extiende lo que escribió la primera."""
+        d = self.proyecto(estado_de_T02="✅ hecha")
+        r = correr(f"PROYECTO=. bash {SCRIPTS}/reabrir.sh T01,T02 motivo", d)
+        self.assertEqual(r.returncode, 0,
+                         f"la cascada tiene que proceder:\n{r.stdout}{r.stderr}")
+        self.assertIn("cascada", r.stdout, "y decir que lo es")
+        self.assertFalse((d / "src" / "compartido.py").exists(),
+                         "el código compartido sale del tronco")
+        for tid in ("T01", "T02"):
+            self.assertIn("**Estado:** pendiente",
+                          (d / "tareas" / f"{tid}-cosa.md").read_text(),
+                          f"{tid} tiene que quedar pendiente")
+            self.assertRegex((d / "PLAN.md").read_text(),
+                             rf"\| *{tid} *\|[^|\n]*\|[^|\n]*\|[^|\n]*\| *pendiente *\|",
+                             f"y también en la TABLA: el deductor de etapas lee la tabla")
+        self.assertFalse((d / "tests" / "test_uno.py").exists(), "y sus tests también salen")
+        self.assertFalse((d / "tests" / "test_dos.py").exists())
+
+    def test_la_cascada_tambien_se_revierte_entera(self):
+        """Si el juez frena, las DOS vuelven. Restaurar una sola deja el plan mintiendo en
+        la mitad, que es peor que no haber tocado nada: `reabrir.sh` ya dice en su cabecera
+        que reabrir son cuatro cosas y hacer tres está peor que hacer ninguna."""
+        d = self.proyecto(estado_de_T02="✅ hecha")
+        # T03 cerrada y compartiendo el archivo: nadie la incluye en la cascada, así que el
+        # juez tiene que frenar las dos.
+        (d / "tareas" / "T03-cosa.md").write_text(
+            "# T03 — Cosa\n\n**Estado:** ✅ hecha\n**Depende de:** T01\n"
+            "**Archivos que podés tocar:** src/compartido.py\n**Prohibido tocar:** Ninguno\n\n"
+            "## Objetivo\n\nOtra cosa.\n\n## Contrato\n\n- Escribí `src/compartido.py`.\n\n"
+            "## Tests (ya escritos, fallando)\n\nArchivo: `tests/test_tres.py`, clase `TestTres`.\n")
+        (d / "tests" / "test_tres.py").write_text(
+            "import unittest\nfrom src.compartido import uno\n\n\n"
+            "class TestTres(unittest.TestCase):\n"
+            "    def test_tres(self):\n        self.assertEqual(uno(), 1)\n")
+        plan = (d / "PLAN.md").read_text().replace(
+            "| T02 | Dos | T01 | src/compartido.py | ✅ hecha |\n",
+            "| T02 | Dos | T01 | src/compartido.py | ✅ hecha |\n"
+            "| T03 | Tres | T01 | src/compartido.py | ✅ hecha |\n").replace(
+            "| T02 | tests/test_dos.py | TestDos |\n",
+            "| T02 | tests/test_dos.py | TestDos |\n| T03 | tests/test_tres.py | TestTres |\n")
+        (d / "PLAN.md").write_text(plan)
+        antes = (d / "src" / "compartido.py").read_text()
+        r = correr(f"PROYECTO=. bash {SCRIPTS}/reabrir.sh T01,T02 motivo", d)
+        self.assertNotEqual(r.returncode, 0, f"T03 sigue hecha:\n{r.stdout}{r.stderr}")
+        self.assertIn("T03", r.stdout, "y el aviso tiene que nombrarla")
+        self.assertEqual((d / "src" / "compartido.py").read_text(), antes,
+                         "el código tiene que volver")
+        for tid in ("T01", "T02"):
+            self.assertIn("**Estado:** ✅ hecha",
+                          (d / "tareas" / f"{tid}-cosa.md").read_text(),
+                          f"{tid} no volvió a su estado: la reversión dejó el plan mintiendo")
+
     def test_el_juez_no_rasca_la_salida_de_la_suite(self):
         """La primera versión buscaba `FAILED ruta::test` y `ERROR ruta`, que es el formato de
         pytest. La plantilla `correr-suite.sh` de un proyecto con unittest imprime `FAILED
