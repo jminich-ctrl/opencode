@@ -11021,3 +11021,100 @@ class TestUnaVariableQueNadieLeeDaUnMutanteInmatable(CasoBase):
         self.assertIn("1 mutante(s) probados", r.stdout,
                       f"la variable de la closure se lee: hay que mutarla\n{r.stdout}")
         self.assertEqual(r.returncode, 0, f"y el test la mata:\n{r.stdout}")
+
+
+class TestUnMutanteQueCuelgaElProgramaColgabaElGate(CasoBase):
+    """`mutar.py` corría la suite SIN tope de tiempo, así que un mutante que deja el programa
+    girando cuelga el gate entero y la corrida no termina nunca.
+
+    Medido el 2026-10-25 auditando `ejemplo-pacman`: un mutante en `__main__.py` —que es el
+    game loop— dejó la suite corriendo 45 MINUTOS contra una suite que tarda 0,24 s, con un
+    archivo mutado en el árbol todo ese tiempo. En cualquier proyecto con un loop, un servidor
+    o un `input()`, eso está garantizado.
+
+    El timeout cuenta como MUERTE del mutante, no como supervivencia: el mutante cambió el
+    comportamiento de una forma perfectamente observable —el programa dejó de terminar— y
+    contarlo como «sobrevivió» le cobraría al test una diferencia que sí distingue. Es lo
+    mismo que hace el gate de TestForge/Meta ACH, que trata fail, error y timeout como muerte.
+
+    Se mata el ÁRBOL y no el proceso: `SUITE` es un shell que lanza python, así que matar al
+    shell deja al nieto girando. Es el defecto que este repo ya cerró en su vigilante —«miraba
+    el grupo de procesos, no el árbol»— y que acá volvía por otra puerta."""
+
+    def con_loop(self):
+        """Un proyecto donde un mutante puede colgar la suite: el incremento de un `while`."""
+        self.p.implementar("def f(x):\n    return x\n")
+        self.p.git("add -A"); self.p.git("commit -qm base")
+        self.p.implementar("def f(x):\n    return x\n\n\n"
+                           "def loop(n):\n    i = 0\n    while i < n:\n"
+                           "        i += 1\n    return i\n")
+        (self.p.dir / "tests" / "test_cosa.py").write_text(
+            "import unittest\nfrom src.cosa import f, loop\n\n"
+            "class TestCosa(unittest.TestCase):\n"
+            "    def test_f(self):\n        self.assertEqual(f(42), 42)\n"
+            "    def test_loop(self):\n        self.assertEqual(loop(3), 3)\n")
+        self.p.git("add -A"); self.p.git("commit -qm loop")
+
+    def mutar(self, tope=None):
+        # `correr-suite.sh` y NO el comando pelado, porque es la diferencia que hace al
+        # defecto visible: con un comando simple bash hace `exec` y SE CONVIERTE en python,
+        # así que no hay nieto y matar el proceso alcanza. Con un script —que es lo que usa
+        # cualquier proyecto real— bash no puede exec-ear y queda el nieto girando. Medido:
+        # con el script, matar el proceso deja 1 vivo y matar el grupo deja 0; con el comando
+        # pelado, los dos dejan 0, y el test daba verde con el bug puesto.
+        env = f"TOPE_MUTANTE={tope} " if tope else ""
+        return correr(f"{env}BASE=HEAD~1 CODIGO=src "
+                      f"SUITE='bash scripts/correr-suite.sh' "
+                      f"python3 {SCRIPTS}/mutar.py", self.p.dir)
+
+    def test_el_mutante_que_cuelga_muere_por_tope_y_no_cuelga_la_corrida(self):
+        import time
+        self.con_loop()
+        t0 = time.monotonic()
+        r = self.mutar(tope=5)
+        tardo = time.monotonic() - t0
+        self.assertEqual(r.returncode, 0,
+                         f"el mutante que cuelga tiene que MORIR:\n{r.stdout}{r.stderr}")
+        self.assertIn("murieron", r.stdout, f"\n{r.stdout}")
+        # Lo que de verdad se mide: que TERMINE. Sin tope esto no vuelve nunca.
+        self.assertLess(tardo, 60,
+                        f"la corrida tardó {tardo:.0f}s: el tope no cortó nada")
+
+    def test_no_deja_procesos_colgados(self):
+        """Matar el shell y no el árbol deja al nieto girando, y el que lo paga es la próxima
+        corrida: el repo ya perdió 45 minutos así."""
+        self.con_loop()
+        self.mutar(tope=5)
+        vivos = correr("pgrep -f 'correr-suite' | wc -l", self.p.dir)
+        self.assertEqual(vivos.stdout.strip(), "0",
+                         f"quedaron procesos de la suite girando: {vivos.stdout}")
+
+    def test_un_tope_menor_que_la_suite_no_es_un_pase(self):
+        """El agujero que abre el arreglo, y había que cerrarlo antes de confiar: con un tope
+        por debajo de lo que tarda la suite SIN mutar, todos los mutantes dan timeout, el
+        timeout cuenta como muerte, y el veredicto sale «todos murieron: la suite distingue».
+        Un falso verde producido por el reloj. Medido con TOPE_MUTANTE=0.01 sobre una suite de
+        0,14 s: tres mutantes, tres muertes, verde."""
+        self.con_loop()
+        r = self.mutar(tope="0.01")
+        self.assertEqual(r.returncode, 2,
+                         f"un tope inválido es ⊘, no un pase:\n{r.stdout}{r.stderr}")
+        self.assertIn("el verde lo produciría el reloj", r.stdout, f"\n{r.stdout}")
+        self.assertNotIn("murieron", r.stdout, "no puede cantar muertes que midió el reloj")
+
+    def test_el_tope_invalido_no_se_informa_como_suite_en_rojo(self):
+        """Los dos motivos mandan a lugares distintos: «la suite está en rojo» es del proyecto
+        y «el tope es inválido» es de la configuración. Devolver un solo False hacía que un
+        tope mal puesto se informara como suite roja —falso— y encima con código 0."""
+        self.con_loop()
+        r = self.mutar(tope="0.01")
+        self.assertNotIn("la suite ya está en rojo", r.stdout,
+                         f"la suite está VERDE; el problema es el tope:\n{r.stdout}")
+
+    def test_sin_tope_forzado_se_calibra_con_la_suite(self):
+        """Una suite de 0,2 s y una de 15 minutos no pueden compartir número."""
+        self.con_loop()
+        r = self.mutar()
+        self.assertIn("tope por mutante", r.stdout, f"\n{r.stdout}")
+        self.assertRegex(r.stdout, r"la suite sin mutar tarda \d+\.\d+s",
+                         "tiene que decir con qué calibró")

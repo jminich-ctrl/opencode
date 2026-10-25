@@ -37,6 +37,7 @@ sirve es **qué** mutante sobrevivió, no un porcentaje que se puede subir sin m
 import ast
 import os
 import pathlib
+import signal
 import re
 import subprocess
 import sys
@@ -270,8 +271,78 @@ def candidatos(archivo, lineas_cambiadas):
     return [(archivo, linea, nodo, que) for linea, (_, nodo, que) in sorted(por_linea.items())]
 
 
+# El tope de tiempo por pasada, en segundos. Se calibra con lo que tarda la suite SIN mutar
+# (`calibrar_tope`), porque una suite de 0,2 s y una de 15 minutos no pueden compartir número.
+TOPE = [None]
+
+
 def correr():
-    return subprocess.run(SUITE, shell=True, capture_output=True, text=True).returncode == 0
+    """La suite, con tope de tiempo. Un mutante que CUELGA el programa cuenta como MUERTO.
+
+    Sin tope, un mutante que deja el programa girando cuelga el gate entero y la corrida no
+    termina nunca. Medido el 2026-10-25 en ejemplo-pacman: un mutante en `__main__.py` —que
+    es el game loop— dejó la suite corriendo 45 MINUTOS contra una suite que tarda 0,24 s, y
+    la corrida quedó trabada con un archivo mutado en el árbol. En cualquier proyecto con un
+    loop, un servidor o un `input()`, eso está garantizado.
+    El timeout cuenta como muerte y no como supervivencia porque el mutante cambió el
+    comportamiento de una forma perfectamente observable: el programa dejó de terminar. Es lo
+    mismo que hace el gate de TestForge/Meta ACH, que trata fail, error y timeout como muerte.
+    Contarlo como «sobrevivió» sería cobrarle al test una diferencia que sí distingue.
+
+    Se mata el ÁRBOL y no el proceso: `SUITE` es un shell que lanza python, así que matar al
+    shell deja al nieto girando —es el defecto que este repo ya cerró en su vigilante, «miraba
+    el grupo de procesos, no el árbol»—. Con `start_new_session` el hijo es líder de su grupo
+    y `killpg` se lleva a todos.
+    """
+    proc = subprocess.Popen(SUITE, shell=True, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, start_new_session=True)
+    try:
+        return proc.wait(timeout=TOPE[0]) == 0
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
+        proc.wait()
+        return False          # colgarse ES una diferencia observable: el mutante muere
+
+
+def calibrar_tope():
+    """Mide la suite sin mutar y fija el tope en 10x, con un piso de 60 s.
+
+    El múltiplo es generoso a propósito: un tope ajustado mataría mutantes legítimos por
+    lentitud y los informaría como muertos, que es un falso verde — justo lo que este método
+    existe para no hacer. El piso cubre las suites muy rápidas, donde 10x son milisegundos.
+    """
+    import time
+    t0 = time.monotonic()
+    ok = subprocess.run(SUITE, shell=True, capture_output=True, text=True).returncode == 0
+    tardo = time.monotonic() - t0
+    # Configurable para poder MEDIR el tope sin esperarlo: sin esto, un test del propio
+    # método que verifique el timeout tarda un minuto por mutante.
+    forzado = os.environ.get("TOPE_MUTANTE", "").strip()
+    automatico = max(60.0, tardo * 10)
+    if not forzado:
+        TOPE[0] = automatico
+        return ok, tardo
+    # Un tope por debajo de lo que tarda la suite SIN mutar hace que TODOS los mutantes den
+    # timeout, y como el timeout cuenta como muerte, el veredicto sale «todos murieron: la
+    # suite distingue». O sea: un falso verde producido por una configuración, que es
+    # exactamente lo que este método existe para no hacer. Medido el 2026-10-25 con
+    # TOPE_MUTANTE=0.01 sobre una suite de 0,14 s: tres mutantes, tres muertes, verde.
+    #
+    # El piso es 3x la suite base: por debajo de eso el tope no está midiendo al mutante,
+    # está midiendo al reloj.
+    piso = max(3.0 * tardo, 1.0)
+    if float(forzado) < piso:
+        print(f"  ✗ TOPE_MUTANTE={forzado}s es menor que el piso de {piso:.2f}s "
+              f"(3x los {tardo:.2f}s que tarda la suite sin mutar).")
+        print("     Con un tope así TODOS los mutantes dan timeout y el timeout cuenta como")
+        print("     muerte: el verde lo produciría el reloj, no el test. No se sigue.")
+        TOPE[0] = None
+        return "tope", tardo
+    TOPE[0] = float(forzado)
+    return ok, tardo
 
 
 def sentencia_de(arbol, linea, nodo):
@@ -361,9 +432,18 @@ def main():
         print("  ⊘ no hay código Python cambiado que mutar bajo: " + ",".join(CODIGO))
         print("     No es un pase: nadie verificó que el test distinga.")
         return 2
-    if not correr():
+    verde, tardo = calibrar_tope()
+    # Los dos motivos se informan por separado: «la suite está en rojo» es del proyecto y
+    # «el tope es inválido» es de la configuración, y mandan a lugares distintos. Devolver un
+    # solo False hacía que un tope mal puesto se informara como suite roja —falso— y encima
+    # con código 0. Es el defecto que este método viene cerrando todo el día y lo cometí dos
+    # minutos después de cerrarlo.
+    if verde == "tope":
+        return 2
+    if not verde:
         print("  ✗ la suite ya está en rojo: arreglala antes de mutar")
         return 1
+    print(f"  · la suite sin mutar tarda {tardo:.2f}s; tope por mutante: {TOPE[0]:.0f}s")
 
     todos = []
     for a in archivos:
