@@ -132,9 +132,49 @@ done
 # identificadores entre backticks de un enunciado como un compromiso de usarlos: una nota de
 # reapertura que nombraba así la tabla equivocada hizo que el chequeo de coherencia la tomara
 # por una promesa del enunciado y el rojo se duplicó.
-printf '\n## Reabierta\n\n%s\n\nSe reabrió con scripts/reabrir.sh el %s. Su código anterior\nse sacó del tronco (copia en %s): esta tarea vuelve a pasar por tests-first,\nasí que el test tiene que fallar antes de que exista la implementación.\n' \
+# ARRIBA, antes de la primera sección, y no al final con `>>`.
+#
+# La nota lleva el dato que corrige a la tarea, y al final llegaba después de todo lo que
+# corrige. Medido el 2026-10-25 en T26: su nota de reapertura dice «su codigo inserta la
+# columna password_hash y la tabla usuarios tiene clave_hash», y estaba en la línea 104 de
+# 110 — después de cien líneas donde el enunciado nombra `password_hash` cuatro veces,
+# incluida la firma `def insert_user(email, password_hash)` que le pide escribir. El agente
+# escribió `password_hash` y MySQL lo rechazó con «Unknown column».
+#
+# Un enunciado se lee de arriba hacia abajo: la corrección tiene que llegar antes que lo
+# corregido. Va después del encabezado —estado, dependencias, alcance— porque esos campos los
+# leen los scripts por posición, y antes de la primera `## `.
+NOTA="$(printf '## Reabierta\n\n%s\n\nSe reabrió con scripts/reabrir.sh el %s. Su código anterior\nse sacó del tronco (copia en %s): esta tarea vuelve a pasar por tests-first,\nasí que el test tiene que fallar antes de que exista la implementación.\n\n' \
   "$(printf '%s' "$MOTIVO" | tr -d '`')" "$(date -u +'%Y-%m-%d %H:%M UTC')" \
-  "$(basename "$RESPALDO")" >> "$archivo"
+  "$(basename "$RESPALDO")")"
+python3 - "$archivo" <<PYNOTA
+import sys
+ruta = sys.argv[1]
+nota = """$NOTA"""
+lineas = open(ruta).read().split("\n")
+# La primera sección. Si la tarea no tiene ninguna, la nota va al final: es el único lugar
+# que queda, y quedarse sin escribirla sería perder el motivo.
+corte = next((i for i, l in enumerate(lineas) if l.startswith("## ")), len(lineas))
+# Una nota anterior se reemplaza, no se acumula: dos bloques «## Reabierta» y el lector no
+# sabe cuál rige. Se saca DONDE ESTÉ y no sólo si cae en el corte: una nota escrita por la
+# versión anterior de este script está al final, y mirando sólo la primera sección sobrevivía.
+# Lo midió T26, que quedó con dos — la de abajo diciendo password_hash y la de arriba
+# diciendo clave_hash, que es peor que no haber movido nada.
+def sin_notas(ls):
+    out, i = [], 0
+    while i < len(ls):
+        if ls[i].startswith("## Reabierta"):
+            i += 1
+            while i < len(ls) and not ls[i].startswith("## "):
+                i += 1
+            continue
+        out.append(ls[i]); i += 1
+    return out
+
+lineas = sin_notas(lineas)
+corte = next((i for i, l in enumerate(lineas) if l.startswith("## ")), len(lineas))
+open(ruta, "w").write("\n".join(lineas[:corte] + nota.split("\n") + lineas[corte:]))
+PYNOTA
 done
 
 # ── Los jueces, sobre el conjunto.

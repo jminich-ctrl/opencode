@@ -9900,6 +9900,50 @@ class TestReabrirNoPuedeRomperUnaTareaQueSigueHecha(unittest.TestCase):
                           (d / "tareas" / f"{tid}-cosa.md").read_text(),
                           f"{tid} no volvió a su estado: la reversión dejó el plan mintiendo")
 
+    def test_la_nota_de_reapertura_va_arriba_no_al_final(self):
+        """La nota lleva el dato que corrige a la tarea, y al final llegaba después de todo
+        lo que corrige.
+
+        Medido el 2026-10-25 en T26: su nota decía «su codigo inserta la columna
+        password_hash y la tabla usuarios tiene clave_hash», y estaba en la línea 104 de 110
+        — después de cien líneas donde el enunciado nombra `password_hash` cuatro veces,
+        incluida la firma `def insert_user(email, password_hash)` que le pide escribir. El
+        agente escribió `password_hash` y MySQL lo rechazó con «Unknown column».
+
+        Un enunciado se lee de arriba hacia abajo: la corrección tiene que llegar antes que
+        lo corregido."""
+        d = self.proyecto(estado_de_T02="pendiente")
+        correr(f"PROYECTO=. bash {SCRIPTS}/reabrir.sh T01 el-motivo-medido", d)
+        texto = (d / "tareas" / "T01-cosa.md").read_text()
+        lineas = texto.split("\n")
+        i_nota = next(i for i, l in enumerate(lineas) if l.startswith("## Reabierta"))
+        i_primera = next(i for i, l in enumerate(lineas) if l.startswith("## "))
+        self.assertEqual(i_nota, i_primera,
+                         f"la nota tiene que ser la PRIMERA sección:\n{texto}")
+        # Y el encabezado que los scripts leen por posición queda intacto y antes.
+        for campo in ("**Estado:**", "**Depende de:**", "**Archivos que podés tocar:**"):
+            i_campo = next(i for i, l in enumerate(lineas) if l.startswith(campo))
+            self.assertLess(i_campo, i_nota, f"{campo} tiene que quedar antes de la nota")
+        self.assertIn("el-motivo-medido", texto)
+
+    def test_dos_reaperturas_no_dejan_dos_notas(self):
+        """Dos bloques «## Reabierta» y el lector no sabe cuál rige. Se saca DONDE ESTÉ y no
+        sólo si cae en el corte: una nota escrita por la versión anterior de este script está
+        al final, y mirando sólo la primera sección sobrevivía. Lo midió T26, que quedó con
+        dos —la de abajo diciendo password_hash y la de arriba diciendo clave_hash—, que es
+        peor que no haber movido nada."""
+        d = self.proyecto(estado_de_T02="pendiente")
+        t = d / "tareas" / "T01-cosa.md"
+        # Una nota vieja, al final, como la dejaba la versión anterior.
+        t.write_text(t.read_text() + "\n## Reabierta\n\nla nota vieja de abajo\n")
+        correr(f"PROYECTO=. bash {SCRIPTS}/reabrir.sh T01 la-nota-nueva", d)
+        texto = t.read_text()
+        self.assertEqual(texto.count("## Reabierta"), 1,
+                         f"quedaron dos notas:\n{texto}")
+        self.assertIn("la-nota-nueva", texto)
+        self.assertNotIn("la nota vieja de abajo", texto,
+                         "la nota vieja tiene que irse, esté donde esté")
+
     def test_el_juez_no_rasca_la_salida_de_la_suite(self):
         """La primera versión buscaba `FAILED ruta::test` y `ERROR ruta`, que es el formato de
         pytest. La plantilla `correr-suite.sh` de un proyecto con unittest imprime `FAILED
