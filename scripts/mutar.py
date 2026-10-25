@@ -123,10 +123,16 @@ OPERADORES_ROR = {ast.Lt: ast.LtE, ast.LtE: ast.Lt, ast.Gt: ast.GtE, ast.GtE: as
 
 
 class Mutador(ast.NodeTransformer):
-    """Aplica UNA mutación, la del nodo elegido, y deja el resto intacto."""
+    """Aplica UNA mutación, la del nodo elegido, y deja el resto intacto.
 
-    def __init__(self, objetivo):
+    Con `centinela=True` no muta: reemplaza la sentencia por una excepción que nadie
+    atrapa. Eso contesta otra pregunta —¿el test llega a ejecutar esta línea?— y es la que
+    hay que contestar ANTES de culpar a las aserciones. Ver `nunca_se_ejecuta`.
+    """
+
+    def __init__(self, objetivo, centinela=False):
         self.objetivo = objetivo
+        self.centinela = centinela
         self.aplicada = False
 
     def generic_visit(self, nodo):
@@ -137,6 +143,15 @@ class Mutador(ast.NodeTransformer):
         return nodo
 
     def mutar(self, nodo):
+        if self.centinela:
+            # `BaseException` y no `Exception`: el código de producto que envuelve su cuerpo
+            # en `except Exception` se tragaría el centinela y el resultado diría «no se
+            # ejecuta» sobre una línea que sí se ejecuta. La forma de abajo sólo la atrapa un
+            # `except BaseException` o un `except:` desnudo, y eso merece saberse.
+            return ast.Raise(
+                exc=ast.Call(func=ast.Name(id="BaseException", ctx=ast.Load()),
+                             args=[ast.Constant(value="centinela-mutar")], keywords=[]),
+                cause=None)
         if isinstance(nodo, ast.Compare):          # ROR
             nuevo = OPERADORES_ROR.get(type(nodo.ops[0]))
             if nuevo:
@@ -228,6 +243,58 @@ def correr():
     return subprocess.run(SUITE, shell=True, capture_output=True, text=True).returncode == 0
 
 
+def sentencia_de(arbol, linea, nodo):
+    """La sentencia que hay que reemplazar para preguntar por `linea`.
+
+    Si el candidato ya es una sentencia, es él. Si es una expresión —el `Compare` de un
+    ROR, por ejemplo— el centinela tiene que ir en la sentencia que la contiene, porque
+    `raise` no es una expresión y el archivo no compilaría.
+    """
+    if isinstance(nodo, ast.stmt):
+        return next((x for x in ast.walk(arbol)
+                     if getattr(x, "lineno", None) == linea and type(x) is type(nodo)), None)
+    for padre in ast.walk(arbol):
+        for hijo in ast.iter_child_nodes(padre):
+            if getattr(hijo, "lineno", None) == linea and isinstance(hijo, ast.stmt):
+                return hijo
+    return next((x for x in ast.walk(arbol)
+                 if isinstance(x, ast.stmt) and getattr(x, "lineno", None) == linea), None)
+
+
+def nunca_se_ejecuta(archivo, linea, nodo, original):
+    """¿El test llega a esta línea, o ni la toca?
+
+    Un mutante que sobrevive admite dos lecturas opuestas, y el método daba SIEMPRE la
+    primera: «el test cubre la línea y no verifica su comportamiento» —arreglá las
+    aserciones—. La otra es que el test **no ejecuta** esa línea, y entonces las
+    aserciones no tienen nada que ver: lo que hay que sacar es el mock que la reemplaza.
+    Medido el 2026-10-25 en T26 de clasificados: el test mockeaba
+    `users_register.insert_user`, que ES la función de la tarea, así que los tres mutantes
+    de `users_register.py` sobrevivían por no correr nunca. El agente recibía «cubre las
+    líneas», que lo mandaba al lado contrario, y la tarea quedó trabada dos corridas.
+
+    En vez de medir cobertura —otra dependencia, otro corredor, otro cwd que diverge— se
+    pregunta con la maquinaria que ya hay: se reemplaza la sentencia por una excepción que
+    nadie atrapa. Si la suite PASA con eso puesto, la línea no se ejecutó. Es exacto y no
+    necesita que la suite sepa nada nuevo.
+
+    De paso contesta algo que me falló dos veces: que el mutador efectivamente escribió el
+    archivo. Un centinela que no mata la suite sobre una línea que sí corre es imposible.
+    """
+    try:
+        arbol = ast.parse(original)
+        objetivo = sentencia_de(arbol, linea, nodo)
+        if objetivo is None:
+            return None                     # no se pudo preguntar: no se afirma nada
+        tocado = ast.fix_missing_locations(Mutador(objetivo, centinela=True).visit(arbol))
+        archivo.write_text(ast.unparse(tocado))
+        return correr()                     # la suite pasa con la excepción puesta
+    except (SyntaxError, ValueError, RecursionError):
+        return None
+    finally:
+        archivo.write_text(original)
+
+
 def lineas_cambiadas(archivo):
     d = subprocess.run(["git", "diff", "-U0", BASE, "--", str(archivo)],
                        capture_output=True, text=True).stdout
@@ -289,7 +356,8 @@ def main():
             mutado = ast.fix_missing_locations(Mutador(objetivo).visit(arbol))
             archivo.write_text(ast.unparse(mutado))
             if correr():          # la suite pasó CON el código mutado: nadie lo verifica
-                sobrevivientes.append((archivo, linea, que, original.split("\n")[linea - 1]))
+                sobrevivientes.append([archivo, linea, que,
+                                       original.split("\n")[linea - 1], nodo, original])
         except (SyntaxError, ValueError, RecursionError):
             continue
         finally:
@@ -297,8 +365,20 @@ def main():
 
     print(f"  {len(todos)} mutante(s) probados sobre el diff, uno por línea")
     if sobrevivientes:
+        # El centinela corre SÓLO sobre los que sobrevivieron: si todos murieron no hay nada
+        # que diagnosticar, y son pocos cuando hay.
+        muertas = 0
+        for sv in sobrevivientes:
+            sv.append(nunca_se_ejecuta(sv[0], sv[1], sv[4], sv[5]))
+            if sv[6] is True:
+                muertas += 1
+                sv[2] = "la línea NO se ejecuta"
         print(f"  ✗ {len(sobrevivientes)} sobrevivieron: la suite no nota estos cambios")
-        for archivo, linea, que, texto in sobrevivientes[:10]:
+        if muertas:
+            print(f"  · de esos, {muertas} sobre líneas que el test NUNCA ejecuta: ahí el")
+            print("    problema no son las aserciones. Algo las reemplaza —casi siempre un")
+            print("    mock del propio archivo de la tarea— o son código inalcanzable.")
+        for archivo, linea, que, texto, _nodo, _orig, _ne in sobrevivientes[:10]:
             # El `→` es un CONTRATO, no decoración: `escribir-tests.sh` extrae los
             # sobrevivientes con `grep '→'` para ponerlos en el mensaje que el agente lee en
             # su reintento. Sin la flecha, esa extracción salía vacía SIEMPRE —en todas las
@@ -307,7 +387,10 @@ def main():
             # de vitest, el TODO, esto): el que imprime y el que raspa viven en archivos
             # distintos y nadie los lee juntos. Si se cambia esta línea, se cambia allá.
             print(f"     → {archivo}:{linea}  [{que}]   {texto.strip()[:60]}")
-        return 1
+        # 3 y no 1 cuando hay líneas que no se ejecutan: `escribir-tests.sh` imprime el
+        # veredicto, y el que tenía escrito —«el test cubre las líneas»— es falso en ese
+        # caso. Un código aparte es lo único que le permite no afirmarlo.
+        return 3 if muertas else 1
     print("  ✓ todos los mutantes murieron: la suite distingue el código cambiado")
     return 0
 

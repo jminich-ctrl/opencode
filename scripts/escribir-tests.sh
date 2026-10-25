@@ -420,7 +420,21 @@ for id in "$@"; do
         else
           # El detalle sale de la MISMA corrida, así que no puede desaparecer ni contradecirla.
           SOBREVIVEN="$(printf '%s\n' "$SALIDA_MUT" | grep '→' | head -3 | tr '\n' ' ' | cut -c1-400)"
-          malo "sobreviven mutantes: el test cubre las líneas y no verifica su comportamiento.${SOBREVIVEN:+ Sobrevivió: $SOBREVIVEN}"
+          # El veredicto no es uno, son dos opuestos, y acá se afirmaba siempre el primero:
+          # «cubre las líneas y no verifica su comportamiento» manda a mejorar aserciones.
+          # Cuando el test NO EJECUTA la línea —un mock del propio archivo de la tarea— ese
+          # consejo apunta al lado contrario, y el agente no tiene cómo darse cuenta. Medido
+          # el 2026-10-25: T26 de clasificados mockeaba `users_register.insert_user`, que es
+          # la función que la tarea pide escribir, y quedó trabada dos corridas recibiendo
+          # «cubre las líneas» sobre tres líneas que nunca corrieron. `mutar.py` lo distingue
+          # con un centinela y lo dice con el código 3.
+          if [ "$RC_MUT" = "3" ]; then
+            malo "el test NO EJECUTA las líneas de la implementación: no las está probando.${SOBREVIVEN:+ Sobrevivió: $SOBREVIVEN}"
+            echo "     Si mockeás un símbolo que vive en un archivo de ESTA tarea, estás"
+            echo "     reemplazando lo que viniste a probar. Mockeá lo de ABAJO, no la tarea."
+          else
+            malo "sobreviven mutantes: el test cubre las líneas y no verifica su comportamiento.${SOBREVIVEN:+ Sobrevivió: $SOBREVIVEN}"
+          fi
           # La salida COMPLETA al log, igual que en la rama del ⊘ doce líneas más arriba.
           # Acá no se imprimía, así que cuando la extracción fallaba la evidencia no quedaba
           # en ninguna parte: ni el agente ni la persona podían saber qué mutante sobrevivió,

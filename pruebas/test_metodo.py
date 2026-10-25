@@ -9256,3 +9256,119 @@ class TestElRojoDeColumnaNoSeDegradaPorCompania(unittest.TestCase):
         bloque = fuente[i:fuente.index("el test clava una consulta", i)]
         self.assertIn("⚠ esquema", bloque,
                       f"tiene que mirar los avisos también:\n{bloque[-400:]}")
+
+
+class TestUnMutanteQueSobreviveAdmiteDosLecturasOpuestas(CasoBase):
+    """«Sobreviven mutantes» no es un diagnóstico, son dos, y el método afirmaba siempre uno.
+
+    El mensaje que el agente leía era «el test cubre las líneas y no verifica su
+    comportamiento», que manda a mejorar las aserciones. Pero un mutante también sobrevive
+    cuando el test **no ejecuta** esa línea, y ahí las aserciones no tienen nada que ver: lo
+    que sobra es el mock que la reemplaza. Son consejos opuestos y el método daba el primero
+    en los dos casos, sin haberlo medido.
+
+    Medido el 2026-10-25 en T26 de clasificados: el test mockeaba
+    `backend.app.datos.users_register.insert_user`, que ES la función que la tarea pide
+    escribir, así que los tres mutantes de ese archivo sobrevivían por no correr nunca. El
+    agente recibió «cubre las líneas» dos corridas seguidas y la tarea quedó trabada. El
+    veredicto era correcto en su forma y falso en su contenido — la misma clase de error que
+    el de T05a con las anotaciones de tipo.
+
+    La pregunta se contesta con un centinela: se reemplaza la sentencia por una excepción que
+    nadie atrapa. Si la suite PASA con eso puesto, la línea no se ejecutó. No hace falta
+    medir cobertura ni agregar un corredor que pueda diverger del que juzga.
+    """
+
+    def preparar(self, cuerpo, test, mas=None):
+        """Deja el proyecto con `src/cosa.py` nuevo y un solo test, y devuelve el rc de mutar."""
+        self.p.implementar("def otra():\n    return 0\n")
+        self.p.git("add -A"); self.p.git("commit -qm previo")
+        self.p.implementar(cuerpo)
+        if mas:
+            for nombre, texto in mas.items():
+                (self.p.dir / nombre).write_text(texto)
+        # El test del andamio se va: el que juzga es el que este caso escribe.
+        (self.p.dir / "tests" / "test_cosa.py").write_text(test)
+        self.p.git("add -A"); self.p.git("commit -qm nuevo")
+        return correr(
+            f"BASE=HEAD~1 CODIGO=src SUITE='python3 -m unittest discover -s tests -t . -q' "
+            f"python3 {SCRIPTS}/mutar.py", self.p.dir)
+
+    CUERPO = ("from src.pozo import pozo\n\n\n"
+              "def guardar(x):\n"
+              "    with pozo() as p:\n"
+              "        p.append(x)\n"
+              "        return len(p)\n")
+    POZO = ("import contextlib\n\nHONDO = []\n\n\n"
+            "@contextlib.contextmanager\ndef pozo():\n    yield HONDO\n")
+
+    def test_la_linea_que_el_test_no_ejecuta_se_informa_como_tal(self):
+        """El caso de T26: el test mockea la función de la propia tarea."""
+        r = self.preparar(self.CUERPO,
+                          "import unittest\nfrom unittest.mock import patch\n"
+                          "import src.cosa\n\n"
+                          "class TestCosa(unittest.TestCase):\n"
+                          "    @patch('src.cosa.guardar')\n"
+                          "    def test_con_mock(self, m):\n"
+                          "        m.return_value = 1\n"
+                          "        self.assertEqual(src.cosa.guardar('a'), 1)\n",
+                          mas={"src/pozo.py": self.POZO})
+        self.assertEqual(r.returncode, 3,
+                         "un mutante que sobrevive sobre una línea que NO se ejecuta tiene "
+                         f"que distinguirse del que sobrevive por aserciones flojas:\n"
+                         f"{r.stdout}{r.stderr}")
+        self.assertIn("NO se ejecuta", r.stdout, f"\n{r.stdout}")
+        self.assertNotIn("cubre las líneas", r.stdout,
+                         "no puede afirmar que cubre una línea que midió que no corre")
+
+    def test_la_linea_que_si_se_ejecuta_sigue_siendo_aserciones_flojas(self):
+        """El control, y es el que importa: el diagnóstico viejo tiene que sobrevivir donde
+        era correcto. Un chequeo nuevo que se come el caso del anterior no arregla nada."""
+        r = self.preparar(self.CUERPO,
+                          "import unittest\nimport src.cosa\n\n"
+                          "class TestCosa(unittest.TestCase):\n"
+                          "    def test_no_explota(self):\n"
+                          "        src.cosa.guardar('a')\n",
+                          mas={"src/pozo.py": self.POZO})
+        self.assertEqual(r.returncode, 1,
+                         f"el test ejecuta la línea: el veredicto es el de siempre\n"
+                         f"{r.stdout}{r.stderr}")
+        self.assertNotIn("NO se ejecuta", r.stdout,
+                         f"midió que la línea corre y dijo lo contrario:\n{r.stdout}")
+
+    def test_un_test_que_verifica_de_verdad_sigue_en_verde(self):
+        """El otro control: el centinela no puede ensuciar el caso bueno. Y si el mutador no
+        escribiera el archivo, este test y el de arriba darían lo mismo — es la medición que
+        me faltó las dos veces que un script de mutación no mutó y el verde pareció confirmar."""
+        r = self.preparar(self.CUERPO,
+                          "import unittest\nimport src.cosa\nimport src.pozo\n\n"
+                          "class TestCosa(unittest.TestCase):\n"
+                          "    def test_guarda_y_cuenta(self):\n"
+                          "        src.pozo.HONDO.clear()\n"
+                          "        self.assertEqual(src.cosa.guardar('a'), 1)\n"
+                          "        self.assertEqual(src.pozo.HONDO, ['a'])\n",
+                          mas={"src/pozo.py": self.POZO})
+        self.assertEqual(r.returncode, 0, f"{r.stdout}{r.stderr}")
+
+    def test_el_centinela_restaura_el_archivo(self):
+        """Muta y restaura: si dejara el `raise` puesto, la tarea siguiente heredaría un
+        archivo roto y el método le cobraría la falla a otro."""
+        self.test_la_linea_que_el_test_no_ejecuta_se_informa_como_tal()
+        self.assertNotIn("centinela", (self.p.dir / "src" / "cosa.py").read_text())
+        self.assertNotIn("centinela", (self.p.dir / "src" / "pozo.py").read_text())
+        self.assertEqual(self.p.git("status --porcelain").stdout.strip(), "",
+                         "el centinela dejó el árbol sucio")
+
+    def test_el_shell_elige_el_mensaje_segun_el_codigo(self):
+        """El veredicto lo imprime `escribir-tests.sh`, no `mutar.py`: si el shell no mira el
+        código 3, la distinción se mide y se tira. Se lee del CÓDIGO, no de los comentarios:
+        los de este arreglo nombran las dos frases y un grep ingenuo matchearía la prosa."""
+        fuente = (SCRIPTS / "escribir-tests.sh").read_text()
+        codigo = "\n".join(l for l in fuente.split("\n") if not l.strip().startswith("#"))
+        self.assertIn('"$RC_MUT" = "3"', codigo,
+                      "el shell no distingue el código 3: el diagnóstico no llega al agente")
+        i = codigo.index('"$RC_MUT" = "3"')
+        bloque = codigo[i:i + 700]
+        self.assertIn("NO EJECUTA", bloque, f"\n{bloque[:400]}")
+        self.assertNotIn("cubre las líneas", bloque[:bloque.index("else")],
+                         "en la rama del 3 no puede afirmar que cubre las líneas")
