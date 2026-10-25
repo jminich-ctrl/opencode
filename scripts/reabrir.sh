@@ -173,7 +173,10 @@ def sin_notas(ls):
 
 lineas = sin_notas(lineas)
 corte = next((i for i, l in enumerate(lineas) if l.startswith("## ")), len(lineas))
-open(ruta, "w").write("\n".join(lineas[:corte] + nota.split("\n") + lineas[corte:]))
+# El `""` final es la línea en blanco que separa la nota de la sección siguiente. No se
+# puede dejar en la nota: `$(...)` se come los newlines del final, así que la nota llegaba
+# acá sin ella y quedaba pegada a `## Objetivo`. Lo encontró el test que mide la separación.
+open(ruta, "w").write("\n".join(lineas[:corte] + nota.split("\n") + [""] + lineas[corte:]))
 PYNOTA
 done
 

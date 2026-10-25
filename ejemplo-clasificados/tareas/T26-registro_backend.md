@@ -10,9 +10,10 @@
 
 su enunciado nombra password_hash cuatro veces —incluida la firma insert_user(email, password_hash) que le pide escribir— y la tabla usuarios tiene clave_hash y clave_salt, las dos NOT NULL sin default. El agente escribio password_hash y MySQL lo rechazo con Unknown column. El enunciado se contradice a si mismo: lo resuelve el planificador, no el que lo ejecuta
 
-Se reabrió con scripts/reabrir.sh el 2026-10-25 14:31 UTC. Su código anterior
+Se reabrió con scripts/reabrir.sh el 2026-10-25 14:51 UTC. Su código anterior
 se sacó del tronco (copia en reabrir-T26-previo): esta tarea vuelve a pasar por tests-first,
 así que el test tiene que fallar antes de que exista la implementación.
+
 ## Objetivo
 
 Permitir crear una cuenta de usuario mediante endpoint POST `/register` que almacene los datos en la tabla `usuarios`.

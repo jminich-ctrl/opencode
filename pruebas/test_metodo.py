@@ -8234,9 +8234,22 @@ class TestReabrirUnaTareaConVeredictoFalso(unittest.TestCase):
         duplicara. La nota informa a una persona, no declara un contrato."""
         d = self.proyecto()
         self.reabrir(d, motivo="la tabla `users` no existe: es `usuarios`")
-        nota = (d / "tareas" / "T07-cosas.md").read_text().split("## Reabierta")[1]
+        # Hasta la SIGUIENTE sección, no hasta el final del archivo. La extracción asumía
+        # que la nota era lo último, que es donde la escribía `>>`; desde que va arriba, un
+        # slice al final del archivo se lleva el resto del enunciado con sus backticks y el
+        # test medía otra cosa. Un extractor que depende de la posición de su sujeto se rompe
+        # cuando el sujeto se mueve, y acá se movió a propósito.
+        resto = (d / "tareas" / "T07-cosas.md").read_text().split("## Reabierta")[1]
+        nota = resto.split("\n## ")[0]
         self.assertNotIn("`", nota, f"la nota metió backticks:\n{nota}")
         self.assertIn("users", nota, "pero el dato tiene que seguir estando")
+        # El `split` de arriba consume UN `\n`, así que la nota termina con `\n` sólo si
+        # había una línea en blanco antes del `## `. Buscar `\n\n## ` en todo el resto no
+        # medía esto: lo encontraba en cualquier otra sección del archivo y pasaba con la
+        # línea en blanco sacada.
+        self.assertTrue(nota.endswith("\n"),
+                        f"la nota tiene que quedar separada de la sección siguiente por una"
+                        f" línea en blanco, o el enunciado se lee mal:\n{nota[-200:]!r}")
 
     def test_mide_los_rojos_antes_y_despues_y_los_informa(self):
         """La reapertura tiene un juez: si AGREGA contradicciones, se revierte entera. Lo que
