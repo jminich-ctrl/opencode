@@ -10342,16 +10342,33 @@ class TestLaBaseDelWorktreeSeTiraAntesDeBorrarlo(unittest.TestCase):
     y lo que faltaba era esto. Tres corridas de agente perseguí un defecto cuyo mensaje me
     mandaba a lo ya arreglado."""
 
-    def test_la_llamada_va_antes_del_rm(self):
+    def test_la_llamada_va_antes_del_rm_en_TODOS_los_scripts(self):
         """Se lee del CÓDIGO y por POSICIÓN, que es lo que estaba mal: los comentarios de este
-        arreglo nombran las dos cosas en el orden correcto y un grep los encontraría igual."""
-        fuente = (SCRIPTS / "escribir-tests.sh").read_text()
-        codigo = [l for l in fuente.split("\n") if not l.strip().startswith("#")]
-        i_tirar = next(i for i, l in enumerate(codigo) if "tirar_base_del_worktree" in l)
-        i_rm = next(i for i, l in enumerate(codigo) if 'rm -rf "$wt"' in l)
-        self.assertLess(i_tirar, i_rm,
-                        "el `rm -rf` se lleva el .entorno, que es donde vive el nombre de la "
-                        "base: tirarla después es no tirarla")
+        arreglo nombran las dos cosas en el orden correcto y un grep los encontraría igual.
+
+        Y en TODOS los scripts, no en el que tenía el bug. La primera versión miraba sólo
+        `escribir-tests.sh`, y `correr-tarea.sh` tenía exactamente el mismo orden invertido —
+        tres líneas debajo de un comentario que dice «arreglar un lado y no el otro es el
+        patrón que este repo repite». Lo arreglé de un lado y no del otro, y lo cantó el aviso
+        nuevo de la función en su primera corrida real, la de T15. Un test que mira un archivo
+        no protege a sus hermanos."""
+        malos = []
+        for f in sorted(SCRIPTS.glob("*.sh")):
+            lineas = f.read_text().splitlines()
+            for i, l in enumerate(lineas):
+                if "tirar_base_del_worktree" not in l or l.strip().startswith("#"):
+                    continue
+                if l.strip().startswith("tirar_base_del_worktree()"):
+                    continue            # la definición, no una llamada
+                # Las 12 líneas de código de arriba: si entre ellas está el `rm -rf` del
+                # worktree, el `.entorno` ya no existe cuando se la llama.
+                previas = [x for x in lineas[max(0, i - 12):i]
+                           if x.strip() and not x.strip().startswith("#")]
+                if any('rm -rf "$wt"' in x for x in previas):
+                    malos.append(f"{f.name}:{i + 1}")
+        self.assertEqual(malos, [],
+                         "el `rm -rf` se lleva el .entorno, que es donde vive el nombre de la "
+                         "base: tirarla después es no tirarla. Sitios: " + ", ".join(malos))
 
     def test_un_worktree_que_ya_no_esta_avisa_en_vez_de_callar(self):
         """Un worktree que no está en el disco no es «nada que hacer»: es que alguien llamó a

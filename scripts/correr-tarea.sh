@@ -55,8 +55,14 @@ lanzar() {
   # Transcript Y PARCHE. Guardaba sólo el transcript, y el código del intento se iba con el
   # worktree: de un intento que el gate reprobó no quedaba nada ejecutable.
   conservar_intento "$wt" "${id:-${TAREA:-tarea}}"
-  rm -rf "$wt"
+  # La base ANTES del `rm -rf`: `tirar_base_del_worktree` lee el `.entorno` del worktree para
+  # saber cómo se llama la base, y el `rm -rf` se lo lleva. Es el mismo defecto que tenía
+  # `escribir-tests.sh`, y el comentario de arriba lo anticipaba: «arreglar un lado y no el
+  # otro es el patrón que este repo repite». Lo arreglé de un lado y no del otro el
+  # 2026-10-25, y lo cantó el aviso nuevo en su primera corrida real —T15— porque la función
+  # dejó de callarse cuando no puede saber qué tirar.
   tirar_base_del_worktree "$wt"
+  rm -rf "$wt"
   git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
   git -C "$RAIZ" branch -D "tarea/$id" 2>/dev/null
   # El worktree sale del árbol COMMITEADO. Un arreglo del contrato o del test que esté sin
