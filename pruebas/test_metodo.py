@@ -10811,3 +10811,151 @@ class TestIntegrityErrorEsUnaFamiliaYNoUnError(unittest.TestCase):
                          f"las tres ramas tienen que cobrarle al test:\n{hasta_else}")
         self.assertNotIn("⊘", hasta_else,
                          "con la base vacía no corresponde un ⊘: el método hizo su parte")
+
+
+class TestUnTestNoPuedeObligarUnContratoQueElEnunciadoNoDeclara(unittest.TestCase):
+    """El chequeo de columnas pregunta si el ENUNCIADO pide algo que el esquema no tiene. Éste
+    es el mismo cruce en la otra dirección, y hace falta porque el test se acepta PRIMERO y
+    después juzga a toda implementación: lo que invente queda obligado para siempre.
+
+    Medido el 2026-10-25 sobre los tests YA ACEPTADOS de clasificados. Dos lo hacen:
+
+      · T20 obliga seis claves que su enunciado no nombra y que no son columna de ninguna
+        tabla —`other_user_id`, `ultimo_mensaje`, `last_message`, `last_message_date`,
+        `fecha_ultimo_mensaje`, `created_at`— con un contrato que dice sólo `-> dict` y
+        «devuelve el registro creado». Dos corridas de implementación fallaron adivinando el
+        mapeo: una devolvió `other_user_id` donde el test pedía `otro_usuario_id`;
+      · T21 obliga `message_id` con un contrato igual de mudo.
+
+    Es el mismo molde del test envenenado de T28 que saqué esa mañana, que clavaba la columna
+    `categoria`: un test aceptado que obliga algo que el plan no dice. El gate no lo veía
+    porque sus cinco pasos preguntan si el test DISTINGUE, no si lo que obliga está
+    declarado."""
+
+    SCRIPT = SCRIPTS / "_contrato.py"
+
+    def proyecto(self, contrato, test, migracion="id INT, email VARCHAR(80)"):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-contrato-")).resolve()
+        (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
+        self.addCleanup(shutil.rmtree, str(d), True)
+        for sub in ("tareas", "migraciones", "tests"):
+            (d / sub).mkdir()
+        (d / "migraciones" / "001.sql").write_text(
+            f"CREATE TABLE usuarios (\n    {migracion}\n);\n")
+        (d / "tareas" / "T01-cosa.md").write_text(
+            "# T01 — Cosa\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** src/cosa.py\n**Prohibido tocar:** Ninguno\n\n"
+            f"## Contrato\n\n```python\n{contrato}\n```\n")
+        (d / "tests" / "test_cosa.py").write_text(test)
+        return d
+
+    def correr_chequeo(self, d):
+        return correr(f"python3 {self.SCRIPT} tests/test_cosa.py tareas/T01-cosa.md .", d)
+
+    def test_una_clave_inventada_se_marca(self):
+        """El caso de T21: el contrato dice `-> dict` y el test exige una clave."""
+        d = self.proyecto("def f() -> dict:\n    \"\"\"Devuelve el registro.\"\"\"",
+                          "def test_f():\n    assert f() == {'message_id': 1}\n")
+        r = self.correr_chequeo(d)
+        self.assertEqual(r.returncode, 1, f"{r.stdout}{r.stderr}")
+        self.assertIn("message_id", r.stdout, f"\n{r.stdout}")
+        self.assertIn("no declara el enunciado", r.stdout)
+
+    def test_una_clave_que_el_enunciado_declara_no_se_marca(self):
+        d = self.proyecto("def f() -> dict:\n    \"\"\"Devuelve {'message_id': int}.\"\"\"",
+                          "def test_f():\n    assert f() == {'message_id': 1}\n")
+        self.assertEqual(self.correr_chequeo(d).returncode, 0,
+                         "si el enunciado la declara, el contrato existe")
+
+    def test_una_columna_del_esquema_no_se_marca(self):
+        """La tercera fuente, y es la que evita el ruido: una clave que el enunciado no nombra
+        puede ser perfectamente legítima si es una COLUMNA —el test lee la fila que la base
+        devuelve—. Sin esto el chequeo marcaba `anuncio_id` en T20, que sí es columna."""
+        d = self.proyecto("def f() -> dict:\n    \"\"\"Devuelve la fila.\"\"\"",
+                          "def test_f():\n    assert f() == {'email': 'a@b'}\n")
+        self.assertEqual(self.correr_chequeo(d).returncode, 0,
+                         "una columna del esquema no la inventó el test")
+
+    def test_sin_poder_leer_el_esquema_no_afirma_nada(self):
+        """Un chequeo que cruza tres fuentes y perdió una no puede dar un veredicto. Mi
+        primera versión devolvía un set vacío envuelto en `except Exception` —fallando
+        ABIERTO— y con cero columnas leídas marcaba las que sí lo eran."""
+        d = self.proyecto("def f() -> dict:\n    \"\"\"Devuelve la fila.\"\"\"",
+                          "def test_f():\n    assert f() == {'email': 'a@b'}\n")
+        shutil.rmtree(d / "migraciones")
+        r = self.correr_chequeo(d)
+        self.assertEqual(r.returncode, 2,
+                         f"sin esquema tiene que ser ⊘, no un veredicto:\n{r.stdout}")
+        self.assertIn("no afirma nada", r.stdout, f"\n{r.stdout}")
+
+    def test_un_in_sobre_una_coleccion_no_es_un_contrato(self):
+        """`assert "x" in algo` no dice que `algo` sea un dict: puede ser un set o una lista,
+        y entonces lo de la izquierda no es una clave. Lo midió T06b, cuyo test siembra
+        módulos de prueba y afirma `"prueba_router" in ...routers_montados`. Marcarlo era
+        morder al test honesto."""
+        d = self.proyecto("def f() -> set:\n    \"\"\"Devuelve los montados.\"\"\"",
+                          "def test_f():\n    assert 'prueba_router' in f()\n")
+        self.assertEqual(self.correr_chequeo(d).returncode, 0,
+                         "un `in` sobre una colección no declara un contrato")
+
+    def test_el_validador_lo_corre_y_falla_cerrado(self):
+        fuente = (SCRIPTS / "escribir-tests.sh").read_text()
+        codigo = "\n".join(l for l in fuente.split("\n") if not l.strip().startswith("#"))
+        invoca = [l for l in codigo.split("\n") if "_contrato.py" in l and "python3" in l]
+        self.assertTrue(invoca, "el validador no invoca el chequeo")
+        self.assertIn('"$archivo"', invoca[0],
+                      f"tiene que pasarle el archivo de tarea que el script ya resolvió, no "
+                      f"una variable inventada:\n{invoca[0]}")
+        self.assertIn('[ ! -f "$AQUI/_contrato.py" ]', codigo,
+                      "si falta el auxiliar es rojo, no un salteo silencioso")
+
+    def test_los_tests_ya_aceptados_del_repo_dan_dos_hallazgos_y_cero_ruido(self):
+        """El control que decide si esto se puede encender: sobre los tests aceptados de los
+        dos proyectos, dos hallazgos —T20 y T21, los dos verificados a mano— y ningún falso
+        positivo. Pacman, con otro corredor y 19 tareas, no marca nada."""
+        marcados = []
+        for proyecto in ("ejemplo-clasificados", "ejemplo-pacman"):
+            base = RAIZ / proyecto
+            for tf in sorted((base / "tareas").glob("T*.md")):
+                tid = re.match(r"(T\d+[a-z]?)-", tf.name).group(1)
+                del_plan = re.search(
+                    rf"^\|\s*{tid}\s*\|\s*`?([^|`]*?\.py)`?\s*\|", (base / "PLAN.md").read_text(),
+                    re.M) if (base / "PLAN.md").exists() else None
+                ruta = del_plan.group(1).strip() if del_plan else None
+                if not ruta:
+                    m = re.search(r"Archivo: `([^`]*\.py)`", tf.read_text())
+                    ruta = m.group(1) if m else None
+                if not ruta or not (base / ruta).exists():
+                    continue
+                r = correr(f"python3 {self.SCRIPT} {ruta} tareas/{tf.name} .", base)
+                if r.returncode == 1:
+                    marcados.append(f"{proyecto}:{tid}")
+        self.assertEqual(sorted(marcados),
+                         ["ejemplo-clasificados:T20", "ejemplo-clasificados:T21"],
+                         f"los marcados cambiaron: {marcados}")
+
+    def test_un_archivo_que_falta_no_es_un_pase(self):
+        """Con la ruta de la tarea mal armada —lo más fácil de romper al enganchar esto en
+        otro script— el chequeo devolvía 0, o sea: «el contrato está declarado» sin haberlo
+        mirado. Es el defecto que este método viene cerrando todo el día, y éste fue el
+        último chequeo que escribí."""
+        d = self.proyecto("def f() -> dict:\n    \"\"\"Devuelve algo.\"\"\"",
+                          "def test_f():\n    assert f() == {'inventada': 1}\n")
+        r = correr(f"python3 {self.SCRIPT} tests/test_cosa.py tareas/NO-EXISTE.md .", d)
+        self.assertEqual(r.returncode, 2,
+                         f"un archivo que falta es ⊘, no un pase:\n{r.stdout}{r.stderr}")
+        self.assertIn("no afirma nada", r.stdout, f"\n{r.stdout}")
+
+    def test_el_auditor_de_cerradas_tambien_lo_corre(self):
+        """El chequeo es nuevo y encontró dos tests YA ACEPTADOS, así que es exactamente el
+        material que `auditar-cerradas.sh` existe para revisar. Hoy no dispara ahí porque T20
+        y T21 están pendientes —y eso es buena noticia: las cerradas están limpias— pero el
+        enganche tiene que estar para cuando una se cierre."""
+        fuente = (SCRIPTS / "auditar-cerradas.sh").read_text()
+        codigo = "\n".join(l for l in fuente.split("\n") if not l.strip().startswith("#"))
+        self.assertIn("_contrato.py", codigo, "el auditor no cruza el contrato")
+        i = codigo.index("_contrato.py")
+        bloque = codigo[i:i + 300]
+        self.assertIn("rojo_de_esta", bloque,
+                      f"lo corre y no hace nada con el resultado:\n{bloque}")
+

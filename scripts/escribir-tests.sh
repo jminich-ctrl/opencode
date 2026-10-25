@@ -360,6 +360,35 @@ for id in "$@"; do
   # paso no corra nunca y nadie se entere. Pasó con `_imports.py`, que quedó sin resolver en
   # todo proyecto de juguete de la historia; al hacerlo fallar cerrado se pusieron rojos 22
   # tests de golpe. Un chequeo que no pudo correr no es un chequeo que pasó.
+  # El CONTRATO que el test obliga tiene que estar declarado en el enunciado. El chequeo de
+  # columnas pregunta si el enunciado pide algo que el esquema no tiene; éste es el mismo
+  # cruce en la otra dirección, y hace falta porque el test se acepta PRIMERO y después juzga
+  # a toda implementación: lo que invente queda obligado para siempre.
+  #
+  # Medido el 2026-10-25 sobre los tests ya aceptados de clasificados: T20 obliga seis claves
+  # que su enunciado no nombra y que no son columna de ninguna tabla —`other_user_id`,
+  # `ultimo_mensaje`, `last_message`…— y T21 obliga `message_id` con un contrato que dice
+  # sólo `-> dict`. Dos corridas de implementación de T20 fallaron adivinando ese mapeo.
+  # El archivo de tarea es `$archivo`, que este script ya resolvió al empezar la tarea. Mi
+  # primera versión usó una variable `ARCHIVO_TAREA` que no existe, y con la guarda `-n` el
+  # chequeo no habría corrido NUNCA: falla abierto, que es el defecto que este método viene
+  # cerrando todo el día. Si falta el auxiliar es rojo, por el mismo motivo que `_imports.py`.
+  if [ "$fallos" -eq 0 ] && [ -f "$ruta" ] && [ -f "$archivo" ]; then
+    if [ ! -f "$AQUI/_contrato.py" ]; then
+      malo "falta $AQUI/_contrato.py: no se puede cruzar el contrato del test con el enunciado"
+    else
+    SAL_C="$("${PY_PROYECTO:-python3}" "$AQUI/_contrato.py" "$ruta" "$archivo" . 2>&1)"
+    RC_C=$?
+    if [ "$RC_C" = "1" ]; then
+      malo "el test obliga un contrato que el enunciado no declara"
+      printf '%s\n' "$SAL_C" | sed 's/^  /     /'
+    elif [ "$RC_C" = "2" ]; then
+      echo "  ⊘ no pude cruzar el contrato del test contra el enunciado y el esquema"
+      printf '%s\n' "$SAL_C" | sed 's/^  /     /'
+    fi
+    fi
+  fi
+
   if [ "$fallos" -eq 0 ] && [ -f "$ruta" ]; then
     if [ ! -f "$AQUI/_aserciones.py" ]; then
       malo "falta $AQUI/_aserciones.py: no se puede revisar si las aserciones pueden fallar"

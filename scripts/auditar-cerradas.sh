@@ -106,6 +106,14 @@ for tf in "$BASE"/tareas/T*.md; do
     [ $? -eq 1 ] && rojo_de_esta="${rojo_de_esta}
 $(printf '%s' "$sal" | sed 's/^  /     /')"
   fi
+  # ── 2b. ¿El test obliga un contrato que el enunciado no declara? El chequeo es nuevo del
+  # 2026-10-25 y encontró DOS tests ya aceptados que lo hacen —T20 y T21—, así que es
+  # exactamente el material que esta herramienta existe para revisar.
+  if [ -f "$AQUI/_contrato.py" ]; then
+    sal_c="$( (cd "$BASE" && python3 "$AQUI/_contrato.py" "$su_test" "${tf#$BASE/}" .) 2>&1 )"
+    [ $? -eq 1 ] && rojo_de_esta="${rojo_de_esta}
+$(printf '%s' "$sal_c" | sed 's/^  /     /')"
+  fi
   # ── 3. El brazo nulo, archivo por archivo: ¿el test nota que cada archivo quedó sin cuerpo?
   for f in $impl; do
     [ -f "$BASE/$f" ] || continue
