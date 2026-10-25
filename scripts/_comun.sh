@@ -439,9 +439,19 @@ tirar_base_del_worktree() {
   # exactamente lo que pasó en `escribir-tests.sh`, donde la llamada estaba después de un
   # `rm -rf`. El aviso es el que convierte un silencio en un dato.
   if [ ! -d "$wt" ]; then
-    echo "     ⚠ $wt ya no está: no pude saber qué base tirar. Si era un worktree con base" >&2
-    echo "        propia, quedó viva en el servidor. Hay que tirarla ANTES de borrar el" >&2
-    echo "        directorio, porque su nombre vive en su .entorno." >&2
+    # ¿Nunca existió, o lo borraron antes de tiempo? Lo dice GIT: si conoce el worktree, el
+    # directorio estuvo y alguien se lo llevó —y entonces su base quedó viva—. Si no lo
+    # conoce, es la limpieza PREVENTIVA de la primera corrida y no hay nada que avisar.
+    #
+    # Sin la distinción el aviso salía en TODA corrida de tarea, que es la forma más rápida
+    # de que alguien aprenda a ignorarlo. Lo midió `correr-tarea.sh` al lanzar T15 y T20.
+    if git -C "$RAIZ" worktree list --porcelain 2>/dev/null \
+         | grep -qxF "worktree $(cd "$(dirname "$wt")" 2>/dev/null && pwd)/$(basename "$wt")"
+    then
+      echo "     ⚠ $wt ya no está: no pude saber qué base tirar. Si era un worktree con base" >&2
+      echo "        propia, quedó viva en el servidor. Hay que tirarla ANTES de borrar el" >&2
+      echo "        directorio, porque su nombre vive en su .entorno." >&2
+    fi
     return 0
   fi
   proy="$wt/${PROYECTO:-.}"

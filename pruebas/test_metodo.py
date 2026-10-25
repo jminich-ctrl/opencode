@@ -10432,11 +10432,43 @@ class TestLaBaseDelWorktreeSeTiraAntesDeBorrarlo(unittest.TestCase):
                          "estos destruyen un worktree y dejan su base viva en el servidor: "
                          + ", ".join(malos))
 
-    def test_un_worktree_que_ya_no_esta_avisa_en_vez_de_callar(self):
-        """Un worktree que no está en el disco no es «nada que hacer»: es que alguien llamó a
-        esto después de borrarlo, y entonces la base queda viva y nadie se entera. El aviso
-        es lo que convierte un silencio en un dato."""
-        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-tirarbase-")).resolve()
+    def test_la_limpieza_preventiva_no_avisa_porque_no_hay_nada_que_avisar(self):
+        """Este test y el siguiente reemplazan a `test_un_worktree_que_ya_no_esta_avisa_en_
+        vez_de_callar`, que medía la conducta anterior —avisar SIEMPRE que el directorio
+        faltara— con una ruta que git no conoce. Esa conducta cambió a propósito, y su
+        intención —que el silencio se vuelva dato— queda cubierta por el par: uno mide que no
+        hay ruido en el caso normal y el otro que el caso real sigue hablando. Dejar el viejo
+        habría sido medir una conducta que ya no se quiere.
+
+        El aviso distingue «nunca existió» de «lo borraron antes de tiempo», y lo dice GIT:
+        si conoce el worktree, el directorio estuvo y su base quedó viva; si no lo conoce, es
+        la limpieza preventiva de la primera corrida.
+
+        Sin la distinción el aviso salía en TODA corrida de tarea —lo midieron T15 y T20— y
+        eso es la forma más rápida de que alguien aprenda a ignorarlo. Un aviso que grita en
+        el caso normal se apaga en una semana; es la misma lección que dio el chequeo de
+        tautologías, que no se podía encender hasta que dejó de morder al test honesto."""
+        d = self.proyecto_con_git()
+        r = correr(f'PROYECTO=. bash -c \'. "{SCRIPTS}/_comun.sh"; ubicar_proyecto; '
+                   f'tirar_base_del_worktree {d}/nunca-existio\'', d)
+        self.assertNotIn("ya no está", r.stdout + r.stderr,
+                         f"avisó por un worktree que nunca existió:\n{r.stdout}{r.stderr}")
+
+    def test_pero_un_worktree_que_git_conoce_y_falta_sigue_avisando(self):
+        """El control: el silencio no puede tragarse el caso real. Si git lo tiene registrado
+        y el directorio no está, su base quedó viva y hay que decirlo."""
+        d = self.proyecto_con_git()
+        wt = d.parent / "huerfano"
+        correr(f"git worktree add -q --detach {wt} HEAD", d)
+        self.addCleanup(lambda: correr(f"git worktree prune", d))
+        shutil.rmtree(wt, ignore_errors=True)        # alguien lo borró a mano
+        r = correr(f'PROYECTO=. bash -c \'. "{SCRIPTS}/_comun.sh"; ubicar_proyecto; '
+                   f'tirar_base_del_worktree {wt}\'', d)
+        self.assertIn("ya no está", r.stdout + r.stderr,
+                      f"se calló con la base viva:\n{r.stdout}{r.stderr}")
+
+    def proyecto_con_git(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-avisobase-")).resolve()
         (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
         self.addCleanup(shutil.rmtree, str(d), True)
         (d / "tareas").mkdir()
@@ -10449,12 +10481,7 @@ class TestLaBaseDelWorktreeSeTiraAntesDeBorrarlo(unittest.TestCase):
         correr("git init -q .", d)
         correr("git -c user.email=t@t -c user.name=t add -A", d)
         correr('git -c user.email=t@t -c user.name=t commit -qm base', d)
-        r = correr(f'PROYECTO=. bash -c \'. "{SCRIPTS}/_comun.sh"; ubicar_proyecto; '
-                   f'tirar_base_del_worktree /no/existe/nada\'', d)
-        salida = r.stdout + r.stderr
-        self.assertIn("ya no está", salida, f"se calló:\n{salida}")
-        self.assertIn("quedó viva", salida,
-                      "y tiene que decir la consecuencia, no sólo que no pudo")
+        return d
 
     def test_el_encabezado_de_la_funcion_ya_declaraba_el_requisito(self):
         """La función documentaba exactamente este requisito y la llamada lo violaba. El test
