@@ -2097,13 +2097,31 @@ class TestHuecosQueEncontraronLosMutantes(CasoBase):
 
         Para llegar a un gate sin un solo ⊘ hay que armar el caso completo: la
         implementación ya en HEAD pero mal, así que el test de la tarea falla en la línea
-        base, y la tarea la arregla. Ahí los seis pasos tienen algo que decir."""
-        self.p.implementar("def f():\n    return 0\n")      # mal, y commiteada
+        base, y la tarea la arregla. Ahí los seis pasos tienen algo que decir.
+
+        Y la implementación tiene que tener ALGO QUE MUTAR: desde que el gate pregunta si el
+        test distingue ESTA implementación (paso 4b), un `return 42` pelado deja un ⊘ honesto
+        —«no hubo nada que mutar con provecho»— y este caso dejaba de ser el escenario sin
+        vacíos que necesita. El test seguía midiendo lo suyo; lo que había que actualizar era
+        su escenario, porque el gate tiene un paso más que antes."""
+        # El TEST primero —exige las dos ramas, así que hay un mutante que puede matar— y
+        # después la implementación MALA, commiteada. El test queda rojo en la línea base y
+        # la tarea lo arregla. Mi primera versión commiteaba la implementación buena junto
+        # con el test, y entonces no quedaba cambio para la tarea: «no hay ningún cambio».
+        (self.p.dir / "tests" / "test_cosa.py").write_text(
+            "import unittest\nfrom src.cosa import f\n\n"
+            "class TestCosa(unittest.TestCase):\n"
+            "    def test_f(self):\n        self.assertEqual(f(), 42)\n"
+            "    def test_tope(self):\n        self.assertEqual(f(200), 1)\n")
+        self.p.implementar("def f(x=0):\n    return 0\n")   # mal, y commiteada
         self.p.git("add -A"); self.p.git('commit -qm "implementación equivocada"')
         r0 = correr("bash scripts/correr-suite.sh --fallas", self.p.dir)
         (self.p.dir / ".tests-base").write_text(r0.stdout)
         self.assertIn("test_cosa", r0.stdout, "la línea base tiene que traer la falla")
-        self.p.implementar()                                   # la tarea la arregla
+        # La tarea la arregla, CON la condición, para que haya algo que mutar.
+        self.p.implementar("def f(x=0):\n"
+                           "    if x > 100:\n        return 1\n"
+                           "    return 42\n")
         r = self.p.gate("T01")
         self.assertVerde(r, "arregló lo que la línea base tenía roto")
         vacios = [l for l in r.stdout.splitlines() if l.startswith("  ⊘ ")]
