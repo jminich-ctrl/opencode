@@ -10170,6 +10170,61 @@ class TestElNombreDeLaBaseQueSeInformaEsElQueQuedaEscrito(unittest.TestCase):
         self.addCleanup(lambda: correr(f"git worktree remove --force {wt}", d))
         return correr(f"PROYECTO=proy bash {SCRIPTS}/preparar-entorno.sh {wt}/proy", d)
 
+    def test_la_base_del_worktree_no_depende_del_directorio_actual(self):
+        """La relación metamórfica: el nombre de la base de un worktree es el mismo se
+        invoque desde donde se invoque. Si depende del cwd, el `.entorno` cambia de valor
+        entre dos invocaciones y todo lo que lo lee queda desincronizado.
+
+        Era así. `base_de_datos_del_arbol` decidía «es un worktree» con `[ "$DESTINO" !=
+        "$BASE" ]`, y `$BASE` lo resuelve `ubicar_proyecto` desde el DIRECTORIO ACTUAL:
+        corriendo el script con el cwd dentro del worktree, los dos eran el mismo y la
+        función devolvía vacío.
+
+        Medido el 2026-10-25 en la segunda corrida de T26: `escribir-tests.sh` invoca
+        `preparar-entorno.sh` DOS veces y la segunda corre después de que el agente trabajó
+        en el worktree. El `.entorno` cambiaba entre las pasadas del validador, la limpieza
+        vaciaba una base y el test usaba otra, y el `Duplicate entry` volvía con el veredicto
+        cobrado al test. Ahora se le pregunta a GIT."""
+        d = self.proyecto("")   # lo que escriba entorno.sh no importa: se mide el derivado
+        wt = d.parent / "tests-TNN"
+        self.addCleanup(shutil.rmtree, str(wt), True)
+        correr(f"git worktree add -q --detach {wt} HEAD", d)
+        self.addCleanup(lambda: correr(f"git worktree remove --force {wt}", d))
+
+        def derivado(cwd):
+            r = correr(f"PROYECTO=proy bash {SCRIPTS}/preparar-entorno.sh {wt}/proy", cwd)
+            for l in r.stdout.split("\n"):
+                if "base de datos de este worktree:" in l:
+                    return l.split(":", 1)[1].strip()
+            return ""
+
+        desde_el_tronco = derivado(d)
+        desde_el_worktree = derivado(wt)
+        self.assertTrue(desde_el_tronco, "no derivó ninguna base desde el tronco")
+        self.assertEqual(desde_el_tronco, desde_el_worktree,
+                         "el nombre de la base cambia según desde dónde se corra el script")
+        # Y el sufijo no se aplica dos veces: de ahí salía `..._tests_T26_tests_T26`.
+        self.assertEqual(desde_el_tronco.count("tests_TNN"), 1,
+                         f"el sufijo quedó más de una vez: {desde_el_tronco}")
+
+    def test_un_worktree_sin_base_propia_no_sigue(self):
+        """El agujero por el que esto pasó: con la derivación vacía, `entorno.sh` recibía
+        `MYSQL_DB` vacío, usaba su valor por omisión, y el `.entorno` del worktree quedaba
+        apuntando a LA BASE REAL del proyecto. Los tests del worktree habrían escrito ahí; la
+        de clasificados quedó con 0 filas de pura suerte.
+
+        El chequeo de consistencia no lo veía porque exigía un derivado no vacío: comparar el
+        derivado con el escrito verifica consistencia, no corrección."""
+        fuente = (SCRIPTS / "preparar-entorno.sh").read_text()
+        codigo = "\n".join(l for l in fuente.split("\n") if not l.strip().startswith("#"))
+        self.assertIn('[ -z "$DB_ARBOL" ]', codigo,
+                      "un worktree sin base derivada tiene que parar, no seguir en silencio")
+        i = codigo.index('[ -z "$DB_ARBOL" ]')
+        bloque = codigo[i:i + 700]
+        self.assertIn("exit 1", bloque, f"y parar de verdad:\n{bloque}")
+        self.assertIn("git-common-dir", bloque,
+                      "y saber si es un worktree por git, no por el cwd")
+
     def test_si_el_nombre_escrito_no_es_el_derivado_para(self):
         """El caso de T26: el `.entorno` termina con otro nombre y nadie se entera."""
         d = self.proyecto("basedeljuguete_tests_TNN_tests_TNN")

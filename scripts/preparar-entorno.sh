@@ -33,11 +33,35 @@ HIZO=0
 # unidad de aislamiento que el método ya tiene. Se sanea a lo que MySQL acepta como
 # identificador y se corta a 64, que es el límite.
 base_de_datos_del_arbol() {
-  [ "$DESTINO" != "$BASE" ] || return 0
-  local prefijo="" raiz slug
-  if [ -f "$BASE/.entorno" ]; then
+  local prefijo="" raiz slug tronco gd gcd
+  # ¿Es un worktree? Se le pregunta a GIT, no al cwd. `[ "$DESTINO" != "$BASE" ]` decía «si
+  # no es un worktree no hay base derivada», pero `$BASE` lo resuelve `ubicar_proyecto` desde
+  # el DIRECTORIO ACTUAL: corriendo este script con el cwd dentro del worktree, `$DESTINO` y
+  # `$BASE` son el mismo y la función devolvía vacío. Entonces `MYSQL_DB` llegaba vacío a
+  # `entorno.sh`, que usaba su valor por omisión, y el `.entorno` del worktree quedaba
+  # apuntando a `clasificados` — LA BASE DEL PROYECTO. El aislamiento se rompía entero y en
+  # silencio.
+  #
+  # Medido el 2026-10-25 en la segunda corrida de T26: `escribir-tests.sh` invoca este script
+  # DOS veces, y la segunda corre después de que el agente trabajó en el worktree. El
+  # `.entorno` cambiaba de valor entre las pasadas del validador, así que la limpieza vaciaba
+  # una base y el test usaba otra, y el `Duplicate entry` volvía con el veredicto cobrado al
+  # test. La base real de clasificados quedó con 0 filas de pura suerte.
+  gd="$(git -C "$DESTINO" rev-parse --path-format=absolute --git-dir 2>/dev/null)"
+  gcd="$(git -C "$DESTINO" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+  [ -n "$gd" ] && [ "$gd" != "$gcd" ] || return 0
+  # Y el prefijo sale del `.entorno` del TRONCO DE VERDAD, por el mismo motivo: con el cwd
+  # adentro del worktree, `$BASE/.entorno` es el del worktree, cuyo `MYSQL_DB` ya lleva el
+  # sufijo. De ahí salía `clasificados_tests_T26_tests_T26`, con el sufijo dos veces.
+  tronco="$(dirname "$gcd")"
+  [ -f "$tronco/${PROYECTO:-.}/.entorno" ] \
+    && prefijo="$(sed -n 's/^export MYSQL_DB=//p' "$tronco/${PROYECTO:-.}/.entorno" \
+                  | head -1 | tr -d "\"'")"
+  if [ -z "$prefijo" ] && [ -f "$BASE/.entorno" ]; then
     prefijo="$(sed -n 's/^export MYSQL_DB=//p' "$BASE/.entorno" | head -1 | tr -d "\"'")"
   fi
+  # El toplevel del WORKTREE, que es la unidad de aislamiento. No se usa `$tronco` acá: el
+  # sufijo tiene que distinguir un worktree de otro.
   raiz="$(git -C "$DESTINO" rev-parse --show-toplevel 2>/dev/null)"
   # `printf '%s'` y no `basename` directo: el salto de línea que agrega `basename` también es
   # un carácter fuera del juego, así que `tr` lo convertía en un `_` y la base quedaba
@@ -161,6 +185,19 @@ if [ -x "$BASE/scripts/entorno.sh" ]; then
   # es el arreglo de la causa, es el chequeo que la va a atrapar con los dos nombres a la
   # vista la próxima vez que pase. Un desacuerdo acá no se puede dejar pasar en silencio: es
   # barato de ver y caro de diagnosticar después.
+  # Un worktree SIN base derivada es el agujero por el que esto pasó: el chequeo exigía
+  # `-n "$DB_ARBOL"`, así que cuando la derivación devolvía vacío —el caso que rompía el
+  # aislamiento— no miraba nada. Comparar el derivado con el escrito verifica consistencia,
+  # no corrección: si la derivación misma falla, los dos coinciden y no hay nada que ver.
+  if [ -z "$DB_ARBOL" ] \
+     && [ "$(git -C "$DESTINO" rev-parse --path-format=absolute --git-dir 2>/dev/null)" \
+          != "$(git -C "$DESTINO" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ]
+  then
+    echo "✗ $DESTINO es un worktree y no pude derivarle una base propia."
+    echo "   Sin eso, su .entorno queda con el valor por omisión del proyecto: los tests"
+    echo "   del worktree escribirían en LA BASE REAL. No se sigue."
+    exit 1
+  fi
   if [ -n "$DB_ARBOL" ] && [ -f "$DESTINO/.entorno" ]; then
     DB_ESCRITA="$(sed -n 's/^export MYSQL_DB=//p' "$DESTINO/.entorno" | head -1 | tr -d "\"'")"
     if [ "$DB_ESCRITA" != "$DB_ARBOL" ]; then
