@@ -56,6 +56,7 @@ lanzar() {
   # worktree: de un intento que el gate reprobó no quedaba nada ejecutable.
   conservar_intento "$wt" "${id:-${TAREA:-tarea}}"
   rm -rf "$wt"
+  tirar_base_del_worktree "$wt"
   git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
   git -C "$RAIZ" branch -D "tarea/$id" 2>/dev/null
   # El worktree sale del árbol COMMITEADO. Un arreglo del contrato o del test que esté sin

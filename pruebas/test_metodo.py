@@ -8994,3 +8994,111 @@ class TestLaCapaDeDatosNoSePruebaConMocks(unittest.TestCase):
         self.assertIn("Duplicate entry", bloque, f"\n{bloque[-600:]}")
         self.assertIn("hueco del método", bloque,
                       "y que lo diga en vez de inventar un test que pase")
+
+
+class TestUnaBasePorWorktree(unittest.TestCase):
+    """Hasta el 2026-10-25 todos los worktrees escribían en la MISMA base y nadie la limpiaba.
+    Consecuencia medida: el validador de tests corre el mismo test DOS VECES —una sin la
+    implementación y otra con ella— así que la segunda chocaba con la fila que insertó la
+    primera:
+
+        pymysql.err.IntegrityError: (1062, "Duplicate entry 'test@example.com'
+                                            for key 'usuarios.email'")
+
+    y el veredicto decía «el test no pasa ni con la implementación del propio agente»: le
+    cobraba al test lo que dejó su propia primera pasada. Dos intentos del ejecutor gastados.
+
+    La causa concreta: `.entorno` —que lleva el NOMBRE de la base— se enlazaba al del tronco,
+    así que compartir ese archivo era compartir la base. Lo verifiqué en el worktree de T26:
+    era un enlace a `metodo-agentes/ejemplo-clasificados/.entorno`.
+
+    El servidor sigue siendo UNO —levantar un mysqld por worktree sería absurdo, y el worktree
+    no tiene ni `.mysql/` ni cliente— y lo que se aísla es la base."""
+
+    def test_el_entorno_del_worktree_no_se_enlaza_si_el_proyecto_lo_regenera(self):
+        fuente = (SCRIPTS / "preparar-entorno.sh").read_text()
+        i = fuente.index("      .entorno)")
+        bloque = fuente[i:i + 1600]
+        self.assertIn('[ -x "$BASE/scripts/entorno.sh" ]', bloque,
+                      f"tiene que condicionarlo a que el proyecto sepa regenerarlo:\n{bloque[:300]}")
+
+    def test_un_enlace_previo_se_deshace_antes_de_escribir(self):
+        """Imprescindible, no cosmético: `entorno.sh` escribe con `cat >`, y escribir a través
+        de un enlace escribe en su DESTINO. Sin deshacerlo, generar el `.entorno` del worktree
+        PISA el del tronco con el nombre de la base de una tarea, y el tronco entero pasa a
+        apuntar ahí."""
+        fuente = (SCRIPTS / "preparar-entorno.sh").read_text()
+        i = fuente.index("      .entorno)")
+        bloque = fuente[i:i + 1600]
+        self.assertIn('if [ -L "$destino" ]', bloque, f"\n{bloque[:600]}")
+        self.assertIn("rm -f", bloque, f"\n{bloque[:600]}")
+
+    def test_el_nombre_de_la_base_sale_del_tronco_y_del_worktree(self):
+        """El prefijo del `.entorno` del tronco porque el método no sabe cómo se llama la base
+        de un proyecto —lo decide su `entorno.sh`— y el sufijo del worktree, que es la unidad
+        de aislamiento que el método ya tiene."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-basewt-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "tronco").mkdir()
+        (d / "tronco" / ".entorno").write_text("export MYSQL_DB=miproyecto\n")
+        (d / "tests-T42").mkdir()
+        guion = (f'BASE="{d}/tronco"; DESTINO="{d}/tests-T42"\n'
+                 + self._funcion_nombre() + '\nbase_de_datos_del_arbol\n')
+        g = d / "g.sh"; g.write_text(guion)
+        r = correr(f'bash "{g}"', RAIZ)
+        self.assertEqual("miproyecto_tests_T42", r.stdout.strip(),
+                         f"\n{r.stdout}{r.stderr}")
+
+    def test_sobre_el_tronco_no_cambia_la_base(self):
+        """Una corrida sobre el tronco tiene que seguir usando la base del proyecto: es la que
+        una persona mira entre corridas."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-basewt-")).resolve()
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "tronco").mkdir()
+        (d / "tronco" / ".entorno").write_text("export MYSQL_DB=miproyecto\n")
+        guion = (f'BASE="{d}/tronco"; DESTINO="{d}/tronco"\n'
+                 + self._funcion_nombre() + '\nbase_de_datos_del_arbol; echo "fin"\n')
+        g = d / "g.sh"; g.write_text(guion)
+        r = correr(f'bash "{g}"', RAIZ)
+        self.assertEqual("fin", r.stdout.strip(),
+                         f"sobre el tronco no tiene que devolver nombre:\n{r.stdout}")
+
+    def _funcion_nombre(self):
+        """La función TAL COMO ESTÁ en el script: un test que la copia mide la copia."""
+        fuente = (SCRIPTS / "preparar-entorno.sh").read_text()
+        i = fuente.index("base_de_datos_del_arbol() {")
+        j = fuente.index("\n}", i) + 2
+        return fuente[i:j]
+
+    def test_el_drop_es_del_proyecto_y_no_del_metodo(self):
+        """Misma división que el encabezado de `entorno.sh` declara: «el método no sabe qué
+        base de datos usa nadie». El método llama, el proyecto tira."""
+        comun = (SCRIPTS / "_comun.sh").read_text()
+        i = comun.index("tirar_base_del_worktree() {")
+        bloque = comun[i:comun.index("\n}", i)]
+        self.assertIn("entorno.sh --tirar", bloque,
+                      "el método no puede armar el DROP por su cuenta")
+        self.assertIn('[ ! -L "$ent" ]', bloque,
+                      "un .entorno que es ENLACE es el del tronco: esa base no se toca")
+
+    def test_el_proyecto_se_niega_a_tirar_la_base_del_tronco(self):
+        """La guarda que importa: un `--tirar` mal invocado no puede llevarse la base del
+        proyecto, que es la que una persona mira."""
+        ent = RAIZ / "ejemplo-clasificados" / "scripts" / "entorno.sh"
+        if not ent.exists():
+            self.skipTest("este repo ya no tiene ejemplo-clasificados")
+        r = correr(f'MYSQL_DB=clasificados bash "{ent}" --tirar', ent.parent.parent)
+        self.assertNotEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("base del tronco", r.stdout + r.stderr, f"\n{r.stdout}{r.stderr}")
+
+    def test_todo_remove_de_worktree_tira_su_base_antes(self):
+        """La forma que este repo repite es el arreglo que vive en un hermano y no en el otro.
+        Si alguien agrega un `worktree remove` sin el drop, el servidor se llena de bases
+        muertas y nadie se entera: cambiaríamos una fuga por otra."""
+        for n in ("escribir-tests.sh", "correr-tarea.sh"):
+            lineas = (SCRIPTS / n).read_text().splitlines()
+            for i, l in enumerate(lineas):
+                if "worktree remove --force" in l and '"$wt"' in l:
+                    previas = "\n".join(lineas[max(0, i - 3):i])
+                    self.assertIn("tirar_base_del_worktree", previas,
+                                  f"{n}:{i + 1} borra el worktree sin tirar su base:\n{l}")

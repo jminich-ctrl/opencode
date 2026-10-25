@@ -15,12 +15,25 @@ PROY="$(cd "$AQUI/.." && pwd)"
 
 PUERTO="${MYSQL_PORT:-33306}"
 BASE_DATOS="${MYSQL_DB:-clasificados}"
+# UNA BASE POR ÁRBOL, un solo servidor. El servidor y su datadir son del tronco —levantar un
+# mysqld por worktree sería absurdo— pero la BASE no: hasta el 2026-10-25 todos los worktrees
+# escribían en `clasificados` y nadie la limpiaba, así que el validador de tests, que corre el
+# mismo test DOS VECES, chocaba en la segunda con la fila que insertó la primera:
+#   pymysql.err.IntegrityError: (1062, "Duplicate entry 'test@example.com' for key 'usuarios.email'")
+# y el veredicto se lo cobraba al test.
+#
+# Estas dos perillas son lo que permite aislarla sin levantar otro servidor: el método corre
+# ESTE script desde el tronco —que es el que tiene el cliente y el datadir— y lo apunta al
+# worktree. Por omisión las dos valen `$PROY`, así que una corrida sobre el tronco no cambia.
+ENTORNO_DESTINO="${ENTORNO_DESTINO:-$PROY}"     # dónde se escribe `.entorno`
+MIGRACIONES_DESDE="${MIGRACIONES_DESDE:-$PROY}" # de dónde salen las migraciones
 DATADIR="$PROY/.mysql/datos"
 SOCKET="$PROY/.mysql/mysql.sock"
 LOG="$PROY/.mysql/mysqld.log"
 
 escribir_entorno() {
-  cat > "$PROY/.entorno" <<EOF
+  mkdir -p "$ENTORNO_DESTINO"
+  cat > "$ENTORNO_DESTINO/.entorno" <<EOF
 # Generado por scripts/entorno.sh. No lo edites a mano ni lo commitees.
 export MYSQL_HOST=127.0.0.1
 export MYSQL_PORT=$PUERTO
@@ -32,7 +45,10 @@ EOF
 }
 
 aplicar_migraciones() {
-  local dir="$PROY/backend/migraciones" f nombre
+  # Las migraciones salen del ÁRBOL QUE SE PREPARA, no del tronco: con una base por worktree,
+  # las migraciones del worktree son las que corresponden a esa base. Una tarea que agrega una
+  # migración la necesita aplicada para que su test pase.
+  local dir="$MIGRACIONES_DESDE/backend/migraciones" f nombre
   [ -d "$dir" ] || return 0
   ls "$dir"/*.sql >/dev/null 2>&1 || return 0
   mysql --no-defaults --default-character-set=utf8mb4 --protocol=TCP \
@@ -90,6 +106,32 @@ aviso_o_falla() {
 # El cliente, antes de cualquier uso: el del proyecto si está, el del sistema si no. Mezclar
 # un cliente del sistema con un servidor propio es cómo aparecen errores de protocolo.
 if [ -x "$PROY/.mysql/dist/bin/mysql" ]; then PATH="$PROY/.mysql/dist/bin:$PATH"; fi
+
+# ── `--tirar`: la base de un worktree se va con el worktree.
+#
+# Es del PROYECTO y no del método, por la misma razón que todo lo demás de este archivo: el
+# método no sabe qué base de datos usa nadie, ni dónde está el cliente. Lo que el método hace
+# es llamar a esto antes de borrar un worktree.
+#
+# NO se tira la base del tronco: ésa es la del proyecto, la que el humano mira entre corridas,
+# y un `--tirar` mal invocado no puede llevársela. Por eso se exige que el nombre no sea el
+# de por omisión.
+if [ "${1:-}" = "--tirar" ]; then
+  if [ "$BASE_DATOS" = "clasificados" ]; then
+    echo "✗ me pedís tirar la base del tronco (\`clasificados\`). No lo hago." >&2
+    echo "   Pasá MYSQL_DB con la base del worktree." >&2
+    exit 1
+  fi
+  if ! vivo; then
+    echo "· el servidor no está arriba: no hay base que tirar"
+    exit 0
+  fi
+  mysql --no-defaults --protocol=TCP -h 127.0.0.1 -P "$PUERTO" -u root \
+        -e "DROP DATABASE IF EXISTS \`$BASE_DATOS\`" >/dev/null 2>&1 \
+    && echo "· base \`$BASE_DATOS\` tirada" \
+    || { echo "⚠ no pude tirar \`$BASE_DATOS\`: queda ocupando espacio en el servidor" >&2; exit 1; }
+  exit 0
+fi
 
 if vivo; then
   mysql --no-defaults --default-character-set=utf8mb4 --protocol=TCP \

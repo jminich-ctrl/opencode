@@ -25,6 +25,28 @@ DESTINO="${1:-$BASE}"
 [ -d "$DESTINO" ] || { echo "✗ no existe $DESTINO" >&2; exit 1; }
 HIZO=0
 
+# El nombre de la base para el árbol que se prepara. Vacío si es el tronco: el tronco usa la
+# del proyecto, que es la que una persona mira entre corridas.
+#
+# El prefijo sale del `.entorno` del TRONCO porque el método no sabe cómo se llama la base de
+# un proyecto —lo decide su `entorno.sh`— y el sufijo del nombre del worktree, que es la
+# unidad de aislamiento que el método ya tiene. Se sanea a lo que MySQL acepta como
+# identificador y se corta a 64, que es el límite.
+base_de_datos_del_arbol() {
+  [ "$DESTINO" != "$BASE" ] || return 0
+  local prefijo="" raiz slug
+  if [ -f "$BASE/.entorno" ]; then
+    prefijo="$(sed -n 's/^export MYSQL_DB=//p' "$BASE/.entorno" | head -1 | tr -d "\"'")"
+  fi
+  raiz="$(git -C "$DESTINO" rev-parse --show-toplevel 2>/dev/null)"
+  # `printf '%s'` y no `basename` directo: el salto de línea que agrega `basename` también es
+  # un carácter fuera del juego, así que `tr` lo convertía en un `_` y la base quedaba
+  # `clasificados_tests_T26_`. Funcionaba, pero un nombre con basura es un nombre que alguien
+  # va a leer y no va a entender.
+  slug="$(printf '%s' "$(basename "${raiz:-$DESTINO}")" | tr -c 'A-Za-z0-9' '_')"
+  printf '%s' "${prefijo:-proyecto}_${slug}" | cut -c1-64
+}
+
 mismo_manifiesto() {
   local dir="$1" nombre="$2"
   local a="$BASE/$dir/$nombre" b="$DESTINO/$dir/$nombre"
@@ -50,6 +72,27 @@ if [ "$DESTINO" != "$BASE" ]; then
     [ -e "$origen" ] || continue
     destino="$DESTINO/$d"
     case "$d" in
+      .entorno)
+        # NO se enlaza si el proyecto sabe regenerarlo. `.entorno` lleva el NOMBRE DE LA
+        # BASE, así que compartirlo es compartir la base — y hasta el 2026-10-25 eso era
+        # exactamente lo que pasaba: todos los worktrees escribían en la misma, nadie la
+        # limpiaba, y el validador —que corre el mismo test dos veces— chocaba en la segunda
+        # con la fila que insertó la primera. El veredicto se lo cobraba al test.
+        # Si el proyecto NO tiene `entorno.sh`, se enlaza como antes: sin quién lo regenere,
+        # quitarlo dejaría al worktree sin credenciales.
+        if [ -x "$BASE/scripts/entorno.sh" ]; then
+          # Y si el enlace YA estaba de una corrida anterior, se DESHACE. Es imprescindible,
+          # no cosmético: `entorno.sh` escribe con `cat >`, y escribir a través de un enlace
+          # escribe en su DESTINO — o sea que generar el `.entorno` del worktree pisaría el
+          # del tronco con el nombre de la base del worktree, y el tronco entero pasaría a
+          # apuntar a la base de una tarea. Borrar un enlace no toca su destino.
+          if [ -L "$destino" ]; then
+            rm -f "$destino"
+            echo "· .entorno se desenlaza: cada worktree tiene su propia base"
+            HIZO=1
+          fi
+          continue
+        fi ;;
       *node_modules)
         dir_m="$(dirname "$d")"; [ "$dir_m" = "." ] && dir_m=""
         # Si NINGUNO de los dos lados tiene manifiesto, no hay nada que comparar y el
@@ -87,7 +130,18 @@ fi
 # salida. Un servicio que no se puede levantar NO se disimula: para la etapa con un motivo
 # accionable, porque un test de base de datos que pasa sin base no verifica nada.
 if [ -x "$BASE/scripts/entorno.sh" ]; then
-  ( cd "$BASE" && bash scripts/entorno.sh ) || {
+  # Corre el script DEL TRONCO incluso para un worktree, a propósito: el worktree no tiene
+  # `.mysql/` —está gitignorado y no se enlaza— así que desde ahí el script no encontraría ni
+  # el cliente ni el datadir, y podría intentar levantar un SEGUNDO servidor. El servidor es
+  # uno; lo que se aísla es la base.
+  DB_ARBOL="$(base_de_datos_del_arbol)"
+  if [ -n "$DB_ARBOL" ]; then
+    echo "· base de datos de este worktree: $DB_ARBOL"
+  fi
+  ( cd "$BASE" \
+    && MYSQL_DB="${DB_ARBOL:-${MYSQL_DB:-}}" \
+       ENTORNO_DESTINO="$DESTINO" MIGRACIONES_DESDE="$DESTINO" \
+       bash scripts/entorno.sh ) || {
     echo "✗ los servicios del proyecto no están listos. El gate iba a reprobar por eso."; exit 1; }
   HIZO=1
 fi

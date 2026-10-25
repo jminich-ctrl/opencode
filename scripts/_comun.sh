@@ -381,6 +381,37 @@ plataforma_responde() {
 # que estaban por borrarse. Sin esto, cada corrida sigue destruyendo material.
 #
 #   conservar_intento <worktree> <id>
+# La base de un worktree se va CON el worktree.
+#
+#   tirar_base_del_worktree <ruta del worktree>
+#
+# Desde el 2026-10-25 cada worktree tiene su propia base —antes todos escribían en la misma,
+# nadie la limpiaba, y el validador de tests, que corre el mismo test DOS VECES, chocaba en la
+# segunda con la fila que insertó la primera: `Duplicate entry ... for key 'usuarios.email'`,
+# y el veredicto se lo cobraba al test—. Si nadie la tira, el servidor se llena de bases
+# muertas, que es cambiar una fuga por otra.
+#
+# El DROP lo hace el PROYECTO, no el método: `scripts/entorno.sh --tirar` del proyecto sabe
+# dónde está su cliente y cómo se llama su base, y el método no. Es la misma división que ese
+# archivo declara en su encabezado. Si el proyecto no tiene ese script, acá no hay nada que
+# hacer y no se inventa nada.
+#
+# Se llama ANTES de `git worktree remove`: después el `.entorno` con el nombre de la base ya
+# no está, y nadie sabría qué tirar.
+tirar_base_del_worktree() {
+  local wt="$1" proy ent db
+  [ -n "$wt" ] && [ -d "$wt" ] || return 0
+  proy="$wt/${PROYECTO:-.}"
+  [ -x "$BASE/scripts/entorno.sh" ] || return 0
+  ent="$proy/.entorno"
+  # Un ENLACE es el `.entorno` del tronco: ahí la base es la del proyecto y no se toca.
+  [ -f "$ent" ] && [ ! -L "$ent" ] || return 0
+  db="$(sed -n 's/^export MYSQL_DB=//p' "$ent" | head -1 | tr -d "\"'")"
+  [ -n "$db" ] || return 0
+  ( cd "$BASE" && MYSQL_DB="$db" bash scripts/entorno.sh --tirar ) 2>/dev/null \
+    || echo "     ⚠ quedó la base $db en el servidor: tirala con MYSQL_DB=$db bash scripts/entorno.sh --tirar"
+}
+
 conservar_intento() {
   local wt="$1" id="${2:-tarea}" dest log
   [ -d "$wt" ] || return 0

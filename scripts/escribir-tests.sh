@@ -131,6 +131,7 @@ for id in "$@"; do
   # el método mide que el agente falla más: 4 de 15 escribiendo tests, 0 implementando.
   conservar_intento "$wt" "${id:-${TAREA:-tests}}"
   rm -rf "$wt"
+  tirar_base_del_worktree "$wt"
   git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
   git -C "$RAIZ" branch -D "tests/$id" 2>/dev/null
   # El mismo guardia que correr-tarea.sh, y por la misma razón: el worktree sale de HEAD.
@@ -539,6 +540,7 @@ for id in "$@"; do
     # Dejarlos todos acumulados no es gratis: una corrida de un día dejó doce worktrees
     # registrados y doce ramas, y cada herramienta que recorre el repo los recorre.
   conservar_intento "$wt" "${id:-${TAREA:-tests}}"
+    tirar_base_del_worktree "$wt"
     git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
     git -C "$RAIZ" branch -D "tests/$id" >/dev/null 2>&1
     break
