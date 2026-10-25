@@ -10959,3 +10959,65 @@ class TestUnTestNoPuedeObligarUnContratoQueElEnunciadoNoDeclara(unittest.TestCas
         self.assertIn("rojo_de_esta", bloque,
                       f"lo corre y no hace nada con el resultado:\n{bloque}")
 
+
+
+class TestUnaVariableQueNadieLeeDaUnMutanteInmatable(CasoBase):
+    """Borrar una asignación a un nombre que NADIE LEE no cambia el comportamiento por
+    definición: el mutante es inmatable y ningún test puede matarlo. El método lo informaba
+    como «la suite no nota estos cambios», que culpa al test de algo imposible.
+
+    Es la misma clase que las anotaciones de tipo, que ya estaban excluidas por producir
+    «un mutante INMATABLE: ningún test observa el tipo declarado».
+
+    Medido el 2026-10-25 en T20 de clasificados: de sus dos mutantes sobrevivientes uno era
+    `result = []` —una lista que el código reemplaza por `conversations` y nunca lee— y el
+    otro un bug latente de verdad, la condición que elige «el otro usuario de la
+    conversación». Mezclar los dos en la misma lista hace que el real pese la mitad, y el
+    real era el que no había que dejar pasar."""
+
+    def mutar(self, base="HEAD~1"):
+        return correr(f"BASE={base} CODIGO=src "
+                      f"SUITE='python3 -m unittest discover -s tests -t . -q' "
+                      f"python3 {SCRIPTS}/mutar.py", self.p.dir)
+
+    def test_la_variable_muerta_no_se_muta(self):
+        self.p.implementar(); self.p.git("add -A"); self.p.git("commit -qm impl")
+        self.p.implementar("def f():\n    sobrante = []\n    return 42\n")
+        self.p.git("add -A"); self.p.git("commit -qm muerta")
+        r = self.mutar()
+        self.assertNotIn("sobrante", r.stdout,
+                         f"es inmatable: ningún test puede notar que se fue\n{r.stdout}")
+        # Y como no quedó nada que mutar, es un ⊘ honesto y no un verde.
+        self.assertEqual(r.returncode, 2, f"{r.stdout}")
+
+    def test_la_variable_que_si_se_lee_sigue_mutandose(self):
+        """El control: excluir de más apaga el chequeo donde sirve."""
+        self.p.implementar(); self.p.git("add -A"); self.p.git("commit -qm impl")
+        # El valor por omisión tiene que ser 42, que es lo que el test del fixture espera:
+        # con `x=0` la suite arranca en rojo y `mutar.py` se niega a mutar —con razón— así
+        # que el caso no medía la exclusión sino esa negativa.
+        self.p.implementar("def f(x=42):\n    tope = 100\n"
+                           "    if x > tope:\n        return tope\n    return x\n")
+        self.p.git("add -A"); self.p.git("commit -qm viva")
+        r = self.mutar()
+        self.assertIn("mutante(s) probados", r.stdout, f"\n{r.stdout}")
+        self.assertNotEqual(r.returncode, 2,
+                            f"una variable que se lee tiene algo que mutar:\n{r.stdout}")
+
+    def test_la_leida_desde_una_closure_tampoco_se_declara_muerta(self):
+        """Se mira si el nombre se lee en TODO el archivo, no en la función: una closure o
+        una global lo leen desde otro ámbito, y declararla muerta sería apagar el chequeo
+        sobre una variable viva."""
+        self.p.implementar(); self.p.git("add -A"); self.p.git("commit -qm impl")
+        self.p.implementar("def f(x=42):\n    guardado = x\n"
+                           "    def interna():\n        return guardado\n"
+                           "    return interna()\n")
+        (self.p.dir / "tests" / "test_cosa.py").write_text(
+            "import unittest\nfrom src.cosa import f\n\n"
+            "class TestCosa(unittest.TestCase):\n"
+            "    def test_f(self):\n        self.assertEqual(f(), 42)\n")
+        self.p.git("add -A"); self.p.git("commit -qm closure")
+        r = self.mutar()
+        self.assertIn("1 mutante(s) probados", r.stdout,
+                      f"la variable de la closure se lee: hay que mutarla\n{r.stdout}")
+        self.assertEqual(r.returncode, 0, f"y el test la mata:\n{r.stdout}")

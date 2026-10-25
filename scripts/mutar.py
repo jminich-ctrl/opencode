@@ -217,8 +217,33 @@ def candidatos(archivo, lineas_cambiadas):
             for hijo in ast.walk(an):
                 anotados.add(id(hijo))
 
+    # Las variables que NADIE LEE. Borrar `sobrante = []` cuando ese nombre no se lee en
+    # ninguna parte del archivo no cambia el comportamiento POR DEFINICIÓN: el mutante es
+    # inmatable, igual que el de una anotación de tipo, y ningún test puede matarlo. El
+    # método lo informaba como «la suite no nota estos cambios», que culpa al test de algo
+    # imposible.
+    #
+    # Medido el 2026-10-25 en T20 de clasificados: de sus dos mutantes sobrevivientes, uno
+    # era `result = []` —una lista que el código reemplaza por `conversations` y nunca lee— y
+    # el otro un bug latente de verdad. Mezclar los dos en la misma lista hace que el real
+    # pese la mitad.
+    #
+    # Se mira si el nombre aparece como LECTURA en todo el archivo, no en la función: una
+    # global o una closure pueden leerlo desde otro ámbito, y marcar eso sería declarar
+    # muerta una variable viva.
+    leidos = {n.id for n in ast.walk(arbol)
+              if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+    muertas = set()
+    for nodo in ast.walk(arbol):
+        if isinstance(nodo, ast.Assign) and len(nodo.targets) == 1 \
+                and isinstance(nodo.targets[0], ast.Name) \
+                and nodo.targets[0].id not in leidos:
+            muertas.add(id(nodo))
+
     por_linea = {}
     for nodo in ast.walk(arbol):
+        if id(nodo) in muertas:
+            continue
         linea = getattr(nodo, "lineno", None)
         if linea is None or linea not in lineas_cambiadas or linea in aridos:
             continue
