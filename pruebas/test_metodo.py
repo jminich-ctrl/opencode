@@ -10645,3 +10645,63 @@ class TestElGateNoPreguntabaSiElTestDistingueESTAImplementacion(CasoBase):
         self.assertEqual(faltan, [],
                          "estas copias del gate no preguntan si el test distingue ESTA "
                          "implementación: " + ", ".join(faltan))
+
+
+class TestElPorQueFallaNoPuedeCitarAUnVecino(CasoBase):
+    """El gate dice QUÉ tests de la tarea fallan y POR QUÉ. El «por qué» salía de grepear la
+    salida COMPLETA de la suite y tomar el primer match — y el tronco está rojo por diseño
+    mientras una etapa está en vuelo, así que arriba siempre hay errores ajenos.
+
+    Medido el 2026-10-25 en T20 de clasificados: su test fallaba por `KeyError:
+    'otro_usuario_id'` y el gate informó «ModuleNotFoundError: No module named
+    'backend.app.servicios.messages'», que es de T21, otra tarea pendiente. El reintento
+    habría ido a buscar un módulo que no le toca escribir.
+
+    Es el defecto del día entero —el veredicto nombra al sujeto equivocado— y acá lo hace
+    citando a un vecino. El motivo sale ahora de una corrida que SÓLO incluye los tests de la
+    tarea, que es la única forma de que el error sea suyo."""
+
+    def test_el_motivo_es_del_test_de_la_tarea_y_no_del_vecino(self):
+        # Un test AJENO que revienta al importar. Se llama `test_ajeno` y no `test_vecino`
+        # a propósito: unittest lista los errores en orden alfabético de módulo, así que con
+        # «vecino» salía DESPUÉS de `test_cosa` y el defecto no se manifestaba — el test daba
+        # verde con el bug puesto. En pytest el orden lo daba la colección, que informa sus
+        # errores antes de cualquier aserción. El fixture tiene que poner al ajeno PRIMERO,
+        # que es la condición que hace al defecto visible.
+        (self.p.dir / "tests" / "test_ajeno.py").write_text(
+            "import unittest\nfrom src.modulo_de_otra_tarea import algo\n\n"
+            "class TestAjeno(unittest.TestCase):\n"
+            "    def test_algo(self):\n        self.assertTrue(algo())\n")
+        # Y el test de LA TAREA, que falla por su propia causa, bien distinta.
+        (self.p.dir / "tests" / "test_cosa.py").write_text(
+            "import unittest\nfrom src.cosa import f\n\n"
+            "class TestCosa(unittest.TestCase):\n"
+            "    def test_f(self):\n"
+            "        self.assertEqual(f()['clave_que_falta'], 1)\n")
+        self.p.implementar("def f():\n    return {'otra_clave': 1}\n")
+        self.p.git("add -A"); self.p.git('commit -qm "tests y una implementación que falla"')
+        # La línea base, con la falla del VECINO ya dentro: así el gate la descuenta y la
+        # falla de la tarea queda como «mía», que es la rama donde se informa el motivo. Sin
+        # esto el gate dice «la suite está en rojo» y nunca llega a dar un por qué.
+        r0 = correr("bash scripts/correr-suite.sh --fallas", self.p.dir)
+        (self.p.dir / ".tests-base").write_text(
+            "\n".join(l for l in r0.stdout.splitlines() if "ajeno" in l) + "\n")
+        self.p.implementar("def f():\n    return {'otra_clave': 2}\n")
+        r = self.p.gate("T01")
+        self.assertIn("por qué falla", r.stdout, f"no dio motivo:\n{r.stdout}")
+        motivo = next(l for l in r.stdout.splitlines() if "por qué falla" in l)
+        self.assertIn("clave_que_falta", motivo,
+                      f"el motivo tiene que ser el del test de la tarea:\n{motivo}")
+        self.assertNotIn("modulo_de_otra_tarea", motivo,
+                         f"citó el error de un vecino, que es el defecto:\n{motivo}")
+
+    def test_el_motivo_sale_de_una_corrida_acotada_a_la_tarea(self):
+        """Se lee del CÓDIGO: los comentarios de este arreglo citan el error ajeno entero."""
+        fuente = (PLANTILLAS / "gate.sh").read_text()
+        codigo = "\n".join(l for l in fuente.split("\n") if not l.strip().startswith("#"))
+        i = codigo.index("PRIMER_ERROR=")
+        bloque = codigo[max(0, i - 700):i]
+        self.assertIn("SALIDA_MIA", bloque,
+                      f"el motivo sigue saliendo de la salida completa:\n{bloque[-400:]}")
+        self.assertIn("correr-suite.sh \"$RUTA_PE::$CLASE_PE\"", bloque,
+                      "y la corrida tiene que estar acotada al test de la tarea")

@@ -239,8 +239,31 @@ veredicto_con_linea_base() {
     # —`from fastapi import RequestValidationError`, que vive en `fastapi.exceptions`— y
     # estaba en la salida de la suite, que el gate no mostraba. Dos intentos por un dato
     # que ya teníamos. Es la tercera vez que esta lección aparece en otro lugar del método.
-    PRIMER_ERROR="$(printf '%s\n' "$SALIDA" \
-      | grep -m2 -E '^E +|(Import|Module|Attribute|Type|Name|Assertion|Value)Error|^ *>? *assert ' \
+    #
+    # El motivo sale de una corrida que SÓLO incluye a esta tarea, no de la salida completa.
+    # Grepeando todo, el primer match puede ser de OTRO archivo: el tronco está rojo por
+    # diseño mientras una etapa está en vuelo, así que siempre hay errores ajenos arriba.
+    #
+    # Medido el 2026-10-25 en T20 de clasificados: su test fallaba por `KeyError:
+    # 'otro_usuario_id'` y el gate informó «ModuleNotFoundError: No module named
+    # 'backend.app.servicios.messages'», que es de T21 —otra tarea pendiente—. El reintento
+    # habría ido a buscar un módulo que no le toca escribir. Es el defecto del día entero
+    # —el veredicto nombra al sujeto equivocado— y acá lo hace citando a un vecino.
+    SALIDA_MIA="$SALIDA"
+    ESPERADO_PE="$(test_de_la_tarea)"
+    if [ -n "$ESPERADO_PE" ]; then
+      RUTA_PE="$(echo "$ESPERADO_PE" | cut -d' ' -f1)"
+      CLASE_PE="$(echo "$ESPERADO_PE" | cut -d' ' -f2)"
+      SALIDA_MIA="$(bash scripts/correr-suite.sh "$RUTA_PE::$CLASE_PE" 2>&1)"
+    fi
+    # Cualquier `*Error` o `*Exception`, no una lista de siete. La lista enumeraba
+    # Import|Module|Attribute|Type|Name|Assertion|Value y dejaba afuera KeyError, IndexError,
+    # KeyboardInterrupt, OSError y todos los propios del proyecto. Medido el 2026-10-25: el
+    # test de T20 fallaba por `KeyError: 'otro_usuario_id'`, que no matcheaba, y el motivo
+    # quedaba para el primer error que SÍ matcheara — el de un vecino. Enumerar lo que puede
+    # fallar es una lista que siempre está incompleta.
+    PRIMER_ERROR="$(printf '%s\n' "$SALIDA_MIA" \
+      | grep -m2 -E '^E +|[A-Za-z_]+(Error|Exception)\b|^ *>? *assert ' \
       | sed 's/^ *//' | tr '\n' ' ' | cut -c1-200)"
     [ -n "$PRIMER_ERROR" ] && echo "     por qué falla: $PRIMER_ERROR"
     return
