@@ -25,6 +25,9 @@ forma concreta, y se afirma el VEREDICTO esperado. No se afirma el texto exacto 
 —eso haría los tests frágiles— sino el código de salida y, cuando importa, que el motivo
 aparezca.
 """
+import ast
+import atexit
+import http.server
 import json
 import os
 import pathlib
@@ -35,6 +38,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import unittest
 
 RAIZ = pathlib.Path(__file__).resolve().parent.parent
@@ -61,8 +65,88 @@ def _test_en_curso():
     return "desconocido"
 
 
+# Lo que los servidores falsos de esta suite anotan en vez de imprimir.
+ERRORES_DE_SERVIDOR = []
+
+
+def tirar_dir(ruta):
+    """Borra un directorio de prueba SIN tragarse la falla.
+
+    `tirar_dir(...)` era la forma en 104 limpiezas de esta suite, y
+    es el mismo defecto que `Proyecto.tirar` ya tenía arreglado para sí: los objetos de git
+    son de sólo lectura (444) y `rmtree` no los borra sin tocarles el permiso, así que la
+    limpieza fallaba y NADIE se enteraba. Medido el 2026-10-26: de los ocho directorios
+    huérfanos en /var/folders, los que no eran de `Proyecto` venían de acá —`prueba-auditar`,
+    `prueba-nombrebase`, `prueba-tercerjuez`—, cada uno con su `git init` adentro. El disco
+    se llenó dos veces esta semana.
+
+    Un `rm` que falla en silencio es la misma clase de problema que un chequeo que no pudo
+    correr y dice que pasó, y esta suite existe para no tener de ésos."""
+    if not os.path.exists(ruta):
+        return
+    antes = len(NO_BORRADOS)
+    shutil.rmtree(ruta, onerror=_a_la_fuerza)
+    if len(NO_BORRADOS) > antes or os.path.exists(ruta):
+        print(f"⚠ quedó basura en disco: {ruta} — {len(NO_BORRADOS) - antes} ruta(s) "
+              f"resistieron el chmod.", file=sys.stderr)
+
+
+class ServidorFalso(http.server.HTTPServer):
+    """`HTTPServer` que ANOTA sus errores en vez de volcarlos a stderr.
+
+    Hay ocho servidores falsos en esta suite, cada uno con su propia necesidad, y el ruido no
+    era de ninguno: es el `handle_error` por defecto de `socketserver`, que imprime el
+    traceback. Los tests de timeout cortan al cliente a propósito, así que TODA corrida
+    verde terminaba con un volcado de 20 líneas por BrokenPipeError. Ruido en la salida de
+    una corrida limpia es lo que enseña a no leer la salida, y la mitad de los defectos de
+    este repo vivieron detrás de una salida que nadie leía.
+
+    Anota y no se calla: lo que explote queda en `ERRORES_DE_SERVIDOR` y un test lo puede
+    mirar. Un error tragado sería el otro defecto, el de siempre."""
+
+    def handle_error(self, request, client_address):
+        ERRORES_DE_SERVIDOR.append(traceback.format_exc())
+
+
 # Lo que resistió el borrado, para que la suite lo diga en vez de dejarlo callado.
 NO_BORRADOS = []
+
+# Los proyectos de juguete VIVOS: ruta -> (marca, pila de quien lo creó). `NO_BORRADOS`
+# cubre «lo borré y resistió»; esto cubre «nadie lo borró», que es otro caso y no tenía
+# nada. Medido el 2026-10-26: la corrida completa dejó tres huérfanos creados en el MISMO
+# segundo, los tres con la marca «setUp» en vez del nombre de un test, y no había forma de
+# nombrar al culpable sin adivinar. Antes fueron 55 en una semana y 147 en un día.
+VIVOS = {}
+
+
+def _avisar_fugas(borrar=True, imprimir=True):
+    """Lo que quedó sin tirar, con la pila de quien lo creó. Devuelve el texto del aviso.
+
+    Corre al terminar el proceso. Borra además de avisar: el aviso lleva la pila, así que no
+    hace falta conservar el directorio para saber de quién era —que es lo único que se
+    perdía— y acumular un repo de juguete por corrida llenó el disco dos veces."""
+    if not VIVOS:
+        return ""
+    lineas = [f"⚠ {len(VIVOS)} proyecto(s) de juguete quedaron SIN TIRAR. Nadie llamó a "
+              f"tirar(): usá addCleanup o rehacer_proyecto()."]
+    for ruta, (marca, pila) in sorted(VIVOS.items()):
+        lineas.append(f"  · {ruta} — creado en {marca}")
+        lineas += ["      " + l for l in pila.strip().splitlines()]
+    if borrar:
+        for ruta in list(VIVOS):
+            tirar_dir(ruta)
+            VIVOS.pop(ruta, None)
+        lineas.append("  (borrados; la pila de arriba es lo único que hacía falta guardar)")
+    texto = "\n".join(lineas)
+    # `imprimir` existe porque el primer test que pidió el texto lo imprimió de paso: un
+    # aviso de fuga en la salida de una corrida LIMPIA es ruido que enseña a ignorar la
+    # salida, que es la mitad de los defectos de este repo.
+    if imprimir:
+        print(texto, file=sys.stderr)
+    return texto
+
+
+atexit.register(_avisar_fugas)
 
 
 def _a_la_fuerza(func, ruta, _exc):
@@ -100,6 +184,11 @@ class Proyecto:
         # atrapó en el acto. Tenía razón: una marca que falla callada deja el directorio
         # huérfano otra vez sin sujeto, que es el defecto que la marca viene a arreglar.
         (self.repo / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
+        # La marca en disco dice QUIÉN, pero sólo si alguien después mira el directorio. El
+        # registro dice lo mismo sin depender de eso, y guarda la pila: los tres huérfanos
+        # del 2026-10-26 tenían marca «setUp», que con 300 tests heredando de `CasoBase` no
+        # nombra a nadie.
+        VIVOS[str(self.repo)] = (_test_en_curso(), "".join(traceback.format_stack(limit=14)))
         # `donde` es la ubicación del proyecto DENTRO del repo. Variarla es la relación
         # metamórfica del test de abajo: el veredicto no puede depender de dónde está.
         self.dir = self.repo if donde == "." else (self.repo / donde)
@@ -184,15 +273,10 @@ class Proyecto:
         # la anotaba como «resistió» y el aviso acusaba de dejar basura un directorio
         # correctamente borrado. Un falso positivo en el chequeo que acabo de agregar, y del
         # mismo tipo que todo lo de hoy: el veredicto nombraba al sujeto equivocado.
+        VIVOS.pop(str(self.repo), None)
         if not os.path.exists(self.repo):
             return
-        antes = len(NO_BORRADOS)
-        shutil.rmtree(self.repo, onerror=_a_la_fuerza)
-        nuevos = len(NO_BORRADOS) - antes
-        if nuevos or os.path.exists(self.repo):
-            print(f"⚠ quedó basura en disco: {self.repo} — {nuevos} ruta(s) resistieron el "
-                  f"chmod. Un rm que falla en silencio es un chequeo que no puede correr y "
-                  f"dice que pasó.", file=sys.stderr)
+        tirar_dir(self.repo)
 
 
 class CasoBase(unittest.TestCase):
@@ -755,7 +839,7 @@ class TestElGateManda(unittest.TestCase):
 
     def log(self, parte_del_agente, rc):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-log-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         p = d / ".tarea.log"
         p.write_text(f"=== T01\n{parte_del_agente}\n=== gate ===\nsalida\n=== rc={rc}\n"
                      f"=== fin T01 · hoy\n")
@@ -814,7 +898,7 @@ class TestPlataformaCaida(unittest.TestCase):
 
     def test_el_502_se_reconoce_como_falla_de_la_plataforma(self):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-502-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         log = d / ".tarea.log"
         log.write_text("=== T01\nError: Bad Gateway\n=== gate ===\nx\n=== rc=1\n"
                        "=== fin T01 · hoy\n")
@@ -828,7 +912,7 @@ class TestPlataformaCaida(unittest.TestCase):
         devuelve `upstream stream ended without a complete EOS handshake`. Es una falla de
         la plataforma —el agente ya estaba trabajando— y no tiene que gastar intentos."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-eos-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         log = d / ".tarea.log"
         log.write_text('=== T06\n> ejecutor\nError: {"message":"upstream stream ended '
                        'without a complete EOS handshake","type":"api_error"}\n'
@@ -888,7 +972,7 @@ class TestLaHuellaLlevaElDatoNoLaCategoria(unittest.TestCase):
 
     def test_la_huella_incluye_el_detalle_del_gate(self):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-huella-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         log = d / ".tarea.log"
         log.write_text(
             "=== T08\nalgo\n=== gate ===\n"
@@ -906,7 +990,7 @@ class TestLaHuellaLlevaElDatoNoLaCategoria(unittest.TestCase):
         """Y el dato tiene que distinguir: si la próxima vez toca OTRO archivo, es otra
         falla y el reintento vale la pena. Con la categoría sola, todo es la misma."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-huella2-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         huellas = []
         for archivo in ("frontend/tests/uno.test.ts", "backend/tests/otro.py"):
             log = d / f"{archivo.replace('/', '_')}.log"
@@ -1021,7 +1105,7 @@ class TestElGateDicePorQueFallaNoSoloCual(unittest.TestCase):
         números existe para que dos fallas iguales con contadores distintos den la misma
         huella; no para romper los identificadores."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-norm-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         log = d / ".tarea.log"
         log.write_text("=== T06c\n=== gate ===\n"
                        "  ✗ los tests de T06c siguen fallando:\n"
@@ -1368,7 +1452,7 @@ class TestLaCuraEstaConectadaAlProceso(unittest.TestCase):
 
     def test_el_400_de_contexto_se_atribuye_a_la_plataforma(self):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-ctx-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         log = d / ".tarea.log"
         log.write_text('=== T06\n> ejecutor\nError: {"message":"vLLM error: {\\"error\\":'
                        '{\\"message\\":\\"This model\'s maximum context length is 5312 '
@@ -1563,7 +1647,7 @@ class TestLaSeñalDeVidaNoEsElSilencio(unittest.TestCase):
 
     def correr_vigilado(self, agente, inactividad=15, total=70, entorno=None):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-vida-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         log = d / "vigilado.log"
         log.write_text("x" * 2000)   # pasa el umbral de arranque: ventana larga
         extra = " ".join(f"{k}={v}" for k, v in (entorno or {}).items())
@@ -1708,7 +1792,7 @@ class TestElVigilanteNoTapaLaEvidencia(unittest.TestCase):
         """Aunque la ventana sea generosa, cortar sigue siendo destruir evidencia. El
         mensaje tiene que decirlo, o el que lo lea va a creer que no había nada que leer."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-tapa-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         log = d / "vigilado.log"
         log.write_text("x")
         r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
@@ -1745,7 +1829,7 @@ class TestLimiteDeTiempo(unittest.TestCase):
         un agente que trabaja escribe todo el tiempo. Con un solo reloj total hay que elegir
         entre cortar rápido y no cortar a quien trabaja; con el de inactividad no."""
         log = pathlib.Path(tempfile.mkdtemp(prefix="prueba-vigilia-")) / "salida.log"
-        self.addCleanup(shutil.rmtree, str(log.parent), True)
+        self.addCleanup(tirar_dir, log.parent)
         log.write_text("")
         t0 = time.time()
         r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; con_limite 600 sleep 600',
@@ -1760,7 +1844,7 @@ class TestLimiteDeTiempo(unittest.TestCase):
         buscar un problema de lentitud que no existe. Pasó, y es el mismo defecto que vengo
         arreglando todo el día: un mensaje con el motivo equivocado."""
         log = pathlib.Path(tempfile.mkdtemp(prefix="prueba-motivo-")) / "salida.log"
-        self.addCleanup(shutil.rmtree, str(log.parent), True)
+        self.addCleanup(tirar_dir, log.parent)
         log.write_text("")
         r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
                    f'con_limite 600 sleep 600 >/dev/null 2>&1; motivo_del_corte "{log}"',
@@ -1774,7 +1858,7 @@ class TestLimiteDeTiempo(unittest.TestCase):
         Sin este caso, bajar el umbral de inactividad hasta que 'funcione' mataría a los
         agentes lentos y nadie se enteraría."""
         log = pathlib.Path(tempfile.mkdtemp(prefix="prueba-vigilia2-")) / "salida.log"
-        self.addCleanup(shutil.rmtree, str(log.parent), True)
+        self.addCleanup(tirar_dir, log.parent)
         log.write_text("")
         r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
                    f'con_limite 600 bash -c \'for i in 1 2 3 4; do echo x >> {log}; sleep 10; done\'',
@@ -1843,7 +1927,7 @@ class TestImportsDeclarados(unittest.TestCase):
 
     def montar(self, package_json, config):
         repo = pathlib.Path(tempfile.mkdtemp(prefix="prueba-imports-"))
-        self.addCleanup(shutil.rmtree, str(repo), True)
+        self.addCleanup(tirar_dir, repo)
         d = repo / "proyecto"
         for sub in ("scripts", "tareas", "frontend/src", "frontend/tests", "backend/tests"):
             (d / sub).mkdir(parents=True)
@@ -1875,7 +1959,7 @@ class TestImportsDeclarados(unittest.TestCase):
         Un chequeo sin material no es un chequeo que pasa: es ⊘.
         """
         repo = pathlib.Path(tempfile.mkdtemp(prefix="prueba-sinjs-"))
-        self.addCleanup(shutil.rmtree, str(repo), True)
+        self.addCleanup(tirar_dir, repo)
         d = repo / "proyecto"
         for sub in ("scripts", "tareas", "frontend", "backend/tests", "backend/migraciones"):
             (d / sub).mkdir(parents=True)
@@ -2365,7 +2449,7 @@ class TestTestigos(CasoBase):
             self.assertIn("archivo(s) reservado(s)", r.stdout,
                           "tiene que decir cuántos archivos reservados corrió")
         finally:
-            shutil.rmtree(res, ignore_errors=True)
+            tirar_dir(res)
 
 
 class TestAmplitudDePatrones(CasoBase):
@@ -2451,7 +2535,7 @@ class TestUnContadorQueCuentaDosExperimentos(unittest.TestCase):
 
     def test_la_huella_sale_del_archivo_que_el_agente_va_a_leer(self):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-enunciado-"))
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        self.addCleanup(tirar_dir, d)
         a, b = d / "viejo.md", d / "nuevo.md"
         a.write_text("# T26\n\nhasheá con scrypt\n")
         b.write_text("# T26\n\nhasheá con sha256\n")
@@ -2502,7 +2586,7 @@ class TestUnaLlamadaEmitidaComoTextoNoEsUnaFallaDeLaTarea(unittest.TestCase):
 
     def error(self, cuerpo):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-proto-"))
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        self.addCleanup(tirar_dir, d)
         log = d / "intento.log"
         log.write_text(cuerpo + "=== gate ===\nGATE ROJO (2 fallo/s)\n")
         return correr("bash -c " + shlex.quote(
@@ -2807,7 +2891,7 @@ class TestEditarUnScriptEnCursoNoPuedeQuedarCallado(unittest.TestCase):
 
     def test_la_huella_cambia_si_cambia_un_script(self):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-huella-s-")).resolve()
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        self.addCleanup(tirar_dir, d)
         (d / "a.sh").write_text("echo a\n")
         (d / "b.sh").write_text("echo b\n")
         antes = self.huella(d)
@@ -2820,7 +2904,7 @@ class TestEditarUnScriptEnCursoNoPuedeQuedarCallado(unittest.TestCase):
         """Brazo nulo: una huella que cambia por su cuenta pararía toda corrida y el guardia
         se volvería un ruido que se aprende a ignorar."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-huella-n-")).resolve()
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        self.addCleanup(tirar_dir, d)
         (d / "a.sh").write_text("echo a\n")
         self.assertEqual(self.huella(d), self.huella(d))
 
@@ -2859,7 +2943,7 @@ class TestImportarDeUnModuloPropioAlgoQueNoDefine(unittest.TestCase):
 
     def proyecto(self, modulos):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-imp-")).resolve()
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        self.addCleanup(tirar_dir, d)
         (d / "requirements.txt").write_text("pymysql\n")
         shutil.copy(SCRIPTS / "_imports.py", d / "_imports.py")
         for ruta, cuerpo in modulos.items():
@@ -3070,7 +3154,7 @@ class TestLoQueLaAuditoriaEncontro(unittest.TestCase):
 
     def test_mutar_devuelve_2_cuando_no_hay_nada_bajo_CODIGO(self):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-mutar-")).resolve()
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        self.addCleanup(tirar_dir, d)
         (d / "backend").mkdir()
         (d / "backend" / "x.py").write_text("def f():\n    return 1\n")
         for cmd in (["init", "-q", "-b", "main"], ["add", "-A"],
@@ -3114,7 +3198,7 @@ class TestLoQueLaAuditoriaEncontro(unittest.TestCase):
 
     def test_el_guardia_detecta_la_tarea_sucia_y_no_molesta_si_esta_limpia(self):
         p = Proyecto()
-        self.addCleanup(shutil.rmtree, p.repo, ignore_errors=True)
+        self.addCleanup(p.tirar)
         dentro = (f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; ubicar_proyecto >/dev/null 2>&1; '
                   'tarea_sin_commitear T01')
         limpio = correr("bash -c " + shlex.quote(dentro), p.dir)
@@ -3259,7 +3343,7 @@ class TestLosChequeosQueReprobabanCodigoLegitimo(unittest.TestCase):
     def test_una_senal_suprimida_nueva_sigue_cayendo(self):
         """Brazo nulo del acote: si el filtro tapara todo, el chequeo dejaría de existir."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-sup-")).resolve()
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        self.addCleanup(tirar_dir, d)
         shutil.copy(SCRIPTS / "_suprimidas.py", d / "_suprimidas.py")
         f = d / "x.py"
         f.write_text("def vieja():\n    try:\n        pass\n    except Exception:\n        pass\n")
@@ -3308,7 +3392,7 @@ class TestLosChequeosQueReprobabanCodigoLegitimo(unittest.TestCase):
         no tocó no puede reprobarla, porque no puede sacarlo sin salirse de su alcance —y
         tocarlo la reprueba el paso 2—. El único camino era escribir peor código."""
         p = Proyecto()
-        self.addCleanup(shutil.rmtree, p.repo, ignore_errors=True)
+        self.addCleanup(p.tirar)
         ajeno = p.dir / "src" / "ajeno.py"
         ajeno.write_text("def g():\n    return 1  # TODO: paginar\n")
         p.git("add -A"); p.git('commit -qm "lo dejó otra tarea"')
@@ -3320,7 +3404,7 @@ class TestLosChequeosQueReprobabanCodigoLegitimo(unittest.TestCase):
     def test_un_TODO_propio_sigue_reprobando(self):
         """Brazo nulo: si el acote tapara todo, el chequeo dejaría de existir."""
         p = Proyecto()
-        self.addCleanup(shutil.rmtree, p.repo, ignore_errors=True)
+        self.addCleanup(p.tirar)
         p.implementar("def f():\n    return 42  # TODO: arreglar esto\n")
         r = p.gate("T01")
         self.assertIn("quedaron TODO", r.stdout,
@@ -3343,7 +3427,7 @@ class TestLosCuatroHallazgosQueFaltaban(unittest.TestCase):
     def control(self, *args, raiz=None):
         d = raiz or pathlib.Path(tempfile.mkdtemp(prefix="prueba-ctrl-")).resolve()
         if raiz is None:
-            self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+            self.addCleanup(tirar_dir, d)
         return correr("bash -c " + shlex.quote(
             f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; RAIZ={shlex.quote(str(d))}; '
             'control_se_movio ' + " ".join(shlex.quote(a) for a in args)), RAIZ), d
@@ -3378,7 +3462,7 @@ class TestLosCuatroHallazgosQueFaltaban(unittest.TestCase):
         # stage la desbordó, así que reprobaba al código arreglado. Es la misma forma que
         # mordió a tres tests este día.
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-huella3-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "scripts").mkdir()
         (d / "scripts" / "x.sh").write_text("echo 1\n")
         for cmd in (["init", "-q", "-b", "main"], ["add", "-A"],
@@ -4104,6 +4188,92 @@ class TestElChequeoDeArquitecturaEstaVivoEnLosProyectosReales(unittest.TestCase)
                               f"proyecto con código escrito\n{r.stdout}")
 
 
+class TestLaSuiteNoEnsuciaSuPropiaSalida(unittest.TestCase):
+    """Toda corrida VERDE terminaba con un traceback de BrokenPipeError de veinte líneas.
+
+    No era de ninguno de los ocho servidores falsos: es el `handle_error` por defecto de
+    `socketserver`, que imprime. Los tests de timeout cortan al cliente a propósito, así que
+    el volcado salía siempre, en verde, y había que saber de antemano que no importaba. Es la
+    misma clase de daño que un ⊘ que no se cuenta: la salida deja de ser legible y entonces
+    nadie la lee."""
+
+    def test_un_cliente_que_se_va_no_imprime_nada(self):
+        import socket
+        import threading
+        from contextlib import redirect_stderr
+        import io
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                time.sleep(0.2)          # el cliente se va mientras tanto
+                cuerpo = b'{"ok": 1}'
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(cuerpo)))
+                self.end_headers()
+                self.wfile.write(cuerpo)
+
+            def log_message(self, *a):
+                pass
+
+        srv = ServidorFalso(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        antes = len(ERRORES_DE_SERVIDOR)
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            c = socket.create_connection(("127.0.0.1", srv.server_address[1]))
+            cuerpo = b'{"model": "m1"}'
+            c.sendall(b"POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\nContent-Length: "
+                      + str(len(cuerpo)).encode() + b"\r\n\r\n" + cuerpo)
+            c.close()
+            time.sleep(0.6)
+        self.assertEqual("", buf.getvalue(),
+                         f"el servidor falso escribió en la salida de la suite:\n{buf.getvalue()}")
+        self.assertGreaterEqual(len(ERRORES_DE_SERVIDOR), antes,
+                                "y lo que pase queda anotado, no tragado")
+
+
+class TestUnaFugaDeProyectoNoPuedeSerAnonima(unittest.TestCase):
+    """`tirar()` ya avisa cuando el `rm` FALLA. No había nada para cuando nadie lo llama.
+
+    Medido el 2026-10-26: la corrida completa dejó tres proyectos de juguete huérfanos,
+    creados los tres en el mismo segundo y con la marca «setUp» —que con 300 tests heredando
+    de `CasoBase` no nombra a nadie—. Sin pila no hay sujeto, y sin sujeto el defecto vuelve.
+    Antes de la marca fueron 55 en una semana; antes del manejador de `rmtree`, 147 en un
+    día, y el disco se llenó dos veces."""
+
+    def test_un_proyecto_vivo_queda_registrado_con_la_pila_de_quien_lo_creo(self):
+        p = Proyecto()
+        try:
+            self.assertIn(str(p.repo), VIVOS, "un proyecto vivo tiene que estar en el registro")
+            _marca, pila = VIVOS[str(p.repo)]
+            self.assertIn("test_un_proyecto_vivo_queda_registrado_con_la_pila_de_quien_lo_creo",
+                          pila, f"la pila tiene que nombrar a quien lo creó:\n{pila}")
+        finally:
+            p.tirar()
+        self.assertNotIn(str(p.repo), VIVOS, "y tirarlo lo saca del registro")
+
+    def test_el_aviso_final_nombra_cada_fuga(self):
+        """El aviso que corre al terminar el proceso, probado sin esperar el final. Con
+        `borrar=False` para no tocar lo que otro test pueda tener vivo."""
+        p = Proyecto()
+        self.addCleanup(p.tirar)
+        aviso = _avisar_fugas(borrar=False, imprimir=False)
+        self.assertIn(str(p.repo), aviso, f"no nombró la fuga:\n{aviso}")
+        self.assertIn("test_el_aviso_final_nombra_cada_fuga", aviso,
+                      f"ni a quien la dejó:\n{aviso}")
+        self.assertIn("tirar()", aviso, "y tiene que decir qué hacer")
+
+    def test_sin_fugas_el_aviso_es_vacio(self):
+        """El control: si no hay nada vivo, no inventa un aviso. Un aviso que grita en el
+        caso normal enseña a ignorarlo, que es el defecto que tuvo el aviso de base huérfana."""
+        vivos = dict(VIVOS)
+        VIVOS.clear()
+        self.addCleanup(VIVOS.update, vivos)
+        self.assertEqual("", _avisar_fugas(borrar=False, imprimir=False))
+
+
 class TestElVistoBuenoDeLaSuiteNuncaSaleSinSuNumero(CasoBase):
     """El `✓` del paso 1 llevaba el resumen del corredor, y el patrón que lo extrae conoce
     unittest, pytest y vitest. Con `node --test` —que informa TAP: `# pass 2`— el resumen
@@ -4193,7 +4363,7 @@ class TestEjemplosNoDerivan(unittest.TestCase):
     def montar(self, gate, declara, archivos, tarea="T01"):
         """Repo de juguete con la forma mínima que cualquiera de los gates acepta."""
         repo = pathlib.Path(tempfile.mkdtemp(prefix="prueba-drift-"))
-        self.addCleanup(shutil.rmtree, str(repo), True)
+        self.addCleanup(tirar_dir, repo)
         d = repo / "proyecto"
         for sub in ("tareas", "scripts", "permitido", "colado"):
             (d / sub).mkdir(parents=True)
@@ -4297,7 +4467,7 @@ class TestEjemplosNoDerivan(unittest.TestCase):
         for gate in self.GATES:
             with self.subTest(gate=str(gate.relative_to(RAIZ))):
                 repo = pathlib.Path(tempfile.mkdtemp(prefix="prueba-cwd-"))
-                self.addCleanup(shutil.rmtree, str(repo), True)
+                self.addCleanup(tirar_dir, repo)
                 d = repo / "proyecto"
                 marca = repo / "cwd.txt"
                 # En los dos layouts a la vez: cada gate va a descubrir el que mira.
@@ -4563,7 +4733,7 @@ class TestElInstrumentoNoDaUnNumeroQueNoPuedeMedir(unittest.TestCase):
         el protocolo se auto-invalida sin parar. Por eso el criterio es continuo y sobre lo que
         tiene varianza baja, no un conteo binomial de doce ítems."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-ctrl-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / ".metricas").mkdir()
 
         def criterio(clave, tools, gate):
@@ -4589,7 +4759,7 @@ class TestElInstrumentoNoDaUnNumeroQueNoPuedeMedir(unittest.TestCase):
         ENTERA, incluidos los brazos que dieron bien: si el instrumento estaba mal, su acierto
         también es sospechoso."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-ctrl2-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / ".metricas").mkdir()
         dentro = lambda tools, gate: (
             f". {SCRIPTS}/_comun.sh >/dev/null 2>&1; "
@@ -4612,7 +4782,7 @@ class TestElInstrumentoNoDaUnNumeroQueNoPuedeMedir(unittest.TestCase):
         `instrumento` es el punto 7 de la regla de parada: dos filas con huellas distintas no
         se comparan, y antes no había cómo saberlo."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-reg9-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "p" / "tareas").mkdir(parents=True)
         correr("git init -q . && git -c user.email=t@t -c user.name=t commit -q "
                "--allow-empty -m x", d)
@@ -4638,7 +4808,7 @@ class TestElInstrumentoNoDaUnNumeroQueNoPuedeMedir(unittest.TestCase):
         campos que los nombres — la misma columna ilegible, al revés. Ya pasó una vez con
         `motivo`; agregar dos más era la oportunidad de repetirlo."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-mig-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "p" / "tareas").mkdir(parents=True)
         correr("git init -q . && git -c user.email=t@t -c user.name=t commit -q "
                "--allow-empty -m x", d)
@@ -4677,7 +4847,7 @@ class TestElInstrumentoNoDaUnNumeroQueNoPuedeMedir(unittest.TestCase):
         genérico que parece de plataforma. Lo tomamos tres veces como «ese modelo no
         sirve»."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-decl-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         cfg = d / "opencode.json"
         cfg.write_text('{"provider":{"colabhive":{"models":{"abc-123":{"name":"x"}}}}}')
         self.assertIn("rc=0", self.declarado(cfg, "abc-123"),
@@ -4690,7 +4860,7 @@ class TestElInstrumentoNoDaUnNumeroQueNoPuedeMedir(unittest.TestCase):
         Al revés —un ⊘ tapando un «no»— el chequeo nunca dispara, que es cómo nació roto:
         `python3 ... || return 2` hacía indistinguible el `sys.exit(1)` de un crash."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-decl2-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         roto = d / "roto.json"
         roto.write_text("{ esto no es json")
         self.assertIn("rc=2", self.declarado(roto, "cualquiera"),
@@ -4723,7 +4893,7 @@ class TestNoSeTiraElMaterialDeUnIntento(CasoBase):
         (p.dir / "src" / "nuevo.py").write_text("X = 1\n")        # nuevo
         r = self.conservar(p.repo)
         dest = p.repo.parent / "fallidos-PRUEBA"
-        self.addCleanup(shutil.rmtree, str(dest), True)
+        self.addCleanup(tirar_dir, dest)
         parches = sorted(dest.glob("parche-*.diff"))
         self.assertTrue(parches, f"no guardó ningún parche:\n{r.stdout}\n{r.stderr}")
         cuerpo = parches[0].read_text()
@@ -4747,7 +4917,7 @@ class TestNoSeTiraElMaterialDeUnIntento(CasoBase):
         (p.dir / "node_modules" / "paquete.js").write_text("// dependencia\n")
         self.conservar(p.repo)
         dest = p.repo.parent / "fallidos-PRUEBA"
-        self.addCleanup(shutil.rmtree, str(dest), True)
+        self.addCleanup(tirar_dir, dest)
         parches = sorted(dest.glob("parche-*.diff"))
         self.assertTrue(parches, "no guardó parche")
         cuerpo = parches[0].read_text()
@@ -4826,7 +4996,7 @@ class TestNadieCruzabaLasTareasEntreSi(unittest.TestCase):
 
     def proyecto_de_juguete(self):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-coh-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "tareas").mkdir()
         (d / "app").mkdir()
         (d / "app" / "auth.py").write_text(
@@ -4911,7 +5081,7 @@ class TestNadieCruzabaLasTareasEntreSi(unittest.TestCase):
         el paso 4 del gate. Un submódulo declarado como archivo es una declaración; que no
         tenga `def` no la vuelve inexistente."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-coh-sub-")).resolve()
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        self.addCleanup(tirar_dir, d)
         (d / "tareas").mkdir()
         (d / "tareas" / "T01-datos.md").write_text(
             "# T01 — datos\n\n**Estado:** pendiente\n**Depende de:** —\n"
@@ -4931,7 +5101,7 @@ class TestNadieCruzabaLasTareasEntreSi(unittest.TestCase):
         dejaría de existir. Éste es el cadáver original (T05 inventando
         `obtener_usuario_id_desde_token` y grepeando siete coincidencias, todas suyas)."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-coh-huer-")).resolve()
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        self.addCleanup(tirar_dir, d)
         (d / "tareas").mkdir()
         (d / "tareas" / "T01-servicio.md").write_text(
             "# T01 — servicio\n\n**Estado:** pendiente\n**Depende de:** —\n"
@@ -4988,7 +5158,7 @@ class TestElBrazoNuloDelValidadorDeTests(unittest.TestCase):
         """Si lo que rompe es el import, el rojo no distingue nada: es el mismo rojo del paso
         1. Así que firma, imports, clases y constantes de módulo se conservan."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-vaciar-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "m.py").write_text(
             "import hashlib\n\n"
             "CONSTANTE = 42\n\n"
@@ -5014,7 +5184,7 @@ class TestElBrazoNuloDelValidadorDeTests(unittest.TestCase):
     def test_un_test_de_puros_casos_negativos_pasa_con_los_cuerpos_vacios(self):
         """El caso real que lo motivó, reproducido: el test de T04b tal como fue aceptado."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-vacuo-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "impl.py").write_text(
             "PREFIJO = 'tok-'\n\n"
             "def usuario_desde_token(token):\n"
@@ -5041,7 +5211,7 @@ class TestElBrazoNuloDelValidadorDeTests(unittest.TestCase):
     def test_un_test_con_el_caso_positivo_falla_con_los_cuerpos_vacios(self):
         """El control del otro lado: el brazo nulo no puede reprobar un test bueno."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-bueno-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "impl.py").write_text(
             "PREFIJO = 'tok-'\n\n"
             "def usuario_desde_token(token):\n"
@@ -5173,7 +5343,7 @@ class TestElPaso4DistingueDeVerdad(CasoBase):
         T16 de pacman; anclar en `tests/` perdia las 31 de clasificados. Lo que la identifica
         es la ruta y la clase juntas."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-decl-t4-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "tareas").mkdir()
         casos = {
             "T01": ("Archivo: `backend/tests/test_errores.py`, clase `TestErrores`.",
@@ -5316,7 +5486,7 @@ class TestElRegistroDiceLaVerdadSobreSiMismo(unittest.TestCase):
         registro quedó con filas huérfanas de un campo. Un comentario que se come el código
         no se ve leyendo: se ve corriendo la función y contando las líneas."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-huella-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         log = d / ".tarea.log"
         log.write_text("=== T08\n> ejecutor\nx\n=== gate ===\n"
                        "  ✓ tests y scripts intactos\n"
@@ -5343,7 +5513,7 @@ class TestElRegistroDiceLaVerdadSobreSiMismo(unittest.TestCase):
         bloque «motivos de rojo que se repiten» nunca imprimió nada, con datos de sobra.
         Una columna que nadie puede leer no existe."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-enc-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         reg = self.registro(d, "fecha,proyecto,tarea,veredicto,segundos,modelo",
                             ["2026-01-01T00:00:00Z,p,T01,ROJO,10,abc"])
         correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; RAIZ="{d}" PROYECTO=p '
@@ -5362,7 +5532,7 @@ class TestElRegistroDiceLaVerdadSobreSiMismo(unittest.TestCase):
         """Sanear acá además de arreglar la huella es a propósito: el registro no puede
         depender de que quien lo alimenta se porte bien."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-multi-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         reg = self.registro(d, "fecha,proyecto,tarea,veredicto,segundos,modelo,motivo")
         log = d / ".tarea.log"
         log.write_text("=== T01\n> ejecutor\nx\n=== gate ===\n"
@@ -5389,7 +5559,7 @@ class TestElRegistroDiceLaVerdadSobreSiMismo(unittest.TestCase):
         paliativo —dos corridas pueden arrancar en el mismo segundo sin competir, y dos
         separadas por minutos pueden solaparse si la primera duró mucho—."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-med-"))
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "p" / "tareas").mkdir(parents=True)
         (d / "p" / "tareas" / "T01-x.md").write_text("# T01\n")
         correr("git init -q . && git add -A && "
@@ -5514,7 +5684,7 @@ class TestLosScriptsOperanSobreElArbolDelQueSalieron(unittest.TestCase):
         # .resolve() porque en esta Mac mkdtemp devuelve /var/... y `pwd -P` /private/var/...:
         # sin esto el test compara dos nombres del mismo directorio y falla por el symlink.
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-raiz-")).resolve()
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        self.addCleanup(tirar_dir, d)
         principal, otro = d / "principal", d / "otro"
         (principal / "scripts").mkdir(parents=True)
         (principal / "proy" / "tareas").mkdir(parents=True)
@@ -5587,7 +5757,7 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         """Un repo con el proyecto en un SUBDIRECTORIO, que es donde vive todo proyecto real
         y donde el prefijo de git no es vacío."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-aud3-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "proyecto" / "app").mkdir(parents=True)
         (d / "proyecto" / "app" / "m.py").write_text(contenido)
         for cmd in (["init", "-q", "-b", "main"], ["add", "-A"],
@@ -5678,7 +5848,7 @@ class TestLaTerceraAuditoria(unittest.TestCase):
 
     def proyecto_dos_modulos(self, conf, usa):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-exp-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "app").mkdir()
         (d / "app" / "__init__.py").touch()
         (d / "app" / "conf.py").write_text(conf)
@@ -5783,7 +5953,7 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         de borde de etapa en silencio: la etapa 1 se juzgaba con un chequeo y la etapa 5 con
         otro, y el guardia decía que era la misma corrida."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-huella2-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "a.sh").write_text("echo a\n")
         (d / "b.py").write_text("print('b')\n")
         antes = self.huella(d)
@@ -5807,7 +5977,7 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         estado que la marca existe para delatar. El modelo que se citó al escribirla
         (`congelar-banco.sh`) tenía el mismo defecto, así que el arreglo copió el agujero."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-stage-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "scripts").mkdir()
         (d / "scripts" / "x.sh").write_text("echo 1\n")
         for cmd in (["init", "-q", "-b", "main"], ["add", "-A"],
@@ -5856,7 +6026,7 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         La columna que existe para que el tiempo no mida la ocupación de la plataforma estaba
         midiendo la ocupación de la plataforma."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-conc-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; RAIZ="{d}" PROYECTO=p '
                f'CONCURRENCIA_AL_ARRANCAR=3 anotar_intento T01 VERDE 10 abc', RAIZ)
         fila = (d / ".metricas" / "intentos.csv").read_text().strip().split("\n")[-1]
@@ -5874,7 +6044,7 @@ class TestLaTerceraAuditoria(unittest.TestCase):
     def repo_con_registro(self, filas):
         """Un repo de juguete con un proyecto y un registro, para correr `metricas.sh`."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-met3-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "p" / "tareas").mkdir(parents=True)
         (d / ".metricas").mkdir()
         # Con `scripts/` commiteado: sin él no hay huella de instrumento que leer, y el
@@ -6220,7 +6390,7 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         las fallas de vitest, el TODO, y esto. Los dos lados viven en archivos distintos y
         nadie los lee juntos, así que el test tiene que leerlos por los dos."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-mut3-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "scripts").mkdir()
         shutil.copy(PLANTILLAS / "correr-suite.sh", d / "scripts" / "correr-suite.sh")
         (d / "app").mkdir()
@@ -6365,7 +6535,7 @@ class TestLaTerceraAuditoria(unittest.TestCase):
                     pass
             def log_message(self, *a):
                 pass
-        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        srv = ServidorFalso(("127.0.0.1", 0), H)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         # Los dos, y en este orden: `shutdown` para el bucle, `server_close` para el socket.
         # Sin el segundo la suite deja un ResourceWarning por cada corrida del test.
@@ -6386,7 +6556,7 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         tiene que perder la carrera contra el error que la herramienta vigilada sabe
         informar.** Si corta antes, no observa el sistema: lo fabrica."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-sonda-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         cfg = d / "opencode.json"
         cfg.write_text('{"provider":{"colabhive":{"models":{"m-sonda":{}}}}}')
         base = self.servidor_lento(2)
@@ -6435,7 +6605,7 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         El brazo nulo de este arreglo es el test de arriba: un test que de verdad no verifica
         comportamiento tiene que seguir dejando mutantes vivos."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-anot-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         for sub in ("app", "tests"):
             (d / sub).mkdir()
             (d / sub / "__init__.py").touch()
@@ -6495,7 +6665,7 @@ class TestLaTerceraAuditoria(unittest.TestCase):
                     pass   # best-effort: el cliente puede haber cortado
             def log_message(self, *a):
                 pass
-        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        srv = ServidorFalso(("127.0.0.1", 0), H)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         self.addCleanup(srv.server_close)
         self.addCleanup(srv.shutdown)
@@ -6511,7 +6681,7 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         mismo, y la SECUENCIA de códigos se informa siempre — «502 200» y «502 502 502» dicen
         cosas distintas y quien decide necesita esa diferencia."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-502-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         cfg = d / "opencode.json"
         cfg.write_text('{"provider":{"colabhive":{"models":{"m-sonda":{}}}}}')
 
@@ -6566,7 +6736,7 @@ class TestLaTerceraAuditoria(unittest.TestCase):
                       "un motivo que el enunciado no puede arreglar")
         # El detector, por conducta: reconoce el sobre, no el mensaje.
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-plat-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         for msg in ("memory_session_expired", "memory_delivery_unavailable",
                     "un_mensaje_que_nadie_enumero_todavia"):
             with self.subTest(mensaje=msg):
@@ -6665,7 +6835,7 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         por cosas que no afectan al sujeto. Se hashea sólo `{id: limit.context}`, no el
         archivo, porque la config lleva tema, atajos y claves."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-ctx-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
 
         base = self.huella_ctx(self.cfg_con(d, {"ejecutor": 32000, "orq": 69000}))
         self.assertRegex(base, r"^[0-9a-f]{7}$", f"tiene que ser un hash: {base}")
@@ -6751,7 +6921,7 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         un intento y falló en el siguiente, así que esa resolución no es estable y no se
         puede construir nada encima."""
         wt = pathlib.Path(tempfile.mkdtemp(prefix="prueba-ruta-")).resolve()
-        self.addCleanup(shutil.rmtree, str(wt), True)
+        self.addCleanup(tirar_dir, wt)
         proyecto = "ejemplo-clasificados"
         (wt / proyecto / "tareas").mkdir(parents=True)
         tarea = wt / proyecto / "tareas" / "T05a-avisos-datos.md"
@@ -6794,7 +6964,7 @@ class TestUnErrorDeColeccionNoPuedeEsconderLaSuite(unittest.TestCase):
 
     def proyecto_pytest(self):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-colec-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "tests").mkdir()
         # Un test que falla de verdad, y otro que no se puede ni importar.
         (d / "tests" / "test_falla.py").write_text(
@@ -6860,7 +7030,7 @@ class TestUnaTablaQueNadieCrea(unittest.TestCase):
 
     def proyecto(self, migracion=None, codigo=None):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-tabla-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "tareas").mkdir()
         (d / "tareas" / "T01-x.md").write_text(
             "# T01 — Una cosa\n\n**Estado:** pendiente\n**Depende de:** —\n"
@@ -6959,7 +7129,7 @@ class TestUnEnunciadoQueDaPorHechaUnaTabla(unittest.TestCase):
 
     def proyecto(self, enunciado, migracion=MIGRACION):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-enunciado-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "tareas").mkdir()
         (d / "tareas" / "T26-registro.md").write_text(
             "# T26 — Registro\n\n**Estado:** pendiente\n**Depende de:** —\n"
@@ -7060,7 +7230,7 @@ class TestElPreflightTieneCaminoAlArquitecto(unittest.TestCase):
 
     def proyecto(self, enunciado):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-replan-coh-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         correr("git init -q . && git config user.email a@b && git config user.name a", d)
         (d / "tareas").mkdir()
         (d / "tareas" / "T26-registro.md").write_text(
@@ -7156,7 +7326,7 @@ class TestElVeredictoNoDependeDeComoLoInvocas(unittest.TestCase):
 
     def proyecto(self):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-invar-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "tareas").mkdir()
         (d / "tareas" / "T01-x.md").write_text(
             "# T01 — Una cosa\n\n**Estado:** pendiente\n**Depende de:** —\n"
@@ -7213,7 +7383,7 @@ class TestUnaCorridaPorRojo(unittest.TestCase):
 
     def proyecto(self):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-por-rojo-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         correr("git init -q . && git config user.email a@b && git config user.name a", d)
         (d / "tareas").mkdir()
         # El archivo que cada tarea declara tiene que ser EL MISMO que el PLAN.md le asigna:
@@ -7287,7 +7457,7 @@ class TestElReplanificadorNoDejaEscribirEnElTronco(unittest.TestCase):
         # `$RAIZ/..`, igual que `fallidos-<id>`: así todo lo que la corrida crea cae adentro
         # del árbol que este test borra al terminar.
         tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-tronco-")).resolve()
-        self.addCleanup(shutil.rmtree, str(tmp), True)
+        self.addCleanup(tirar_dir, tmp)
         d = tmp / "repo"; d.mkdir()
         correr("git init -q . && git config user.email a@b && git config user.name a", d)
         (d / "tareas").mkdir()
@@ -7511,7 +7681,7 @@ class TestReplanificarSinMotivoNoReplanifica(unittest.TestCase):
 
     def proyecto(self):
         tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-sinmotivo-")).resolve()
-        self.addCleanup(shutil.rmtree, str(tmp), True)
+        self.addCleanup(tirar_dir, tmp)
         d = tmp / "repo"; d.mkdir()
         correr("git init -q . && git config user.email a@b && git config user.name a", d)
         (d / "tareas").mkdir()
@@ -7597,7 +7767,7 @@ class TestLaSondaMideLosModelosQueLaCorridaVaAUsar(unittest.TestCase):
         # Local, como en los otros dos andamios de servidor de este archivo.
         import http.server, threading
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-sonda-corrida-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         cfg = d / "opencode.json"
         cfg.write_text(json.dumps({
             "provider": {"colabhive": {"models": {m: {} for m in set(self.PAPELES.values())}}},
@@ -7616,7 +7786,7 @@ class TestLaSondaMideLosModelosQueLaCorridaVaAUsar(unittest.TestCase):
             def log_message(self, *a):
                 pass
 
-        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        srv = ServidorFalso(("127.0.0.1", 0), H)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         self.addCleanup(srv.server_close)
         self.addCleanup(srv.shutdown)
@@ -7696,6 +7866,41 @@ class TestLaSuiteNoDejaBasuraEnSilencio(unittest.TestCase):
     que de verdad resista el `chmod`— no es portable: un usuario normal siempre puede
     cambiarle el permiso a sus propios archivos."""
 
+    def test_ninguna_limpieza_borra_en_silencio(self):
+        """El arreglo de `Proyecto.tirar` valía para los proyectos de juguete y para nada
+        más: 104 limpiezas de esta suite seguían con `rmtree(..., ignore_errors=True)`, y los
+        directorios que ésas dejaban tienen `git init` adentro —`prueba-auditar`,
+        `prueba-nombrebase`, `prueba-tercerjuez`—, o sea objetos 444 que resisten. Ahí
+        estaban, en /var/folders, callados.
+
+        Lo prohibido es la forma SILENCIOSA, no `rmtree`: tres tests borran un subdirectorio
+        como parte del escenario —un proyecto sin migraciones— y ésos tienen que explotar si
+        fallan. Mi primera versión de este chequeo pedía «rmtree en un solo lugar» y los
+        acusaba a los tres: una regla más ancha que el defecto, que es como se consiguen los
+        rojos falsos.
+
+        Va por AST y no por texto porque este archivo NOMBRA la forma prohibida en tres
+        párrafos, y un grep se encontraría a sí mismo — el error de extractor que más veces
+        cometí hoy."""
+        arbol = ast.parse((RAIZ / "pruebas" / "test_metodo.py").read_text())
+        tragan, callbacks = [], []
+        for nodo in ast.walk(arbol):
+            if not isinstance(nodo, ast.Call):
+                continue
+            if any(k.arg == "ignore_errors" for k in nodo.keywords):
+                tragan.append(nodo.lineno)
+            es_rmtree = getattr(nodo.func, "attr", "") == "rmtree"
+            if es_rmtree and len(nodo.args) > 1 and not nodo.keywords:
+                tragan.append(nodo.lineno)      # la forma posicional: rmtree(x, True)
+            # `rmtree` pasado como callback (addCleanup) se lleva su propio silencio puesto.
+            if any(getattr(a, "attr", "") == "rmtree" for a in nodo.args):
+                callbacks.append(nodo.lineno)
+        self.assertEqual([], sorted(tragan),
+                         f"limpiezas que se tragan la falla, en la/s línea/s {sorted(tragan)}")
+        self.assertEqual([], sorted(callbacks),
+                         f"`rmtree` pasado como callback en {sorted(callbacks)}: usá tirar_dir, "
+                         f"que hace chmod, reintenta y anota lo que resiste")
+
     def test_tirar_borra_un_repo_de_git_con_objetos_de_solo_lectura(self):
         """El defecto original: `rmtree` a secas falla con los 444 de .git/objects."""
         p = Proyecto()
@@ -7706,7 +7911,7 @@ class TestLaSuiteNoDejaBasuraEnSilencio(unittest.TestCase):
 
     def test_si_el_chmod_falla_se_anota_en_vez_de_tragarse(self):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-basura-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         victima = d / "resiste.txt"
         victima.write_text("x")
         antes = len(NO_BORRADOS)
@@ -7841,7 +8046,7 @@ class TestElCanalSinMemoria(unittest.TestCase):
             def log_message(self, *a):
                 pass
 
-        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        srv = ServidorFalso(("127.0.0.1", 0), H)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         self.addCleanup(srv.server_close)
         self.addCleanup(srv.shutdown)
@@ -7849,7 +8054,7 @@ class TestElCanalSinMemoria(unittest.TestCase):
 
     def salida(self):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-sinmem-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         return d
 
     # ── pedir.py: el POST pelado, sin sesión ni herramientas
@@ -8031,7 +8236,7 @@ class TestReplanificarSinCanalDeMemoria(unittest.TestCase):
 
     def proyecto(self, linea="Guardar los datos en la tabla `users`."):
         tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-replansm-")).resolve()
-        self.addCleanup(shutil.rmtree, str(tmp), True)
+        self.addCleanup(tirar_dir, tmp)
         d = tmp / "repo"; d.mkdir()
         correr("git init -q . && git config user.email a@b && git config user.name a", d)
         (d / "tareas").mkdir()
@@ -8069,7 +8274,7 @@ class TestReplanificarSinCanalDeMemoria(unittest.TestCase):
             def log_message(self, *a):
                 pass
 
-        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        srv = ServidorFalso(("127.0.0.1", 0), H)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         self.addCleanup(srv.server_close)
         self.addCleanup(srv.shutdown)
@@ -8257,7 +8462,7 @@ class TestElEntornoDeLaPlataformaNoPisaAQuienLlama(unittest.TestCase):
     def casa(self, url="http://del-archivo", clave="clave-del-archivo"):
         """Un HOME de juguete con el archivo de entorno que los scripts leen."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-entorno-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / ".config" / "colabhive").mkdir(parents=True)
         (d / ".config" / "colabhive" / "env").write_text(
             f'export COLABHIVE_BASE_URL="{url}"\nexport COLABHIVE_API_KEY="{clave}"\n')
@@ -8314,7 +8519,7 @@ class TestElEntornoDeLaPlataformaNoPisaAQuienLlama(unittest.TestCase):
 
     def test_sin_archivo_no_falla_ni_inventa(self):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-entorno-vacia-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         r = self.cargar(d, COLABHIVE_BASE_URL="http://del-invocante")
         self.assertIn("rc=0", r.stdout, f"\n{r.stdout}{r.stderr}")
         self.assertIn("URL=http://del-invocante", r.stdout, f"\n{r.stdout}")
@@ -8358,7 +8563,7 @@ class TestLaFotoDelAlcanceNoRevientaConElWorktreeLimpio(unittest.TestCase):
 
     def correr_con(self, contenido):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-foto-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / ".sucio-antes").write_text(contenido)
         guion = d / "g.sh"
         guion.write_text(self.bloque())
@@ -8403,7 +8608,7 @@ class TestLasColumnasTambienSeCruzanContraLaMigracion(unittest.TestCase):
 
     def proyecto(self, consulta, estado="pendiente", esquema="id INT, nombre VARCHAR(50)"):
         tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-cols-")).resolve()
-        self.addCleanup(shutil.rmtree, str(tmp), True)
+        self.addCleanup(tirar_dir, tmp)
         d = tmp / "repo"; d.mkdir()
         correr("git init -q . && git config user.email a@b && git config user.name a", d)
         (d / "tareas").mkdir()
@@ -8534,7 +8739,7 @@ class TestReabrirUnaTareaConVeredictoFalso(unittest.TestCase):
 
     def proyecto(self):
         tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-reabrir-")).resolve()
-        self.addCleanup(shutil.rmtree, str(tmp), True)
+        self.addCleanup(tirar_dir, tmp)
         d = tmp / "repo"; d.mkdir()
         correr("git init -q . && git config user.email a@b && git config user.name a", d)
         (d / "tareas").mkdir()
@@ -8694,7 +8899,7 @@ class TestElQueProveeUnImportCorreAntesDelQueLoConsume(unittest.TestCase):
 
     def proyecto(self, deps_consumidor="—", estado_proveedor="pendiente", en_tronco=False):
         tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-orden-")).resolve()
-        self.addCleanup(shutil.rmtree, str(tmp), True)
+        self.addCleanup(tirar_dir, tmp)
         d = tmp / "repo"; d.mkdir()
         correr("git init -q . && git config user.email a@b && git config user.name a", d)
         (d / "tareas").mkdir()
@@ -8835,7 +9040,7 @@ class TestLaTemperaturaNoLaElijeElServidor(unittest.TestCase):
             def log_message(self, *a):
                 pass
 
-        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        srv = ServidorFalso(("127.0.0.1", 0), H)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         self.addCleanup(srv.server_close)
         self.addCleanup(srv.shutdown)
@@ -8843,7 +9048,7 @@ class TestLaTemperaturaNoLaElijeElServidor(unittest.TestCase):
 
     def pedir(self, **env):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-temp-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "p.txt").write_text("¿cuál?\n")
         return correr(f'python3 "{SCRIPTS}/pedir.py" m1 < "{d}/p.txt"', RAIZ,
                       COLABHIVE_BASE_URL=self.servidor(), COLABHIVE_API_KEY="x", **env)
@@ -8964,7 +9169,7 @@ class TestLaVentanaDeclaradaNoEsLaUsable(unittest.TestCase):
             def log_message(self, *a):
                 pass
 
-        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        srv = ServidorFalso(("127.0.0.1", 0), H)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         self.addCleanup(srv.server_close)
         self.addCleanup(srv.shutdown)
@@ -8972,7 +9177,7 @@ class TestLaVentanaDeclaradaNoEsLaUsable(unittest.TestCase):
 
     def medir(self, responde, **env):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-ventana-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         cfg = d / "opencode.json"
         cfg.write_text(json.dumps({"provider": {"c": {"models": {
             "m1": {"limit": {"context": 8000}}}}}}))
@@ -9033,11 +9238,11 @@ class TestLaVentanaDeclaradaNoEsLaUsable(unittest.TestCase):
             def log_message(self, *a):
                 pass
 
-        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        srv = ServidorFalso(("127.0.0.1", 0), H)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         self.addCleanup(srv.server_close); self.addCleanup(srv.shutdown)
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-ventana-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         cfg = d / "opencode.json"
         cfg.write_text(json.dumps({"provider": {"c": {"models": {"m1": {}}}}}))
         r = correr(f'python3 "{SCRIPTS}/medir-ventana.py" m1', RAIZ,
@@ -9072,7 +9277,7 @@ class TestElEnunciadoTampocoPuedePedirUnaColumnaQueNoExiste(unittest.TestCase):
 
     def proyecto(self, cuerpo, esquema="id INT, nombre VARCHAR(50)"):
         tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-colenun-")).resolve()
-        self.addCleanup(shutil.rmtree, str(tmp), True)
+        self.addCleanup(tirar_dir, tmp)
         d = tmp / "repo"; d.mkdir()
         correr("git init -q . && git config user.email a@b && git config user.name a", d)
         (d / "tareas").mkdir()
@@ -9144,7 +9349,7 @@ class TestElRouterLePasaElMenuDelProblemaQueRecibe(unittest.TestCase):
 
     def proyecto(self, cuerpo):
         tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-router-")).resolve()
-        self.addCleanup(shutil.rmtree, str(tmp), True)
+        self.addCleanup(tirar_dir, tmp)
         d = tmp / "repo"; d.mkdir()
         correr("git init -q . && git config user.email a@b && git config user.name a", d)
         (d / "tareas").mkdir()
@@ -9348,7 +9553,7 @@ class TestUnTestMockeadoNoPuedeClavarUnaConsultaImposible(unittest.TestCase):
         una exclusión que varios chequeos de este archivo SÍ hacen— un test mockeado podría
         clavar cualquier consulta sin que nadie la cruzara nunca."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-testmock-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         correr("git init -q . && git config user.email a@b && git config user.name a", d)
         (d / "tareas").mkdir()
         (d / "tareas" / "T40-cosas.md").write_text(
@@ -9458,7 +9663,7 @@ class TestUnaBasePorWorktree(unittest.TestCase):
         # del proyecto. Con directorios pelados este test medía una derivación que ya no
         # existe, y era él el que había que actualizar.
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-basewt-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         tronco = d / "tronco"
         tronco.mkdir()
         (tronco / ".entorno").write_text("export MYSQL_DB=miproyecto\n")
@@ -9484,7 +9689,7 @@ class TestUnaBasePorWorktree(unittest.TestCase):
         # porque el destino no era un repo, no porque fuera el tronco— y habría seguido verde
         # con el arreglo puesto al revés.
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-basewt-")).resolve()
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         tronco = d / "tronco"
         tronco.mkdir()
         (tronco / ".entorno").write_text("export MYSQL_DB=miproyecto\n")
@@ -9631,7 +9836,7 @@ class TestElRojoDeColumnaNoSeDegradaPorCompania(unittest.TestCase):
 
     def proyecto(self, con_implementacion):
         tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-degrada-")).resolve()
-        self.addCleanup(shutil.rmtree, str(tmp), True)
+        self.addCleanup(tirar_dir, tmp)
         d = tmp / "repo"; d.mkdir()
         correr("git init -q . && git config user.email a@b && git config user.name a", d)
         (d / "tareas").mkdir()
@@ -9840,7 +10045,7 @@ class TestUnaAsercionQueNoPuedeFallarConNingunaImplementacion(unittest.TestCase)
     def correr(self, texto, nombre="test_x.py", extra=None):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-aserciones-")).resolve()
         (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        self.addCleanup(tirar_dir, d)
         (d / ".git").mkdir()                     # raíz del repo: define qué es «del producto»
         (d / "src").mkdir()
         (d / "src" / "__init__.py").touch()
@@ -9975,7 +10180,7 @@ class TestElBrazoNuloConVariosArchivosSeSatisfaceConUno(unittest.TestCase):
         T04, T26 y T28, y la que el brazo nulo conjunto no puede juzgar."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-brazo-")).resolve()
         (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "app").mkdir()
         (d / "app" / "__init__.py").touch()
         # La capa de datos: un STUB, como el users.py de T04.
@@ -10119,7 +10324,7 @@ class TestReabrirNoPuedeQuedarBloqueadoPorElDisco(unittest.TestCase):
     def proyecto(self, contrato_de_T02, con_tabla_de_tests=True):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-reabrir-")).resolve()
         (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "tareas").mkdir()
         tabla_tests = ("\n## Tests\n\n| Tarea | Archivo de test | Clase |\n|---|---|---|\n"
                        "| T01 | tests/test_uno.py | TestUno |\n"
@@ -10209,7 +10414,7 @@ class TestReabrirNoPuedeRomperUnaTareaQueSigueHecha(unittest.TestCase):
         T04/T04b: la segunda extiende lo que escribió la primera."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-tercerjuez-")).resolve()
         (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         for sub in ("tareas", "scripts", "src", "tests"):
             (d / sub).mkdir()
         shutil.copy(PLANTILLAS / "correr-suite.sh", d / "scripts" / "correr-suite.sh")
@@ -10429,7 +10634,7 @@ class TestLoViejoNoVuelveAPasarPorElInstrumentoNuevo(unittest.TestCase):
                  declara_test=True, test_cuerpo=None):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-auditar-")).resolve()
         (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         for sub in ("tareas", "scripts", "src", "tests"):
             (d / sub).mkdir()
         shutil.copy(PLANTILLAS / "correr-suite.sh", d / "scripts" / "correr-suite.sh")
@@ -10603,7 +10808,7 @@ class TestElNombreDeLaBaseQueSeInformaEsElQueQuedaEscrito(unittest.TestCase):
         no hace falta una base de verdad."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-nombrebase-")).resolve()
         (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         proy = d / "proy"
         (proy / "scripts").mkdir(parents=True)
         # `ubicar_proyecto` exige `tareas/`: sin eso el script sale por stderr antes de
@@ -10629,7 +10834,7 @@ class TestElNombreDeLaBaseQueSeInformaEsElQueQuedaEscrito(unittest.TestCase):
 
     def preparar(self, d, nombre_wt="tests-TNN"):
         wt = d.parent / nombre_wt
-        self.addCleanup(shutil.rmtree, str(wt), True)
+        self.addCleanup(tirar_dir, wt)
         correr(f"git worktree add -q --detach {wt} HEAD", d)
         self.addCleanup(lambda: correr(f"git worktree remove --force {wt}", d))
         return correr(f"PROYECTO=proy bash {SCRIPTS}/preparar-entorno.sh {wt}/proy", d)
@@ -10651,7 +10856,7 @@ class TestElNombreDeLaBaseQueSeInformaEsElQueQuedaEscrito(unittest.TestCase):
         cobrado al test. Ahora se le pregunta a GIT."""
         d = self.proyecto("")   # lo que escriba entorno.sh no importa: se mide el derivado
         wt = d.parent / "tests-TNN"
-        self.addCleanup(shutil.rmtree, str(wt), True)
+        self.addCleanup(tirar_dir, wt)
         correr(f"git worktree add -q --detach {wt} HEAD", d)
         self.addCleanup(lambda: correr(f"git worktree remove --force {wt}", d))
 
@@ -10830,7 +11035,7 @@ class TestLaBaseDelWorktreeSeTiraAntesDeBorrarlo(unittest.TestCase):
         wt = d.parent / "huerfano"
         correr(f"git worktree add -q --detach {wt} HEAD", d)
         self.addCleanup(lambda: correr(f"git worktree prune", d))
-        shutil.rmtree(wt, ignore_errors=True)        # alguien lo borró a mano
+        tirar_dir(wt)        # alguien lo borró a mano
         r = correr(f'PROYECTO=. bash -c \'. "{SCRIPTS}/_comun.sh"; ubicar_proyecto; '
                    f'tirar_base_del_worktree {wt}\'', d)
         self.assertIn("ya no está", r.stdout + r.stderr,
@@ -10839,7 +11044,7 @@ class TestLaBaseDelWorktreeSeTiraAntesDeBorrarlo(unittest.TestCase):
     def proyecto_con_git(self):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-avisobase-")).resolve()
         (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "tareas").mkdir()
         (d / "tareas" / "T01-cosa.md").write_text(
             "# T01 — Cosa\n\n**Estado:** pendiente\n**Depende de:** —\n"
@@ -11204,7 +11409,7 @@ class TestUnTestNoPuedeObligarUnContratoQueElEnunciadoNoDeclara(unittest.TestCas
     def proyecto(self, contrato, test, migracion="id INT, email VARCHAR(80)"):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-contrato-")).resolve()
         (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         for sub in ("tareas", "migraciones", "tests"):
             (d / sub).mkdir()
         (d / "migraciones" / "001.sql").write_text(
@@ -11581,7 +11786,7 @@ class TestElMetodoEsReplicableSiguiendoSuPropiaGuia(unittest.TestCase):
         todavía—; cualquier otro rojo es una pieza que el procedimiento no deja en su lugar."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-replicable-")).resolve()
         (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         proy = d / "mi-proyecto"
         # El bloque del paso 1, tal como está en el documento, con `~/mi-proyecto` apuntado
         # al temporal y sin el `git clone` del paso 0.
@@ -11737,7 +11942,7 @@ class TestElValidadorPremiabaElIncumplimientoTotal(unittest.TestCase):
     def plan_con(self, tests=""):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-tablatests-")).resolve()
         (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
-        self.addCleanup(shutil.rmtree, str(d), True)
+        self.addCleanup(tirar_dir, d)
         (d / "tareas").mkdir()
         for tid in ("T01", "T02"):
             (d / "tareas" / f"{tid}-cosa.md").write_text(
