@@ -10416,6 +10416,43 @@ class TestUnaAsercionQueNoPuedeFallarConNingunaImplementacion(unittest.TestCase)
         (d / nombre).write_text(texto)
         return correr(f"python3 {SCRIPTS}/_aserciones.py {nombre}", d)
 
+    # ── Lo que hacía cuando NO PODÍA mirar. Barrido del 2026-10-26 sobre todos los chequeos
+    # del método, preguntándole a cada uno qué informa sin material: éste era el único que
+    # contestaba 0 y silencio en cuatro situaciones distintas, incluida la de no recibir
+    # ningún archivo. Sus hermanos —`_imports.py`, `_suprimidas.py`— imprimen su testigo.
+
+    def test_sin_argumentos_no_es_un_pase(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-aserciones-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        r = correr(f"python3 {SCRIPTS}/_aserciones.py", d)
+        self.assertNotEqual(r.returncode, 0,
+                            f"sin un archivo que mirar, 0 es mentira:\n{r.stdout}{r.stderr}")
+        self.assertIn("No es un pase", r.stdout + r.stderr)
+
+    def test_un_archivo_que_no_existe_se_informa(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-aserciones-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        r = correr(f"python3 {SCRIPTS}/_aserciones.py tests/no_existe.py", d)
+        self.assertNotEqual(r.returncode, 0, f"lo saltaba en silencio:\n{r.stdout}")
+        self.assertIn("no_existe.py", r.stdout + r.stderr, "y tiene que decir cuál")
+
+    def test_un_test_que_no_parsea_se_informa(self):
+        """«No pude leer el test» y «el test está bien» no pueden salir iguales. Un archivo
+        que no parsea es además el caso de un test a medio escribir."""
+        r = self.correr("def (:\n", nombre="test_roto.py")
+        self.assertNotEqual(r.returncode, 0, f"lo saltaba en silencio:\n{r.stdout}")
+        self.assertIn("no pude leer", (r.stdout + r.stderr).lower())
+
+    def test_cuando_mira_y_esta_limpio_dice_lo_que_miro(self):
+        """Sin testigo, «miré y está bien» y «no miré» se imprimen igual — las dos veces
+        nada. Es la mitad de los defectos de este repo."""
+        r = self.correr("def test_f():\n    from src.cosa import f\n"
+                        "    assert f(2) == 4\n")
+        self.assertEqual(r.returncode, 0, f"falso rojo:\n{r.stdout}{r.stderr}")
+        self.assertIn("✓", r.stdout, f"tiene que decir que miró:\n{r.stdout}")
+        self.assertIn("inspeccion", r.stdout.lower(),
+                      f"y QUÉ miró, con números:\n{r.stdout}")
+
     def test_los_dos_lados_iguales_por_una_variable_se_atrapan(self):
         """El caso literal de T26."""
         r = self.correr("import hashlib\n\n\n"

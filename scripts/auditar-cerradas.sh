@@ -80,6 +80,7 @@ for tf in "$BASE"/tareas/T*.md; do
   fi
 
   rojo_de_esta=""
+  vacios_de_esta=""
   # ── 1. ¿Su test pasa HOY? Un test aceptado que quedó rojo es un verde que nadie recogió.
   #
   # El rojo puede ser de la tarea o de una dependencia que todavía está pendiente, y el
@@ -110,9 +111,15 @@ for tf in "$BASE"/tareas/T*.md; do
   fi
   # ── 2. ¿Tiene aserciones que no pueden fallar con ninguna implementación?
   if [ -f "$AQUI/_aserciones.py" ]; then
-    sal="$(python3 "$AQUI/_aserciones.py" "$BASE/$su_test" 2>&1)"
-    [ $? -eq 1 ] && rojo_de_esta="${rojo_de_esta}
-$(printf '%s' "$sal" | sed 's/^  /     /')"
+    sal="$(python3 "$AQUI/_aserciones.py" "$BASE/$su_test" 2>&1)"; rc_a=$?
+    # El 2 —«no pude mirar»— se informa, no se descarta. Mirando sólo el 1, un test que no
+    # parsea pasaba por auditado: el chequeo devolvía 2 y acá no lo leía nadie.
+    case "$rc_a" in
+      1) rojo_de_esta="${rojo_de_esta}
+$(printf '%s' "$sal" | sed 's/^  /     /')" ;;
+      2) vacios_de_esta="${vacios_de_esta}
+$(printf '%s' "$sal" | sed 's/^  /     /')" ;;
+    esac
   fi
   # ── 2b. ¿El test obliga un contrato que el enunciado no declara? El chequeo es nuevo del
   # 2026-10-25 y encontró DOS tests ya aceptados que lo hacen —T20 y T21—, así que es
@@ -141,7 +148,10 @@ $(printf '%s' "$sal_v" | sed 's/^  /     /')"
   mirados=$((mirados+1))
   if [ -n "$rojo_de_esta" ]; then
     hallazgos=$((hallazgos+1))
-    echo "✗ $id — cerrada, y no pasaría el gate de hoy:$rojo_de_esta"
+    echo "✗ $id — cerrada, y no pasaría el gate de hoy:$rojo_de_esta$vacios_de_esta"
+  elif [ -n "$vacios_de_esta" ]; then
+    # Ni ✗ ni ·: hubo chequeos que no pudieron correr, y eso no es «pasa».
+    echo "⊘ $id — auditada a medias:$vacios_de_esta"
   else
     echo "· $id — pasa los chequeos de hoy"
   fi

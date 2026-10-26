@@ -151,22 +151,55 @@ def vacuas_en(funcion, propios):
 
 
 def main(archivos):
-    malos = []
+    """Códigos: 0 limpio, 1 hay aserciones vacuas, 2 NO PUDE MIRAR.
+
+    El 2 existe desde el 2026-10-26. Antes este chequeo devolvía 0 y silencio en cuatro
+    situaciones: sin argumentos, con un archivo que no existe, con uno que no es `.py` y con
+    uno que no parsea —un test a medio escribir—. Las cuatro se leían igual que «lo miré y
+    está limpio», porque en el caso limpio tampoco imprimía nada. Sus hermanos del método,
+    `_imports.py` y `_suprimidas.py`, imprimen su testigo: éste era el único mudo, y lo
+    encontró un barrido que le preguntó a cada chequeo qué informa cuando no tiene material.
+    """
+    malos, mirados, no_pude, aserciones = [], 0, [], 0
     for a in archivos:
         p = pathlib.Path(a)
-        if not p.exists() or p.suffix != ".py":
+        if not p.exists():
+            no_pude.append(f"{a}: no existe")
+            continue
+        if p.suffix != ".py":
+            no_pude.append(f"{a}: no es un .py")
             continue
         try:
             arbol = ast.parse(p.read_text())
-        except SyntaxError:
+        except SyntaxError as e:
+            no_pude.append(f"{a}: no pude leer el árbol sintáctico ({e.msg} en la línea {e.lineno})")
             continue
+        mirados += 1
         propios = nombres_del_producto(arbol, raiz_del_repo(p))
         for n in ast.walk(arbol):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) \
                     and n.name.startswith("test"):
+                aserciones += sum(1 for x in ast.walk(n)
+                                  if isinstance(x, ast.Assert)
+                                  or (isinstance(x, ast.Call)
+                                      and getattr(x.func, "attr", "").startswith("assert")))
                 for linea, texto in vacuas_en(n, propios):
                     malos.append((p, n.name, linea, texto))
+    if not archivos:
+        print("  ⊘ no me pasaron ningún archivo: no inspeccioné nada.")
+        print("     No es un pase: nadie verificó si las aserciones pueden fallar.")
+        return 2
+    if no_pude and mirados == 0:
+        print("  ⊘ no pude mirar ninguno de los archivos que me pasaron:")
+        for m in no_pude:
+            print(f"     → {m}")
+        print("     No es un pase: «no pude leer el test» y «el test está bien» no son lo mismo.")
+        return 2
+    for m in no_pude:
+        print(f"  ⊘ {m} — no pudo verificarse")
     if not malos:
+        print("  ✓ ninguna aserción es vacua por construcción")
+        print(f"     · inspeccionó: {mirados} archivo(s), {aserciones} aserción/es")
         return 0
     print("  ✗ hay aserciones que no pueden fallar con NINGUNA implementación:")
     for p, fn, linea, texto in malos[:6]:
