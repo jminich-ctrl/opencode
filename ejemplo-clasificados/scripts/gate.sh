@@ -698,14 +698,21 @@ if [ -n "${TAREA:-}" ] && [ "${FALLOS:-0}" = "0" ]; then
 fi
 
 # ── 5. Coherencia (sólo en modo integración): lo único que mira a través de las tareas.
-if [ -z "${TAREA:-}" ] && [ -f scripts/_arquitectura.py ]; then
+# El `[ -f ... ]` estaba acá arriba, en la condición del paso: sin el archivo, el paso no
+# imprimía ni su encabezado —ni ⊘, ni fallo, ni rastro— y el veredicto salía «GATE VERDE»
+# limpio. Es el paso que mira a través de las tareas, o sea el que nadie echaría de menos.
+if [ -z "${TAREA:-}" ]; then
   echo "── 5. Coherencia"
-  if OUT="$("$PY_PROYECTO" scripts/_arquitectura.py 2>&1)"; then echo "$OUT"
-  else echo "$OUT"; FALLOS=$((FALLOS+1)); fi
-  # Los ⊘ que imprime el chequeo son vacíos del gate: si no se cuentan, el veredicto dice
-  # "GATE VERDE" a secas cuando en realidad hubo cosas que no pudieron verificarse.
-  N_VACUOS_ARQ="$(printf '%s\n' "$OUT" | grep -c '⊘' || true)"
-  [ "${N_VACUOS_ARQ:-0}" -gt 0 ] && VACIOS=$((VACIOS+N_VACUOS_ARQ))
+  if [ -f scripts/_arquitectura.py ]; then
+    if OUT="$("$PY_PROYECTO" scripts/_arquitectura.py 2>&1)"; then echo "$OUT"
+    else echo "$OUT"; FALLOS=$((FALLOS+1)); fi
+    # Los ⊘ que imprime el chequeo son vacíos del gate: si no se cuentan, el veredicto dice
+    # "GATE VERDE" a secas cuando en realidad hubo cosas que no pudieron verificarse.
+    N_VACUOS_ARQ="$(printf '%s\n' "$OUT" | grep -c '⊘' || true)"
+    [ "${N_VACUOS_ARQ:-0}" -gt 0 ] && VACIOS=$((VACIOS+N_VACUOS_ARQ))
+  else
+    vacuo "no hay scripts/_arquitectura.py"
+  fi
 fi
 
 # ── 6. La suite reservada (sólo en modo integración)
@@ -726,15 +733,19 @@ if [ -z "${TAREA:-}" ]; then
   # commitea por accidente, y OpenCode la rechaza por external_directory.
   RESERVADOS="${RESERVADOS:-$(cd "$(git rev-parse --show-toplevel)/.." && pwd)/reservados-$(basename "$PWD")}"
   echo "── 6. Suite reservada"
-  if [ -d "$RESERVADOS" ] && ls "$RESERVADOS"/test_*.py >/dev/null 2>&1; then
+  N_RES="$(ls "$RESERVADOS"/test_*.py 2>/dev/null | grep -c . || true)"
+  if [ "${N_RES:-0}" -gt 0 ]; then
     if OUT="$(PYTHONPATH="$PWD/backend" "$PY_PROYECTO" -m pytest -q "$RESERVADOS" 2>&1)"; then
-      verde "$(echo "$OUT" | grep -E '^Ran ' | head -1) de composición"
+      # `^Ran ` es el formato de unittest y este proyecto corre pytest: el testigo salía
+      # vacío —"✓  de composición"—, justo el número que hace de testigo.
+      verde "$(printf '%s\n' "$OUT" | grep -oE '[0-9]+ passed' | head -1) de composición"
+      testigo "$N_RES archivo(s) reservado(s) en $RESERVADOS"
     else
       rojo "la suite reservada falla: pasa los tests de las tareas y no hace lo que tiene que hacer"
       echo "$OUT" | tail -15 | sed 's/^/     /'
     fi
   else
-    echo "  · no hay suite reservada en $RESERVADOS"
+    vacuo "no hay suite reservada en $RESERVADOS"
     echo "    Es el gate que mide lo que el agente no pudo optimizar. Escribila: tests de"
     echo "    composición, invariantes de punta a punta, fuera del repo para que no la vea."
   fi

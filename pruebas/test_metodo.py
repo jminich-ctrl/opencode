@@ -4084,7 +4084,7 @@ class TestEjemplosNoDerivan(unittest.TestCase):
 
     GATES = sorted([PLANTILLAS / "gate.sh"] + list(RAIZ.glob("ejemplo-*/scripts/gate.sh")))
 
-    def montar(self, gate, declara, archivos):
+    def montar(self, gate, declara, archivos, tarea="T01"):
         """Repo de juguete con la forma mínima que cualquiera de los gates acepta."""
         repo = pathlib.Path(tempfile.mkdtemp(prefix="prueba-drift-"))
         self.addCleanup(shutil.rmtree, str(repo), True)
@@ -4101,7 +4101,49 @@ class TestEjemplosNoDerivan(unittest.TestCase):
             p = d / ruta
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(cuerpo)
-        return correr("bash scripts/gate.sh", d, TAREA="T01")
+        # `RESERVADOS` apuntado a un directorio que no existe: sin esto el paso 6 depende de
+        # si el que corre la suite tiene su propia carpeta de reservados al lado del repo, y
+        # el veredicto cambiaría de máquina en máquina.
+        return correr("bash scripts/gate.sh", d, TAREA=tarea, AGENTES=str(RAIZ),
+                      RESERVADOS=str(repo / "reservados-que-no-existen"))
+
+    def seccion(self, salida, paso):
+        """El trozo de la salida que corresponde a un paso del gate."""
+        marca = f"── {paso}."
+        if marca not in salida:
+            return None
+        resto = salida.split(marca, 1)[1]
+        return resto.split("── ", 1)[0]
+
+    # Los dos de abajo miran los pasos 5 y 6, que sólo corren en modo integración y que
+    # ningún test de deriva cubría: `montar` siempre llamaba al gate con TAREA puesta.
+
+    def test_en_todos_sin_el_chequeo_de_arquitectura_el_paso_5_es_vacuo(self):
+        """Un proyecto sin `scripts/_arquitectura.py` no tiene quién mire a través de las
+        tareas, y eso TIENE que contarse como vacío. El gate de clasificados metía el
+        `[ -f ... ]` en la condición del paso, así que sin el archivo el paso no imprimía
+        ni su encabezado: ni ⊘, ni fallo, ni rastro. «GATE VERDE» limpio."""
+        for gate in self.GATES:
+            with self.subTest(gate=str(gate.relative_to(RAIZ))):
+                r = self.montar(gate, "permitido/", {"permitido/ok.py": "x = 1\n"}, tarea="")
+                s5 = self.seccion(r.stdout, 5)
+                self.assertIsNotNone(s5, f"el paso 5 no imprimió ni su encabezado\n{r.stdout[-900:]}")
+                self.assertIn("no pudo verificarse", s5,
+                              f"el vacío tiene que salir del helper que lo CUENTA, no de un "
+                              f"echo suelto:\n{s5}")
+
+    def test_en_todos_sin_suite_reservada_el_paso_6_es_vacuo(self):
+        """Es el único gate que mide lo que el agente no pudo haber optimizado. En
+        clasificados su ausencia se informaba con un `·` en vez de `vacuo`, así que no
+        sumaba a los vacíos y el veredicto salía «GATE VERDE» a secas. Y clasificados no
+        tiene suite reservada: ese paso nunca corrió, y nunca lo dijo."""
+        for gate in self.GATES:
+            with self.subTest(gate=str(gate.relative_to(RAIZ))):
+                r = self.montar(gate, "permitido/", {"permitido/ok.py": "x = 1\n"}, tarea="")
+                s6 = self.seccion(r.stdout, 6)
+                self.assertIsNotNone(s6, f"el paso 6 no imprimió ni su encabezado\n{r.stdout[-900:]}")
+                self.assertIn("no pudo verificarse", s6,
+                              f"sin reservados el paso 6 es un vacío contado:\n{s6}")
 
     def test_todos_detectan_un_archivo_fuera_del_alcance(self):
         for gate in self.GATES:
