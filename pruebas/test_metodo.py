@@ -11787,6 +11787,25 @@ class TestLoViejoNoVuelveAPasarPorElInstrumentoNuevo(unittest.TestCase):
                   "class TestCosa(unittest.TestCase):\n"
                   "    def test_f(self):\n        self.assertEqual(f(1), 1)\n")
 
+    def test_un_hallazgo_de_mutacion_no_se_cuenta_como_tarea_con_hallazgos(self):
+        """Medido el 2026-10-26 auditando clasificados: ocho tareas cerradas pasaron todos los
+        chequeos, la mutación no pudo correr —el tronco está rojo— y el resumen dijo
+        «✗ 1 con hallazgos. Reabrir es otra decisión: scripts/reabrir.sh TNN».
+
+        Ninguna tarea tenía un hallazgo. El que tenía algo era el PROYECTO, y el resumen
+        mandaba a reabrir una tarea que no existe. Es la misma atribución equivocada que este
+        método viene corrigiendo: el veredicto nombraba al sujeto equivocado."""
+        r = self.auditar(self.proyecto(
+            self.SIN_DECLARAR, con_tabla=False, declara_test=False,
+            test_cuerpo=self.TEST_FLOJO))
+        # Hay un sobreviviente de mutación y NINGUNA tarea con hallazgo propio (no hay par
+        # test↔implementación que preguntar), así que el resumen no puede contar tareas.
+        self.assertIn("sobrevivi", r.stdout, f"la mutación tenía que encontrar algo:\n{r.stdout}")
+        self.assertNotIn("con hallazgos. Reabrir", r.stdout,
+                         f"mandó a reabrir una tarea sin hallazgo propio:\n{r.stdout}")
+        self.assertIn("mutación", r.stdout.lower(),
+                      f"y el resumen tiene que decir de dónde viene el rojo:\n{r.stdout}")
+
     def test_muta_los_archivos_declarados_aunque_nadie_declare_el_test(self):
         """Lo que esta herramienta no podía preguntar, y es la mayoría del material.
 

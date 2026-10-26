@@ -29,6 +29,7 @@ ubicar_proyecto
 
 PEDIDAS="$*"
 hallazgos=0
+hallazgos_mut=0
 mirados=0
 saltadas=""
 ARCH_MUT=""
@@ -195,15 +196,34 @@ else
   case "$rc_m" in
     0) ;;
     2) ;;   # ⊘: mutar.py ya imprime "No es un pase" con su motivo
-    *) hallazgos=$((hallazgos+1)) ;;
+    # Contador PROPIO, y no el de tareas: auditando clasificados el 2026-10-26 la mutación no
+    # pudo correr —el tronco estaba rojo— y el resumen dijo «✗ 1 con hallazgos. Reabrir es otra
+    # decisión: scripts/reabrir.sh TNN», con las ocho tareas auditadas en verde. Ninguna tenía
+    # un hallazgo: el que tenía algo era el proyecto, y el resumen mandaba a reabrir una tarea
+    # que no existe. El veredicto nombraba al sujeto equivocado, que es el defecto que esta
+    # herramienta existe para encontrar.
+    *) hallazgos_mut=1 ;;
   esac
+  # Y el contexto que falta: en un método tests-first el tronco está rojo MIENTRAS una etapa
+  # está en vuelo, por diseño. «Arreglala antes de mutar» es un consejo equivocado ahí: lo que
+  # corresponde es mutar entre etapas.
+  if printf '%s' "$sal_m" | grep -q 'ya está en rojo'; then
+    echo "     En tests-first el tronco está rojo mientras una etapa está en vuelo: eso no se"
+    echo "     arregla, se espera. La mutación por archivo se corre ENTRE etapas."
+  fi
 fi
 
 echo
 echo "$mirados tarea(s) cerrada(s) auditada(s)"
 [ -n "$saltadas" ] && echo "  ⊘ sin material para preguntar: $saltadas"
 if [ "$hallazgos" -gt 0 ]; then
-  echo "✗ $hallazgos con hallazgos. Reabrir es otra decisión: scripts/reabrir.sh TNN[,TMM] \"motivo\""
+  echo "✗ $hallazgos tarea(s) con hallazgos. Reabrir es otra decisión: scripts/reabrir.sh TNN[,TMM] \"motivo\""
+fi
+if [ "$hallazgos_mut" -gt 0 ]; then
+  echo "✗ la mutación por archivo dejó algo sin resolver (ver arriba): no es de una tarea en"
+  echo "  particular, es del proyecto."
+fi
+if [ "$hallazgos" -gt 0 ] || [ "$hallazgos_mut" -gt 0 ]; then
   exit 1
 fi
 # CERO auditadas no es un ✓, y mi primera versión lo informaba así: «✓ ninguna tarea cerrada
