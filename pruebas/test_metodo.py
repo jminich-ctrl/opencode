@@ -68,6 +68,13 @@ def _test_en_curso():
 # Lo que los servidores falsos de esta suite anotan en vez de imprimir.
 ERRORES_DE_SERVIDOR = []
 
+# Lo que un servidor falso tiene que contestar en un 200 de `/chat/completions`. Devolvían
+# `{}` porque la sonda miraba sólo el código HTTP; cuando pasó a exigir que el cuerpo SEA una
+# respuesta, esos `{}` dejaron de representar al endpoint. Un fixture que no tiene la forma
+# del sujeto mide otra cosa — es el defecto que más veces apareció hoy.
+CUERPO_CHAT_OK = b'{"choices":[{"message":{"content":"OK"}}]}'
+
+
 
 def tirar_dir(ruta):
     """Borra un directorio de prueba SIN tragarse la falla.
@@ -4188,6 +4195,86 @@ class TestElChequeoDeArquitecturaEstaVivoEnLosProyectosReales(unittest.TestCase)
                               f"proyecto con código escrito\n{r.stdout}")
 
 
+class TestLaSondaNoDaVerdePorContestarCualquierCosa(unittest.TestCase):
+    """Defecto 19, abierto desde el 2026-10-20: la sonda declara la plataforma sana con un
+    POST de 4 tokens y 2 caracteres de prompt, mirando SÓLO el código HTTP.
+
+    Las dos mitades del falso verde, las dos medidas en esta plataforma:
+
+      · un 200 cuyo cuerpo no es una respuesta cuenta como sano. «Contestó» y «contestó algo
+        que sirve» no son lo mismo, y el método ya movió esta sonda una vez por esto: miraba
+        `/models`, que daba 200 mientras los pedidos reales devolvían 502;
+      · un pedido de 4 tokens no se parece a lo que hace una corrida. El incidente que movió
+        la sonda a `/chat/completions` fue exactamente éste: 20 KB de prompt con definiciones
+        de herramientas devolvían 502 mientras lo chico pasaba. La sonda se mudó de endpoint
+        pero se quedó con el tamaño de juguete, así que el agujero que la movió sigue abierto.
+
+    Y es la sonda que autoriza una corrida de nueve etapas, y la que reporto cada 15 minutos."""
+
+    def servidor(self, tope_bytes=None, cuerpo=b'{"choices":[{"message":{"content":"OK"}}]}'):
+        """Contesta 200 con `cuerpo`; si el pedido pasa `tope_bytes`, contesta 502 — como la
+        plataforma el 2026-10-20."""
+        import threading
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                crudo = self.rfile.read(n)
+                if tope_bytes is not None and len(crudo) > tope_bytes:
+                    self.send_response(502)
+                    self.send_header("Content-Length", "2")
+                    self.end_headers()
+                    self.wfile.write(b"{}")
+                    return
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(cuerpo)))
+                self.end_headers()
+                self.wfile.write(cuerpo)
+
+            def log_message(self, *a):
+                pass
+
+        srv = ServidorFalso(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return f"http://127.0.0.1:{srv.server_address[1]}/v1"
+
+    def sondear(self, base):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-sonda19-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        cfg = d / "opencode.json"
+        cfg.write_text('{"provider":{"colabhive":{"models":{"m-sonda":{}}}}}')
+        return correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                      f'ARRANQUE_FRIO=20 COLABHIVE_BASE_URL="{base}" COLABHIVE_API_KEY=x '
+                      f'MODELO_SONDA=m-sonda CONFIG_OC="{cfg}" plataforma_responde', RAIZ)
+
+    def test_un_200_con_un_cuerpo_que_no_es_respuesta_no_es_verde(self):
+        r = self.sondear(self.servidor(cuerpo=b'{"error":"model not loaded"}'))
+        self.assertNotEqual(r.returncode, 0,
+                            f"200 con un cuerpo que no es una respuesta no es sano:\n{r.stdout}{r.stderr}")
+        self.assertIn("cuerpo", (r.stdout + r.stderr).lower(),
+                      f"y el motivo tiene que nombrar al cuerpo, no al código:\n{r.stdout}{r.stderr}")
+
+    def test_si_lo_chico_pasa_y_lo_de_tamano_real_falla_no_es_verde(self):
+        """El incidente del 2026-10-20, reproducido: chico 200, grande 502."""
+        r = self.sondear(self.servidor(tope_bytes=2000))
+        self.assertNotEqual(r.returncode, 0,
+                            f"autorizó una corrida contra una plataforma que no la puede "
+                            f"atender:\n{r.stdout}{r.stderr}")
+        salida = r.stdout + r.stderr
+        self.assertIn("502", salida, f"con el código que dio el grande:\n{salida}")
+        self.assertRegex(salida, r"(KB|tamaño)",
+                         f"y diciendo que lo que falló fue el TAMAÑO, que es lo que hace una "
+                         f"corrida de verdad:\n{salida}")
+
+    def test_una_plataforma_que_atiende_las_dos_cosas_da_verde(self):
+        """El control: sin esto, los dos de arriba los aprueba una sonda que siempre falla."""
+        r = self.sondear(self.servidor())
+        self.assertEqual(r.returncode, 0,
+                         f"falso rojo contra una plataforma sana:\n{r.stdout}{r.stderr}")
+
+
 class TestLaSuiteNoEnsuciaSuPropiaSalida(unittest.TestCase):
     """Toda corrida VERDE terminaba con un traceback de BrokenPipeError de veinte líneas.
 
@@ -6524,9 +6611,9 @@ class TestLaTerceraAuditoria(unittest.TestCase):
                 time.sleep(demora)
                 try:
                     self.send_response(200)
-                    self.send_header("Content-Length", "2")
+                    self.send_header("Content-Length", str(len(CUERPO_CHAT_OK)))
                     self.end_headers()
-                    self.wfile.write(b"{}")
+                    self.wfile.write(CUERPO_CHAT_OK)
                 except (BrokenPipeError, ConnectionResetError):
                     # best-effort: el caso impaciente CORTA la conexión a propósito, así que
                     # esta escritura falla por diseño. Sin atraparla, `http.server` imprime
@@ -6658,9 +6745,9 @@ class TestLaTerceraAuditoria(unittest.TestCase):
                         self.end_headers()
                     else:
                         self.send_response(200)
-                        self.send_header("Content-Length", "2")
+                        self.send_header("Content-Length", str(len(CUERPO_CHAT_OK)))
                         self.end_headers()
-                        self.wfile.write(b"{}")
+                        self.wfile.write(CUERPO_CHAT_OK)
                 except (BrokenPipeError, ConnectionResetError):
                     pass   # best-effort: el cliente puede haber cortado
             def log_message(self, *a):
@@ -6695,7 +6782,11 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         self.assertEqual(r.returncode, 0,
                          f"un 502 y después 200 es una plataforma intermitente, no caída:"
                          f"\n{r.stderr}")
-        self.assertEqual(estado["n"], 2, "tiene que haber reintentado, no adivinado")
+        # 3 y no 2 desde el 2026-10-26: uno que falla, uno que pasa, y el de TAMAÑO REAL
+        # —20 KB con herramientas— que la sonda agregó para no autorizar una corrida con un
+        # 200 de 4 tokens. Lo que este test pina sigue siendo que REINTENTÓ en vez de
+        # adivinar; el número creció porque la sonda verifica más.
+        self.assertEqual(estado["n"], 3, "tiene que haber reintentado, no adivinado")
         self.assertIn("intermitente", r.stderr,
                       f"y hay que decir que lo está, porque los tiempos no son comparables:"
                       f"\n{r.stderr}")
@@ -7778,10 +7869,11 @@ class TestLaSondaMideLosModelosQueLaCorridaVaAUsar(unittest.TestCase):
                 n = int(self.headers.get("Content-Length") or 0)
                 cuerpo = self.rfile.read(n).decode("utf-8", "replace")
                 roto = any(f'"{m}"' in cuerpo for m in caidos)
+                cuerpo = b"{}" if roto else CUERPO_CHAT_OK
                 self.send_response(503 if roto else 200)
-                self.send_header("Content-Length", "2")
+                self.send_header("Content-Length", str(len(cuerpo)))
                 self.end_headers()
-                self.wfile.write(b"{}")
+                self.wfile.write(cuerpo)
 
             def log_message(self, *a):
                 pass

@@ -297,6 +297,46 @@ PYDEC
   case "$r" in si) return 0 ;; no) return 1 ;; *) return 2 ;; esac
 }
 
+# ¿El cuerpo que contestó la plataforma ES una respuesta de chat, o sólo un 200?
+#
+# Defecto 19, abierto desde el 2026-10-20: la sonda miraba el CÓDIGO y nada más. El método ya
+# movió esta sonda una vez por lo mismo —`/models` devolvía 200 mientras los pedidos reales
+# daban 502— y el agujero se reprodujo un nivel más adentro: un 200 cuyo cuerpo es
+# `{"error": "model not loaded"}` contaba como plataforma sana.
+cuerpo_es_respuesta() {
+  command -v python3 >/dev/null 2>&1 || return 0   # sin python3 no opinamos
+  python3 -I - "$1" <<'PYCUERPO' 2>/dev/null
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    m = d["choices"][0]["message"]
+    sys.exit(0 if isinstance(m, dict) and ("content" in m or "tool_calls" in m) else 1)
+except Exception:
+    sys.exit(1)
+PYCUERPO
+}
+
+# El pedido de TAMAÑO REAL: 20 KB de prompt con definiciones de herramientas, que es la forma
+# que tiene un pedido de agente. Se construye con python3 y no con un heredoc de bash porque
+# el JSON armado a mano en esta función ya nos costó un «HTTP 000000».
+payload_de_tamano_real() {
+  MODELO_SONDA_PL="$1" python3 -I - "$2" <<'PYPAYLOAD' 2>/dev/null
+import json, os, sys
+relleno = ("Contexto de una tarea del metodo, con su plan y su diff. " * 400)[:20000]
+herramientas = [
+    {"type": "function", "function": {
+        "name": n, "description": f"sonda {n}",
+        "parameters": {"type": "object",
+                       "properties": {"p": {"type": "string"}, "q": {"type": "string"}},
+                       "required": ["p"]}}}
+    for n in ("read", "write", "edit", "bash", "grep", "glob")
+]
+json.dump({"model": os.environ["MODELO_SONDA_PL"], "max_tokens": 4,
+           "messages": [{"role": "user", "content": relleno}],
+           "tools": herramientas}, open(sys.argv[1], "w"))
+PYPAYLOAD
+}
+
 plataforma_responde() {
   [ -n "${COLABHIVE_BASE_URL:-}" ] || return 0      # sin configurar, no opinamos
   local codigo modelo
@@ -340,9 +380,10 @@ plataforma_responde() {
   # No tapa una caída real: si las tres fallan, el veredicto es el mismo que antes, y la
   # SECUENCIA de códigos se informa siempre. «502 200» y «502 502 502» dicen cosas
   # distintas, y el que decide necesita esa diferencia.
-  local intentos=3 i=1 codigos=""
+  local intentos=3 i=1 codigos="" cuerpo_tmp pl_tmp codigo_grande
+  cuerpo_tmp="$(mktemp)"
   while [ "$i" -le "$intentos" ]; do
-    codigo="$(curl -s -m "$ARRANQUE_FRIO" -o /dev/null -w '%{http_code}' \
+    codigo="$(curl -s -m "$ARRANQUE_FRIO" -o "$cuerpo_tmp" -w '%{http_code}' \
               "$COLABHIVE_BASE_URL/chat/completions" \
               -H "Authorization: Bearer ${COLABHIVE_API_KEY:-}" \
               -H "Content-Type: application/json" \
@@ -357,11 +398,44 @@ plataforma_responde() {
     codigo="${codigo:-000}"
     codigos="${codigos:+$codigos }$codigo"
     if [ "$codigo" = "200" ]; then
+      if ! cuerpo_es_respuesta "$cuerpo_tmp"; then
+        echo "✗ la plataforma contestó 200 pero el CUERPO no es una respuesta de chat" >&2
+        echo "  (sin choices[0].message). «Contestó» y «contestó algo que sirve» no son lo" >&2
+        echo "  mismo: el modelo puede estar sin cargar detrás de un 200." >&2
+        head -c 200 "$cuerpo_tmp" | sed 's/^/     /' >&2
+        rm -f "$cuerpo_tmp"
+        return 1
+      fi
       [ "$i" -gt 1 ] && echo "  ⚠ la plataforma contestó al intento $i de $intentos (códigos: $codigos): está intermitente, los tiempos de esta corrida no son comparables" >&2
+      # ── Y ahora el pedido que se parece al que hace una corrida. Un 200 de 4 tokens no
+      # autoriza nada: el incidente que mudó esta sonda a /chat/completions fue justamente
+      # que 20 KB con herramientas devolvían 502 mientras lo chico pasaba.
+      pl_tmp="$(mktemp)"
+      if payload_de_tamano_real "$modelo" "$pl_tmp"; then
+        codigo_grande="$(curl -s -m "$ARRANQUE_FRIO" -o "$cuerpo_tmp" -w '%{http_code}' \
+                        "$COLABHIVE_BASE_URL/chat/completions" \
+                        -H "Authorization: Bearer ${COLABHIVE_API_KEY:-}" \
+                        -H "Content-Type: application/json" \
+                        -d @"$pl_tmp" 2>/dev/null)"
+        codigo_grande="${codigo_grande:-000}"
+        if [ "$codigo_grande" != "200" ] || ! cuerpo_es_respuesta "$cuerpo_tmp"; then
+          echo "✗ la plataforma atiende pedidos chicos (HTTP $codigos) y NO uno de tamaño" >&2
+          echo "  real: 20 KB de prompt con 6 herramientas → HTTP $codigo_grande. Eso es la" >&2
+          echo "  forma que tiene cada pedido de una corrida, así que esto no autoriza una." >&2
+          rm -f "$cuerpo_tmp" "$pl_tmp"
+          return 1
+        fi
+        echo "  · verificado: 200 con choices[0].message en el pedido chico y en uno de" >&2
+        echo "    20 KB con 6 herramientas, que es la forma de un pedido de agente" >&2
+      else
+        echo "  ⊘ no pude armar el pedido de tamaño real: verifiqué sólo el chico" >&2
+      fi
+      rm -f "$cuerpo_tmp" "$pl_tmp"
       return 0
     fi
     i=$((i+1))
   done
+  rm -f "$cuerpo_tmp"
   echo "✗ la plataforma de modelos no responde: HTTP $codigos ($intentos intentos) en $COLABHIVE_BASE_URL/chat/completions" >&2
   [ "$codigo" = "000" ] && echo "  (000 = ni contestó en ${ARRANQUE_FRIO}s. Si el modelo estaba desalojado, este mismo pedido lo arrancó: reintentá una vez.)" >&2
   echo "  No es la tarea ni el agente. Reintentar contra una plataforma caída gasta el" >&2
