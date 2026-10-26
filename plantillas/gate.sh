@@ -104,11 +104,13 @@ if [ -n "${TAREA:-}" ]; then
 fi
 
 # ── Cadena de herramientas. Un corredor ausente no puede verse como "no hay tests".
-herramienta_falta() {
-  echo "  ✗ hay tests en $1 y falta su corredor ($2)"
-  echo "     Instalalo antes de correr el gate; si no, el gate no verifica nada y lo diría en verde."
-  FALLOS=$((FALLOS+1))
-}
+#
+# Esto lo detecta `scripts/correr-suite.sh`, que emite FALTA_CORREDOR, y lo consumen cuatro
+# puntos de este gate. Acá había una función `herramienta_falta()` de la versión anterior,
+# definida y JAMÁS llamada: quedó cuando la responsabilidad se movió al corredor. Se fue el
+# 2026-10-25 al barrer funciones muertas en todo el método — era la única, y estaba justo en
+# la pieza que todo proyecto nuevo copia. Los dos ejemplos ya la habían eliminado, así que la
+# plantilla estaba ATRASADA respecto de ellos, no al revés.
 
 echo "── 1. Tests"
 # El gate NO sabe cómo se corre la suite: lo sabe `scripts/correr-suite.sh`, y es el mismo

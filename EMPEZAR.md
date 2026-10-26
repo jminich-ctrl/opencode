@@ -95,6 +95,24 @@ Lo que sí tiene que pasar acá es que el rojo sea **ése y no otro**: si te dic
 —los dos últimos los provee el método y se resuelven con `$AGENTES`, así que esa variable
 tiene que estar exportada—. El verde del gate llega recién con el paso 4, cuando hay tests.
 
+## 3b. Armá la suite reservada
+
+El gate tiene un chequeo que esta guía no mencionaba y que el método considera **el único
+que mide lo que el agente no pudo optimizar**: tests escritos por una persona que ningún
+agente ve. Van **fuera** del repo, así que OpenCode los rechaza por `external_directory`
+desde cualquier worktree, y no se nombran en el plan ni en las tareas.
+
+```bash
+mkdir -p ../reservados-$(basename "$PWD")       # donde el gate los busca
+# escribí ahí test_*.py: composición, invariantes de punta a punta
+```
+
+Por qué van afuera y no sólo sin documentar: está medido que «leer los tests reservados» es
+el hack más común, y que la brecha crece unos 27 puntos por cada 10× de tamaño de código,
+peor en modelos chicos. Sin esta suite, el gate la informa como ⊘ para siempre y nadie se
+enteraría de qué le están pidiendo. Detalle en [METODO.md](METODO.md) y
+[PRUEBAS.md](PRUEBAS.md).
+
 ## 4. Hacé la primera tarea vos
 
 A mano o con un modelo grande, bien hecha y con tests. **Es la referencia que el agente

@@ -11241,3 +11241,93 @@ class TestElMetodoEsReplicableSiguiendoSuPropiaGuia(unittest.TestCase):
                       f"tiene que avisar que ese paso da rojo:\n{seccion[:300]}")
         self.assertIn("sin tests no hay gate", seccion,
                       "y decir POR QUÉ, que es lo que evita que alguien lo tome por una falla")
+
+
+class TestLoQueSeReplicaTieneQueEstarVivoYExplicado(unittest.TestCase):
+    """Dos guardianes sobre la pieza que cada proyecto nuevo copia.
+
+    Medido el 2026-10-25, en el ciclo de replicabilidad:
+
+      · `plantillas/gate.sh` tenía `herramienta_falta()` definida y JAMÁS llamada —residuo de
+        cuando la detección del corredor ausente se movió a `correr-suite.sh`, que emite
+        FALTA_CORREDOR—. Era la única función muerta de todo el método y estaba justo en la
+        plantilla. Los dos ejemplos ya la habían eliminado: la plantilla estaba ATRASADA
+        respecto de ellos, al revés de lo que supuse al empezar a medir;
+      · `EMPEZAR.md` no mencionaba la SUITE RESERVADA ni una vez, y el gate la exige. Está en
+        METODO.md y PRUEBAS.md, pero no en el documento que alguien sigue para replicar: un
+        proyecto nuevo la ve como ⊘ para siempre sin saber qué le piden, y es lo que el propio
+        gate llama «el único que mide lo que el agente no pudo optimizar»."""
+
+    def scripts_del_metodo(self):
+        return (sorted(SCRIPTS.glob("*.sh")) + sorted(PLANTILLAS.glob("*.sh"))
+                + sorted(RAIZ.glob("ejemplo-*/scripts/*.sh")))
+
+    def test_ninguna_funcion_de_shell_esta_definida_y_sin_llamar(self):
+        """Los usos se buscan en TODO el método, no en el archivo que define: `_comun.sh` es
+        una biblioteca y sus funciones se llaman desde otros scripts. Mi primer barrido las
+        contó dentro del propio archivo y dio 24 muertas, de las cuales 23 eran falsas."""
+        archivos = self.scripts_del_metodo()
+        sin_comentarios = lambda t: "\n".join(
+            l for l in t.split("\n") if not l.strip().startswith("#"))
+        todo = "\n".join(sin_comentarios(f.read_text()) for f in archivos)
+        muertas = []
+        for f in archivos:
+            codigo = sin_comentarios(f.read_text())
+            for m in re.finditer(r"^([a-z_][a-z0-9_]*)\(\)\s*\{", codigo, re.M):
+                n = m.group(1)
+                defs = len(re.findall(rf"^{re.escape(n)}\(\)", todo, re.M))
+                if len(re.findall(rf"\b{re.escape(n)}\b", todo)) - defs == 0:
+                    muertas.append(f"{f.relative_to(RAIZ)}: {n}()")
+        self.assertEqual(sorted(set(muertas)), [],
+                         "funciones definidas que nadie llama. En la plantilla es peor: todo "
+                         "proyecto nuevo la copia.\n  " + "\n  ".join(sorted(set(muertas))))
+
+    def test_la_guia_de_arranque_explica_la_suite_reservada(self):
+        """El gate la exige y la guía no la nombraba. Una pieza que existe pero no se replica
+        es, para un proyecto nuevo, una pieza que no existe."""
+        guia = (RAIZ / "EMPEZAR.md").read_text()
+        self.assertRegex(guia, r"reservad",
+                         "la guía no menciona la suite reservada, que el gate exige")
+        # Y con lo que hace falta para armarla: dónde va y por qué va AFUERA.
+        self.assertIn("reservados-", guia,
+                      "tiene que decir dónde la busca el gate: ../reservados-<proyecto>")
+        i = guia.lower().index("reservad")
+        bloque = guia[max(0, i - 400):i + 1200]
+        self.assertIn("fuera", bloque.lower(),
+                      "y por qué van afuera del repo, que es la parte que un proyecto nuevo "
+                      "se saltea si no se lo explican")
+
+    def test_el_gate_que_se_copia_pide_lo_que_la_guia_arma(self):
+        """El cruce que importa: cada ruta que el gate exige por su cuenta tiene que salir del
+        procedimiento de la guía o de `$AGENTES`. Es la forma general del defecto que dejaba un
+        proyecto nuevo con el gate en rojo por falta de `correr-suite.sh`."""
+        gate = (PLANTILLAS / "gate.sh").read_text()
+        guia = (RAIZ / "EMPEZAR.md").read_text()
+        exigidas = set(re.findall(r'no existe (scripts/[a-z_.-]+)', gate))
+        exigidas |= set(re.findall(r'falta (scripts/[a-z_.-]+)', gate))
+        self.assertTrue(exigidas, "el gate dejó de exigir rutas: revisá este test")
+        # Los AUXILIARES que el método provee se resuelven con `$AGENTES` y no se copian; el
+        # resto tiene que estar nombrado en el procedimiento.
+        #
+        # Mi primera versión ponía `and "export AGENTES" not in guia` en la condición, y como
+        # la guía SÍ lo tiene, la lista salía SIEMPRE vacía: un test que no podía fallar.
+        # Escribí una tautología el mismo día que agregué el chequeo que las detecta, y la
+        # encontró el control de reintroducción —sacar `correr-suite.sh` de la guía lo dejaba
+        # en verde— y no la lectura.
+        # Los auxiliares se reconocen por cómo el gate los RESUELVE —`aux_del_metodo X`— y no
+        # por una convención de nombres. Mi primera versión usaba el prefijo `_`, y este test
+        # marcó `mutar.py`: entró al gate hoy en el paso 4b, se resuelve con `aux_del_metodo`
+        # y no empieza con guión bajo. El test tenía razón y la clasificación era mía.
+        del_metodo = set(re.findall(r"aux_del_metodo ([a-z_][a-z0-9_.]*)", gate))
+        # En los COMANDOS, no en la prosa: lo que tiene que pasar es que el procedimiento
+        # ponga el archivo en su lugar, no que el documento lo nombre. Mi versión anterior
+        # buscaba en todo el texto y `correr-suite.sh` aparece en la explicación de la sección
+        # 3, así que quitar el `cp` dejaba el test en verde. Décima vez en el día que una
+        # aserción mía mide prosa en vez de conducta.
+        comandos = "\n".join(re.findall(r"```bash\n(.*?)```", guia, re.S))
+        faltan = [r for r in sorted(exigidas)
+                  if r.split("/")[-1] not in del_metodo
+                  and r.split("/")[-1] not in comandos]
+        self.assertEqual(faltan, [],
+                         "el gate exige estas rutas y la guía no dice de dónde salen: "
+                         + ", ".join(faltan))
