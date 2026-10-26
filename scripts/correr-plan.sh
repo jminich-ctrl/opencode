@@ -95,6 +95,36 @@ if [ "${#ETAPAS[@]}" -eq 0 ]; then
   done <<< "$SALIDA_ETAPAS"
 fi
 
+# Las etapas DECLARADAS se filtran por estado igual que las deducidas. `_etapas.py` ya
+# filtraba las hechas; la rama que lee `**ETAPA n:**` las tomaba al pie de la letra, y la
+# plantilla de PLAN.md enseña a declararlas — así que el camino documentado perdía el filtro.
+#
+# Medido el 2026-10-26 en un proyecto JS con tres tareas hechas y dos pendientes: relanzó la
+# ETAPA 1 COMPLETA. Tres corridas de agente gastadas, el gate contestando «no hay ningún
+# cambio: la tarea no se hizo» —cierto y engañoso, porque no había nada que hacer—, dos tareas
+# en «punto muerto» por fallar dos veces por lo mismo, y el plan detenido SIN llegar a la etapa
+# pendiente. Se nota en la SEGUNDA corrida del plan, que es la normal: la primera algo falla y
+# se vuelve a lanzar.
+#
+# Si el llamador NOMBRÓ las tareas, no se filtra: pedir T01 a mano es pedirla, hecha o no.
+if [ "${#ETAPAS[@]}" -gt 0 ] && [ "${#TAREAS_PEDIDAS[@]}" -eq 0 ]; then
+  SIN_HECHAS=(); YA_HECHAS=""
+  for etapa in "${ETAPAS[@]}"; do
+    queda=""
+    for t in $etapa; do
+      tf="$(ls "$BASE/tareas/${t}"-*.md 2>/dev/null | head -1)"
+      if [ -n "$tf" ] && grep -qE '^\*\*Estado:\*\* *(✅|hecha)' "$tf"; then
+        YA_HECHAS="${YA_HECHAS}${YA_HECHAS:+ }$t"
+      else
+        queda="${queda}${queda:+ }$t"
+      fi
+    done
+    [ -n "$queda" ] && SIN_HECHAS+=("$queda")
+  done
+  [ -n "$YA_HECHAS" ] && echo "· ya hechas, no se relanzan: $YA_HECHAS"
+  ETAPAS=(${SIN_HECHAS[@]+"${SIN_HECHAS[@]}"})
+fi
+
 # Distinto de "no pude leer el plan": el plan está bien y no queda nada pendiente.
 if [ "${#ETAPAS[@]}" -eq 0 ]; then
   echo "✓ Todas las tareas de $PLAN están marcadas como hechas: no hay nada que lanzar."

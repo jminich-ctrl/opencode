@@ -4287,6 +4287,129 @@ class TestLaLineaBaseDeFallasNoPuedeSalirVaciaEnSilencio(CasoBase):
                       f"la cabecera tiene que decir que `fallas` también sabe del corredor:\n{cab}")
 
 
+class TestLoQueElGateLlamaInfraestructuraElGuiaLoIgnora(unittest.TestCase):
+    """El gate tiene una lista de lo que es INFRAESTRUCTURA del método —`.base-ref`,
+    `.tests-base`, `.metricas/`, `.venv`…— y la filtra del diff para no cobrarle a la tarea
+    archivos que escribe el propio runner. La guía de arranque escribe un `.gitignore`. Las
+    dos listas tienen que decir lo mismo, y no lo decían.
+
+    Medido el 2026-10-26 corriendo una etapa con DOS tareas en paralelo —la primera vez en la
+    noche—: las dos ramas commitearon su propio `.tests-base` y la segunda integración murió
+    con «conflicto al mergear tarea/T05». Un conflicto por etapa, en cada etapa, y el método
+    mandando a resolverlo a mano.
+
+    Filtrar del diff no alcanza: el archivo igual entra al commit de la rama. Y la misma forma
+    ya había pasado con `.metricas/`, que está escrito en PIPELINE.md —«el .gitignore de
+    EMPEZAR.md no tenía .metricas/, así que integrar.sh se negaba a mergear»—: se arregló esa
+    entrada y no la lista."""
+
+    def infra_del_gate(self):
+        """Las entradas LITERALES de la lista INFRA del gate, normalizadas."""
+        import re
+        texto = (PLANTILLAS / "gate.sh").read_text()
+        m = re.search(r"^INFRA='(.+)'$", texto, re.M)
+        self.assertTrue(m, "no encontré la lista INFRA en el gate")
+        entradas = []
+        for parte in m.group(1).split("|"):
+            # fuera los anclajes y los grupos: lo que queda es el nombre del archivo
+            limpio = re.sub(r"[\^()$?]|\[A-Za-z0-9_-\]\+/?|\\", "", parte)
+            limpio = limpio.replace("(/", "").replace("/)", "/").strip("/")
+            if limpio:
+                entradas.append(limpio)
+        return entradas
+
+    def gitignore_de_la_guia(self):
+        import re
+        texto = (RAIZ / "EMPEZAR.md").read_text()
+        m = re.search(r"printf '([^']*)' > \.gitignore", texto)
+        self.assertTrue(m, "la guía ya no escribe un .gitignore con printf")
+        return m.group(1).replace("\\n", "\n").split("\n")
+
+    # Lo que el gate filtra del diff y NO va al .gitignore, con su motivo. Una excepción
+    # declarada es un dato; una excepción implícita es un agujero.
+    EXCEPCIONES = {
+        "package-lock.json": "se commitea a propósito: es el lock del proyecto, y el gate lo "
+                             "filtra sólo porque el instalador del método lo puede tocar",
+    }
+
+    def test_todo_lo_que_el_gate_filtra_esta_en_el_gitignore_de_la_guia(self):
+        # Comparación EXACTA por entrada, no por subcadena: mi primera versión preguntaba si
+        # el sufijo aparecía en algún lugar del texto y `.plan.log` pasaba casando con el
+        # «log» de `.tarea.log`. Un comparador laxo esconde justo lo que se quiere encontrar.
+        ignorados = set()
+        for l in self.gitignore_de_la_guia():
+            l = l.strip()
+            if l:
+                ignorados.add(l.rstrip("/"))
+        faltan = [e for e in self.infra_del_gate()
+                  if e.rstrip("/") not in ignorados and e not in self.EXCEPCIONES]
+        self.assertEqual([], faltan,
+                         f"el gate las filtra del diff pero la guía no las ignora, así que "
+                         f"entran al commit de la rama y chocan al mergear: {faltan}")
+
+
+class TestDeclararEtapasNoPuedeRelanzarLoQueYaEstaHecho(CasoBase):
+    """Medido el 2026-10-26 corriendo `correr-plan.sh` por primera vez en la noche, sobre un
+    proyecto JS con tres tareas hechas y dos pendientes: RELANZÓ LA ETAPA 1 COMPLETA.
+
+    Tres corridas de agente gastadas en tareas que ya estaban integradas; el gate contestó «no
+    hay ningún cambio: la tarea no se hizo» —cierto y engañoso: no hay nada que hacer porque
+    ya está hecho—; dos quedaron en «punto muerto» por fallar dos veces por lo mismo; y el
+    plan SE DETUVO sin llegar nunca a la etapa pendiente.
+
+    La causa: el deductor (`_etapas.py`) filtra las tareas hechas —devolvía exactamente
+    `T04 T05`—, pero la rama que lee las etapas DECLARADAS en el plan las toma al pie de la
+    letra. Y la plantilla de PLAN.md enseña a declararlas. O sea: el camino documentado pierde
+    el filtro, en silencio, y lo pierde en la segunda corrida del plan — que es la normal,
+    porque la primera algo falla y se vuelve a lanzar."""
+
+    def plan_con_etapas_declaradas(self):
+        (self.p.dir / "PLAN.md").write_text(
+            "# Plan\n\n**Estado del gate G0:** aprobado por nadie el 2026-01-01\n\n"
+            "## Requisitos\n\n- `cosa` — que haya una cosa\n\n"
+            "## Tareas\n\n| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
+            "| T01 | Una cosa | — | src/cosa.py | ✅ hecha |\n"
+            "| T02 | Otra cosa | — | src/otra.py | pendiente |\n\n"
+            "**ETAPA 1:** T01\n**ETAPA 2:** T02\n\n"
+            "## Tests\n\n| Tarea | Archivo de test | Clase |\n|---|---|---|\n"
+            "| T01 | tests/test_cosa.py | TestCosa |\n| T02 | tests/test_otra.py | TestOtra |\n")
+        self.p.escribir_tarea("T01", "src/cosa.py", estado="✅ hecha")
+        self.p.escribir_tarea("T02", "src/otra.py")
+        self.p.git("add -A"); self.p.git("commit -qm plan")
+
+    def etapas(self):
+        return correr(f"SOLO_ETAPAS=1 bash {SCRIPTS}/correr-plan.sh", self.p.dir,
+                      AGENTES=str(RAIZ))
+
+    def test_una_tarea_hecha_no_entra_en_las_etapas_declaradas(self):
+        self.plan_con_etapas_declaradas()
+        r = self.etapas()
+        self.assertEqual(r.returncode, 0, f"{r.stdout}{r.stderr}")
+        # Sólo las líneas de ETAPA: la primera versión miraba toda la salida y fallaba por la
+        # línea que INFORMA el salteo —«· ya hechas, no se relanzan: T01»—. Cuarta vez en la
+        # noche que una aserción mía es más ancha que lo que quiere medir.
+        etapas = [l for l in r.stdout.splitlines() if "ETAPA" in l]
+        self.assertTrue(etapas, f"no imprimió etapas:\n{r.stdout}")
+        self.assertNotIn("T01", " ".join(etapas),
+                         f"relanza una tarea hecha y mergeada:\n{r.stdout}")
+        self.assertIn("T02", " ".join(etapas), f"y la pendiente tiene que estar:\n{r.stdout}")
+        self.assertIn("no se relanzan: T01", r.stdout,
+                      f"y el salteo se informa, no se calla:\n{r.stdout}")
+
+    def test_si_todas_estan_hechas_lo_dice_en_vez_de_relanzarlas(self):
+        self.plan_con_etapas_declaradas()
+        t = self.p.dir / "tareas" / "T02-cosa.md"
+        self.p.escribir_tarea("T02", "src/otra.py", estado="✅ hecha")
+        (self.p.dir / "PLAN.md").write_text(
+            (self.p.dir / "PLAN.md").read_text().replace("| T02 | Otra cosa | — | src/otra.py | pendiente |",
+                                                         "| T02 | Otra cosa | — | src/otra.py | ✅ hecha |"))
+        self.p.git("add -A"); self.p.git("commit -qm todas")
+        r = self.etapas()
+        self.assertEqual(r.returncode, 0, f"{r.stdout}{r.stderr}")
+        self.assertIn("hechas", r.stdout,
+                      f"con todo hecho, lo dice y no lanza nada:\n{r.stdout}")
+
+
 class TestUnaReversionVaciaNoEsUnaReversionQuePaso(CasoBase):
     """Medido el 2026-10-26 sobre una tarea que un agente real acababa de cerrar en un
     proyecto JS: correr el gate a mano después de `cerrar-tarea.sh` daba

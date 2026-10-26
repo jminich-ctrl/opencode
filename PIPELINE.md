@@ -294,6 +294,37 @@ aplicados sobre lo que escribió el agente, **cinco muertos**. El sobreviviente 
 → `monto <= 0`, equivalente —con monto 0 el IVA es 0 de las dos formas— y de la clase que
 `mutar.py` excluye por árida: comparaciones contra 0. El verde está ganado.
 
+### Y una etapa entera, con dos agentes en paralelo (06:45)
+
+`correr-plan.sh` sobre el mismo proyecto, etapa de dos tareas elegidas para que no fueran
+regalos: `cuotas(monto, n)` —cuya suma tiene que dar exactamente el monto— y `total(items)`,
+obligada a **usar** `iva` y `descuento` con esos archivos en «Prohibido tocar».
+
+```
+correr-plan.sh    ✓ etapa completa · T04 y T05 VERDE al primer intento (45s y 39s)
+```
+
+El agente de T05 **importó** los dos módulos en vez de reimplementar las tasas, que era la
+trampa. Auditados a mano: T04 cuatro de cinco mutantes muertos, T05 tres de cuatro. Los dos
+sobrevivientes son ramas defensivas **equivalentes** —un atajo `n === 1` y una guarda del array
+vacío— que dan el mismo resultado sin ellas: comportamiento que nadie necesita, y que en un
+proyecto Python la mutación habría marcado.
+
+Dos defectos del método, los dos de los que sólo aparecen corriendo:
+
+1. **`correr-plan.sh` relanzó la etapa 1 completa**, con tres tareas hechas y mergeadas: tres
+   corridas de agente gastadas, el gate contestando «no hay ningún cambio: la tarea no se
+   hizo» —cierto y engañoso—, dos tareas en «punto muerto», y el plan detenido SIN llegar a la
+   etapa pendiente. `_etapas.py` filtra las hechas; la rama que lee las etapas DECLARADAS las
+   tomaba al pie de la letra, y la plantilla de PLAN.md enseña a declararlas. Se nota en la
+   segunda corrida del plan, que es la normal.
+2. **`.tests-base` commiteado hizo chocar el merge.** Las dos tareas de la etapa escribieron
+   su propia línea base de fallas, cada rama la commiteó, y la segunda integración murió con
+   «conflicto al mergear tarea/T05». El gate filtra ese archivo del diff —es infraestructura—
+   pero el `.gitignore` de la guía no lo ignoraba, y filtrar del diff no impide que entre al
+   commit. Faltaban SIETE entradas de la lista del gate, incluidas `.venv` y `node_modules`.
+   Ahora un test cruza las dos listas.
+
 Lo que la corrida encontró del método: **una reversión vacía no es una reversión que pasó.**
 Correr el gate a mano después de `cerrar-tarea.sh` —que es lo que hace cualquiera que mire una
 tarea cerrada, y lo que AGENTS.md le pide al agente— daba

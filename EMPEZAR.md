@@ -31,7 +31,7 @@ Detalle en [OPENCODE.md](OPENCODE.md) e [INFRAESTRUCTURA.md](INFRAESTRUCTURA.md)
 mkdir ~/mi-proyecto && cd ~/mi-proyecto && git init    # fuera del clon de este repo
 mkdir -p tareas scripts src tests
 touch src/__init__.py tests/__init__.py       # el gate descubre los tests como paquete
-printf '__pycache__/\n*.pyc\n.tarea.log\n.opencode-data/\n.metricas/\n.base-ref\nPLAN.md.previo\n' > .gitignore
+printf '__pycache__/\n*.pyc\nnode_modules/\n.venv\n.entorno\n.mysql/\n.tarea.log\n.plan.log\n.segundos\n.opencode-data/\n.metricas/\n.base-ref\n.tests-base\nPLAN.md.previo\n' > .gitignore
 cp $AGENTES/plantillas/PLAN.md .
 cp $AGENTES/plantillas/gate.sh scripts/            # el juez; buscá "ADAPTAR": son cuatro líneas
 cp $AGENTES/plantillas/correr-suite.sh scripts/    # CÓMO se corre tu suite: el gate lo exige y da rojo si falta
@@ -42,11 +42,20 @@ printf 'PLAN.md.previo\n' >> .gitignore
 git add -A && git commit -m "Esqueleto del proyecto"
 ```
 
-El `.gitignore` importa, y las seis líneas están ahí por un motivo: el runner deja su log
-(`.tarea.log`), la base de OpenCode (`.opencode-data/`), el registro de intentos
-(`.metricas/`) y la base del diff (`.base-ref`). Sin ignorarlos, **`.metricas/` te bloquea
-la integración** —queda como cambio sin commitear en el tronco— y el gate cuenta el resto
-como archivos fuera del alcance de la tarea.
+El `.gitignore` importa, y cada línea está ahí por un motivo: son **las mismas entradas que
+el gate filtra del diff** por ser infraestructura del método —su log (`.tarea.log`,
+`.plan.log`, `.segundos`), la base de OpenCode (`.opencode-data/`), el registro de intentos
+(`.metricas/`), la base del diff (`.base-ref`), la línea base de fallas (`.tests-base`) y las
+dependencias que instala el método (`node_modules/`, `.venv`, `.entorno`, `.mysql/`)—.
+
+Filtrarlas del diff no alcanza, y está medido dos veces: sin `.metricas/` **`integrar.sh` se
+niega a mergear** porque queda como cambio sin commitear en el tronco; y sin `.tests-base`, una
+etapa con dos tareas en paralelo commitea una línea base distinta en cada rama y **la segunda
+integración muere con un conflicto de merge** (2026-10-26, con dos agentes reales). Lo que el
+método escribe no lo versiona el proyecto.
+
+Un test de esta suite cruza las dos listas: si el gate agrega una entrada a su filtro y acá no
+aparece, falla.
 
 El gate además los filtra por su cuenta, así que un olvido acá no te rompe una tarea; pero
 `.metricas/` sí te frena en `integrar.sh`.
