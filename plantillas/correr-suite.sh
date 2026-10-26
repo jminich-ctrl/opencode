@@ -4,7 +4,12 @@
 # difiera entre quien valida y quien juzga produce un test imposible de pasar, y el método
 # lo informa como "el test está mal" — acusa al agente de un defecto nuestro.
 #
-# PLANTILLA. ADAPTAR: `correr_suite`, que es el único lugar que sabe del corredor.
+# PLANTILLA. ADAPTAR DOS funciones, y las dos saben del corredor: `correr_suite` (cómo se
+# corre) y `fallas` (cómo se lee lo que falló). Decía «`correr_suite` es el único lugar que
+# sabe del corredor» y era falso: `fallas` es un EXTRACTOR de la salida. Medido el 2026-10-26
+# en un proyecto JS —`node --test` informa TAP y el patrón pedía el formato de unittest—, así
+# que la línea base de fallas salía vacía con tres tests rojos en el disco. Sale vacía y
+# parece sana: «0 ya fallando» es lo que informa también un proyecto limpio.
 #
 #   bash scripts/correr-suite.sh                         # toda la suite
 #   bash scripts/correr-suite.sh tests/test_x.py         # un archivo

@@ -238,6 +238,40 @@ Y una que el gate nos hizo a nosotros: **editamos `scripts/gate.sh` dentro del w
 el paso 0 lo marcó como archivo intocable. Es la regla que el método ya tenía escrita
 —commiteá las herramientas antes de lanzar— aplicada al que la escribió.
 
+### En un proyecto que no es Python (2026-10-26)
+
+Mismo recorrido, stack JavaScript: Node 20 con `node --test`, sin dependencias y sin instalar
+nada. De cero a dos tareas integradas.
+
+```
+validar-plan.py                 ✓ 2 tareas, sin errores de forma
+correr-tarea.sh T02 (MANUAL=1)  worktree listo, línea base: 1 falla
+(una persona implementa)
+cerrar-tarea.sh T02             ✓ T02 gate VERDE
+integrar.sh T02                 ✓ tronco verde; la línea base no se le cobró al merge
+estado.sh                       T01 y T02 ✅ hechas · mergeadas · tronco verde
+```
+
+El gate corre sus seis pasos con dos ⊘ honestos —los chequeos que son de Python: imports
+contra requirements, y mutación—. Lo que **no** funcionaba, y se arregló acá:
+
+1. **El contrato del corredor no estaba verificado.** Adaptar `correr_suite` a `node --test`
+   lo rompió por las dos puntas y el gate emitió un diagnóstico falso y rotundo sobre tests
+   que nunca corrieron. Lo calibra `_corredor.sh` en el paso 1.
+2. **`fallas()` también sabe del stack**, y la cabecera de la plantilla decía que
+   `correr_suite` era «el único lugar». Con el patrón de unittest, la línea base de un
+   proyecto JS sale vacía con tests rojos en el disco — y «0 ya fallando» es lo que informa
+   también un proyecto limpio. Ahora el runner frena si la suite está roja y la lista sale
+   vacía.
+3. **Un `package.json` sin dependencias no es una falla.** `npm install` sale 0 sin crear
+   `node_modules`, y exigir el directorio daba «✗ npm no dejó node_modules» con `exit 1`.
+4. **El mensaje de la línea base salía partido en dos líneas** desde que se escribió:
+   `grep -c . || echo 0` imprime los dos ceros, porque `grep -c` imprime 0 *y* sale 1. La
+   variable valía «0\n0», y por eso el chequeo nuevo no disparaba hasta que lo encontré.
+
+Lo que un proyecto así **no** tiene: mutación (el mutador es de Python) y chequeo de imports
+contra el manifiesto. Los dos se informan ⊘ y quedan a la vista en el veredicto.
+
 ### Los subagentes solo se invocan por delegación
 
 `opencode run --agent reviewer` **no usa reviewer**: cae en el agente por defecto, sin

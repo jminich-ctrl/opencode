@@ -97,7 +97,31 @@ lanzar() {
   # vería roja por los tests de sus hermanas y ninguna podría cerrar.
   if [ -f "$dir/scripts/correr-suite.sh" ]; then
     ( cd "$dir" && bash scripts/correr-suite.sh --fallas > .tests-base 2>/dev/null ) || true
-    echo "  · línea base: $(grep -c . "$dir/.tests-base" 2>/dev/null || echo 0) test(s) ya fallando"
+    # Sin `|| echo 0`: `grep -c` IMPRIME 0 y además sale 1 cuando no hay coincidencias, así
+    # que el `||` agregaba un segundo cero y la variable valía «0\n0». Por eso el mensaje
+    # salía partido en dos líneas —«· línea base: 0» / «0 test(s) ya fallando»— desde que se
+    # escribió, y por eso el chequeo de abajo no disparaba nunca: comparaba contra «0». Es el
+    # mismo `|| echo` que ya nos costó un «HTTP 000000» en la sonda.
+    N_BASE="$(grep -c . "$dir/.tests-base" 2>/dev/null)"; N_BASE="${N_BASE:-0}"
+    echo "  · línea base: ${N_BASE} test(s) ya fallando"
+    # `fallas()` es un EXTRACTOR de la salida del corredor, o sea que sabe del stack igual que
+    # `correr_suite`. Si la suite está ROJA y la lista salió vacía, el patrón no entiende a
+    # este corredor — y «0 ya fallando» es lo que informa también un proyecto limpio, así que
+    # el defecto no se ve. Con la línea base vacía el gate le cobra a esta tarea las fallas de
+    # sus hermanas, que es justo lo que la línea base existe para evitar.
+    #
+    # Medido dos veces: en un proyecto JS (2026-10-26) `node --test` informa TAP
+    # (`not ok 1 - ...`) y el patrón pedía el `FAIL: caso (Clase)` de unittest; y antes, en
+    # clasificados, el patrón de vitest «no capturaba NINGUNA» — lo dice su propio comentario.
+    ( cd "$dir" && bash scripts/correr-suite.sh >/dev/null 2>&1 ); RC_SUITE_BASE=$?
+    if [ "$RC_SUITE_BASE" = "1" ] && [ "${N_BASE:-0}" = "0" ]; then
+      echo "✗ la suite está en ROJO y la línea base salió VACÍA." >&2
+      echo "  La función «fallas» de scripts/correr-suite.sh no entiende la salida de este" >&2
+      echo "  corredor: es un EXTRACTOR y sabe del stack, igual que «correr_suite». Con la" >&2
+      echo "  lista vacía el gate le va a cobrar a $id las fallas de sus hermanas." >&2
+      echo "  Arreglá el patrón de «fallas» y volvé a lanzar." >&2
+      exit 1
+    fi
   fi
 
   # Modo manual: el método no depende de que haya una IA disponible. Preparamos el

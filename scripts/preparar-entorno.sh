@@ -71,6 +71,24 @@ base_de_datos_del_arbol() {
   printf '%s' "${prefijo:-proyecto}_${slug}" | cut -c1-64
 }
 
+# ¿El manifiesto declara alguna dependencia? Un `package.json` sin ninguna es legítimo: npm
+# sale 0 y no crea `node_modules` —medido: 0,5 s y ni un directorio—, así que la ausencia del
+# directorio no es una falla.
+declara_dependencias() {
+  [ -f "$1" ] || return 1
+  command -v python3 >/dev/null 2>&1 || return 0   # sin python3, no afirmamos que no hay
+  python3 -I - "$1" <<'PYDEPS' 2>/dev/null
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)        # ilegible: no afirmamos que no tiene
+sys.exit(0 if any(d.get(k) for k in ("dependencies", "devDependencies",
+                                     "peerDependencies", "optionalDependencies")) else 1)
+PYDEPS
+}
+
+
 mismo_manifiesto() {
   local dir="$1" nombre="$2"
   local a="$BASE/$dir/$nombre" b="$DESTINO/$dir/$nombre"
@@ -300,6 +318,18 @@ if [ -n "$PKG" ]; then
         ( cd "$DIR" && npm install --silent )
       fi
       if [ -d "$DIR/node_modules" ]; then echo "$AHORA" > "$SELLO"; HIZO=1
+      elif ! declara_dependencias "$DIR/package.json"; then
+        # Un manifiesto SIN dependencias es el caso normal de un proyecto que no las usa, y
+        # `npm install` sale 0 sin crear `node_modules`. Exigir el directorio igual convertía
+        # eso en «✗ npm no dejó node_modules» y un `exit 1`: un rojo que el proyecto no puede
+        # arreglar, en el único stack que el método dice soportar además de Python. Lo
+        # encontró armar un proyecto JS de cero el 2026-10-26.
+        # Sin sello: vive dentro de `node_modules`, que acá no existe. Escribirlo igual
+        # imprimía un «No such file or directory» por stderr en el caso NORMAL de este
+        # proyecto. El costo de no sellar es volver a correr un `npm install` de medio
+        # segundo; el de un error en la salida del caso normal es que se deje de leer.
+        echo "  · package.json sin dependencias declaradas: no hay nada que instalar"
+        HIZO=1
       else echo "✗ npm no dejó node_modules" >&2; exit 1; fi
     else
       echo "⊘ hay package.json y no hay npm: el gate del frontend va a dar rojo por falta"

@@ -4195,6 +4195,113 @@ class TestElChequeoDeArquitecturaEstaVivoEnLosProyectosReales(unittest.TestCase)
                               f"proyecto con código escrito\n{r.stdout}")
 
 
+class TestLaLineaBaseDeFallasNoPuedeSalirVaciaEnSilencio(CasoBase):
+    """`fallas()` —la lista de tests que YA fallaban— es lo que separa «rompiste esto» de
+    «esto ya estaba roto», y es el mecanismo que hace posible tests-first: mientras una etapa
+    está en vuelo el tronco tiene los tests de varias tareas y la implementación de ninguna.
+
+    Y es un EXTRACTOR de la salida del corredor, o sea que sabe del stack. La cabecera de la
+    plantilla dice que `correr_suite` es «el único lugar que sabe del corredor» y eso es
+    falso: `fallas()` también. Medido dos veces:
+
+      · el 2026-10-26, en un proyecto JS armado de cero: `node --test` informa TAP
+        (`not ok 1 - ...`) y el patrón pedía el `FAIL: caso (Clase)` de unittest, así que la
+        línea base salió «0 test(s) ya fallando» con tres tests rojos en el disco;
+      · antes, en clasificados: el comentario de su propio `fallas()` dice que el patrón de
+        vitest «no capturaba NINGUNA».
+
+    Sale vacía y parece sana: «0 ya fallando» es exactamente lo que informa un proyecto
+    limpio. Con la línea base vacía, el gate le cobra a la tarea las fallas de sus hermanas."""
+
+    def lanzar(self, tarea="T01"):
+        """Lanza el runner en modo manual y se lleva el worktree al terminar.
+
+        El worktree vive AL LADO del proyecto —`../trabajo-T01`—, o sea fuera del repo de
+        juguete, así que `tirar()` no lo alcanza: ningún test de esta suite había ejecutado
+        `correr-tarea.sh` hasta hoy, y el primero que lo hizo —éste— dejó un `trabajo-T01` en
+        /var/folders a la primera corrida."""
+        r = correr(f"MANUAL=1 bash {SCRIPTS}/correr-tarea.sh {tarea}", self.p.dir,
+                   AGENTES=str(RAIZ))
+        wt = self.p.repo.parent / f"trabajo-{tarea}"
+
+        def limpiar():
+            # `unittest` corre los cleanups DESPUÉS de tearDown, y tearDown ya tiró el repo,
+            # así que los comandos de git no tienen cwd. Es el mismo error que ya cometí una
+            # vez con un addCleanup: lo que importa acá es liberar el worktree del disco.
+            if self.p.repo.exists():
+                correr(f"git worktree remove --force {shlex.quote(str(wt))}", self.p.repo)
+                correr("git worktree prune", self.p.repo)
+            tirar_dir(wt)
+        self.addCleanup(limpiar)
+        return r
+
+    CORREDOR_MUDO = ('#!/usr/bin/env bash\n'
+                     '# la suite está ROJA pero --fallas no sabe listar nada\n'
+                     'if [ "${1:-}" = "--fallas" ]; then exit 0; fi\n'
+                     'echo "not ok 1 - algo"\nexit 1\n')
+
+    def test_una_suite_roja_con_linea_base_vacia_frena_el_lanzamiento(self):
+        (self.p.dir / "scripts" / "correr-suite.sh").write_text(self.CORREDOR_MUDO)
+        self.p.git("add -A"); self.p.git("commit -qm corredor")
+        r = self.lanzar()
+        salida = r.stdout + r.stderr
+        self.assertNotEqual(r.returncode, 0,
+                            f"lanzó la tarea con la línea base rota:\n{salida}")
+        self.assertIn("fallas", salida,
+                      f"y tiene que nombrar la función que no entiende al corredor:\n{salida}")
+        self.assertNotIn("preparada para hacerla a mano", salida,
+                         "no puede seguir como si nada")
+
+    def test_con_la_suite_roja_y_la_linea_base_poblada_no_molesta(self):
+        """El control: en tests-first la suite ROJA es el caso normal, y si la línea base
+        tiene filas el lanzamiento sigue. Sin esto, el chequeo de arriba lo aprueba un
+        `exit 1` puesto en cualquier parte."""
+        (self.p.dir / "scripts" / "correr-suite.sh").write_text(
+            '#!/usr/bin/env bash\n'
+            'if [ "${1:-}" = "--fallas" ]; then echo "FAIL: test_f (tests.test_cosa.TestCosa)"; exit 0; fi\n'
+            'echo "FAIL: test_f (tests.test_cosa.TestCosa)"\nexit 1\n')
+        self.p.git("add -A"); self.p.git("commit -qm corredor")
+        r = self.lanzar()
+        self.assertEqual(r.returncode, 0,
+                         f"la suite roja con línea base poblada es el caso NORMAL de "
+                         f"tests-first:\n{r.stdout}{r.stderr}")
+
+    def test_la_plantilla_no_dice_que_correr_suite_es_el_unico_lugar_del_stack(self):
+        """La afirmación mandaba a adaptar una función y dejaba la otra con el patrón de
+        unittest. Positiva y no negativa: lo que se exige es que NOMBRE a `fallas`."""
+        cab = (PLANTILLAS / "correr-suite.sh").read_text().split("set -uo pipefail")[0]
+        self.assertIn("fallas", cab,
+                      f"la cabecera tiene que decir que `fallas` también sabe del corredor:\n{cab}")
+
+
+class TestUnManifiestoSinDependenciasNoEsUnaFalla(unittest.TestCase):
+    """`preparar-entorno.sh` exigía `node_modules` después de `npm install`, y un
+    `package.json` sin dependencias es legítimo: npm sale 0 en medio segundo y no crea el
+    directorio. El resultado era «✗ npm no dejó node_modules» y `exit 1` — un rojo que el
+    proyecto no puede arreglar, en el único stack que el método dice soportar además de
+    Python. Lo encontró armar un proyecto JS de cero."""
+
+    def test_un_package_json_sin_dependencias_prepara_bien(self):
+        if not shutil.which("npm"):
+            self.skipTest("sin npm no se puede medir")
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-npm-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        (d / "package.json").write_text('{"name":"x","version":"1.0.0","type":"module"}\n')
+        for sub in ("tests", "tareas", "scripts", "src"):
+            (d / sub).mkdir()
+        correr("git init -q . && git -c user.email=t@t -c user.name=t add -A && "
+               "git -c user.email=t@t -c user.name=t commit -qm base", d)
+        r = correr(f"bash {SCRIPTS}/preparar-entorno.sh", d, AGENTES=str(RAIZ))
+        self.assertEqual(r.returncode, 0,
+                         f"un manifiesto sin dependencias no es una falla:\n{r.stdout}{r.stderr}")
+        self.assertNotIn("✗", r.stdout + r.stderr,
+                         f"y no se informa con un ✗:\n{r.stdout}{r.stderr}")
+        self.assertIn("nada que instalar", r.stdout,
+                      f"se dice lo que pasó, no se calla:\n{r.stdout}")
+        self.assertNotIn("No such file", r.stderr,
+                         f"ni se intenta sellar dentro de un node_modules que no existe:\n{r.stderr}")
+
+
 class TestLaSondaNoDaVerdePorContestarCualquierCosa(unittest.TestCase):
     """Defecto 19, abierto desde el 2026-10-20: la sonda declara la plataforma sana con un
     POST de 4 tokens y 2 caracteres de prompt, mirando SÓLO el código HTTP.
