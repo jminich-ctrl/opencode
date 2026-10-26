@@ -229,6 +229,31 @@ nuestras:
    mutante murió. El código lo habíamos escrito nosotros, con los tests primero, y el
    agujero estaba igual.
 
+### Rehecho de cero el 2026-10-26, después de 24 cambios al instrumento
+
+La corrida de arriba es de otro estado del método. Ésta se hizo al final de la sesión, con las
+plantillas de ese momento, en un proyecto Python recién armado y **con todo el camino**:
+
+```
+gate del proyecto recién armado   UN rojo, el de la suite vacía (y dos ⊘ honestos)
+validar-plan.py                   ✓ 1 tarea, sin errores de forma
+correr-tarea.sh T01 (MANUAL=1)    worktree listo
+(una persona implementa)
+cerrar-tarea.sh T01               ✓ T01 gate VERDE
+integrar.sh T01                   ✓ integradas · tronco verde · ✅ hecha · mergeada
+gate del tronco                   ✓ paso 6 con la suite reservada: 1 test de composición
+pre-deploy.sh (G4)                PRE-DEPLOY VERDE — con 1 ⊘ declarado
+deploy.sh staging (G5)            ✓ desplegado, y el artefacto desplegado EXISTE
+```
+
+Dos cosas que ninguna corrida anterior había tenido: un **paso 6 verde en un proyecto nuevo**
+—la suite reservada escrita a mano, fuera del repo— y un **G5 que corre su comando declarado**
+en vez de decir que desplegó. El verificador del deploy quedó en ⊘ con su motivo, porque una
+librería no tiene nada que levantar, y eso ahora se puede decir.
+
+Y el árbol quedó limpio: `.artefactos/` está ignorado, que es la entrada que faltaba y que un
+test cruza contra la lista del gate.
+
 Nota de vigencia: esa corrida copió `_arquitectura.py` **sin editar**, y desde el
 2026-10-25 eso da rojo a propósito — con capas que el proyecto no tiene, el chequeo no puede
 encontrar nada y antes lo informaba con un ✓. Hoy hay que declarar las capas propias (dos
