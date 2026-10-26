@@ -53,7 +53,7 @@ gives the verdict. It checks six things: that the tests and the gate itself were
 suite passes *and ran at least one test*, that only the declared files changed, hygiene including
 suppressed signals, that **reverting the implementation makes the task's own tests fail**, and — on the
 trunk only — architectural fitness plus a held-out suite no agent has seen. Template:
-[`plantillas/gate.sh`](plantillas/gate.sh), four lines to adapt. The runner runs the gate after the agent has finished and decides on its exit
+[`plantillas/gate.sh`](plantillas/gate.sh): three lines to adapt in it, plus two functions in `scripts/correr-suite.sh` — the ones that know your test runner, and the ones a new stack breaks. The runner runs the gate after the agent has finished and decides on its exit
 code, never on what the agent wrote: in our logs, an agent reported "GATE VERDE" (green) after seeing
 the gate fail three times. The method, in English:
 [The agent task method](https://docs.colabhive.com/concepts/agent-task-method).

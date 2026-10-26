@@ -47,18 +47,30 @@ La idea en tres líneas:
 ## El entorno de ejecución
 
 [`colabhive/`](colabhive/) tiene todo lo necesario para correrlo: la config de OpenCode
-(provider, 5 modelos, un agente por rol), los prompts, los scripts de setup y medición, y todas
+(provider, 11 modelos declarados, un agente por rol), los prompts, los scripts de setup y medición, y todas
 las mediciones en `research/findings.md`. Instalación de punta a punta en su README.
 
 ## Las herramientas
 
 ```
-plantillas/PLAN.md       plan de proyecto
-plantillas/TAREA.md      una tarea
-plantillas/REVISION.md   checklist del gate humano
-scripts/correr-tarea.sh  lanza tareas, cada una en su worktree y en paralelo
-scripts/estado.sh        en qué anda cada tarea
+plantillas/gate.sh        el juez: seis pasos, decide si una tarea terminó
+plantillas/correr-suite.sh  cómo se corre TU suite (dos funciones que saben del corredor)
+plantillas/PLAN.md        plan de proyecto
+plantillas/TAREA.md       una tarea
+plantillas/AGENTS.md      las reglas que el agente lee
+plantillas/_arquitectura.py  el gate de coherencia: capas y dependencias requeridas
+plantillas/pre-deploy.sh  G4, lo que rompe en producción y no en local
+plantillas/smoke.sh       que la aplicación ARRANQUE (o que declare que no hay nada que levantar)
+plantillas/deploy.sh      G5, con el comando de deploy declarado
+plantillas/REVISION.md    checklist del gate humano
+scripts/correr-tarea.sh   lanza tareas, cada una en su worktree y en paralelo
+scripts/correr-plan.sh    lanza una etapa entera; saltea lo que ya está hecho
+scripts/estado.sh         en qué anda cada tarea
+scripts/auditar-cerradas.sh  pasa lo ya cerrado por los instrumentos de hoy
 ```
+
+> La lista tenía cinco entradas y **no incluía `gate.sh`**, que es la pieza que la idea en tres
+> líneas de arriba nombra: «la decide un comando». Son 12 plantillas, no 3.
 
 ## El ejemplo
 
@@ -82,8 +94,9 @@ Lo que conviene mirar, en orden:
 4. **Lanzás tareas** — `scripts/correr-tarea.sh`, 8 en paralelo por defecto.
 5. **Revisás y mergeás** — `plantillas/REVISION.md`.
 
-El ejemplo completo de las cinco etapas está en [`ejemplo-pacman/`](ejemplo-pacman/):
-plan, 12 tareas, gate, el juego terminado y la bitácora de lo que salió mal.
+El ejemplo completo está en [`ejemplo-pacman/`](ejemplo-pacman/): plan, **19 tareas** (las
+mismas que nombra la sección «El ejemplo» — decía 12 acá y 19 allá), gate, el juego terminado y
+la bitácora de lo que salió mal.
 
 ## Por qué existe esto
 

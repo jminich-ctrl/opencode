@@ -2,8 +2,14 @@
 # Gate G1: decide si una tarea está terminada. No opina, ejecuta.
 #   0) integridad  1) tests  2) alcance  3) higiene  4) ¿distinguen?  5) coherencia
 #
-# PLANTILLA. Buscá "ADAPTAR" — son cuatro líneas: el comando de tests, la marca de suite
-# vacía, los directorios de código, y las reglas de higiene propias de tu stack.
+# PLANTILLA. Buscá "ADAPTAR": son TRES en este archivo —los directorios de código, lo
+# generado por tu stack, y la regla de imports no declarados— más DOS en
+# `scripts/correr-suite.sh`: `correr_suite` (cómo se corre tu suite) y `fallas` (cómo se lee
+# lo que falló). Las dos de ahí saben del corredor, y son las que un stack nuevo rompe.
+#
+# El encabezado decía «son cuatro líneas» y enumeraba dos que ya se habían mudado a
+# `correr-suite.sh`: la auditoría del 2026-10-20 lo anotó y seguía igual el 26-10. Un
+# proyecto nuevo adaptaba cuatro cosas de cinco creyendo que eran todas.
 #
 # Verde => imprime "GATE VERDE" y sale 0. Cualquier rojo => sale 1.
 #
