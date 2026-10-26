@@ -429,12 +429,17 @@ echo "── 2. Alcance${TAREA:+ (tarea $TAREA)}"
 # La infraestructura del runner no es parte del trabajo de la tarea: se filtra ACÁ y no en
 # el .gitignore de cada proyecto, porque olvidarse de una línea del .gitignore ponía en rojo
 # toda tarea (`.base-ref` es un archivo que escribe el propio runner).
+# `.cobertura.json` entra por lo mismo: lo escribe `correr-todo.sh` al verificar la firma de
+# G0, antes de lanzar la primera tarea, así que aparecería en el diff de una tarea que no lo
+# tocó y el gate la pondría roja por «fuera del alcance». OJO: va filtrado acá y **no** en el
+# .gitignore, al revés que `.tests-base` — el registro TIENE que commitearse, porque toda su
+# utilidad es que la re-bendición de un enlace quede en el diff y se pueda auditar.
 # Las dependencias instaladas (.venv, node_modules) entran por la misma razón: las
 # instala el método antes de lanzar al agente, y AGENTS.md le prohíbe correr pip o npm.
 # Si aparecieran en el diff, el gate pondría ROJO por «archivos generados» a la tarea
 # que declaró bien su manifiesto. Depender de una línea del .gitignore del worktree no
 # alcanza: el worktree se crea de HEAD, y un .gitignore arreglado después no viaja.
-INFRA='^(\.base-ref|\.tests-base|\.tarea\.log|\.segundos|\.plan\.log|\.opencode-data/|\.metricas/|\.artefactos/|\.venv(/|$)|\.entorno$|\.mysql(/|$)|([A-Za-z0-9_-]+/)?node_modules(/|$)|([A-Za-z0-9_-]+/)?package-lock\.json$)'
+INFRA='^(\.base-ref|\.tests-base|\.cobertura\.json$|\.tarea\.log|\.segundos|\.plan\.log|\.opencode-data/|\.metricas/|\.artefactos/|\.venv(/|$)|\.entorno$|\.mysql(/|$)|([A-Za-z0-9_-]+/)?node_modules(/|$)|([A-Za-z0-9_-]+/)?package-lock\.json$)'
 CAMBIADOS="$( { git diff --name-only --relative "$BASE_REF" 2>/dev/null; git ls-files --others --exclude-standard; } | grep -vE "$INFRA" || true)"
 if [ -z "$CAMBIADOS" ] && [ -n "${TAREA:-}" ]; then
   rojo "no hay ningún cambio: la tarea no se hizo"

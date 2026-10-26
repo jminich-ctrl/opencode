@@ -95,7 +95,14 @@ if [ -f "$AQUI/coherencia.py" ]; then
   fi
 fi
 
-(cd "$BASE" && ENCARGO="${ENCARGO:-OBJETIVO.md}" PLAN=PLAN.md python3 "$AQUI/cobertura.py") || {
+# `RECORDAR=si-falta`: la primera corrida de un plan APROBADO —la firma de G0 ya se
+# verificó arriba— guarda la huella de cada enlace requisito↔tarea en `.cobertura.json`, y
+# las corridas siguientes comparan contra ella. Sin eso, este chequeo sólo sabe si hay alguna
+# tarea que NOMBRE el requisito, y un requisito se puede debilitar sin dejar de ser nombrado.
+# «si-falta» y no «1»: re-bendecir en cada corrida haría que la comparación siempre diera
+# «igual», que es la forma de que el chequeo sea decoración.
+(cd "$BASE" && ENCARGO="${ENCARGO:-OBJETIVO.md}" PLAN=PLAN.md RECORDAR=si-falta \
+   python3 "$AQUI/cobertura.py") || {
   echo "✗ El plan no cubre el encargo. Eso se decide arriba, no acá." >&2; exit 1; }
 
 # El stderr NO va a /dev/null: ahí viajan los dos avisos de que el corte de etapas puede

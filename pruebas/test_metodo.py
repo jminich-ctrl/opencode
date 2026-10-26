@@ -3941,6 +3941,189 @@ class TestCobertura(CasoBase):
         self.assertVerde(self.cobertura(), "alcanza con que una alternativa aparezca")
 
 
+class TestEnlacesDeCoberturaConVersion(CasoBase):
+    """«¿Hay alguna tarea que lo nombre?» no es «¿sigue siendo la cobertura que se aprobó?».
+
+    Era el último «nos falta» de INVESTIGACION.md §7, y el que menos se ve: un requisito se
+    puede debilitar sin que falte nada. El encargo decía «login por cookie de sesión» y ahora
+    dice «login» — la clave sigue, alguna tarea la sigue nombrando, y el ✓ de ayer avala un
+    requisito que ya no existe. O la clave desaparece entera del encargo, y entonces el
+    chequeo que exigía cubrirla se apaga solo, sin que nadie la extrañe.
+
+    La idea no es nuestra: la industria la tiene como *suspect link* —DOORS marca el enlace
+    cuando un extremo cambia—. El documento la pedía con dos nombres, `outdated` y `predated`,
+    que no pude encontrar definidos en ninguna fuente: el corte en dos es nuestro, y está
+    hecho así porque las dos mitades piden acciones distintas y sólo una puede ser roja."""
+
+    def encargo(self, requisitos):
+        (self.p.dir / "OBJETIVO.md").write_text(
+            "# Qué queremos\n\nUna cosa.\n\n## Requisitos\n\n" + requisitos + "\n")
+
+    def dos_requisitos(self):
+        self.encargo("- `cosa` — que haya una cosa\n- `otra` — que haya otra")
+        plan = self.p.dir / "PLAN.md"
+        plan.write_text(plan.read_text() + "| T02 | Otra | — | src/otra.py | pendiente |\n")
+
+    def cobertura(self, recordar=None):
+        pre = f"RECORDAR={recordar} " if recordar else ""
+        return correr(f"{pre}ENCARGO=OBJETIVO.md PLAN=PLAN.md python3 {SCRIPTS}/cobertura.py",
+                      self.p.dir)
+
+    def registro(self):
+        return self.p.dir / ".cobertura.json"
+
+    def bendecir(self):
+        r = self.cobertura(recordar="1")
+        self.assertVerde(r, "la bendición de un plan que cubre tiene que salir verde")
+        self.assertTrue(self.registro().exists(), f"no escribió el registro:\n{r.stdout}")
+
+    # ── sin registro no hay veredicto que inventar ────────────────────────────────────
+    def test_sin_registro_lo_dice_y_no_da_rojo(self):
+        self.encargo("- `cosa` — que haya una cosa")
+        r = self.cobertura()
+        self.assertVerde(r, "sin enlaces aprobados no hay nada que comparar")
+        self.assertIn("sin .cobertura.json", r.stdout)
+
+    # ── el lado del encargo: rojo ─────────────────────────────────────────────────────
+    def test_outdated_cuando_el_encargo_debilita_el_requisito(self):
+        self.encargo("- `cosa` — que haya una cosa que cuente hasta diez")
+        self.bendecir()
+        self.encargo("- `cosa` — que haya una cosa")
+        self.assertRojo(self.cobertura(), "el encargo se movió después de aprobarse",
+                        motivo="outdated")
+
+    def test_borrado_cuando_la_clave_desaparece_del_encargo(self):
+        """Borrar la declaración apagaba el chequeo entero: sin clave no hay nada que exigir,
+        y el ✓ de «todos tienen al menos una tarea» seguía saliendo igual."""
+        self.dos_requisitos()
+        self.bendecir()
+        self.encargo("- `cosa` — que haya una cosa")
+        r = self.cobertura()
+        self.assertRojo(r, "una clave borrada deja su enlace colgando", motivo="borrado")
+        self.assertIn("T02", r.stdout,
+                      f"tiene que decir qué tarea la cubría:\n{r.stdout}")
+
+    def test_el_rojo_trae_el_comando_que_lo_saca(self):
+        """Un rojo que no se puede sacar termina con alguien borrando el chequeo. Es la misma
+        lección que dejó escrita el paso 7 de G4 cuando era imposible de pasar."""
+        self.encargo("- `cosa` — que haya una cosa que cuente hasta diez")
+        self.bendecir()
+        self.encargo("- `cosa` — que haya una cosa")
+        r = self.cobertura()
+        self.assertIn("RECORDAR=1", r.stdout)
+        self.assertIn("cobertura.py", r.stdout.split("RECORDAR=1")[1])
+
+    # ── el lado del plan: aviso, y por qué no puede ser rojo ──────────────────────────
+    def test_predated_es_aviso_para_que_el_bucle_de_G0_pueda_cerrar(self):
+        """`planificar.sh` le devuelve al arquitecto las líneas ✗ y cierra cuando no queda
+        ninguna. El arquitecto reescribe el plan —es su trabajo—, así que un ✗ en el lado del
+        plan dispararía en cada iteración y el bucle no cerraría nunca."""
+        self.encargo("- `cosa` — que haya una cosa")
+        self.bendecir()
+        plan = self.p.dir / "PLAN.md"
+        plan.write_text(plan.read_text().replace("| T01 | Una cosa |", "| T07 | Una cosa |"))
+        r = self.cobertura()
+        self.assertVerde(r, "el lado del plan no puede trabar el bucle de G0")
+        self.assertIn("predated", r.stdout)
+        self.assertIn("T01", r.stdout); self.assertIn("T07", r.stdout)
+
+    def test_un_acento_o_una_tabla_realineada_no_son_un_cambio(self):
+        """Si disparara por esto, el aviso sería ruido y el ruido se apaga."""
+        self.encargo("- `cosa` — que haya una cosa con diseño")
+        self.bendecir()
+        # `diseño` y `diseno` son la MISMA huella: `normalizar` saca la tilde combinante. Mi
+        # primera versión ponía `disenio`, que es otra cadena de verdad y hacía fallar el test
+        # con razón — el contrato es sin acentos, no con la ñ transliterada.
+        self.encargo("- `cosa` — que haya una cosa con diseno")
+        plan = self.p.dir / "PLAN.md"
+        plan.write_text(plan.read_text().replace("| T01 | Una cosa |", "|  T01  |  Una cosa  |"))
+        r = self.cobertura()
+        self.assertVerde(r, "normalizar es parte del contrato de este archivo")
+        self.assertIn("siguen siendo los aprobados", r.stdout)
+
+    # ── que no sea decoración ─────────────────────────────────────────────────────────
+    def test_no_se_re_bendice_solo(self):
+        """Si se actualizara en cada corrida, la comparación siempre daría «igual»."""
+        self.encargo("- `cosa` — que haya una cosa que cuente hasta diez")
+        self.bendecir()
+        antes = self.registro().read_text()
+        self.encargo("- `cosa` — que haya una cosa")
+        self.cobertura()
+        self.assertEqual(antes, self.registro().read_text(),
+                         "una corrida sin RECORDAR no puede tocar el registro")
+        self.bendecir()
+        r = self.cobertura()
+        self.assertVerde(r, "re-bendecido a mano, vuelve a verde")
+        self.assertIn("siguen siendo los aprobados", r.stdout)
+
+    def test_si_falta_registra_la_primera_vez_y_despues_no_pisa_nada(self):
+        """El modo que usa `correr-todo.sh` después de verificar la firma de G0: si hiciera
+        falta registrarlo a mano, sería un paso que se olvida y el chequeo quedaría apagado;
+        si registrara siempre, sería decoración."""
+        self.encargo("- `cosa` — que haya una cosa que cuente hasta diez")
+        self.assertVerde(self.cobertura(recordar="si-falta"))
+        self.assertTrue(self.registro().exists(), "la primera vez tiene que registrar")
+        antes = self.registro().read_text()
+        self.encargo("- `cosa` — que haya una cosa")
+        self.assertRojo(self.cobertura(recordar="si-falta"),
+                        "con el encargo movido sigue siendo rojo", motivo="outdated")
+        self.assertEqual(antes, self.registro().read_text(),
+                         "«si-falta» no puede tocar un registro que ya existe")
+
+    def test_no_bendice_un_plan_al_que_le_falta_cobertura(self):
+        """Un registro escrito sobre un plan incompleto es una coartada."""
+        self.encargo("- `cosa` — que haya una cosa\n- `pagos` — cobrar")
+        self.assertRojo(self.cobertura(recordar="1"), "le falta un requisito")
+        self.assertFalse(self.registro().exists(), "no tenía que escribir el registro")
+
+    def test_un_registro_roto_lo_dice_en_vez_de_callarse(self):
+        """Ni rojo ni silencio: rojo no, porque en el bucle el ✗ va al arquitecto y él no
+        puede arreglar un json; silencio tampoco, porque un chequeo que no corrió y no lo
+        dice es la definición de decoración."""
+        self.encargo("- `cosa` — que haya una cosa")
+        self.bendecir()
+        self.registro().write_text("{ esto no es json")
+        r = self.cobertura()
+        self.assertVerde(r, "el arquitecto no puede arreglar un registro roto")
+        self.assertIn("no se pudo leer", r.stdout)
+        self.assertIn("NO se verificaron", r.stdout)
+
+    def test_ninguna_salida_verde_imprime_una_cruz(self):
+        """Un `✗` con código 0 es una trampa para `planificar.sh`, que filtra por `✗` sin
+        mirar el código de salida: le daría al arquitecto un problema que el script no
+        considera uno. Pasó al hacer alcanzable la re-bendición."""
+        def debilitar():
+            self.encargo("- `cosa` — que haya una cosa")
+
+        def reescribir_plan():
+            plan = self.p.dir / "PLAN.md"
+            plan.write_text(plan.read_text().replace("| T01 |", "| T07 |"))
+
+        def borrar_clave():
+            self.encargo("- `cosa` — que haya una cosa")
+
+        escenarios = {"encargo debilitado": (self.bendecir, debilitar),
+                      "plan reescrito": (self.bendecir, reescribir_plan),
+                      "clave borrada": (self.bendecir, borrar_clave),
+                      "al día": (self.bendecir, lambda: None),
+                      "sin registro": (lambda: None, lambda: None)}
+        for nombre, (preparar, mover) in escenarios.items():
+            for recordar in (None, "1", "si-falta"):
+                with self.subTest(escenario=nombre, recordar=recordar):
+                    self.rehacer_proyecto()
+                    if nombre == "clave borrada":
+                        self.dos_requisitos()
+                    else:
+                        self.encargo("- `cosa` — que haya una cosa que cuente hasta diez")
+                    preparar(); mover()
+                    r = self.cobertura(recordar=recordar)
+                    cruces = [l for l in r.stdout.splitlines() if l.strip().startswith("✗")]
+                    if r.returncode == 0:
+                        self.assertFalse(cruces, f"verde con ✗ adentro:\n{r.stdout}")
+                    else:
+                        self.assertTrue(cruces, f"rojo sin ✗ que lo explique:\n{r.stdout}")
+
+
 class TestEtapas(CasoBase):
     def etapas(self):
         return correr(f"PLAN=PLAN.md python3 {SCRIPTS}/_etapas.py", self.p.dir)
@@ -4630,7 +4813,32 @@ class TestLoQueElGateLlamaInfraestructuraElGuiaLoIgnora(unittest.TestCase):
     EXCEPCIONES = {
         "package-lock.json": "se commitea a propósito: es el lock del proyecto, y el gate lo "
                              "filtra sólo porque el instalador del método lo puede tocar",
+        ".cobertura.json": "se commitea a propósito —el valor entero del registro es que una "
+                           "re-bendición de un enlace quede en el diff— y el gate lo filtra "
+                           "porque lo escribe el runner al verificar la firma de G0, antes de "
+                           "la primera tarea. No puede chocar al mergear como chocó "
+                           "`.tests-base`: ése lo escribía el runner DENTRO de cada worktree "
+                           "y cada rama commiteaba el suyo; éste se escribe una sola vez en "
+                           "el tronco. La premisa la verifica el test de abajo",
     }
+
+    def test_la_premisa_de_la_excepcion_del_registro_de_cobertura_sigue_en_pie(self):
+        """Una excepción declarada es un dato sólo mientras su motivo siga siendo cierto.
+
+        `.cobertura.json` está exceptuado porque lo escribe UNA puerta, en el TRONCO. Si
+        mañana alguien le pasa `RECORDAR` a `cobertura.py` desde una puerta que corre dentro
+        del worktree de una tarea, dos ramas van a commitear registros distintos y la
+        excepción pasa a ser el agujero que esta clase existe para cerrar — el choque de
+        `.tests-base`, otra vez. Así que se verifica la premisa, no sólo el texto."""
+        pasan = sorted(f.name for f in SCRIPTS.glob("*.sh")
+                       if "cobertura.py" in f.read_text() and "RECORDAR" in f.read_text())
+        self.assertEqual(pasan, ["correr-todo.sh"],
+                         f"otra puerta registra enlaces de cobertura: si alguna corre dentro "
+                         f"de un worktree, la excepción del .gitignore deja de ser segura "
+                         f"({pasan})")
+        texto = (SCRIPTS / "correr-todo.sh").read_text()
+        self.assertIn('(cd "$BASE" && ENCARGO=', texto,
+                      "el registro tiene que escribirse en el tronco, no en un worktree")
 
     def test_todo_lo_que_el_gate_filtra_esta_en_el_gitignore_de_la_guia(self):
         # Comparación EXACTA por entrada, no por subcadena: mi primera versión preguntaba si
@@ -5321,6 +5529,24 @@ class TestEjemplosNoDerivan(Veredictos, unittest.TestCase):
                 self.assertIsNotNone(s6, f"el paso 6 no imprimió ni su encabezado\n{r.stdout[-900:]}")
                 self.assertIn("no pudo verificarse", s6,
                               f"sin reservados el paso 6 es un vacío contado:\n{s6}")
+
+    def test_en_todos_el_registro_de_cobertura_no_es_culpa_de_la_tarea(self):
+        """`.cobertura.json` lo escribe `correr-todo.sh` cuando verifica la firma de G0, o sea
+        ANTES de la primera tarea y sin que ninguna tarea lo declare. Si el gate lo viera como
+        un cambio de la tarea, pondría roja a toda tarea por un archivo del método — que es
+        exactamente lo que ya pasó con `.base-ref` y está escrito al lado del filtro.
+
+        Va en los tres gates porque el filtro vive en los tres y la deriva de esta clase es la
+        que este archivo existe para atrapar."""
+        for gate in self.GATES:
+            with self.subTest(gate=str(gate.relative_to(RAIZ))):
+                r = self.montar(gate, "permitido/",
+                                {"permitido/ok.py": "x = 1\n",
+                                 ".cobertura.json": '{"enlaces": {}}\n'})
+                s2 = self.seccion(r.stdout, 2)
+                self.assertIsNotNone(s2, f"no imprimió el paso 2:\n{r.stdout[-700:]}")
+                self.assertNotIn(".cobertura.json", s2,
+                                 f"el gate le cobra a la tarea un archivo del método:\n{s2}")
 
     # Los cuatro chequeos de HIGIENE, medidos el 2026-10-26: los tres gates coinciden en los
     # cuatro. Quedan fijados porque la deriva de esta noche fue exactamente de esta clase —en

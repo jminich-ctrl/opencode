@@ -200,7 +200,9 @@ Ningún agente arranca sin `PLAN.md`. Es el gate que más tiempo ahorra: revisar
 cuesta diez minutos contra las horas de revisar diez diffs malos.
 
 `planificar.sh` es un **bucle que se corrige solo**: el arquitecto escribe → se valida la
-forma (`validar-plan.py`), la cobertura del encargo (`cobertura.py`) y el corte en etapas →
+forma (`validar-plan.py`), la cobertura del encargo (`cobertura.py`, que además compara cada
+enlace requisito↔tarea contra el que se aprobó: un requisito se puede debilitar sin dejar de
+estar nombrado) y el corte en etapas →
 lo que está mal se le devuelve como **un** pedido → repite hasta que esté limpio o hasta que
 falle dos veces por lo mismo. Los arreglos mecánicos se aplican antes de la vuelta, así no
 gastan una llamada al modelo.

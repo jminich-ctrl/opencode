@@ -438,18 +438,19 @@ tests reservados es el hack más común** (339 contra 222 ocurrencias del otro).
 > **Revisado el 2026-10-26: tres de los cuatro que había acá YA ESTÁN HECHOS**, y el documento
 > seguía mandando a construirlos. Un «nos falta» que miente en esa dirección es tan caro como
 > uno que miente en la otra: manda a escribir lo que existe, y de paso hace parecer más débil
-> al método de lo que es. Lo que sigue es lo que falta de verdad, y abajo lo que se hizo.
+> al método de lo que es. Abajo, lo que se hizo y dónde está.
 
-- **Enlaces de cobertura con versión** (`outdated`, `predated`) en el validador de planes: en
-  un bucle donde el arquitecto reescribe el plan, nada más atrapa que un requisito se
-  debilite en silencio. **Sigue faltando**: ni `cobertura.py` ni `validar-plan.py` los tienen
-  (verificado: cero menciones en los dos).
+> **2026-10-26, más tarde: el que quedaba también está hecho**, así que esta sección se
+> queda sin lista. Lo que sigue arriba es el método tal como está medido; lo que falta de
+> verdad vive en §8 («lo que nadie publicó, y podemos medir nosotros»), que es otra cosa:
+> experimentos sin correr, no instrumento sin construir.
 
 ### Lo que estaba acá y ya está hecho
 
 | lo que decía faltar | dónde está hoy |
 |---|---|
 | «la función de aptitud atrapa divergencias, **nunca ausencias**; `_arquitectura.py` es ciego a la estructura que falta» | la lista `REQUERIDAS` del motor: declara las dependencias que la arquitectura EXIGE y las verifica por cierre transitivo. Es la mitad que «casi nadie hace», y estaba muerta por un defecto de mapeo hasta el 2026-10-26 — ahora verifica de verdad, con el ⊘ cuando una capa todavía no tiene módulos |
+| «**enlaces de cobertura con versión** (`outdated`, `predated`) en el validador de planes; en un bucle donde el arquitecto reescribe el plan, nada más atrapa que un requisito se debilite en silencio» | `cobertura.py`, con la huella de los dos extremos de cada enlace en `.cobertura.json`: `outdated` si se movió el encargo y `borrado` si la clave desapareció —los dos rojos—, `predated` si se movió el plan, que es aviso porque el arquitecto reescribe el plan a propósito y un ✗ ahí trabaría el bucle de G0 para siempre. Dos avisos sobre los nombres: **`outdated` y `predated` no los pude encontrar definidos en ninguna fuente** —la industria tiene el concepto como *suspect link*, DOORS marca el enlace cuando un extremo cambia—, así que el corte en dos estados es NUESTRO y está hecho por la acción que pide cada uno; y el registro **no se re-bendice solo**, porque si se actualizara en cada corrida la comparación daría siempre «igual» y esto sería decoración |
 | «**costo de propagación** como métrica de deriva» | lo imprime el mismo motor y lo registra en `.metricas/arquitectura.csv` para leer la SERIE, con el ciclo más grande al lado porque está medido que una arista de vuelta mueve el costo 37 puntos |
 | «**co-cambio** contra límites declarados (Clio, ICSE 2011)» | `scripts/cocambio.py`, con los umbrales publicados —confianza asimétrica más piso de soporte— y descartando los commits de más de 30 archivos. Su medición más útil hasta hoy: la plantilla y la copia del ejemplo cambiaban juntas el 67% de las veces, que es lo que la duplicación del motor de arquitectura cobró el 26-10 |
 
