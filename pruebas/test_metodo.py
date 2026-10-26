@@ -286,7 +286,45 @@ class Proyecto:
         tirar_dir(self.repo)
 
 
-class CasoBase(unittest.TestCase):
+class Veredictos:
+    """`assertRojo` y `assertVerde`, para CUALQUIER clase de test y no sólo las que levantan
+    un proyecto de juguete.
+
+    Vivían dentro de `CasoBase`, así que los tests que juzgan la salida de un gate sin
+    levantar proyecto —los de deriva entre los tres gates— no los tenían a mano y escribían
+    la aserción a mano. El 2026-10-26 eso salió mal: `assertIn("generados", stdout)` casa
+    igual con «✓ sin archivos generados», y los cuatro casos de ese test pasaban sin medir
+    nada. Un helper que exige el motivo en una línea MARCADA con ✗ no se puede usar mal de
+    esa forma; tenerlo fuera de alcance es lo que invita a reescribirlo peor."""
+
+    def assertRojo(self, r, porque="", motivo=None):
+        """Rojo Y por el motivo correcto.
+
+        Sin `motivo` un test pasa cuando el gate da rojo por una causa distinta de la que se
+        está probando. Nos pasó: el test de la suite vacía pasaba porque borrar el archivo
+        contaba como fuera de alcance, no porque la suite estuviera vacía. Eso es confianza
+        falsa, que es peor que no tener el test.
+        """
+        self.assertNotEqual(r.returncode, 0,
+                            f"debía dar ROJO{': ' + porque if porque else ''}\n{r.stdout[-800:]}")
+        if motivo:
+            # El motivo tiene que estar en una línea MARCADA como falla, no en cualquier
+            # parte de la salida. Lo destapó medir mutantes: cambiar `rojo "rompiste tests
+            # que andaban"` por `verde "..."` dejaba el mensaje impreso, el gate rojo por
+            # otra cosa, y este assert pasaba. Es decir, la exigencia de «rojo por el motivo
+            # correcto» se podía satisfacer con el motivo informado en VERDE.
+            marcadas = [l for l in r.stdout.splitlines() if l.startswith("  ✗ ")]
+            self.assertTrue(any(motivo in l for l in marcadas),
+                            f"dio rojo, pero «{motivo}» no aparece en ninguna línea ✗\n"
+                            f"líneas ✗: {marcadas}\n{r.stdout[-800:]}")
+
+    def assertVerde(self, r, porque=""):
+        self.assertEqual(r.returncode, 0,
+                         f"debía dar VERDE{': ' + porque if porque else ''}\n{r.stdout[-800:]}")
+
+
+
+class CasoBase(Veredictos, unittest.TestCase):
     def setUp(self):
         self.p = self._proyecto_marcado()
 
@@ -316,31 +354,6 @@ class CasoBase(unittest.TestCase):
         del anterior."""
         self.p.tirar()
         self.p = self._proyecto_marcado()
-
-    def assertRojo(self, r, porque="", motivo=None):
-        """Rojo Y por el motivo correcto.
-
-        Sin `motivo` un test pasa cuando el gate da rojo por una causa distinta de la que se
-        está probando. Nos pasó: el test de la suite vacía pasaba porque borrar el archivo
-        contaba como fuera de alcance, no porque la suite estuviera vacía. Eso es confianza
-        falsa, que es peor que no tener el test.
-        """
-        self.assertNotEqual(r.returncode, 0,
-                            f"debía dar ROJO{': ' + porque if porque else ''}\n{r.stdout[-800:]}")
-        if motivo:
-            # El motivo tiene que estar en una línea MARCADA como falla, no en cualquier
-            # parte de la salida. Lo destapó medir mutantes: cambiar `rojo "rompiste tests
-            # que andaban"` por `verde "..."` dejaba el mensaje impreso, el gate rojo por
-            # otra cosa, y este assert pasaba. Es decir, la exigencia de «rojo por el motivo
-            # correcto» se podía satisfacer con el motivo informado en VERDE.
-            marcadas = [l for l in r.stdout.splitlines() if l.startswith("  ✗ ")]
-            self.assertTrue(any(motivo in l for l in marcadas),
-                            f"dio rojo, pero «{motivo}» no aparece en ninguna línea ✗\n"
-                            f"líneas ✗: {marcadas}\n{r.stdout[-800:]}")
-
-    def assertVerde(self, r, porque=""):
-        self.assertEqual(r.returncode, 0,
-                         f"debía dar VERDE{': ' + porque if porque else ''}\n{r.stdout[-800:]}")
 
 
 UBICACIONES = [
@@ -4750,7 +4763,7 @@ class TestElContratoDelCorredorSeVerifica(CasoBase):
                          f"falso rojo sobre el corredor de la plantilla:\n{r.stdout}")
 
 
-class TestEjemplosNoDerivan(unittest.TestCase):
+class TestEjemplosNoDerivan(Veredictos, unittest.TestCase):
     """Los ejemplos son copias adaptadas de la plantilla, y la copia se queda vieja: el
     arreglo del extractor de alcance entró en la plantilla y los dos ejemplos siguieron
     con el patrón roto hasta que alguien lo notó a mano.
@@ -4872,10 +4885,9 @@ class TestEjemplosNoDerivan(unittest.TestCase):
             for gate in self.GATES:
                 with self.subTest(caso=nombre, gate=gate.parent.parent.name or "plantillas"):
                     r = self.montar(gate, "permitido/, src/", archivos, tarea=tarea)
-                    marcadas = [l for l in r.stdout.splitlines() if l.strip().startswith("✗")]
-                    self.assertTrue(any(esperado in l for l in marcadas),
-                                    f"este gate no vio «{nombre}» (nada lo marcó con ✗)\n"
-                                    f"líneas ✗: {marcadas}\n{r.stdout[-700:]}")
+                    # Con el helper del método, que exige el motivo en una línea ✗: escribir
+                    # esta aserción a mano es lo que la volvió vacua la primera vez.
+                    self.assertRojo(r, f"este gate no vio «{nombre}»", motivo=esperado)
 
     def test_todos_detectan_un_archivo_fuera_del_alcance(self):
         for gate in self.GATES:
