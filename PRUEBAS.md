@@ -271,6 +271,51 @@ la herramienta.
 El corolario operativo: **antes de medir con un envoltorio, medí el envoltorio.** Una
 corrida de control sin él habría costado treinta segundos y habría ahorrado horas.
 
+## La noche de los once: tres preguntas que encontraron todo
+
+El 2026-10-26, en una sola sesión, once defectos de la misma familia. No se encontraron
+leyendo código: salieron de hacerle al método **tres preguntas mecánicas**, una por una,
+sobre cada pieza. Están acá porque son repetibles y porque la lista de defectos no lo es.
+
+**1. ¿Qué informa este chequeo cuando no tiene material?** Se corre cada chequeo contra un
+proyecto vacío y se lee la salida. De once chequeos, diez contestaban bien —⊘ con su motivo, o
+✗ nombrando lo que falta— y uno devolvía `0` y silencio en cuatro situaciones distintas, la
+peor de ellas no recibir ningún archivo. Con el caso limpio también mudo, no había forma de
+distinguir «lo miré y está bien» de «no miré». La regla que queda: **todo chequeo imprime su
+testigo con números cuando pasa**, y los que no pudieron correr tienen código propio.
+
+**2. ¿Qué piezas escribe cada proyecto a mano, y quién las verifica?** Eran cinco, y ninguna
+estaba verificada:
+
+| pieza | lo que estaba roto |
+|---|---|
+| `correr_suite` de `correr-suite.sh` | el contrato de códigos: un corredor nuevo lo rompió por las dos puntas y el gate emitió un diagnóstico falso sobre tests que nunca corrieron |
+| `fallas` del mismo archivo | el extractor no entendía al corredor y la línea base salía vacía — igual que un proyecto limpio |
+| las capas de `_arquitectura.py` | el mapeo era por nombre de archivo y las capas por directorio: 0 de 4 módulos mapeados, con ✓ |
+| `AGENTS.md` | seis reglas que el gate castiga no estaban escritas en ninguna parte que el agente abra |
+| la ruta de la suite reservada | adentro del repo el agente la lee, y el paso informaba verde con su testigo |
+
+La regla que queda: **lo que cada proyecto escribe a mano se calibra antes de usarlo**. El
+paso 1 del gate le pide al corredor un selector imposible y exige que no diga verde; el runner
+frena si la suite está roja con la línea base vacía.
+
+**3. ¿Esta copia es la única?** El juicio del chequeo de arquitectura estaba copiado tres
+veces, y el arreglo hubo que escribirlo tres veces —193 líneas idénticas cada una—. `cocambio.py`
+ya lo había medido: plantilla y ejemplo cambiaban juntos el 67% de las veces. La regla que
+queda: **la config se copia, el juicio no.**
+
+Dos barridos de la misma noche dieron **negativo**, y vale decirlo: las 284 referencias a
+archivos que hacen los documentos existen todas, y ningún script del método está huérfano. Un
+barrido que no encuentra nada es un dato sobre el sujeto, no una pérdida de tiempo — y los dos
+quedaron como guarda, con su brazo nulo.
+
+Una advertencia sobre la forma de preguntar, que costó dos rojos falsos esa misma noche: **la
+regla no puede ser más ancha que el defecto.** «`rmtree` en un solo lugar» acusaba a tres tests
+que borran un subdirectorio como parte de su escenario y que DEBEN explotar si fallan;
+«resolvé toda ruta contra la raíz del repo» acusaba 15 referencias de las cuales 14 eran
+legítimas, porque `scripts/gate.sh` es un archivo por proyecto. Las dos veces el chequeo había
+que acotarlo, no el código.
+
 ## Y la advertencia que viene con todo esto
 
 > **Que la suite entera pase no mide que el gate esté correcto: mide el sesgo de la suite.**

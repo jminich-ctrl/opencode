@@ -4436,6 +4436,51 @@ class TestElGateNoCastigaNadaQueElAgenteNoHayaLeido(unittest.TestCase):
                                  + "\n  ".join(faltan))
 
 
+class TestLosDocumentosNoNombranArchivosQueNoExisten(unittest.TestCase):
+    """Barrido del 2026-10-26: 284 referencias a archivos del método en los documentos, y
+    ninguna rota. Queda como guarda porque esa noche se creó `_arquitectura_motor.py`, se
+    creó `_corredor.sh` y se partió un chequeo en dos: renombrar es cuando esto se rompe.
+
+    La regla de resolución es la parte que importa, y mi primera versión era MÁS ANCHA QUE EL
+    DEFECTO: resolvía todo contra la raíz del repo y acusaba 15 rutas, de las cuales 14 eran
+    legítimas. `scripts/gate.sh` es un archivo POR PROYECTO —no existe en el método y no
+    tiene que existir— y `sync_limits.py` vive en `colabhive/scripts/`. Una referencia vale
+    si el archivo está en alguno de los lugares donde el método lo pone."""
+
+    PATRON = r'(?:\$AGENTES/)?((?:scripts|plantillas|pruebas)/[A-Za-z0-9_.\-]+\.(?:py|sh|md|txt))'
+
+    def rotas(self, docs):
+        """Las referencias que no existen en NINGUNO de los lugares donde el método pone sus
+        archivos. Devuelve «<doc> → <ruta>», con el doc tal como vino: la primera versión
+        hacía `relative_to(RAIZ)` y explotaba con el documento sintético del brazo nulo, que
+        vive afuera del repo a propósito."""
+        bases = [RAIZ, RAIZ / "colabhive"] + sorted(RAIZ.glob("ejemplo-*"))
+        malas = []
+        for d in docs:
+            for m in re.finditer(self.PATRON, d.read_text()):
+                ruta = m.group(1)
+                if not any((b / ruta).exists() for b in bases + [d.parent]):
+                    malas.append(f"{d.name} → {ruta}")
+        return sorted(malas)
+
+    def test_ninguna_referencia_apunta_a_un_archivo_que_no_esta(self):
+        docs = [p for p in RAIZ.rglob("*.md")
+                if ".git" not in p.parts and "research" not in p.parts]
+        self.assertGreater(len(docs), 20, "el barrido tiene que encontrar los documentos")
+        self.assertEqual([], self.rotas(docs),
+                         "hay documentos que nombran archivos que no existen en ninguna parte")
+
+    def test_el_barrido_detecta_una_referencia_rota(self):
+        """El brazo nulo: con la regla ancha de más o un patrón que no casa, el test de arriba
+        pasa siempre y no dice nada."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-docs-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        doc = d / "falso.md"
+        doc.write_text("Corré `bash $AGENTES/scripts/no-existe-este-script.sh` y listo.\n")
+        self.assertEqual(["falso.md → scripts/no-existe-este-script.sh"], self.rotas([doc]),
+                         "el barrido no vio una referencia inventada")
+
+
 class TestUnManifiestoSinDependenciasNoEsUnaFalla(unittest.TestCase):
     """`preparar-entorno.sh` exigía `node_modules` después de `npm install`, y un
     `package.json` sin dependencias es legítimo: npm sale 0 en medio segundo y no crea el
