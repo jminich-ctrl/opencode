@@ -4274,6 +4274,54 @@ class TestLaLineaBaseDeFallasNoPuedeSalirVaciaEnSilencio(CasoBase):
                       f"la cabecera tiene que decir que `fallas` también sabe del corredor:\n{cab}")
 
 
+class TestUnaSuiteReservadaAdentroDelRepoNoEsReservada(CasoBase):
+    """El paso 6 es el único gate que mide lo que el agente NO PUDO haber optimizado, y eso
+    depende por completo de una cosa: que los tests estén fuera de su alcance. El método lo
+    dice con el dato al lado —«leer los tests reservados es el hack MÁS común, por eso van
+    afuera y no sólo sin documentar»— y nada lo verificaba.
+
+    `RESERVADOS` es una variable de entorno, y el lugar intuitivo para esa carpeta es DENTRO
+    del proyecto. Puesta ahí, OpenCode no la rechaza por `external_directory`, el agente la
+    puede leer, y el paso 6 informa VERDE con su testigo de archivos: la única medición
+    no-optimizable del método pasa a ser optimizable y el veredicto dice que está todo bien.
+
+    Es la forma de siempre —un chequeo que informa éxito sin medir lo que afirma medir— en el
+    paso donde más cuesta, porque es el que existe para no creerle al resto."""
+
+    def reservados(self, dentro):
+        """Una suite reservada de un test que pasa, dentro o fuera del repo."""
+        d = (self.p.dir / "reservados") if dentro else (self.p.repo.parent / "reservados-afuera")
+        d.mkdir(parents=True, exist_ok=True)
+        if not dentro:
+            self.addCleanup(tirar_dir, d)
+        (d / "test_composicion.py").write_text(
+            "import unittest\n\n\nclass TestComposicion(unittest.TestCase):\n"
+            "    def test_invariante(self):\n        self.assertTrue(True)\n")
+        return d
+
+    def test_adentro_del_repo_el_paso_6_no_puede_dar_verde(self):
+        self.p.implementar()
+        self.p.git("add -A"); self.p.git("commit -qm impl")
+        d = self.reservados(dentro=True)
+        r = correr("bash scripts/gate.sh", self.p.dir, TAREA="", RESERVADOS=str(d))
+        paso6 = r.stdout.split("── 6.")[1] if "── 6." in r.stdout else ""
+        self.assertTrue(paso6, f"el paso 6 no corrió:\n{r.stdout[-600:]}")
+        self.assertNotIn("✓", paso6,
+                         f"informó verde una suite que el agente puede leer:\n{paso6}")
+        self.assertIn("alcance", paso6.lower() + r.stderr.lower(),
+                      f"y tiene que decir POR QUÉ no vale: está dentro de lo que el agente "
+                      f"puede leer:\n{paso6}")
+
+    def test_afuera_sigue_dando_verde(self):
+        """El control, sin el cual lo de arriba lo aprueba un paso 6 que nunca pasa."""
+        self.p.implementar()
+        self.p.git("add -A"); self.p.git("commit -qm impl")
+        d = self.reservados(dentro=False)
+        r = correr("bash scripts/gate.sh", self.p.dir, TAREA="", RESERVADOS=str(d))
+        paso6 = r.stdout.split("── 6.")[1] if "── 6." in r.stdout else ""
+        self.assertIn("✓", paso6, f"falso rojo con la suite donde corresponde:\n{paso6}")
+
+
 class TestElGateNoCastigaNadaQueElAgenteNoHayaLeido(unittest.TestCase):
     """El método ya tiene escrita la regla y no la verificaba en su propia cara: cuando el
     gate y lo que el agente lee difieren, **el método acusa al agente de un defecto nuestro**.
@@ -4303,6 +4351,10 @@ class TestElGateNoCastigaNadaQueElAgenteNoHayaLeido(unittest.TestCase):
         "no existe scripts/correr-suite.sh",
         "la tarea $TAREA no declara",
         "la tarea declara el test",
+        # El canario lo atrapó un ciclo después de escribirlo: agregué este rojo al paso 6 y
+        # no lo clasifiqué. Es del método —el agente no puede mover la carpeta de reservados,
+        # ni sabe que existe— y por eso no va en AGENTS.md.
+        "la suite reservada está DENTRO del repo",
     )
 
     # Rojos que SÍ le cobran algo al agente → tiene que estar escrito donde el agente lee.

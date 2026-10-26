@@ -779,20 +779,42 @@ if [ -z "${TAREA:-}" ]; then
   # Fuera del repo, no sólo fuera del proyecto: así no viaja en los worktrees ni se
   # commitea por accidente, y OpenCode la rechaza por external_directory.
   RESERVADOS="${RESERVADOS:-$(cd "$(git rev-parse --show-toplevel)/.." && pwd)/reservados-$(basename "$PWD")}"
+  # Y que esté DONDE tiene que estar. Todo el valor del paso depende de que el agente no
+  # haya podido leerla: OpenCode la rechaza por `external_directory` sólo si está FUERA del
+  # proyecto. Puesta adentro —que es el lugar intuitivo para esa carpeta— el agente la lee,
+  # y este paso informaba verde con su testigo: la única medición no-optimizable del método
+  # pasaba a ser optimizable y el veredicto decía que todo bien. Es el hack más común, está
+  # medido, y nada lo verificaba.
   echo "── 6. Suite reservada"
-  N_RES="$(ls "$RESERVADOS"/test_*.py 2>/dev/null | grep -c . || true)"
-  if [ "${N_RES:-0}" -gt 0 ]; then
-    if OUT="$(PYTHONPATH="$PWD" "$PY_PROYECTO" -m unittest discover -s "$RESERVADOS" -t "$RESERVADOS" -q 2>&1)"; then
-      verde "$(echo "$OUT" | grep -E '^Ran ' | head -1) de composición"
-      testigo "$N_RES archivo(s) reservado(s) en $RESERVADOS"
-    else
-      rojo "la suite reservada falla: pasa los tests de las tareas y no hace lo que tiene que hacer"
-      echo "$OUT" | tail -15 | sed 's/^/     /'
-    fi
+  # `pwd -P` en los dos, y no `pwd`: en macOS /var es un symlink a /private/var, así que
+  # `pwd` (lógico) devolvía /var/... mientras git devuelve /private/var/..., y la comparación
+  # no casaba NUNCA. La guarda existía y no podía disparar: la misma clase de bug de rutas
+  # que este método ya encontró cuatro veces, cometida en la guarda recién escrita.
+  TOPE_REPO_RES="$(cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" && pwd -P)"
+  RES_ABS="$(cd "$RESERVADOS" 2>/dev/null && pwd -P || printf '%s' "$RESERVADOS")"
+  RESERVADOS_ADENTRO=0
+  case "$RES_ABS" in
+    "${TOPE_REPO_RES:-/dev/null/nada}"|"${TOPE_REPO_RES:-/dev/null/nada}"/*) RESERVADOS_ADENTRO=1 ;;
+  esac
+  if [ "$RESERVADOS_ADENTRO" = "1" ]; then
+    rojo "la suite reservada está DENTRO del repo ($RES_ABS): queda al alcance del agente"
+    echo "     Puede leerla, así que este paso no mide lo que dice medir — y es el único que" >&2
+    echo "     mide lo que el agente no pudo optimizar. Movela afuera del repo." >&2
   else
-    vacuo "no hay suite reservada en $RESERVADOS"
-    echo "    Es el gate que mide lo que el agente no pudo optimizar. Escribila: tests de"
-    echo "    composición, invariantes de punta a punta, fuera del repo para que no la vea."
+    N_RES="$(ls "$RESERVADOS"/test_*.py 2>/dev/null | grep -c . || true)"
+    if [ "${N_RES:-0}" -gt 0 ]; then
+      if OUT="$(PYTHONPATH="$PWD" "$PY_PROYECTO" -m unittest discover -s "$RESERVADOS" -t "$RESERVADOS" -q 2>&1)"; then
+        verde "$(echo "$OUT" | grep -E '^Ran ' | head -1) de composición"
+        testigo "$N_RES archivo(s) reservado(s) en $RESERVADOS"
+      else
+        rojo "la suite reservada falla: pasa los tests de las tareas y no hace lo que tiene que hacer"
+        echo "$OUT" | tail -15 | sed 's/^/     /'
+      fi
+    else
+      vacuo "no hay suite reservada en $RESERVADOS"
+      echo "    Es el gate que mide lo que el agente no pudo optimizar. Escribila: tests de"
+      echo "    composición, invariantes de punta a punta, fuera del repo para que no la vea."
+    fi
   fi
 fi
 
