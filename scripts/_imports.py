@@ -22,6 +22,23 @@ import ast
 import pathlib
 import sys
 
+# `sys.stdlib_module_names` existe desde Python 3.10 y este chequeo no puede andar sin ella.
+# Sin esta guarda el script moría con `AttributeError: module 'sys' has no attribute
+# 'stdlib_module_names'` y quien lo llama lo leía como un defecto del proyecto: medido el
+# 2026-10-26, `correr-todo.sh` informaba «el plan se contradice entre tareas» y mandaba a
+# reescribir el plan por una incompatibilidad de intérprete. El `python3` que trae macOS es
+# 3.9.6, así que le pasa a cualquiera que clone el repo en una Mac de fábrica.
+#
+# Código 3, el del contrato del método: «no se pudo verificar, y es del método o del entorno,
+# no del código juzgado» —el mismo que usa `correr-suite.sh` cuando falta el corredor—. Un
+# chequeo que no pudo correr no es un chequeo que pasó (MEDICION.md §4).
+if sys.version_info < (3, 10):
+    print(f"  · este chequeo necesita Python 3.10+ y estás corriendo "
+          f"{'.'.join(map(str, sys.version_info[:3]))} ({sys.executable}):")
+    print(f"    NO se verificó. Instalá 3.10+ o apuntá `python3` al que tengas.")
+    sys.exit(3)
+
+
 # Nombre de import → nombre de distribución, para los casos donde no coinciden. Sale de
 # los paquetes instalados, así que no hay que mantenerlo: si algo está instalado, sabemos
 # qué distribución lo trae.

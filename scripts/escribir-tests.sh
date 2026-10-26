@@ -339,9 +339,15 @@ for id in "$@"; do
   if [ "$fallos" -eq 0 ] && [ -f "$AQUI/_imports.py" ]; then
     PY_TOCADOS="$(echo "$TOCADOS" | grep -E '\.py$' | tr '\n' ' ')"
     if [ -n "$PY_TOCADOS" ]; then
-      SAL_I="$("${PY_PROYECTO:-python3}" "$AQUI/_imports.py" ${PY_TOCADOS} 2>&1)"
-      if [ $? -eq 1 ]; then
+      SAL_I="$("${PY_PROYECTO:-python3}" "$AQUI/_imports.py" ${PY_TOCADOS} 2>&1)"; RC_I=$?
+      if [ "$RC_I" -eq 1 ]; then
         malo "$(echo "$SAL_I" | sed -n 's/^  ✗ //p' | head -1)"
+      elif [ "$RC_I" -eq 3 ]; then
+        # Callado era lo peor de las tres opciones: el cruce no corría y nadie se enteraba.
+        # Y `malo` tampoco va: un intérprete viejo no mejora reintentando, así que gastaría
+        # los intentos del agente por algo que no es del agente ni del test.
+        echo "$SAL_I" | sed 's/^/     /'
+        echo "     · el cruce de imports no se verificó (ver arriba): no es del test"
       fi
     fi
   fi

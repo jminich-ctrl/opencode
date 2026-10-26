@@ -13,6 +13,19 @@ export AGENTES=~/agentes
 
 ## 0. Que el entorno esté sano
 
+**Python 3.10 o más nuevo**, y es lo primero porque el `python3` que trae macOS es 3.9.6:
+
+```bash
+python3 -c 'import sys; print(sys.version)'   # tiene que decir 3.10 o más
+```
+
+Dos chequeos del método usan `sys.stdlib_module_names`, que existe desde 3.10. Con 3.9 salen
+con código 3 diciendo «NO se verificó», que es lo correcto —un chequeo que no pudo correr no
+es un chequeo que pasó— pero deja al método sin el cruce de imports entre tareas. Antes del
+2026-10-26 era peor: se caían con un `AttributeError` y `correr-todo.sh` lo informaba como
+**«el plan se contradice entre tareas»**, o sea que mandaba a reescribir el plan por una
+incompatibilidad de intérprete.
+
 Si todavía no instalaste el entorno (API key, config de OpenCode, atajo `oc`), seguí
 [colabhive/README.md](colabhive/README.md). Después:
 

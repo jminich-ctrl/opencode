@@ -5405,6 +5405,10 @@ class TestElGateNoCastigaNadaQueElAgenteNoHayaLeido(unittest.TestCase):
         "no existe scripts/correr-suite.sh",
         "la tarea $TAREA no declara",
         "la tarea declara el test",
+        # Tercera vez que el canario atrapa un rojo mío sin clasificar. Es del MÉTODO/entorno:
+        # el agente no elige con qué intérprete corre el gate, así que no hay nada que pueda
+        # escribir distinto y no va en AGENTS.md.
+        "el chequeo de imports no pudo correr",
         # El canario lo atrapó un ciclo después de escribirlo: agregué este rojo al paso 6 y
         # no lo clasifiqué. Es del método —el agente no puede mover la carpeta de reservados,
         # ni sabe que existe— y por eso no va en AGENTS.md.
@@ -5802,6 +5806,93 @@ class TestElContratoDelCorredorSeVerifica(CasoBase):
         r = self.p.gate("T01")
         self.assertNotIn("corredor de este proyecto", r.stdout,
                          f"falso rojo sobre el corredor de la plantilla:\n{r.stdout}")
+
+
+class TestUnInterpreteViejoNoEsUnDefectoDelPlan(Veredictos, unittest.TestCase):
+    """Dos chequeos del método usan `sys.stdlib_module_names`, que existe desde Python 3.10.
+    El `python3` que trae macOS es 3.9.6.
+
+    Antes del 2026-10-26 el resultado era: `coherencia.py` moría con `AttributeError`, y
+    `correr-todo.sh` —que leía cualquier código ≠0 como un hallazgo— informaba
+
+        ✗ el plan se contradice entre tareas. Una tarea que importa algo que nadie provee no
+          es ejecutable: ... Eso lo decide quien planifica, no el agente.
+
+    O sea que mandaba a reescribir el plan por una incompatibilidad de intérprete, en la
+    PRIMERA corrida de cualquiera que clone el repo en una Mac de fábrica. Y el gate hacía algo
+    peor: su `case` contaba 1 como fallo y 2 como vacío, y cualquier otro código —el 3— no
+    contaba nada, así que imprimía el motivo y salía VERDE igual.
+
+    Lo encontré de rebote: un subproceso con el PATH mínimo resolvió `python3` al del sistema.
+    No lo buscaba, y es el defecto de replicabilidad más barato que apareció hoy."""
+
+    # Un locale UTF-8 explícito: el 3.9 de las CLT no arranca con el `LANG=en_US` (sin
+    # `.UTF-8`) que tiene esta máquina —«failed to get the locale encoding»— y entonces el
+    # test mediría el locale en vez del intérprete.
+    LOCALE = {"LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8"}
+
+    def viejo(self):
+        for cand in ("/usr/bin/python3", "python3.9", "/usr/local/bin/python3.9"):
+            r = correr(f"{cand} -c 'import sys; print(sys.version_info[0], sys.version_info[1])'",
+                       RAIZ, **self.LOCALE)
+            if r.returncode == 0 and len(r.stdout.split()) == 2:
+                mayor, menor = (int(x) for x in r.stdout.split())
+                if (mayor, menor) < (3, 10):
+                    return cand
+        self.skipTest("esta máquina no tiene un Python < 3.10 con el que medirlo")
+
+    def test_los_dos_chequeos_salen_con_el_codigo_del_contrato_y_lo_dicen(self):
+        """Código 3 = «no se pudo verificar, y es del método o del entorno, no del código
+        juzgado», el mismo que usa `correr-suite.sh` cuando falta el corredor."""
+        py = self.viejo()
+        for script, args in (("coherencia.py", ""), ("_imports.py", "--todo src")):
+            with self.subTest(script=script):
+                r = correr(f"{py} {SCRIPTS}/{script} {args}", RAIZ,
+                           PROYECTO="ejemplo-pacman", **self.LOCALE)
+                salida = r.stdout + r.stderr
+                self.assertEqual(r.returncode, 3,
+                                 f"tiene que salir 3, no caerse ni dar 1:\n{salida[-500:]}")
+                self.assertIn("3.10", salida, f"tiene que decir QUÉ falta:\n{salida}")
+                self.assertIn("NO se verificó", salida,
+                              f"y que no verificó, que es lo que el llamador necesita saber:"
+                              f"\n{salida}")
+
+    def test_la_puerta_no_acusa_al_plan(self):
+        """El síntoma medido, de frente."""
+        py = self.viejo()
+        p = Proyecto()
+        self.addCleanup(p.tirar)
+        bin_ = p.repo / ".bin"
+        bin_.mkdir(exist_ok=True)
+        (bin_ / "python3").write_text(f'#!/bin/sh\nexec {py} "$@"\n')
+        (bin_ / "python3").chmod(0o755)
+        r = correr(f"SOLO_VER=1 bash {SCRIPTS}/correr-todo.sh", p.dir, AGENTES=str(RAIZ),
+                   PATH=f"{bin_}:" + os.environ["PATH"], **self.LOCALE)
+        salida = r.stdout + r.stderr
+        self.assertNotEqual(r.returncode, 0,
+                            f"una puerta que no pudo correr sus chequeos no autoriza nada:"
+                            f"\n{salida[-700:]}")
+        self.assertIn("NO se pudo verificar", salida, f"{salida[-700:]}")
+        self.assertNotIn("se contradice entre tareas", salida,
+                         f"acusa al plan por una incompatibilidad de intérprete:\n{salida[-700:]}")
+
+    def test_en_todos_los_gates_el_chequeo_que_no_corrio_no_sale_verde(self):
+        """El `case` del gate contaba 1 y 2, y el 3 no contaba nada: fallo abierto. Es el
+        mismo defecto que el `if` sin `else` que está documentado veinte líneas más arriba,
+        en el mismo archivo."""
+        py = self.viejo()
+        for gate in sorted([PLANTILLAS / "gate.sh"] + list(RAIZ.glob("ejemplo-*/scripts/gate.sh"))):
+            with self.subTest(gate=str(gate.relative_to(RAIZ))):
+                p = Proyecto()
+                self.addCleanup(p.tirar)
+                shutil.copy(gate, p.dir / "scripts" / "gate.sh")
+                p.implementar()
+                p.git("add -A"); p.git("commit -qm base")
+                (p.dir / "src" / "cosa.py").write_text("def f():\n    return 43\n")
+                r = correr("bash scripts/gate.sh", p.dir, TAREA="T01", AGENTES=str(RAIZ),
+                           PY_PROYECTO=py, **self.LOCALE)
+                self.assertRojo(r, "el chequeo de imports no pudo correr",
+                                motivo="no pudo correr")
 
 
 class TestElEnsayoDelPipelineCorreDePuntaAPunta(Veredictos, unittest.TestCase):

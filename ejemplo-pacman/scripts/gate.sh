@@ -438,6 +438,16 @@ else
   case "$RC_IMP" in
     1) FALLOS=$((FALLOS+1)) ;;
     2) VACIOS=$((VACIOS+1)) ;;
+    # El 3 —«no se pudo verificar, y es del método o del entorno»— no contaba NADA: ni fallo
+    # ni vacío, así que el gate imprimía el motivo y salía VERDE igual. Es el mismo fallo
+    # abierto que el `if` sin `else` de veinte líneas más arriba, con otro mecanismo. Rojo y
+    # no vacío, por el mismo criterio que `correr-suite.sh` código 3: un juez que no pudo
+    # correr su chequeo no dice verde. Medido con el `python3` de macOS, que es 3.9.
+    # Con el helper `rojo`, no con un echo indentado: el motivo tiene que estar EN la línea
+    # marcada con ✗. Lo pidió el test de la suite y tiene razón —`assertRojo` exige el motivo
+    # en una línea marcada porque un motivo impreso en otra línea se puede satisfacer
+    # informándolo en verde, que es el defecto que la mutación ya destapó una vez acá.
+    3) rojo "el chequeo de imports no pudo correr: es del método o del entorno, no de tu código" ;;
   esac
 fi
 # Directorios vacíos: **git no versiona directorios**, sólo archivos. Un test que verifica

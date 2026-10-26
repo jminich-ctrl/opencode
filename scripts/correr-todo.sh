@@ -86,7 +86,18 @@ echo "══ verificando el plan antes de arrancar"
 # dar el medio, otra pedía un hash que el login no puede verificar— y las dos pasaban sus
 # propios tests. Cuesta un segundo acá y costó una hora de agente no tenerlo.
 if [ -f "$AQUI/coherencia.py" ]; then
-  if ! PROYECTO="$BASE" python3 "$AQUI/coherencia.py"; then
+  # Código 3 = «no se pudo verificar, es del método o del entorno». Hay que separarlo ANTES
+  # de concluir nada del plan: con el `python3` de macOS (3.9) este chequeo se caía y esta
+  # puerta lo informaba como «el plan se contradice entre tareas». Ver EMPEZAR.md §0.
+  PROYECTO="$BASE" python3 "$AQUI/coherencia.py"; RC_COH=$?
+  if [ "$RC_COH" -eq 3 ]; then
+    echo
+    echo "✗ el cruce entre tareas NO se pudo verificar (el motivo está arriba)." >&2
+    echo "  No es un defecto de tu plan: es el entorno. Y una puerta que no puede correr sus" >&2
+    echo "  chequeos no autoriza 21 tareas de agente — MEDICION.md §4." >&2
+    exit 1
+  fi
+  if [ "$RC_COH" -ne 0 ]; then
     echo
     echo "✗ el plan se contradice entre tareas. Una tarea que importa algo que nadie provee no"
     echo "  es ejecutable: el agente lo va a inventar, y después va a iterar contra su propio"
