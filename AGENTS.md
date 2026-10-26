@@ -26,6 +26,22 @@ Si el archivo de tarea no está en tu contexto, pedilo antes de empezar.
    contar como error: es la información más útil que podés darnos. Lo que sí es una falla
    es hacer pasar el test de una forma que no resuelve el problema.
 
+8. **No commitees nada generado**: `node_modules/`, `__pycache__/`, `dist/`, un `.venv`.
+   Los instala el método, no la tarea; si aparecen en el diff el gate da rojo, y no por el
+   contenido sino porque nadie puede revisar lo que no escribió una persona.
+9. **No rompas tests que andaban.** El gate compara contra la lista de los que ya fallaban
+   antes de tu tarea: si uno que pasaba deja de pasar, es tuyo, aunque no hayas tocado su
+   archivo.
+10. **No claves rutas absolutas en un test.** Una ruta absoluta —`/Users/...`— pasa sólo en
+    la máquina donde se escribió. Las rutas se escriben desde la raíz del proyecto.
+11. **Si tu implementación tiene una rama que ningún test distingue, decilo.** El gate muta
+    tu código línea por línea y exige que la suite lo note: cuando **sobreviven mutantes**
+    es que escribiste comportamiento que nadie verifica, y la salida dice en qué línea.
+
+12. **No mockees lo que vinieron a probar.** Si mockeás un símbolo que vive en un archivo
+    de TU tarea, estás reemplazando el sujeto: el gate lo nota porque las líneas de la
+    implementación no se ejecutan. Mockeá lo de abajo, no la tarea.
+
 ## Estilo
 
 - Español en docstrings, comentarios, nombres de tests y mensajes de commit.

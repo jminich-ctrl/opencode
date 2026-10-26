@@ -28,6 +28,27 @@ Reglas para los agentes que trabajan en este proyecto.
    contar como error: es la información más útil que podés darnos. Lo que sí es una falla
    es hacer pasar el test de una forma que no resuelve el problema.
 
+8. **No dejes `TODO` ni `FIXME` en lo que escribís.** El gate los busca sólo en los
+   archivos de tu tarea: si quedó algo pendiente, va en el resumen, no en el código.
+9. **No dejes directorios vacíos.** Git no los versiona, así que el merge no se los lleva y
+   el que integra se encuentra con un import que no existe.
+10. **No commitees nada generado**: `node_modules/`, `__pycache__/`, `dist/`, un `.venv`.
+    Los instala el método, no la tarea. Si aparecen en el diff, el gate da rojo — y no es
+    por el contenido, es porque nadie puede revisar lo que no escribió una persona.
+11. **No rompas tests que andaban.** El gate compara contra la lista de los que ya fallaban
+    antes de tu tarea: si uno que pasaba deja de pasar, es tuyo, aunque no hayas tocado su
+    archivo.
+12. **No claves rutas absolutas en un test.** `/Users/...` pasa sólo en la máquina donde se
+    escribió. Las rutas se escriben desde la raíz del proyecto.
+13. **No mockees lo que vinieron a probar.** Si mockeás un símbolo que vive en un archivo de
+    TU tarea, estás reemplazando el sujeto: el gate lo detecta porque las líneas de la
+    implementación no se ejecutan. Mockeá lo de abajo, no la tarea.
+14. **Si tu implementación tiene una rama que ningún test distingue, decilo.** El gate muta
+    tu código línea por línea y exige que la suite lo note; cuando **sobreviven mutantes**
+    es que escribiste comportamiento que nadie verifica. La salida te dice cuál línea.
+    Agregar un test tuyo no alcanza si el test es de otra etapa: lo que corresponde es
+    nombrarlo en el resumen.
+
 ## Si te toca escribir los tests de una tarea
 
 A veces se te pide la tarea completa —implementación **y** tests— y de ese trabajo nos

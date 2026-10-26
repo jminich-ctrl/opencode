@@ -4274,6 +4274,116 @@ class TestLaLineaBaseDeFallasNoPuedeSalirVaciaEnSilencio(CasoBase):
                       f"la cabecera tiene que decir que `fallas` también sabe del corredor:\n{cab}")
 
 
+class TestElGateNoCastigaNadaQueElAgenteNoHayaLeido(unittest.TestCase):
+    """El método ya tiene escrita la regla y no la verificaba en su propia cara: cuando el
+    gate y lo que el agente lee difieren, **el método acusa al agente de un defecto nuestro**.
+    Es la frase con la que se justificó mover el comando de la suite a un solo lugar.
+
+    Medido el 2026-10-26: de los rojos que el gate le cobra al AGENTE, cinco no estaban
+    escritos en ninguna parte que el agente abra —TODO sueltos, directorios vacíos, mutantes
+    que sobreviven, romper tests que andaban, y archivos generados en el diff—. El agente los
+    descubre cuando ya perdió la corrida.
+
+    El canario es la segunda mitad y es la que lo hace durable: cada `rojo` del gate tiene que
+    estar clasificado acá como DEL MÉTODO o DEL AGENTE. Si mañana aparece uno nuevo, este test
+    falla pidiendo que lo clasifiquen, y si es del agente hay que escribirlo donde se lee. Sin
+    el canario, la lista de abajo envejece igual que todo patrón."""
+
+    # Rojos que NO son del agente: fallas del método, del entorno o del plan. El agente no
+    # puede hacer nada con ellos y no tienen por qué estar en AGENTS.md.
+    DEL_METODO = (
+        "el entorno se movió",
+        "falta el corredor",
+        "falta scripts/_corredor.sh",
+        "falta scripts/_imports.py",
+        "falta scripts/_suprimidas.py",
+        "falta scripts/mutar.py",
+        "la suite da rojo y el extractor",
+        "la suite no corrió ningún test",
+        "no existe scripts/correr-suite.sh",
+        "la tarea $TAREA no declara",
+        "la tarea declara el test",
+    )
+
+    # Rojos que SÍ le cobran algo al agente → tiene que estar escrito donde el agente lee.
+    # Los patrones van cortados en la raíz («ruta absolut») porque la primera versión pedía el
+    # singular y el texto quedó en plural: la enésima vez que un patrón mío falla por la forma
+    # de la palabra y no por lo que dice.
+    # El patrón es lo que se exige encontrar en AGENTS.md, no la frase del gate: lo que se
+    # mide es que la regla ESTÉ, no que esté con las mismas palabras.
+    DEL_AGENTE = {
+        "archivos fuera del alcance": "fuera de los declarados",
+        "tocó archivos intocables": "No toques un test",
+        "no hay ningún cambio": "no digas que terminaste",
+        "los tests PASAN con la implementación vieja": "distinguir",
+        "los tests de $TAREA siguen fallando": "no digas que terminaste",
+        "la suite está en rojo": "no digas que terminaste",
+        "la suite falla, pero NO por los tests de esta tarea": "distinguir",
+        "la suite reservada falla": "que no resuelve el problema",
+        "sobreviven mutantes": "sobreviven mutantes",
+        "hay líneas de la implementación que": "mockeás",
+        "hay tests con una ruta absoluta clavada": "absolut",
+        "quedaron TODO sueltos": "TODO",
+        "creaste directorios vacíos": "directorio",
+        "hay archivos generados en el diff": "node_modules",
+        # Éste lo olvidé al escribir la lista, y lo encontró el canario del test de al lado:
+        # un rojo sin clasificar es un rojo que nadie decidió si el agente puede evitar.
+        "rompiste tests que andaban": "tests que andaban",
+    }
+
+    def rojos_del_gate(self):
+        import re
+        texto = (PLANTILLAS / "gate.sh").read_text()
+        # Sólo las líneas que INVOCAN `rojo`, no las que lo nombran en un comentario.
+        salida = []
+        for linea in texto.splitlines():
+            if linea.strip().startswith("#"):
+                continue
+            for m in re.finditer(r'\brojo "([^"]{3,})', linea):
+                salida.append(m.group(1))
+        return sorted(set(salida))
+
+    def test_cada_rojo_del_gate_esta_clasificado(self):
+        """El canario: un rojo sin clasificar es un rojo que nadie decidió si el agente puede
+        evitar."""
+        sin_clasificar = []
+        for r in self.rojos_del_gate():
+            if any(k in r for k in self.DEL_METODO):
+                continue
+            if any(k in r for k in self.DEL_AGENTE):
+                continue
+            sin_clasificar.append(r)
+        self.assertEqual([], sin_clasificar,
+                         f"rojos nuevos sin clasificar: {sin_clasificar}\n"
+                         f"Decidí si son del método o del agente; si son del agente, tienen "
+                         f"que estar escritos en plantillas/AGENTS.md")
+
+    def archivos_de_reglas(self):
+        """TODOS los AGENTS.md que el método reparte o gobierna: la plantilla que copia cada
+        proyecto nuevo, el de la raíz —que leen los agentes que trabajan sobre el método— y
+        el de cada ejemplo. Si mañana hay un tercer ejemplo, entra solo.
+
+        Los cuatro tenían el mismo hueco, y clasificados tiene 16 tareas pendientes: eso es
+        agentes que todavía van a leer ese archivo."""
+        return sorted([RAIZ / "AGENTS.md", PLANTILLAS / "AGENTS.md"]
+                      + list(RAIZ.glob("ejemplo-*/AGENTS.md")))
+
+    def test_lo_que_el_gate_le_cobra_al_agente_esta_en_AGENTS(self):
+        rojos = self.rojos_del_gate()
+        for archivo in self.archivos_de_reglas():
+            with self.subTest(archivo=str(archivo.relative_to(RAIZ))):
+                agentes = archivo.read_text()
+                faltan = []
+                for clave, debe_decir in sorted(self.DEL_AGENTE.items()):
+                    if not any(clave in r for r in rojos):
+                        continue        # el gate ya no lo cobra: nada que exigir
+                    if debe_decir.lower() not in agentes.lower():
+                        faltan.append(f"«{clave}» (no dice «{debe_decir}»)")
+                self.assertEqual([], faltan,
+                                 "el gate castiga reglas que el agente no leyó acá:\n  "
+                                 + "\n  ".join(faltan))
+
+
 class TestUnManifiestoSinDependenciasNoEsUnaFalla(unittest.TestCase):
     """`preparar-entorno.sh` exigía `node_modules` después de `npm install`, y un
     `package.json` sin dependencias es legítimo: npm sale 0 en medio segundo y no crea el

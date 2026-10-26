@@ -113,6 +113,11 @@ lanzar() {
     # Medido dos veces: en un proyecto JS (2026-10-26) `node --test` informa TAP
     # (`not ok 1 - ...`) y el patrón pedía el `FAIL: caso (Clase)` de unittest; y antes, en
     # clasificados, el patrón de vitest «no capturaba NINGUNA» — lo dice su propio comentario.
+    #
+    # El gate ya tiene su propia guarda para esto —«la suite da rojo y el extractor no
+    # entendió su salida»— y está en los tres gates. Pero juzga al CERRAR y sólo si la suite
+    # está roja en ese momento: no impide LANZAR con la línea base ya rota, que es una corrida
+    # de agente gastada y un veredicto que después hay que explicar. Éste frena antes.
     ( cd "$dir" && bash scripts/correr-suite.sh >/dev/null 2>&1 ); RC_SUITE_BASE=$?
     if [ "$RC_SUITE_BASE" = "1" ] && [ "${N_BASE:-0}" = "0" ]; then
       echo "✗ la suite está en ROJO y la línea base salió VACÍA." >&2

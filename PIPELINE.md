@@ -261,8 +261,14 @@ contra requirements, y mutación—. Lo que **no** funcionaba, y se arregló ac�
 2. **`fallas()` también sabe del stack**, y la cabecera de la plantilla decía que
    `correr_suite` era «el único lugar». Con el patrón de unittest, la línea base de un
    proyecto JS sale vacía con tests rojos en el disco — y «0 ya fallando» es lo que informa
-   también un proyecto limpio. Ahora el runner frena si la suite está roja y la lista sale
-   vacía.
+   también un proyecto limpio.
+
+   **Lo que sí estaba cubierto, y hay que decirlo:** los tres gates ya tenían la guarda de
+   «la suite da rojo y el extractor no entendió su salida», puesta cuando el patrón de vitest
+   dejó 15 tareas de frontend sin poder dar rojo. Lo que faltaba es más temprano: esa guarda
+   juzga al CERRAR y sólo si la suite está roja en ese momento, así que no impide lanzar una
+   tarea con la línea base ya rota. Ahora el runner frena antes de gastar la corrida, y la
+   cabecera dice que son dos las funciones que hay que adaptar.
 3. **Un `package.json` sin dependencias no es una falla.** `npm install` sale 0 sin crear
    `node_modules`, y exigir el directorio daba «✗ npm no dejó node_modules» con `exit 1`.
 4. **El mensaje de la línea base salía partido en dos líneas** desde que se escribió:
