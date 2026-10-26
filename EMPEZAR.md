@@ -35,7 +35,7 @@ printf '__pycache__/\n*.pyc\n.tarea.log\n.opencode-data/\n.metricas/\n.base-ref\
 cp $AGENTES/plantillas/PLAN.md .
 cp $AGENTES/plantillas/gate.sh scripts/            # el juez; buscá "ADAPTAR": son cuatro líneas
 cp $AGENTES/plantillas/correr-suite.sh scripts/    # CÓMO se corre tu suite: el gate lo exige y da rojo si falta
-cp $AGENTES/plantillas/_arquitectura.py scripts/   # el gate de coherencia; declará tus capas
+cp $AGENTES/plantillas/_arquitectura.py scripts/   # el gate de coherencia; declará TUS capas o da rojo
 cp $AGENTES/plantillas/pre-deploy.sh scripts/      # G4, para cuando llegues
 cp $AGENTES/AGENTS.md .                       # las reglas del ejecutor; adaptalas a tu proyecto
 printf 'PLAN.md.previo\n' >> .gitignore
@@ -61,8 +61,12 @@ real: que un chequeo que no pudo ejecutarse dé **rojo** y no verde, y que la li
 archivos intocables viva en el gate y no en el archivo de tarea.
 
 `_arquitectura.py` es el gate de coherencia: declarás tus capas en orden y verifica que
-cada una sólo importe las anteriores. Treinta líneas, y es lo único del método que mira
-**a través** de las tareas.
+cada una sólo importe las anteriores. Es lo único del método que mira **a través** de las
+tareas, y lo que adaptás son dos listas y una ruta. Las capas se reconocen por la **ruta** de
+cada módulo, así que sirven las dos formas: un directorio por capa (`src/datos/ads.py`) o un
+archivo por capa (`src/datos.py`). Si declarás capas que tu proyecto no tiene, da **rojo** y
+te dice cuáles son tus módulos: un chequeo de arquitectura mal configurado no encuentra nada
+y lo informa con un ✓, y eso ya nos costó un mes.
 
 ## 2. Escribí el PLAN.md  ← acá está el 80% del trabajo
 

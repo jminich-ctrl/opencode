@@ -3906,6 +3906,125 @@ class TestArquitectura(CasoBase):
         self.assertVerde(self.arq())
 
 
+    # ── Lo de abajo mide la forma que tienen los proyectos de verdad.
+    #
+    # Los tres tests de arriba declaran `src/datos.py` y `src/rutas.py`: archivos PLANOS
+    # cuyo nombre coincide con el de la capa. En esa forma —la del Pacman— el chequeo
+    # andaba. En la otra, la de clasificados y la que describe la propia plantilla
+    # (`app/datos → app/servicios → app/rutas`), una capa es un DIRECTORIO y sus módulos se
+    # llaman como su asunto: `datos/ads.py`. Ahí el chequeo no mapeaba un solo módulo y
+    # daba ✓ igual. El fixture plano fue la razón de que sobreviviera un mes.
+
+    def preparar_en_directorios(self, capas, requeridas, archivos):
+        """Igual que `preparar`, pero las capas son directorios y los módulos van adentro."""
+        self.preparar(capas, requeridas, {})
+        for ruta, cuerpo in archivos.items():
+            archivo = self.p.dir / "src" / ruta
+            archivo.parent.mkdir(parents=True, exist_ok=True)
+            (archivo.parent / "__init__.py").write_text("")
+            archivo.write_text(cuerpo)
+
+    def test_divergencia_da_rojo_con_las_capas_en_directorios(self):
+        """El mismo caso que `test_divergencia_da_rojo`, en la forma de un proyecto real."""
+        self.preparar_en_directorios(["datos", "rutas"], [],
+                                     {"datos/ads.py": "from ..rutas.api import x\n",
+                                      "rutas/api.py": ""})
+        self.assertRojo(self.arq(), "datos/ads importa rutas/api", motivo="divergencia")
+
+    def test_dos_modulos_homonimos_en_capas_distintas_no_son_el_mismo(self):
+        """`datos/ads.py` y `servicios/ads.py` existen los dos en clasificados. Con los
+        módulos identificados por su nombre a secas, son UN nodo: la arista entre ellos es
+        un lazo sobre sí mismo, se descarta, y una violación de capa entre los dos es
+        invisible por construcción."""
+        self.preparar_en_directorios(["datos", "servicios"], [("servicios", "datos")],
+                                     {"datos/ads.py": "",
+                                      "servicios/ads.py": "from ..datos.ads import x\n"})
+        r = self.arq()
+        self.assertVerde(r, "servicios/ads usa datos/ads: es la dependencia requerida")
+        self.assertIn("están las", r.stdout,
+                      f"la dependencia requerida se puede verificar y no se verificó:\n{r.stdout}")
+
+    def test_una_capa_con_modulos_adentro_no_se_informa_vacia(self):
+        """El ⊘ decía «servicios todavía no tiene ningún módulo» en un proyecto con
+        `servicios/ads.py` y `servicios/favorites.py`. Un ⊘ es honesto cuando la causa que
+        declara es la verdadera; éste nombraba una causa falsa, y por eso tapó el defecto
+        durante un mes en vez de delatarlo."""
+        self.preparar_en_directorios(["datos", "servicios"], [("servicios", "datos")],
+                                     {"datos/ads.py": "",
+                                      "servicios/ads.py": "from ..datos.ads import x\n"})
+        self.assertNotIn("no tiene ningún módulo", self.arq().stdout)
+
+    def test_importar_de_la_propia_capa_no_es_divergencia(self):
+        """`datos/ads.py` importa `datos/conexion.py`: normal, y en clasificados pasa. Con
+        las capas en directorios aparecen aristas DENTRO de una capa, que antes no podían
+        existir (un archivo plano por capa nunca se importa a sí mismo). Prohibirlas sería
+        un rojo falso en el primer proyecto real que se mire."""
+        self.preparar_en_directorios(["datos", "servicios"], [],
+                                     {"datos/conexion.py": "",
+                                      "datos/ads.py": "from .conexion import x\n",
+                                      "servicios/ads.py": "from ..datos.ads import x\n"})
+        r = self.arq()
+        self.assertVerde(r, "importar de la propia capa es legal")
+        self.assertNotIn("cobertura del mapeo", r.stdout,
+                         f"los tres módulos están en capas declaradas:\n{r.stdout}")
+
+    def test_sin_un_solo_modulo_mapeado_no_hay_visto_bueno(self):
+        """Lo que hacía en clasificados y en cualquier proyecto nuevo: cobertura 0% —ni un
+        módulo en ninguna capa— y aun así `✓ dependencias en una sola dirección`. El ✓ era
+        cierto y vacío: con cero módulos mapeados, el bucle de divergencias no tiene una
+        sola iteración. Un chequeo que no puede fallar no es un chequeo."""
+        self.preparar_en_directorios(["datos", "servicios"], [],
+                                     {"cosas/saldo.py": "", "cosas/descuento.py": ""})
+        r = self.arq()
+        self.assertNotIn("✓", r.stdout, f"no verificó nada y puso un ✓:\n{r.stdout}")
+        # Rojo y no ⊘, a propósito: un ⊘ dice «no pude medir», y acá SÍ se midió. Están los
+        # módulos, están las capas, y está medido que no se parecen. Un ⊘ no bloquea nada y
+        # así es como esto duró un mes.
+        self.assertRojo(self.arq(), "cobertura 0%", motivo="ninguno de los 2 módulos")
+
+    def test_una_RAIZ_que_no_existe_da_rojo_y_no_un_encogimiento_de_hombros(self):
+        """Era `· no encuentro .../src: nada que verificar` con código 0, o sea «GATE VERDE»
+        limpio. Quien adapta CAPAS y se olvida de RAIZ —o mueve el código— se queda sin el
+        único chequeo que mira a través de las tareas, y el gate no se lo dice."""
+        self.preparar(["datos"], [], {})
+        a = self.p.dir / "scripts" / "_arquitectura.py"
+        a.write_text(a.read_text().replace('/ "src"', '/ "donde-no-hay-nada"'))
+        self.assertRojo(self.arq(), "RAIZ no existe", motivo="no existe")
+
+    def test_un_proyecto_sin_modulos_todavia_es_un_vacio_declarado(self):
+        """El otro lado: `src/` existe y todavía no hay un módulo. Eso sí es un ⊘ —el
+        proyecto recién arranca— y tiene que contarse como vacío, no imprimir un ✓."""
+        self.preparar(["datos"], [("datos", "datos")], {})
+        r = self.arq()
+        self.assertVerde(r, "un proyecto que arranca no está roto")
+        self.assertIn("⊘", r.stdout, f"el vacío se declara:\n{r.stdout}")
+        self.assertNotIn("✓", r.stdout, f"no verificó nada:\n{r.stdout}")
+
+
+class TestElChequeoDeArquitecturaEstaVivoEnLosProyectosReales(unittest.TestCase):
+    """El único chequeo del método que mira A TRAVÉS de las tareas estuvo muerto en
+    clasificados —18 tareas cerradas— sin que nadie lo notara, porque informaba ✓.
+
+    Este test no mide la plantilla sobre un proyecto de juguete: corre la copia de cada
+    ejemplo sobre su propio código. Es la clase de test que faltaba, y la única que podía
+    encontrar esto: todos los demás usaban un fixture con la forma en que el chequeo sí
+    andaba."""
+
+    def test_cada_ejemplo_mapea_sus_modulos_y_verifica_al_menos_una_dependencia(self):
+        for proyecto in sorted(RAIZ.glob("ejemplo-*")):
+            chequeo = proyecto / "scripts" / "_arquitectura.py"
+            if not chequeo.exists():
+                continue
+            with self.subTest(proyecto=proyecto.name):
+                r = correr("python3 scripts/_arquitectura.py", proyecto)
+                self.assertNotIn("cobertura del mapeo: 0%", r.stdout,
+                                 f"ni un módulo del proyecto cae en una capa declarada: el "
+                                 f"chequeo no puede ver nada\n{r.stdout}")
+                self.assertIn("están las", r.stdout,
+                              f"ninguna dependencia requerida se pudo verificar en un "
+                              f"proyecto con código escrito\n{r.stdout}")
+
+
 class TestEjemplosNoDerivan(unittest.TestCase):
     """Los ejemplos son copias adaptadas de la plantilla, y la copia se queda vieja: el
     arreglo del extractor de alcance entró en la plantilla y los dos ejemplos siguieron

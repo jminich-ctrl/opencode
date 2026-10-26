@@ -632,6 +632,20 @@ orden de `CAPAS` da los permisos y `REQUERIDAS` da las obligaciones, una por una
   está medido que **una sola arista de vuelta mueve el costo 37 puntos**: es casi un detector
   de ciclos disfrazado de gradiente, y el ciclo es la cantidad estable.
 
+**Un módulo se mapea a su capa por su RUTA, no por el nombre del archivo.** Parece un detalle
+de implementación y es el defecto más largo que tuvo el método: mientras el nodo del grafo fue
+el nombre del archivo a secas, el chequeo mapeaba **0 de 4** módulos de clasificados —un
+proyecto con capas de verdad, `app/datos/ads.py`— y aun así imprimía `✓ dependencias en una
+sola dirección`, porque un bucle sin una sola iteración no encuentra nada. Dos módulos
+homónimos en capas distintas (`datos/ads.py` y `servicios/ads.py`, los dos existen) eran
+además **el mismo nodo**, así que una violación entre ellos era invisible por construcción.
+Estuvo muerto desde que se escribió: el único proyecto donde funcionaba era el Pacman, que
+tiene un archivo plano por capa, y el fixture de sus tests copiaba esa forma. Por eso ahora el
+✓ dice **cuántas aristas entre capas miró** —sin ese número, «no encontré una divergencia» y
+«no miré una sola arista» se imprimen igual— y por eso cobertura 0% es **rojo** y no un ⊘: con
+los módulos y las capas delante, que no se parezcan está medido, no es algo que no se pudo
+medir.
+
 #### `cocambio.py` — lo que la estructura declara separado y la historia dice junto
 
 ```bash
