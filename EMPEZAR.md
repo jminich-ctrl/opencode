@@ -60,6 +60,16 @@ Dos cosas que **no** conviene tocar al adaptarlo, porque cada una salió de un f
 real: que un chequeo que no pudo ejecutarse dé **rojo** y no verde, y que la lista de
 archivos intocables viva en el gate y no en el archivo de tarea.
 
+Y una que conviene leer antes de adaptar el corredor, porque es la única pieza que sostiene
+todos los veredictos por tarea: **los códigos de salida de `correr-suite.sh` son contrato**
+—0 verde, 1 rojo, 2 no corrió ningún test, 3 falta el corredor— y el 2 es el que separa «no
+pude preguntar» de «pasó». El gate lo calibra solo en el paso 1 con `_corredor.sh`, que
+provee el método: le pide un selector imposible y exige que no diga verde. Está medido que
+hace falta — adaptando el corredor a `node --test` lo rompimos por las dos puntas, y el gate
+pasó a afirmar que los tests de la tarea no distinguían un cambio que nunca llegaron a
+probar. En un stack sin clases, además, los tests necesitan un agrupador con el nombre que la
+tarea declara (`describe("saldo")`), o el selector no casa nada.
+
 `_arquitectura.py` es el gate de coherencia: declarás tus capas en orden y verifica que
 cada una sólo importe las anteriores. Es lo único del método que mira **a través** de las
 tareas, y lo que adaptás son dos listas y una ruta: el juicio lo hace el método (`scripts/_arquitectura_motor.py`), que es por qué alcanza con `$AGENTES` exportada y no hay nada más que copiar. Las capas se reconocen por la **ruta** de

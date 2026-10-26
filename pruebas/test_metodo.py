@@ -120,7 +120,8 @@ class Proyecto:
         # `_arquitectura_motor.py` entra por lo mismo: desde el 2026-10-25 el juicio del
         # paso 5 vive en el método y `scripts/_arquitectura.py` es sólo la config con las
         # capas. Sin el motor, el paso da rojo —a propósito— y el fixture mediría eso.
-        for aux in ("_suprimidas.py", "_imports.py", "mutar.py", "_arquitectura_motor.py"):
+        for aux in ("_suprimidas.py", "_imports.py", "mutar.py", "_arquitectura_motor.py",
+                    "_corredor.sh"):
             shutil.copy(SCRIPTS / aux, self.dir / "scripts" / aux)
         (self.dir / "src" / "__init__.py").touch()
         (self.dir / "tests" / "__init__.py").touch()
@@ -4101,6 +4102,81 @@ class TestElChequeoDeArquitecturaEstaVivoEnLosProyectosReales(unittest.TestCase)
                 self.assertIn("están las", r.stdout,
                               f"ninguna dependencia requerida se pudo verificar en un "
                               f"proyecto con código escrito\n{r.stdout}")
+
+
+class TestElVistoBuenoDeLaSuiteNuncaSaleSinSuNumero(CasoBase):
+    """El `✓` del paso 1 llevaba el resumen del corredor, y el patrón que lo extrae conoce
+    unittest, pytest y vitest. Con `node --test` —que informa TAP: `# pass 2`— el resumen
+    salía vacío y el gate imprimía «✓ » a secas.
+
+    Es el mismo defecto que el paso 6 del gate de clasificados tenía hoy con pytest, y no es
+    cosmético: un ✓ sin su número no dice si corrieron 300 tests o ninguno, y «ninguno» tiene
+    código propio en el contrato justamente porque importa."""
+
+    CORREDOR_MUDO = ('#!/usr/bin/env bash\n'
+                     '# pasa, y no informa cuentas en ningún formato conocido\n'
+                     'if [ -n "${1:-}" ]; then echo "nada que correr"; exit 2; fi\n'
+                     'echo "listo"\nexit 0\n')
+
+    def test_un_corredor_que_no_informa_cuentas_no_produce_un_visto_pelado(self):
+        (self.p.dir / "scripts" / "correr-suite.sh").write_text(self.CORREDOR_MUDO)
+        self.p.implementar()
+        self.p.git("add -A"); self.p.git("commit -qm corredor")
+        r = self.p.gate()
+        paso1 = r.stdout.split("── 1. Tests")[1].split("── ")[0]
+        vistos = [l.strip() for l in paso1.splitlines() if l.strip().startswith("✓")]
+        self.assertTrue(vistos, f"el paso 1 no dio verde:\n{paso1}")
+        self.assertNotEqual(vistos[0], "✓", f"un ✓ pelado:\n{paso1}")
+        self.assertIn("no informa", vistos[0],
+                      f"si no puede leer las cuentas, lo dice:\n{paso1}")
+
+
+class TestElContratoDelCorredorSeVerifica(CasoBase):
+    """`scripts/correr-suite.sh` es el cimiento de TODOS los veredictos por tarea, y hasta
+    hoy nada verificaba que el corredor de cada proyecto cumpla su contrato de códigos.
+
+    Medido el 2026-10-26, armando un proyecto JS de cero para ver si el método es replicable
+    a otro stack. Adapté `correr_suite` para `node --test` —la única línea que el documento
+    dice que hay que adaptar— y la escribí mal de dos maneras, con el contrato delante:
+
+      · `node --test --test-name-pattern X` con un patrón que no casa ningún test devuelve
+        **0** e informa `# pass 0 / # skipped 2`. Mi corredor lo pasó como VERDE, y entonces
+        el paso 4 del gate concluyó «la suite falla, pero NO por los tests de esta tarea
+        (saldo pasa con el código viejo)»: un diagnóstico falso, seguro y rotundo, sobre un
+        test que nunca corrió;
+      · con un selector que no existe devolvió **1** —«los tests fallan»— donde el contrato
+        pide **2**, «no corrió ningún test».
+
+    El gate maneja bien los dos códigos; el que mentía era el corredor. Y es la pieza que
+    cada proyecto escribe a mano: la plantilla la cumple para `unittest`, y cualquier otro
+    stack la reimplementa. Por eso el chequeo es del método y no de un proyecto."""
+
+    def corredor(self, cuerpo):
+        """Reemplaza el corredor del proyecto por uno de juguete."""
+        (self.p.dir / "scripts" / "correr-suite.sh").write_text(cuerpo)
+
+    def test_un_corredor_que_dice_verde_sin_correr_nada_pone_el_gate_en_rojo(self):
+        """El caso exacto que me pasó, reducido: todo verde, incluso lo que no existe."""
+        self.corredor('#!/usr/bin/env bash\nexit 0\n')
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertRojo(r, "el corredor pasa cualquier cosa", motivo="corredor")
+
+    def test_un_corredor_que_confunde_vacio_con_rojo_tambien(self):
+        """La otra punta: `1` donde el contrato pide `2`. Pinta de defecto del código algo
+        que es «no pude preguntar», y manda a buscar un bug que no existe."""
+        self.corredor('#!/usr/bin/env bash\nexit 1\n')
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertRojo(r, "vacío informado como rojo", motivo="corredor")
+
+    def test_el_corredor_de_la_plantilla_cumple_el_contrato(self):
+        """Y el control que hace falta para que lo de arriba signifique algo: con el corredor
+        que el método reparte, el paso NO dispara."""
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertNotIn("corredor de este proyecto", r.stdout,
+                         f"falso rojo sobre el corredor de la plantilla:\n{r.stdout}")
 
 
 class TestEjemplosNoDerivan(unittest.TestCase):

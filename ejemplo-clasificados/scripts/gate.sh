@@ -75,6 +75,23 @@ if [ -n "${TAREA:-}" ]; then
 fi
 
 echo "── 1. Tests"
+# Antes de juzgar la suite, CALIBRAR el instrumento con el que se la juzga: que el corredor
+# de este proyecto distinga «no corrí ningún test» de «los tests pasan». El contrato de
+# códigos lo dice, y lo cumple el corredor de cada proyecto, que se escribe a mano: medido
+# el 2026-10-26, adaptarlo a `node --test` lo rompió por las dos puntas y el gate emitió un
+# diagnóstico falso y rotundo sobre un test que nunca corrió. El chequeo lo provee el método.
+CORREDOR_AUX="$(aux_del_metodo _corredor.sh)"
+if [ -z "$CORREDOR_AUX" ]; then
+  rojo "falta scripts/_corredor.sh: nadie verificó el contrato del corredor"
+  echo "     Lo provee el método en scripts/_corredor.sh. Esto es del método, no del código juzgado."
+else
+  SAL_CORR="$(bash "$CORREDOR_AUX" 2>&1)"; RC_CORR=$?
+  case "$RC_CORR" in
+    0) ;;
+    1) printf '%s\n' "$SAL_CORR"; FALLOS=$((FALLOS+1)) ;;
+    *) printf '%s\n' "$SAL_CORR"; VACIOS=$((VACIOS+1)) ;;
+  esac
+fi
 # El gate NO sabe cómo se corre la suite: lo sabe `scripts/correr-suite.sh`, y es el mismo
 # comando que usa el validador de `escribir-tests.sh`. Esa separación no es prolijidad.
 # Mientras cada uno tenía su propia invocación, diferían en cuatro cosas a la vez —el
@@ -295,9 +312,14 @@ case "$RC" in
      # del frontend y escondía los 13 del backend. Un resumen que informa una parte del
      # trabajo como si fuera todo es la clase de dato que hace confiar de más.
      RESUMEN="$(echo "$SALIDA" \
-                | grep -oE '^[0-9]+ (passed|failed)[^,]*|^Ran [0-9]+ tests?[^,]*|Tests +[0-9]+ passed' \
+                | grep -oE '^[0-9]+ (passed|failed)[^,]*|^Ran [0-9]+ tests?[^,]*|Tests +[0-9]+ passed|^# (pass|fail) [0-9]+' \
                 | sed 's/  */ /g' | tr '\n' ';' | sed 's/;/ · /g; s/ · $//')"
-     verde "${RESUMEN:-$(echo "$SALIDA" | grep -E '^Ran |^OK' | tail -1)}"
+     # Sin resumen legible NO sale un ✓ pelado. «✓ » a secas es lo que imprimía con
+     # `node --test` —que informa TAP, `# pass 2`— porque los patrones eran de unittest,
+     # pytest y vitest. Un ✓ sin su número no dice si corrieron 300 tests o ninguno, y
+     # «ninguno» tiene código propio en el contrato justamente porque importa.
+     RESUMEN="${RESUMEN:-$(echo "$SALIDA" | grep -E '^Ran |^OK' | tail -1)}"
+     verde "${RESUMEN:-la suite pasa, y su corredor no informa cuántos tests corrió}"
      testigo "scripts/correr-suite.sh, el mismo comando que valida los tests" ;;
   2) rojo "la suite no corrió ningún test: sin tests no hay gate"
      echo "$SALIDA" | tail -5 | sed 's/^/     /' ;;

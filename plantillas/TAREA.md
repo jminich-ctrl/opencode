@@ -49,6 +49,11 @@ Cuanto más preciso esto, menos improvisa el modelo.>
 Los tests de esta tarea **ya están en el repo y fallan**. El trabajo del agente es hacerlos
 pasar sin modificarlos. Archivo: `tests/test_<modulo>.py`, clase `<Clase>`.
 
+> La **clase** es cómo el gate le pide al corredor *sólo los tests de esta tarea*, y con eso
+> contesta si distinguen el cambio. En un stack sin clases hace falta el agrupador
+> equivalente —un `describe("<Clase>")` en JS— o el selector no casa ningún test y el paso 4
+> sale ⊘: medido el 2026-10-26 en un proyecto JS armado de cero.
+
 Si no podés escribir el test antes, la tarea todavía no está entendida: no la lances.
 
 ## Criterio de terminado
