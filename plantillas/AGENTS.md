@@ -32,9 +32,11 @@ Reglas para los agentes que trabajan en este proyecto.
    archivos de tu tarea: si quedó algo pendiente, va en el resumen, no en el código.
 9. **No dejes directorios vacíos.** Git no los versiona, así que el merge no se los lleva y
    el que integra se encuentra con un import que no existe.
-10. **No commitees nada generado**: `node_modules/`, `__pycache__/`, `dist/`, un `.venv`.
-    Los instala el método, no la tarea. Si aparecen en el diff, el gate da rojo — y no es
-    por el contenido, es porque nadie puede revisar lo que no escribió una persona.
+10. **No commitees nada generado.** `__pycache__/`, un `.pyc`, `dist/`: si aparecen en el
+    diff el gate da rojo, y no por el contenido sino porque nadie puede revisar lo que no
+    escribió una persona. Las dependencias instaladas —`node_modules/`, `.venv`— las pone el
+    método antes de lanzarte y el gate las filtra, así que por ésas no te va a dar rojo: lo
+    que no tenés que hacer es correr `pip` o `npm` (regla 2).
 11. **No rompas tests que andaban.** El gate compara contra la lista de los que ya fallaban
     antes de tu tarea: si uno que pasaba deja de pasar, es tuyo, aunque no hayas tocado su
     archivo.

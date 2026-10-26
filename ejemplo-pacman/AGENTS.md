@@ -28,9 +28,11 @@ Hereda las reglas de `../AGENTS.md`. Además:
    contar como error: es la información más útil que podés darnos. Lo que sí es una falla
    es hacer pasar el test de una forma que no resuelve el problema.
 
-8. **No commitees nada generado**: `node_modules/`, `__pycache__/`, `dist/`, un `.venv`.
-   Los instala el método, no la tarea; si aparecen en el diff el gate da rojo, y no por el
-   contenido sino porque nadie puede revisar lo que no escribió una persona.
+8. **No commitees nada generado.** `__pycache__/`, un `.pyc`, `dist/`: si aparecen en el
+   diff el gate da rojo, y no por el contenido sino porque nadie puede revisar lo que no
+   escribió una persona. Las dependencias instaladas —`node_modules/`, `.venv`— las pone el
+   método antes de lanzarte y el gate las filtra, así que por ésas no te va a dar rojo: lo
+   que no tenés que hacer es correr `pip` o `npm` (regla 2).
 9. **No rompas tests que andaban.** El gate compara contra la lista de los que ya fallaban
    antes de tu tarea: si uno que pasaba deja de pasar, es tuyo, aunque no hayas tocado su
    archivo.

@@ -4822,6 +4822,61 @@ class TestEjemplosNoDerivan(unittest.TestCase):
                 self.assertIn("no pudo verificarse", s6,
                               f"sin reservados el paso 6 es un vacío contado:\n{s6}")
 
+    # Los cuatro chequeos de HIGIENE, medidos el 2026-10-26: los tres gates coinciden en los
+    # cuatro. Quedan fijados porque la deriva de esta noche fue exactamente de esta clase —en
+    # clasificados, dos chequeos que fallaban ABIERTOS en los pasos 5 y 6— y ningún test de
+    # deriva cubría nada más que el motor de alcance.
+    HIGIENE = (
+        ("un TODO en lo que escribió la tarea", "T01",
+         {"permitido/ok.py": "x = 1  # TODO: después\n"}, "quedaron TODO"),
+        # `__pycache__` y no `node_modules`: el filtro INFRA del gate saca `node_modules/` y
+        # `.venv` del diff A PROPÓSITO —los instala el método antes de lanzar al agente—, así
+        # que por esos dos el chequeo no puede dispararse. Mi primera versión de este caso
+        # usaba `node_modules/a.js` y los tres gates lo «fallaban»: el escenario estaba mal.
+        ("un archivo generado en el diff", "T01",
+         {"permitido/ok.py": "x = 1\n", "permitido/__pycache__/x.pyc": "bin"}, "generados"),
+        ("un directorio vacío nuevo", "T01",
+         {"permitido/ok.py": "x = 1\n", "permitido/vacio/.keep": ""}, "vacíos"),
+        # Éste va en modo INTEGRACIÓN y no en modo tarea, a propósito y con su motivo escrito
+        # en el gate: un test con ruta absoluta que ya estaba en el tronco no lo escribió esta
+        # tarea. Mi primera medición lo corrió en modo tarea y los tres «fallaron» el mismo
+        # escenario: era el escenario el que estaba mal, no los gates.
+        ("una ruta absoluta clavada en un test", "",
+         {"tests/test_abs.py": "ruta = '/Users/jose/cosa/fixture.json'\n"}, "absoluta"),
+    )
+
+    def test_las_dependencias_instaladas_siguen_filtradas_a_proposito(self):
+        """El complemento del caso de arriba, y existe para que nadie lo «arregle»: las
+        dependencias que instala el método NO pueden poner en rojo a la tarea que declaró
+        bien su manifiesto. Medido el 2026-10-26: `node_modules/` en la raíz o un nivel
+        adentro está filtrado; más profundo que eso, el filtro no llega y da rojo."""
+        for gate in self.GATES:
+            with self.subTest(gate=gate.parent.parent.name or "plantillas"):
+                r = self.montar(gate, "permitido/, node_modules/",
+                                {"permitido/ok.py": "x = 1\n", "node_modules/a.js": "x\n"})
+                marcadas = [l for l in r.stdout.splitlines() if l.strip().startswith("✗")]
+                self.assertFalse([l for l in marcadas if "generados" in l],
+                                 f"le cobró a la tarea una dependencia que instala el método:\n"
+                                 f"{marcadas}")
+
+    def test_los_tres_gates_juzgan_igual_la_higiene(self):
+        """El motivo se busca en las líneas MARCADAS con ✗, no en la salida entera.
+
+        Mi primera versión hacía `assertIn(esperado, r.stdout)` y pasaba por la razón
+        equivocada en los CUATRO casos: «generados» aparece igual en «✓ sin archivos
+        generados», «vacíos» en «✓ sin directorios vacíos nuevos», «TODO» en «✓ sin TODO
+        sueltos» y «absoluta» en «✓ ningún test clava una ruta absoluta». Un gate que dejara
+        de ver cualquiera de los cuatro seguiría pasando este test. Es el defecto que
+        `assertRojo` existe para no cometer, cometido en el test que vigila la deriva."""
+        for nombre, tarea, archivos, esperado in self.HIGIENE:
+            for gate in self.GATES:
+                with self.subTest(caso=nombre, gate=gate.parent.parent.name or "plantillas"):
+                    r = self.montar(gate, "permitido/, src/", archivos, tarea=tarea)
+                    marcadas = [l for l in r.stdout.splitlines() if l.strip().startswith("✗")]
+                    self.assertTrue(any(esperado in l for l in marcadas),
+                                    f"este gate no vio «{nombre}» (nada lo marcó con ✗)\n"
+                                    f"líneas ✗: {marcadas}\n{r.stdout[-700:]}")
+
     def test_todos_detectan_un_archivo_fuera_del_alcance(self):
         for gate in self.GATES:
             with self.subTest(gate=str(gate.relative_to(RAIZ))):
