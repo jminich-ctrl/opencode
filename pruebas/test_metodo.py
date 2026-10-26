@@ -4287,6 +4287,62 @@ class TestLaLineaBaseDeFallasNoPuedeSalirVaciaEnSilencio(CasoBase):
                       f"la cabecera tiene que decir que `fallas` también sabe del corredor:\n{cab}")
 
 
+class TestUnaReversionVaciaNoEsUnaReversionQuePaso(CasoBase):
+    """Medido el 2026-10-26 sobre una tarea que un agente real acababa de cerrar en un
+    proyecto JS: correr el gate a mano después de `cerrar-tarea.sh` daba
+
+        ✗ los tests PASAN con la implementación vieja: no verifican el cambio
+
+    y era falso. El paso 4 revierte la implementación a HEAD, y después del cierre HEAD YA LA
+    TIENE: la reversión no cambia un byte, la suite sigue verde, y de ahí el gate concluye un
+    defecto de los tests. La reversión fue vacía y el paso la juzgó como medición.
+
+    Lo sufre cualquiera que mire una tarea cerrada antes de integrarla —y AGENTS.md le pide al
+    agente correr el gate y mostrar su salida—, así que es el estado más común después del
+    cierre. El gate ya distingue el caso del archivo que NO existe en HEAD («archivos nuevos:
+    nada que revertir»); el que faltaba es el archivo que existe y es idéntico.
+
+    Mi primera versión de este test lo midió con el andamio de deriva, que no tiene suite ni
+    test declarado: el ⊘ que encontraba era el de «la tarea no declara su test», así que
+    pasaba sin medir la reversión. Tercera vez en la noche que un test mío pasa por la razón
+    equivocada."""
+
+    def cerrada_y_commiteada(self):
+        """El estado que deja `cerrar-tarea.sh`: trabajo commiteado y `.base-ref` en el
+        commit anterior."""
+        self.p.implementar()
+        base = self.p.git("rev-parse HEAD").stdout.strip()
+        self.p.git("add -A"); self.p.git("commit -qm 'T01: gate verde'")
+        (self.p.repo / ".base-ref").write_text(base + "\n")
+
+    def test_el_paso_4_no_acusa_a_los_tests_cuando_no_pudo_revertir(self):
+        self.cerrada_y_commiteada()
+        r = self.p.gate("T01")
+        paso4 = r.stdout.split("── 4.")[1].split("── ")[0] if "── 4." in r.stdout else ""
+        self.assertTrue(paso4, f"el paso 4 no corrió:\n{r.stdout[-700:]}")
+        self.assertNotIn("PASAN con la implementación vieja", paso4,
+                         f"acusó a los tests de algo que no pudo medir:\n{paso4}")
+        self.assertIn("⊘", paso4, f"una reversión vacía es un vacío declarado:\n{paso4}")
+        self.assertIn("HEAD", paso4, "y tiene que decir por qué: la implementación ya está ahí")
+
+    def test_cuando_la_reversion_SI_cambia_algo_el_paso_4_sigue_midiendo(self):
+        """El control, y es el que importa: una reversión que de verdad cambia el archivo
+        tiene que seguir dando el veredicto de siempre.
+
+        La tarea MODIFICA una implementación que ya estaba, porque con un archivo nuevo sin
+        commitear el gate informa —con razón— «archivos nuevos: nada que revertir», y ése es
+        otro vacío legítimo. Mi primera versión de este control usaba el archivo nuevo y
+        esperaba un ✓: medía el caso equivocado."""
+        self.p.implementar("def f():\n    return 0\n")      # la vieja: el test falla con ella
+        self.p.git("add -A"); self.p.git("commit -qm 'implementación vieja'")
+        self.p.implementar()                                   # la nueva, sin commitear
+        r = self.p.gate("T01")
+        paso4 = r.stdout.split("── 4.")[1].split("── ")[0] if "── 4." in r.stdout else ""
+        self.assertIn("✓", paso4,
+                      f"falso vacío donde la reversión sí cambia algo:\n{paso4}")
+        self.assertIn("al revertir", paso4, "y dice que midió revirtiendo")
+
+
 class TestUnaSuiteReservadaAdentroDelRepoNoEsReservada(CasoBase):
     """El paso 6 es el único gate que mide lo que el agente NO PUDO haber optimizado, y eso
     depende por completo de una cosa: que los tests estén fuera de su alcance. El método lo
@@ -4774,7 +4830,7 @@ class TestEjemplosNoDerivan(Veredictos, unittest.TestCase):
 
     GATES = sorted([PLANTILLAS / "gate.sh"] + list(RAIZ.glob("ejemplo-*/scripts/gate.sh")))
 
-    def montar(self, gate, declara, archivos, tarea="T01"):
+    def montar(self, gate, declara, archivos, tarea="T01", commitear=False):
         """Repo de juguete con la forma mínima que cualquiera de los gates acepta."""
         repo = pathlib.Path(tempfile.mkdtemp(prefix="prueba-drift-"))
         self.addCleanup(tirar_dir, repo)
@@ -4791,6 +4847,14 @@ class TestEjemplosNoDerivan(Veredictos, unittest.TestCase):
             p = d / ruta
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(cuerpo)
+        if commitear:
+            # El estado que deja `cerrar-tarea.sh`: el trabajo YA commiteado, y `.base-ref`
+            # apuntando al commit anterior. Correr el gate a mano ahí es lo que hace
+            # cualquiera que esté mirando una tarea cerrada —y lo que AGENTS.md le pide al
+            # agente— así que el gate tiene que saber contestar en ese estado.
+            base = correr("git rev-parse HEAD", repo).stdout.strip()
+            correr("git add -A && git -c user.email=t@t -c user.name=t commit -qm trabajo", repo)
+            (d / ".base-ref").write_text(base + "\n")
         # `RESERVADOS` apuntado a un directorio que no existe: sin esto el paso 6 depende de
         # si el que corre la suite tiene su propia carpeta de reservados al lado del repo, y
         # el veredicto cambiaría de máquina en máquina.

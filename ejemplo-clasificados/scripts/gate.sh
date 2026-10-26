@@ -613,16 +613,26 @@ if [ -n "${TAREA:-}" ]; then
 $f"
   done <<< "$CAMBIADOS"
   IMPL="$(printf '%s' "$IMPL" | grep . || true)"
-  TMP="$(mktemp -d)"; REVERTIDOS=""
+  TMP="$(mktemp -d)"; REVERTIDOS=""; REVERSION_CAMBIO_ALGO=0
   PREFIJO="$(git rev-parse --show-prefix)"   # vacío si el proyecto es la raíz del repo
   for f in $IMPL; do
     if git cat-file -e "HEAD:${PREFIJO}$f" 2>/dev/null; then
       cp "$f" "$TMP/$(echo "$f" | tr / _)"
       git checkout HEAD -- "$f" && REVERTIDOS="$REVERTIDOS $f"
+      # ¿CAMBIÓ algo al revertir? Si la implementación ya está en HEAD —lo que pasa en cuanto
+      # `cerrar-tarea.sh` commitea— el checkout no mueve un byte, la suite sigue verde, y este
+      # paso concluía «los tests PASAN con la implementación vieja: no verifican el cambio».
+      # Falso, y acusando a los tests de algo que nadie midió: la reversión fue vacía.
+      # Medido el 2026-10-26 sobre una tarea que un agente real acababa de cerrar.
+      cmp -s "$f" "$TMP/$(echo "$f" | tr / _)" || REVERSION_CAMBIO_ALGO=1
     fi
   done
   if [ -z "$IMPL" ]; then vacuo "no hay implementación que revertir"
   elif [ -z "$REVERTIDOS" ]; then vacuo "archivos nuevos (no existían en HEAD): nada que revertir"
+  elif [ "$REVERSION_CAMBIO_ALGO" = "0" ]; then
+    vacuo "la implementación ya está en HEAD: revertir no cambió un byte"
+    echo "     Pasa cuando el gate corre DESPUÉS de cerrar la tarea, porque cerrar-tarea.sh"
+    echo "     commitea. No es un defecto de los tests: es que no hubo nada que revertir."
   else
     # Qué tests tienen que fallar, no sólo que «algo» falle. Esto decía
     # `verde "la suite falla al revertir"` con la suite ENTERA como testigo, y el tronco

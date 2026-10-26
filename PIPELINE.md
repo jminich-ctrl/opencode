@@ -278,6 +278,33 @@ contra requirements, y mutación—. Lo que **no** funcionaba, y se arregló ac�
 Lo que un proyecto así **no** tiene: mutación (el mutador es de Python) y chequeo de imports
 contra el manifiesto. Los dos se informan ⊘ y quedan a la vista en el veredicto.
 
+### Y con un agente de verdad (2026-10-26, 06:15)
+
+T03 del mismo proyecto JS —`iva(monto, categoria)`, cinco casos incluido el truncamiento y el
+negativo— lanzada con `correr-tarea.sh` sin `MANUAL=1`, contra el ejecutor local
+(`Qwen3-Coder-30B-A3B`):
+
+```
+correr-tarea.sh T03    línea base: 1 test fallando · ✓ T03 gate VERDE (al primer intento)
+integrar.sh T03        ✓ tronco verde · T01 T02 T03 hechas y mergeadas
+```
+
+Y el verde **auditado a mano**, porque en JS el método no tiene mutador: seis mutantes
+aplicados sobre lo que escribió el agente, **cinco muertos**. El sobreviviente es `monto < 0`
+→ `monto <= 0`, equivalente —con monto 0 el IVA es 0 de las dos formas— y de la clase que
+`mutar.py` excluye por árida: comparaciones contra 0. El verde está ganado.
+
+Lo que la corrida encontró del método: **una reversión vacía no es una reversión que pasó.**
+Correr el gate a mano después de `cerrar-tarea.sh` —que es lo que hace cualquiera que mire una
+tarea cerrada, y lo que AGENTS.md le pide al agente— daba
+
+    ✗ los tests PASAN con la implementación vieja: no verifican el cambio
+
+porque el paso 4 revierte a HEAD y después del cierre HEAD ya tiene la implementación: el
+checkout no mueve un byte, la suite sigue verde, y de ahí el gate acusaba a los tests. Ahora
+compara el archivo antes y después de revertir, y si no cambió nada lo informa como ⊘ con su
+motivo.
+
 ### Los subagentes solo se invocan por delegación
 
 `opencode run --agent reviewer` **no usa reviewer**: cae en el agente por defecto, sin
