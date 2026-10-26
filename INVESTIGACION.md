@@ -435,21 +435,23 @@ tests reservados es el hack más común** (339 contra 222 ocurrencias del otro).
 
 ## 7. Lo que nos falta y ahora sabemos qué es
 
-- **La función de aptitud atrapa divergencias, nunca ausencias.** Un chequeo de dirección de
-  imports es un modelo de reflexión de una sola relación: ve una dependencia que no debería
-  existir, **no ve una que debería existir y no está**. Nuestro `_arquitectura.py` es ciego a
-  la estructura que falta.
-- **Costo de propagación** como métrica de deriva, computable del cierre transitivo del grafo
-  de imports, con referencias publicadas: Mozilla **17,35%**, Linux **5,16%**, y Mozilla
-  después de su rediseño deliberado **2,78%**. Es un solo número y se puede seguir en el
-  tiempo.
-- **Co-cambio contra límites declarados** (Clio, ICSE 2011): detecta que dos módulos que la
-  arquitectura dice separados **cambian siempre juntos** — exactamente la deriva que nuestro
-  chequeo de capas deja pasar en verde. Y los datos ya los tenemos: están en el registro de
-  intentos.
+> **Revisado el 2026-10-26: tres de los cuatro que había acá YA ESTÁN HECHOS**, y el documento
+> seguía mandando a construirlos. Un «nos falta» que miente en esa dirección es tan caro como
+> uno que miente en la otra: manda a escribir lo que existe, y de paso hace parecer más débil
+> al método de lo que es. Lo que sigue es lo que falta de verdad, y abajo lo que se hizo.
+
 - **Enlaces de cobertura con versión** (`outdated`, `predated`) en el validador de planes: en
   un bucle donde el arquitecto reescribe el plan, nada más atrapa que un requisito se
-  debilite en silencio.
+  debilite en silencio. **Sigue faltando**: ni `cobertura.py` ni `validar-plan.py` los tienen
+  (verificado: cero menciones en los dos).
+
+### Lo que estaba acá y ya está hecho
+
+| lo que decía faltar | dónde está hoy |
+|---|---|
+| «la función de aptitud atrapa divergencias, **nunca ausencias**; `_arquitectura.py` es ciego a la estructura que falta» | la lista `REQUERIDAS` del motor: declara las dependencias que la arquitectura EXIGE y las verifica por cierre transitivo. Es la mitad que «casi nadie hace», y estaba muerta por un defecto de mapeo hasta el 2026-10-26 — ahora verifica de verdad, con el ⊘ cuando una capa todavía no tiene módulos |
+| «**costo de propagación** como métrica de deriva» | lo imprime el mismo motor y lo registra en `.metricas/arquitectura.csv` para leer la SERIE, con el ciclo más grande al lado porque está medido que una arista de vuelta mueve el costo 37 puntos |
+| «**co-cambio** contra límites declarados (Clio, ICSE 2011)» | `scripts/cocambio.py`, con los umbrales publicados —confianza asimétrica más piso de soporte— y descartando los commits de más de 30 archivos. Su medición más útil hasta hoy: la plantilla y la copia del ejemplo cambiaban juntas el 67% de las veces, que es lo que la duplicación del motor de arquitectura cobró el 26-10 |
 
 ## 8. Lo que nadie publicó, y podemos medir nosotros
 
