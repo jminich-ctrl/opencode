@@ -140,6 +140,18 @@ lanzar() {
     return 0
   fi
 
+  # Antes de gastar una corrida de agente: ¿está arriba el modelo que va a usar? La sonda
+  # existía y estaba cableada SÓLO en `correr-todo.sh`, así que esta puerta —la que usa la
+  # guía, y la que `correr-plan.sh` llama por cada tarea— lanzaba a ciegas. Se escribió por
+  # un incidente medido: el 27B tres horas caído mientras el ejecutor contestaba 200, y las
+  # corridas muriendo con un rojo que nombraba la tarea en vez del modelo. Acá va la corta
+  # —el ejecutor es el modelo que esta tarea usa— y de paso CALIENTA la réplica.
+  if ! plataforma_responde; then
+    echo "✗ $id no se lanza: el modelo del ejecutor no responde." >&2
+    echo "  No es la tarea ni el agente. Esperá que la réplica vuelva y relanzá." >&2
+    return 1
+  fi
+
   echo "▶ $id lanzada en $dir"
   (
     cd "$dir" || exit 1
@@ -245,12 +257,22 @@ lanzar() {
   ) &
 }
 
+LANZADAS=0
 for id in "$@"; do
   # esperar a que se libere un lugar antes de lanzar la próxima
   while [ "$(jobs -rp | wc -l)" -ge "$PARALELAS" ]; do wait -n 2>/dev/null || sleep 1; done
-  lanzar "$id"
+  if lanzar "$id"; then LANZADAS=$((LANZADAS+1)); fi
 done
 wait
 echo
 PREF=""; [ "$PROYECTO" != "." ] && PREF="PROYECTO=$PROYECTO "
 echo "Logs en $RAIZ/../trabajo-TNN/.tarea.log · resumen: ${PREF}bash $AQUI/estado.sh"
+
+# El código de salida de este script nunca fue el canal del veredicto —el veredicto lo da el
+# gate de cada tarea— pero si no se lanzó NINGUNA, salir 0 es decir que algo pasó. Pasa cuando
+# el modelo del ejecutor no responde: la puerta se cierra bien y, sin esto, el que invocó se
+# queda creyendo que la tarea está corriendo.
+if [ "$#" -gt 0 ] && [ "$LANZADAS" -eq 0 ]; then
+  echo "✗ no se lanzó ninguna de las $# tarea(s) pedidas: mirá el motivo arriba." >&2
+  exit 1
+fi

@@ -84,6 +84,25 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
     continue
   fi
 
+  # Acá, y no antes del bucle: la sonda cuesta un pedido a la plataforma y no tiene sentido
+  # gastarlo si la guarda de arriba —«no hay transcripts de fallo»— iba a frenar igual. Es la
+  # misma regla de orden que el método ya tiene para el vigilante: lo caro va después de lo
+  # que puede abortar gratis. Mi primera versión la puso antes del bucle y rompió dos tests
+  # que miden exactamente esa guarda.
+  #
+  # Una sola vez, aunque se pidan varias tareas. Esta sonda se escribió por el incidente del
+  # 27B tres horas caído con el ejecutor en 200 —la corrida murió «en la primera
+  # replanificación», informando que falló la tarea— y estaba cableada sólo en
+  # `correr-todo.sh`. Replanificar ES el papel del 27B: acá su caída se paga más caro.
+  if [ "${SONDA_HECHA:-0}" = "0" ] && command -v opencode >/dev/null 2>&1; then
+    SONDA_HECHA=1
+    if ! MODELO_SONDA="${MODELO:-$(modelo_del_agente arquitecto)}" plataforma_responde; then
+      echo "✗ no se replanifica: el modelo del arquitecto no responde." >&2
+      echo "  No es la tarea ni el enunciado. Esperá que la réplica vuelva y reintentá." >&2
+      exit 1
+    fi
+  fi
+
   # Lo que no se toca, para poder verificarlo después.
   CRIT_ANTES="$(grep -c '^- \[ \]' "$archivo" || true)"
   TEST_ANTES="$(grep -oE '`[a-zA-Z0-9_/.]*tests?/[a-zA-Z0-9_.]+`.*clase `[A-Za-z0-9_]+`' "$archivo" | head -1)"

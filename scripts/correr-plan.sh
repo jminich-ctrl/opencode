@@ -141,6 +141,18 @@ fi
 # expandir un array VACÍO con `set -u` no imprime mal, ABORTA el script. Hoy un
 # `exit 0` anterior lo intercepta, pero esa garantía la rompe mover una línea.
 rechazar_salteo "$DESDE" "bash $AQUI/correr-plan.sh" ${ETAPAS[@]+"${ETAPAS[@]}"}
+# Antes de la primera etapa: ¿están arriba TODOS los modelos que la corrida va a usar? Esta
+# sonda existe desde que el 27B estuvo tres horas caído con el ejecutor contestando 200 —el
+# preflight daba verde y la corrida moría en la primera replanificación, informando que falló
+# la tarea— y estaba cableada sólo en `correr-todo.sh`. Esta puerta es la que enseña la
+# plantilla de PLAN.md. En modo manual no se pide: ahí no hay agente que dependa de ellos.
+if [ "${MANUAL:-0}" != "1" ] && command -v opencode >/dev/null 2>&1; then
+  if ! plataforma_responde_la_corrida; then
+    echo "✗ no se lanza el plan: hay modelos de esta corrida que no responden." >&2
+    exit 1
+  fi
+fi
+
 echo "Plan con ${#ETAPAS[@]} etapa(s). Empezando en la $DESDE."
 echo
 

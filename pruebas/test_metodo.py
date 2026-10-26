@@ -8491,6 +8491,42 @@ class TestReplanificarSinMotivoNoReplanifica(unittest.TestCase):
     el chequeo mira una variable derivada en vez del dato. El test mide que el agente NO se
     llame, porque gastarlo es el costo que la guarda evita."""
 
+    def plataforma_falsa(self, modelo="m1"):
+        """Una plataforma que contesta y una config que DECLARA el modelo del arquitecto.
+
+        Desde el 2026-10-26 `replanificar.sh` sonda antes de gastar el agente, así que sin
+        esto el test heredaba la plataforma y el `opencode.json` REALES de quien corre la
+        suite: la sonda no encontraba `m1` declarado y frenaba con razón. Un test que hereda
+        el entorno mide la máquina, no el sujeto — y `COLABHIVE_BASE_URL=""` no alcanza
+        porque `_comun.sh` la vuelve a cargar del entorno del método."""
+        import threading
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-replan-plat-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        cfg = d / "opencode.json"
+        cfg.write_text(json.dumps({
+            "provider": {"colabhive": {"models": {modelo: {}}}},
+            "agent": {"arquitecto": {"model": f"colabhive/{modelo}"}}}))
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                self.rfile.read(n)
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(CUERPO_CHAT_OK)))
+                self.end_headers()
+                self.wfile.write(CUERPO_CHAT_OK)
+
+            def log_message(self, *a):
+                pass
+
+        srv = ServidorFalso(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return {"CONFIG_OC": str(cfg), "ARRANQUE_FRIO": "5",
+                "COLABHIVE_BASE_URL": f"http://127.0.0.1:{srv.server_address[1]}/v1",
+                "COLABHIVE_API_KEY": "x"}
+
     def proyecto(self):
         tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-sinmotivo-")).resolve()
         self.addCleanup(tirar_dir, tmp)
@@ -8523,7 +8559,7 @@ class TestReplanificarSinMotivoNoReplanifica(unittest.TestCase):
     def test_replanificar_no_gasta_un_agente_sin_transcript(self):
         d = self.proyecto()
         r = correr(f'PATH="{d}/.bin:$PATH" PROYECTO=. LIMITE_AGENTE=60 MODELO=m1 '
-                   f'bash "{SCRIPTS}/replanificar.sh" T41', d)
+                   f'bash "{SCRIPTS}/replanificar.sh" T41', d, **self.plataforma_falsa())
         salida = r.stdout + r.stderr
         self.assertFalse((d.parent / "LO-LLAMARON").exists(),
                          f"llamó al arquitecto sin tener qué contarle:\n{salida}")
@@ -8541,18 +8577,121 @@ class TestReplanificarSinMotivoNoReplanifica(unittest.TestCase):
         self.assertIn("no hay transcripts de fallo", salida, f"\n{salida}")
 
     def test_con_transcript_si_replanifica(self):
-        """El otro lado: una guarda que frena siempre es peor que ninguna."""
+        """El otro lado: una guarda que frena siempre es peor que ninguna.
+
+        Los dos tests de esta clase pasan `COLABHIVE_BASE_URL=""` a propósito: desde el
+        2026-10-26 `replanificar.sh` sonda el modelo del arquitecto antes de gastarlo, y sin
+        eso HEREDABAN la plataforma y la config reales de quien corre la suite —la sonda leía
+        el `opencode.json` de la máquina, no encontraba `m1` declarado, y frenaba con razón—.
+        Un test que hereda el entorno mide la máquina y no el sujeto. Lo que acá se mide es la
+        guarda del transcript; la sonda tiene sus propios tests."""
         d = self.proyecto()
         fallidos = d.parent / "fallidos-T41"; fallidos.mkdir()
         (fallidos / "intento-1.log").write_text(
             "E  AssertionError: Expected 'execute' to be called once. Called 0 times.\n")
         r = correr(f'PATH="{d}/.bin:$PATH" PROYECTO=. LIMITE_AGENTE=60 MODELO=m1 '
-                   f'bash "{SCRIPTS}/replanificar.sh" T41', d)
+                   f'bash "{SCRIPTS}/replanificar.sh" T41', d, **self.plataforma_falsa())
         salida = r.stdout + r.stderr
         self.assertTrue((d.parent / "LO-LLAMARON").exists(),
                         f"con el motivo en la mano tiene que llamarlo:\n{salida}")
         self.assertIn("AssertionError", salida,
                       f"y pasarle el error CONCRETO, no la categoría:\n{salida}")
+
+
+class TestTodaPuertaQueLanzaAgentesSondeaLaPlataforma(unittest.TestCase):
+    """El arreglo existía y estaba cableado en UNA sola puerta.
+
+    `plataforma_responde_la_corrida` se escribió por un incidente medido —el 27B TRES HORAS
+    caído mientras el ejecutor contestaba 200, el preflight en verde, y la corrida muriendo en
+    la primera replanificación e informando que falló la tarea— y quedó llamado sólo desde
+    `correr-todo.sh`. Medido el 2026-10-26: `correr-plan.sh`, `correr-tarea.sh`,
+    `planificar.sh` y `replanificar.sh` no sondeaban NADA, y son las puertas que la guía y la
+    plantilla de PLAN.md enseñan a usar.
+
+    Y estaba pasando mientras lo escribía: el monitoreo de las 08:46 midió el 27B
+    —arquitecto, plan, reviewer— en `actuales=0` con el ejecutor en 1.
+
+    El de MANUAL=1 no sondea: ahí no hay agente, y exigir la plataforma para una tarea que
+    hace una persona es el falso rojo opuesto."""
+
+    PAPELES = {"arquitecto": "m-razona", "plan": "m-razona", "ejecutor": "m-escribe"}
+
+    def entorno(self, caidos=()):
+        import http.server, threading
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-puertas-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        cfg = d / "opencode.json"
+        cfg.write_text(json.dumps({
+            "provider": {"colabhive": {"models": {m: {} for m in set(self.PAPELES.values())}}},
+            "agent": {p: {"model": f"colabhive/{m}"} for p, m in self.PAPELES.items()}}))
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                cuerpo = self.rfile.read(n).decode("utf-8", "replace")
+                roto = any(f'"{m}"' in cuerpo for m in caidos)
+                cuerpo = b"{}" if roto else CUERPO_CHAT_OK
+                self.send_response(503 if roto else 200)
+                self.send_header("Content-Length", str(len(cuerpo)))
+                self.end_headers()
+                self.wfile.write(cuerpo)
+
+            def log_message(self, *a):
+                pass
+
+        srv = ServidorFalso(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return cfg, f"http://127.0.0.1:{srv.server_address[1]}/v1"
+
+    def proyecto(self):
+        """Lo mínimo que las dos puertas necesitan para llegar a lanzar."""
+        p = Proyecto()
+        self.addCleanup(p.tirar)
+        # Un `opencode` de juguete en el PATH: sin él `correr-tarea.sh` cae en modo manual y
+        # el sondeo no corresponde. Con él, la puerta cree que puede lanzar un agente.
+        bin_ = p.repo / ".bin"
+        bin_.mkdir(exist_ok=True)
+        (bin_ / "opencode").write_text("#!/usr/bin/env bash\necho 'agente de juguete'\n")
+        (bin_ / "opencode").chmod(0o755)
+        return p, str(bin_)
+
+    def puerta(self, comando, cfg, base, bin_, cwd):
+        return correr(comando, cwd, AGENTES=str(RAIZ), COLABHIVE_BASE_URL=base,
+                      COLABHIVE_API_KEY="x", CONFIG_OC=str(cfg), ARRANQUE_FRIO=5,
+                      PATH=f"{bin_}:" + os.environ["PATH"])
+
+    def test_correr_plan_no_lanza_una_etapa_con_un_modelo_caido(self):
+        cfg, base = self.entorno(caidos=("m-razona",))
+        p, bin_ = self.proyecto()
+        r = self.puerta(f"bash {SCRIPTS}/correr-plan.sh", cfg, base, bin_, p.dir)
+        salida = r.stdout + r.stderr
+        self.assertNotEqual(r.returncode, 0,
+                            f"lanzó una etapa con el modelo del arquitecto caído:\n{salida}")
+        self.assertIn("NO responde", salida, f"y tiene que nombrarlo:\n{salida}")
+
+    def test_correr_tarea_no_lanza_un_agente_con_su_modelo_caido(self):
+        cfg, base = self.entorno(caidos=("m-escribe",))
+        p, bin_ = self.proyecto()
+        r = self.puerta(f"bash {SCRIPTS}/correr-tarea.sh T01", cfg, base, bin_, p.dir)
+        salida = r.stdout + r.stderr
+        self.assertNotIn("lanzada en", salida,
+                         f"gastó una corrida contra un modelo caído:\n{salida}")
+        self.assertIn("no responde", salida.lower(), f"y tiene que decir por qué:\n{salida}")
+        # El código de salida de este script no es el canal del veredicto —lo da el gate de
+        # cada tarea— pero si no lanzó NINGUNA, salir 0 sería decir que algo pasó.
+        self.assertNotEqual(r.returncode, 0,
+                            f"no lanzó nada y salió 0:\n{salida}")
+
+    def test_en_modo_manual_no_se_exige_la_plataforma(self):
+        """El control del otro lado: una tarea que hace una persona no necesita modelos."""
+        cfg, base = self.entorno(caidos=("m-escribe", "m-razona"))
+        p, bin_ = self.proyecto()
+        r = self.puerta(f"MANUAL=1 bash {SCRIPTS}/correr-tarea.sh T01", cfg, base, bin_, p.dir)
+        self.assertEqual(r.returncode, 0,
+                         f"el modo manual no depende de la plataforma:\n{r.stdout}{r.stderr}")
+        self.addCleanup(tirar_dir, p.repo.parent / "trabajo-T01")
 
 
 class TestLaSondaMideLosModelosQueLaCorridaVaAUsar(unittest.TestCase):

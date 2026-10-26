@@ -43,6 +43,17 @@ if ! opencode agent list 2>/dev/null | grep -qE "^$AGENTE \(primary\)"; then
   exit 1
 fi
 
+# ¿Está arriba el modelo que este agente usa? La sonda existía y estaba cableada sólo en
+# `correr-todo.sh`. Acá importa especialmente: el 2026-10-24 el 27B —arquitecto, plan,
+# reviewer— estuvo TRES HORAS caído mientras el ejecutor contestaba 200, así que un preflight
+# que mira el ejecutor autoriza a planificar contra un modelo que no está. Y el 2026-10-26 a
+# las 08:46 el monitoreo lo volvió a medir en `actuales=0`.
+if ! MODELO_SONDA="$(modelo_del_agente "$AGENTE")" plataforma_responde; then
+  echo "✗ no se planifica: el modelo de $AGENTE no responde." >&2
+  echo "  No es el encargo ni el plan. Esperá que la réplica vuelva y reintentá." >&2
+  exit 1
+fi
+
 # Revisa el plan y deja en PROBLEMAS lo que el arquitecto tiene que arreglar.
 # Los arreglos mecánicos se aplican primero: no gastan una vuelta del modelo.
 revisar() {
