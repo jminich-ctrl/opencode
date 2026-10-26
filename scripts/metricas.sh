@@ -209,15 +209,20 @@ if imposibles:
     # un problema del plan con un problema del modelo.
     print(f"Declaradas IMPOSIBLES por el agente: {len(imposibles)} "
           f"({', '.join(imposibles)}) — son problemas del plan, no del modelo. Leé el motivo.")
-# El encabezado tiene que nombrar TODAS las columnas que escribe el runner, o DictReader
-# manda las de más a la clave None y las leemos vacías para siempre. Pasó con `motivo`: el
-# bloque de abajo nunca imprimió nada mientras había datos de sobra. Un instrumento que lee
-# por nombre tiene que verificar los nombres.
-ESPERADO = ["fecha", "proyecto", "tarea", "veredicto", "segundos", "modelo", "motivo",
-            "concurrencia", "instrumento"]
-if campos != ESPERADO:
-    print(f"⊘ el encabezado del registro no es el que escribe el runner: {campos}")
-    print(f"  esperado: {ESPERADO} — las columnas que faltan se leen vacías, no ausentes")
+# Lo que este lector NECESITA tiene que estar en el encabezado, o `DictReader` devuelve esa
+# clave vacía para siempre y el bloque que la usa no imprime nada mientras hay datos de sobra.
+# Pasó con `motivo`. Un instrumento que lee por nombre tiene que verificar los nombres.
+#
+# SUBCONJUNTO y no igualdad: la comparación exacta hacía que agregar una columna al registro
+# —`contextos`, que el runner escribe desde hace días— informara ⊘ en CADA corrida, con todo
+# funcionando. Un aviso que grita en el caso normal enseña a ignorar los avisos, y éste tapaba
+# su propio motivo: lo que importa es que no FALTE ninguna de las que leo, no que no sobre.
+NECESARIAS = ["fecha", "proyecto", "tarea", "veredicto", "segundos", "modelo", "motivo",
+              "concurrencia", "instrumento"]
+faltan_cols = [c for c in NECESARIAS if c not in campos]
+if faltan_cols:
+    print(f"⊘ al registro le faltan columnas que este reporte lee: {faltan_cols}")
+    print(f"  encabezado encontrado: {campos} — una columna ausente se lee vacía, no ausente")
 
 if segs:
     # Una mediana de tiempos de corridas simultáneas describe la ocupación de la plataforma,

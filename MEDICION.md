@@ -222,6 +222,26 @@ pasa a ser «el primero» de esas tres tareas también es rojo. La dirección de
 correcta y la magnitud no, y la diferencia importaba porque la magnitud era el argumento.
 Un hallazgo que llega con su número todavía necesita que se corra el número.
 
+#### La cuarta clase, que no se puede filtrar y por eso se arregla arriba
+
+El 2026-10-26 apareció una cuarta: **el intento sobre una tarea que ya estaba hecha.**
+`correr-plan.sh` relanzó una etapa entera de tareas integradas —las etapas DECLARADAS en el
+plan no se filtraban por estado— y el registro quedó con cinco rojos de «no hay ningún cambio:
+la tarea no se hizo». El informe los contó: «Verde al PRIMER intento: 3/5 (60%) → la
+descomposición funciona», con tres de esas cinco filas midiendo un defecto del runner.
+
+**Y no se puede filtrar con lo que el registro guarda.** Ese mismo motivo es la falla legítima
+de un agente que no hizo nada —se quedó sin contexto, se confundió, contestó prosa— y ésa sí
+cuenta contra el modelo. Distinguirlas necesita el ESTADO DE LA TAREA en el momento del
+intento, que el registro no anota. Inventar el filtro por el texto del motivo descartaría
+fallas reales del ejecutor, que es el error opuesto y peor.
+
+Así que el arreglo va arriba, no en el lector: el runner ya no lanza lo que está hecho, y esas
+filas no vuelven a escribirse. Queda anotado porque la tentación de filtrar era fuerte y el
+precedente de las otras tres clases la hacía parecer obvia: **una clase de fila que no se puede
+separar con los datos que hay no es una clase que se filtra, es un defecto que se arregla donde
+se produce.**
+
 ### Dos cosas que un número de tiempo no puede llevar adentro
 
 1. **El techo del propio vigilante.** 6 de las 16 filas que entraban a la mediana eran
