@@ -418,3 +418,64 @@ puede acotar por clase de test, hace `vacuo` y sale con `exit 0`.
 contrario de las dos formas posibles: con un ⊘ que es un pase y con un ✓ que no verificó.
 **Mientras siga así, «gate verde» no es una métrica primaria válida para ningún experimento de
 este directorio**, y está escrito acá para que no se me pase.
+
+## 9. El ensayo determinista: medir la orquestación sin modelos
+
+Hasta el 2026-10-26, lo más largo que el pipeline había ejecutado de verdad eran **cinco
+tareas**, y «un plan de veinte» era una afirmación. El problema no era el tiempo: era que con
+modelos de verdad **la orquestación no se separa del modelo**. Un modelo contesta distinto cada
+vez, así que una corrida roja no dice si falló el método o el ejecutor, y repetirla cuesta horas
+de plataforma.
+
+`scripts/ensayo.sh` cambia el sujeto: el agente es DETERMINISTA —un `opencode` que, en vez de
+pedirle a un modelo, copia la implementación congelada de la tarea que el prompt nombra— y el
+resto del pipeline es el de verdad. Lo que falle es del método.
+
+**Lo que mide**: etapas, worktrees, `escribir-tests` con su validación, el gate, el cierre y el
+merge, a cualquier escala, repetible y a cero tokens.
+**Lo que NO mide**: si un modelo chico puede hacer la tarea. Eso es el banco de ítems
+(`congelar-banco.sh`) y es otra pregunta — confundirlas es medir el eslabón equivocado.
+
+### Medición 1 — veintiuna tareas, 3 etapas de 7 en paralelo (2026-10-26)
+
+    GRUPOS=7 bash $AGENTES/scripts/ensayo.sh
+
+| qué | resultado |
+|---|---|
+| tareas cerradas | **21 de 21**, un intento cada una (`intentos.csv`: 21 filas) |
+| gates | 21 verdes, 0 rojos |
+| integraciones | 21, **sin un solo conflicto de merge** con 7 ramas por etapa |
+| suite del proyecto al final | 21 tests, verde |
+| duración | 4 min 52 s · 0 tokens de modelo |
+
+Es la primera vez que «veinte tareas» está medido y no afirmado. **Lo que sigue sin medirse es
+ejecutarlas con modelos**: eso son veintiuna corridas de agente y es otro costo y otra clase de
+falla.
+
+### Medición 2 — ¿el gate atrapa cada forma de fabricar un verde falso? (2026-10-26)
+
+    GRUPOS=1 COMPORTAMIENTO=miente bash $AGENTES/scripts/ensayo.sh
+
+El comportamiento se elige **por fase**: si el agente falla escribiendo los tests, la etapa se
+detiene ahí y el gate no llega a juzgar nada, así que para medir el gate los tests se escriben
+bien y falla sólo la implementación. Son dos sujetos distintos.
+
+| el agente | paso que lo atrapa | motivo del rojo |
+|---|---|---|
+| no escribe nada | 1, tests | «los tests de T01a siguen fallando», con el `ImportError` |
+| **afirma «GATE VERDE»** | 1, tests | el mismo: el veredicto lo da el comando, no el agente |
+| escribe fuera de su alcance | 2, alcance | nombra el archivo que no declaró, y al lado lo permitido: `src/datos/d1.py` |
+| afloja el test que lo juzga | 0, integridad | «tocó archivos intocables: `tests/test_d1.py`» |
+
+Cuatro formas, cuatro rojos por el paso que corresponde, **cero verdes falsos**. Y el ensayo se
+juzga a sí mismo: con un comportamiento malo, PASA cuando el pipeline se detiene y ninguna tarea
+cierra; si cerrara alguna, informa «es un VERDE FALSO» y sale ≠0. Verificado mutando el agente
+para que «nada» cumpla: el ensayo lo cazó.
+
+### Lo que encontró en su primera corrida
+
+El gate le cobraba a la tarea un `.opencode-data` **vacío que crea el propio runner**: las
+exclusiones del `find` sacaban a los hijos y dejaban al directorio. Dispara justo cuando el
+agente no escribió nada —se cayó al arrancar o lo cortó el límite—, o sea que tapaba la causa
+real con un rojo de higiene. Tres tareas, dos intentos cada una, punto muerto. Un instrumento
+que en su primera corrida encuentra un defecto del instrumento anterior se paga solo.

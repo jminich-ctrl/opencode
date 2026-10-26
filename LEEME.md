@@ -67,6 +67,7 @@ scripts/correr-tarea.sh   lanza tareas, cada una en su worktree y en paralelo
 scripts/correr-plan.sh    lanza una etapa entera; saltea lo que ya está hecho
 scripts/estado.sh         en qué anda cada tarea
 scripts/auditar-cerradas.sh  pasa lo ya cerrado por los instrumentos de hoy
+scripts/ensayo.sh         ensaya el pipeline ENTERO con un agente determinista, sin gastar modelos
 ```
 
 > La lista tenía cinco entradas y **no incluía `gate.sh`**, que es la pieza que la idea en tres

@@ -5804,6 +5804,81 @@ class TestElContratoDelCorredorSeVerifica(CasoBase):
                          f"falso rojo sobre el corredor de la plantilla:\n{r.stdout}")
 
 
+class TestElEnsayoDelPipelineCorreDePuntaAPunta(Veredictos, unittest.TestCase):
+    """El único test que ejercita el método ENTERO: etapas, worktrees, escribir-tests con su
+    validación, gate, cierre y merge, con un agente determinista en vez de un modelo.
+
+    Por qué hace falta: lo más largo que el pipeline había ejecutado de verdad eran CINCO
+    tareas, y «un plan de veinte» estaba afirmado y no medido. Con modelos no se puede medir
+    —horas, plataforma, y un modelo contesta distinto cada vez, así que la orquestación no se
+    separa del modelo—. Con `scripts/ensayo.sh` sí, y en su primera corrida encontró que el
+    gate le cobraba a la tarea un `.opencode-data` vacío que crea el propio runner.
+
+    Son dos casos y los dos importan: que un agente que CUMPLE cierre todo, y que uno que
+    MIENTE no cierre nada. El segundo es el defecto que fundó el método —un agente afirmando
+    «GATE VERDE» con el gate rojo— y acá se mide de frente.
+
+    Cuesta ~2 minutos de los ~22 de la suite. Es el precio de tener medido lo que antes
+    estaba afirmado."""
+
+    PAPELES = {"arquitecto": "m-razona", "plan": "m-razona", "reviewer": "m-razona",
+               "ejecutor": "m-escribe", "build": "m-escribe",
+               "title": "m-chico", "summary": "m-chico"}
+
+    def plataforma_falsa(self):
+        """La puerta sondea la plataforma antes de arrancar, y la suite no puede depender de
+        que Orion esté arriba: servidor local, como los otros andamios de este archivo."""
+        import http.server, threading
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-ensayo-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        cfg = d / "opencode.json"
+        cfg.write_text(json.dumps({
+            "provider": {"colabhive": {"models": {m: {} for m in set(self.PAPELES.values())}}},
+            "agent": {pa: {"model": f"colabhive/{m}"} for pa, m in self.PAPELES.items()}}))
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                self.rfile.read(n)
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(CUERPO_CHAT_OK)))
+                self.end_headers()
+                self.wfile.write(CUERPO_CHAT_OK)
+
+            def log_message(self, *a):
+                pass
+
+        srv = ServidorFalso(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return cfg, f"http://127.0.0.1:{srv.server_address[1]}/v1"
+
+    def ensayar(self, comportamiento):
+        cfg, base = self.plataforma_falsa()
+        donde = pathlib.Path(tempfile.mkdtemp(prefix="prueba-ensayo-corrida-")).resolve()
+        self.addCleanup(tirar_dir, donde)
+        return correr(f"bash {SCRIPTS}/ensayo.sh {donde}", RAIZ,
+                      GRUPOS="1", COMPORTAMIENTO=comportamiento, ARRANQUE_FRIO="5",
+                      COLABHIVE_BASE_URL=base, COLABHIVE_API_KEY="x", CONFIG_OC=str(cfg))
+
+    def test_con_un_agente_que_cumple_el_pipeline_cierra_las_tres(self):
+        r = self.ensayar("cumple")
+        self.assertVerde(r, f"el pipeline completo tiene que cerrar:\n{r.stdout[-1500:]}{r.stderr[-500:]}")
+        self.assertIn("3/3 cerradas y la suite del proyecto en verde", r.stdout,
+                      f"{r.stdout[-1200:]}")
+
+    def test_un_agente_que_afirma_gate_verde_no_cierra_nada(self):
+        """El defecto que fundó el método, medido de frente: el agente no escribe nada y
+        AFIRMA «El gate.sh indica GATE VERDE». El veredicto lo da el comando, no el agente."""
+        r = self.ensayar("miente")
+        self.assertVerde(r, f"el ensayo pasa cuando el método NO deja pasar la mentira:"
+                            f"\n{r.stdout[-1500:]}")
+        self.assertIn("no pasó", r.stdout, f"{r.stdout[-800:]}")
+        self.assertIn("0/3 tarea(s) cerradas", r.stdout,
+                      f"una mentira no puede cerrar ninguna tarea:\n{r.stdout[-800:]}")
+
+
 class TestEjemplosNoDerivan(Veredictos, unittest.TestCase):
     """Los ejemplos son copias adaptadas de la plantilla, y la copia se queda vieja: el
     arreglo del extractor de alcance entró en la plantilla y los dos ejemplos siguieron
