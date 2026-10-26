@@ -31,6 +31,7 @@ PEDIDAS="$*"
 hallazgos=0
 mirados=0
 saltadas=""
+ARCH_MUT=""
 
 # El test de cada tarea sale de la TABLA DE TESTS del plan, y se exige que el campo parezca
 # una ruta: la tabla de tareas también tiene tres columnas y viene primero, así que un grep
@@ -58,6 +59,13 @@ for tf in "$BASE"/tareas/T*.md; do
   su_test="$(test_de "$id" "$tf")"
   impl="$(sed -n 's/^\*\*Archivos que podés tocar:\*\* *//p' "$tf" | tr ',' '\n' \
           | sed 's/^ *//; s/ *$//' | grep '\.py$' || true)"
+  # Se acumulan ACÁ, antes de saber si la tarea es auditable: el paso de mutación de abajo
+  # no necesita el par test↔implementación, y entonces alcanza a las tareas que los pasos 1
+  # a 3 tienen que saltear. En `ejemplo-pacman` eso es la diferencia entre 2 y 19.
+  for f in $impl; do
+    [ -f "$BASE/$f" ] || continue
+    case " $ARCH_MUT " in *" $f "*) ;; *) ARCH_MUT="${ARCH_MUT}${ARCH_MUT:+ }$f" ;; esac
+  done
   if [ -z "$su_test" ] || [ ! -f "$BASE/$su_test" ]; then
     # NO se adivina por el nombre del archivo. `tareas/T01-laberinto.md` y
     # `tests/test_laberinto.py` se corresponden en pacman, y deducirlo sería inferir lo que
@@ -138,6 +146,48 @@ $(printf '%s' "$sal_v" | sed 's/^  /     /')"
     echo "· $id — pasa los chequeos de hoy"
   fi
 done
+
+# ── 4. Mutación por ARCHIVO, el único paso que NO necesita el par test↔implementación.
+#
+# Por qué existe. El paso 4b del gate —mutar el diff de la tarea— es del 2026-10-25, así que
+# ninguna tarea cerrada antes pasó por él; y los pasos 1 a 3 de arriba necesitan saber cuál
+# es el test de cada tarea, que 17 de las 19 cerradas de `ejemplo-pacman` no declaran. Los
+# ARCHIVOS los declaran las 19. Mutar no pide más que eso y la suite.
+#
+# Medido la primera vez que corrió, sobre ejemplo-pacman: 98 mutantes, 9 sobrevivientes, con
+# 103 tests verdes y 19 de 19 tareas cerradas. Dos de los cuatro estilos de fantasma tenían
+# su estrategia probada como función suelta y su USO sin probar: borrar la línea que la
+# llama no rompía un solo test. Y `test_caduca_a_los_cincuenta_turnos` pasa igual si la
+# fruta dura UN turno: afirma el estado final y no la duración que su nombre promete.
+echo
+echo "── mutación de los archivos declarados (no necesita saber cuál es el test)"
+if [ -n "${SIN_MUTAR:-}" ]; then
+  echo "  ⊘ salteada por SIN_MUTAR=1 — no pudo verificarse"
+  echo "     No es un pase: nadie verificó que la suite distinga."
+elif [ -z "$ARCH_MUT" ]; then
+  echo "  ⊘ ninguna tarea cerrada declara un archivo .py que exista — no pudo verificarse"
+  echo "     No es un pase: nadie verificó que la suite distinga."
+elif [ ! -f "$BASE/scripts/correr-suite.sh" ]; then
+  echo "  ⊘ el proyecto no declara cómo se corre su suite (scripts/correr-suite.sh)"
+  echo "     No es un pase: nadie verificó que la suite distinga."
+else
+  # El árbol VACÍO como base, y no el primer commit: así cada archivo cuenta como nuevo y se
+  # mutan todas sus líneas, que es lo que se quiere auditar. Con el primer commit, un
+  # proyecto que se subió de una sola vez tendría cero líneas «cambiadas» y el paso saldría
+  # ⊘ sin que nadie entienda por qué. `-w` escribe un objeto de árbol vacío, que es inerte.
+  REF0="$(cd "$BASE" && git hash-object -w -t tree /dev/null)"
+  CODIGO_MUT="$(for f in $ARCH_MUT; do dirname "$f"; done | sort -u | paste -sd, -)"
+  sal_m="$( (cd "$BASE" && BASE="$REF0" CODIGO="$CODIGO_MUT" ARCHIVOS="$ARCH_MUT" \
+             LIMITE="${LIMITE:-400}" SUITE="bash scripts/correr-suite.sh" \
+             DETALLE="${DETALLE:-todos}" \
+             python3 "$AQUI/mutar.py") 2>&1 )"; rc_m=$?
+  printf '%s\n' "$sal_m"
+  case "$rc_m" in
+    0) ;;
+    2) ;;   # ⊘: mutar.py ya imprime "No es un pase" con su motivo
+    *) hallazgos=$((hallazgos+1)) ;;
+  esac
+fi
 
 echo
 echo "$mirados tarea(s) cerrada(s) auditada(s)"

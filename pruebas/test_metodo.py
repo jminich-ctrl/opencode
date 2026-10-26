@@ -3867,9 +3867,39 @@ class TestEtapas(CasoBase):
 
 
 class TestMutar(CasoBase):
-    def mutar(self, base="HEAD~1"):
+    def mutar(self, base="HEAD~1", **env):
         return correr(f"BASE={base} CODIGO=src SUITE='python3 -m unittest discover -s tests -t . -q' "
-                      f"python3 {SCRIPTS}/mutar.py", self.p.dir)
+                      f"python3 {SCRIPTS}/mutar.py", self.p.dir, **env)
+
+    # Una implementación con DOCE asignaciones que ningún test mira: doce sobrevivientes,
+    # dos más que el tope de la lista.
+    DOCE = ("def f():\n    return 42\n\n\ndef g(n):\n"
+            + "".join(f"    v{i} = n * {i + 2}\n" for i in range(12))
+            + "    return n\n")
+
+    def test_cuando_la_lista_se_corta_el_informe_lo_dice(self):
+        """Imprimía «85 sobrevivieron» y mostraba 10, sin decir que mostraba 10. En el gate
+        de una tarea eso casi nunca se nota —son pocos—, pero la auditoría de un proyecto
+        entero produjo 85 y nombró diez, todos del mismo archivo: el resto no había forma de
+        verlo. Mandar a adivinar es lo que este método no puede permitirse."""
+        self.p.implementar(); self.p.git("add -A"); self.p.git("commit -qm impl")
+        self.p.implementar(self.DOCE)
+        self.p.git("add -A"); self.p.git("commit -qm doce")
+        r = self.mutar()
+        self.assertIn("sobrevivieron", r.stdout)
+        flechas = [l for l in r.stdout.splitlines() if "→" in l]
+        self.assertEqual(len(flechas), 10, f"el tope de la lista es 10:\n{r.stdout}")
+        self.assertIn("más", r.stdout.split("→")[-1],
+                      f"y cuando corta, tiene que decir cuántos deja afuera:\n{r.stdout}")
+
+    def test_con_DETALLE_todos_la_lista_sale_completa(self):
+        """La auditoría los necesita todos: es su única salida."""
+        self.p.implementar(); self.p.git("add -A"); self.p.git("commit -qm impl")
+        self.p.implementar(self.DOCE)
+        self.p.git("add -A"); self.p.git("commit -qm doce")
+        r = self.mutar(DETALLE="todos")
+        flechas = [l for l in r.stdout.splitlines() if "→" in l]
+        self.assertEqual(len(flechas), 12, f"los doce:\n{r.stdout}")
 
     def test_mutante_que_sobrevive_se_informa(self):
         self.p.implementar(); self.p.git("add -A"); self.p.git("commit -qm impl")
@@ -10319,7 +10349,8 @@ class TestLoViejoNoVuelveAPasarPorElInstrumentoNuevo(unittest.TestCase):
     el material viejo. Y no toca nada —ni estados, ni código, ni plan—: informa, y reabrir es
     otra decisión, otro comando y otros jueces."""
 
-    def proyecto(self, cuerpo_de_la_impl, estado="✅ hecha", con_tabla=True):
+    def proyecto(self, cuerpo_de_la_impl, estado="✅ hecha", con_tabla=True,
+                 declara_test=True, test_cuerpo=None):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-auditar-")).resolve()
         (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
         self.addCleanup(shutil.rmtree, str(d), True)
@@ -10329,13 +10360,13 @@ class TestLoViejoNoVuelveAPasarPorElInstrumentoNuevo(unittest.TestCase):
         (d / "src" / "__init__.py").touch()
         (d / "tests" / "__init__.py").touch()
         (d / "src" / "cosa.py").write_text(cuerpo_de_la_impl)
-        (d / "tests" / "test_cosa.py").write_text(
+        (d / "tests" / "test_cosa.py").write_text(test_cuerpo or (
             "import unittest\nfrom unittest.mock import patch\nimport src.cosa\n\n\n"
             "class TestCosa(unittest.TestCase):\n"
             "    @patch('src.cosa.f')\n"
             "    def test_f(self, m):\n"
             "        m.return_value = 42\n"
-            "        self.assertEqual(src.cosa.f(), 42)\n")
+            "        self.assertEqual(src.cosa.f(), 42)\n"))
         tabla = ("\n## Tests\n\n| Tarea | Archivo de test | Clase |\n|---|---|---|\n"
                  "| T01 | tests/test_cosa.py | TestCosa |\n" if con_tabla else "")
         (d / "PLAN.md").write_text(
@@ -10347,7 +10378,8 @@ class TestLoViejoNoVuelveAPasarPorElInstrumentoNuevo(unittest.TestCase):
             f"# T01 — Una cosa\n\n**Estado:** {estado}\n**Depende de:** —\n"
             f"**Archivos que podés tocar:** src/cosa.py\n**Prohibido tocar:** Ninguno\n\n"
             f"## Objetivo\n\nQue haya una cosa.\n\n## Contrato\n\n- Escribí `src/cosa.py`.\n\n"
-            f"## Tests (ya escritos, fallando)\n\nArchivo: `tests/test_cosa.py`, clase `TestCosa`.\n")
+            + (f"## Tests (ya escritos, fallando)\n\nArchivo: `tests/test_cosa.py`, "
+               f"clase `TestCosa`.\n" if declara_test else ""))
         # `_comun.sh` exige estar dentro de un repo git: sin esto el auditor salía con
         # «Corré esto desde adentro del repo git de tu proyecto» por stderr y stdout vacío,
         # así que los tests fallaban sin decir por qué. Un fixture al que le falta el
@@ -10362,6 +10394,45 @@ class TestLoViejoNoVuelveAPasarPorElInstrumentoNuevo(unittest.TestCase):
 
     STUB = 'def f():\n    """Lo que sea."""\n    # Por ahora devolvemos None como placeholder\n    return None\n'
     BUENA = "def f():\n    return 42\n"
+
+    SIN_DECLARAR = ("def f(n):\n    x = n\n    if n > 100:\n        x = n * 2\n"
+                    "    return x\n")
+    TEST_FLOJO = ("import unittest\nfrom src.cosa import f\n\n\n"
+                  "class TestCosa(unittest.TestCase):\n"
+                  "    def test_f(self):\n        self.assertEqual(f(1), 1)\n")
+
+    def test_muta_los_archivos_declarados_aunque_nadie_declare_el_test(self):
+        """Lo que esta herramienta no podía preguntar, y es la mayoría del material.
+
+        Los pasos 1 a 3 necesitan el par test↔implementación, y 17 de las 19 tareas cerradas
+        de `ejemplo-pacman` no declaran su test en ninguna parte: ninguna era auditable. Los
+        ARCHIVOS sí los declaran las 19, y mutar no necesita más que eso y la suite.
+
+        Medido la primera vez que corrió sobre pacman: 98 mutantes, 9 sobrevivientes, con 103
+        tests verdes y 19 de 19 tareas cerradas. El gate de tarea no podía haberlo visto: el
+        paso 4b —mutar el diff— existe desde el 2026-10-25 y esas tareas se cerraron antes.
+        Es exactamente el material que esta herramienta existe para repasar."""
+        r = self.auditar(self.proyecto(self.SIN_DECLARAR, con_tabla=False,
+                                       declara_test=False, test_cuerpo=self.TEST_FLOJO))
+        self.assertIn("sin material para preguntar", r.stdout,
+                      f"el par test↔implementación no está, y eso se informa igual:\n{r.stdout}")
+        self.assertIn("sobrevivi", r.stdout,
+                      f"la mutación no depende de ese par y tenía que correr:\n{r.stdout}")
+        self.assertIn("src/cosa.py", r.stdout, "y tiene que decir dónde")
+        self.assertNotEqual(r.returncode, 0,
+                            f"un mutante vivo es un hallazgo, no una nota al pie:\n{r.stdout}")
+
+    def test_si_no_hubo_nada_que_mutar_eso_no_es_un_verde(self):
+        """El ⊘ de siempre, en el paso nuevo: si no se probó un solo mutante, nadie verificó
+        que la suite distinga, y decirlo con un ✓ es la clase de defecto que esta herramienta
+        vino a buscar."""
+        r = self.auditar(self.proyecto(
+            'def f():\n    print("hola")\n',
+            test_cuerpo=("import unittest\nfrom src.cosa import f\n\n\n"
+                         "class TestCosa(unittest.TestCase):\n"
+                         "    def test_f(self):\n        self.assertIsNone(f())\n")))
+        self.assertIn("No es un pase", r.stdout,
+                      f"nada que mutar es un ⊘ y tiene que decirlo:\n{r.stdout}")
 
     def test_encuentra_la_tarea_cerrada_cuyo_archivo_no_implementa_nada(self):
         """El caso de T04, reproducido: cerrada, con un stub, y el test lo mockea."""

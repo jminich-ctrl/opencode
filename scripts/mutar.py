@@ -58,6 +58,8 @@ CODIGO = [c.strip().rstrip("/") for c in os.environ.get("CODIGO", "src").split("
 # el paso 4 del gate ya documenta para su reversión, «archivos nuevos: nada que revertir».
 # Con `ARCHIVOS` el llamador dice cuáles son y no se adivina del índice de git.
 ARCHIVOS = [a for a in os.environ.get("ARCHIVOS", "").split() if a.strip()]
+# Cuántos sobrevivientes se listan: un número, o "todos" (lo que pide la auditoría).
+DETALLE = os.environ.get("DETALLE", "10").strip() or "10"
 
 # Heurísticas de aridez publicadas para Python, más las generales que aplican.
 ARIDAS_NOMBRE = re.compile(r"^(log|print|debug|warn|error|info|trace)", re.I)
@@ -496,7 +498,12 @@ def main():
             print(f"  · de esos, {muertas} sobre líneas que el test NUNCA ejecuta: ahí el")
             print("    problema no son las aserciones. Algo las reemplaza —casi siempre un")
             print("    mock del propio archivo de la tarea— o son código inalcanzable.")
-        for archivo, linea, que, texto, _nodo, _orig, _ne in sobrevivientes[:10]:
+        # Cuántos se listan. El tope existe porque en el gate de UNA tarea son pocos y una
+        # lista larga tapa el veredicto; pero imprimía "85 sobrevivieron" y mostraba 10 sin
+        # decir que mostraba 10, y la auditoría de un proyecto entero —que produce decenas—
+        # dejaba 75 sin forma de verlos. `DETALLE=todos` los pide todos; la auditoría lo usa.
+        tope_lista = len(sobrevivientes) if DETALLE == "todos" else min(int(DETALLE), len(sobrevivientes))
+        for archivo, linea, que, texto, _nodo, _orig, _ne in sobrevivientes[:tope_lista]:
             # El `→` es un CONTRATO, no decoración: `escribir-tests.sh` extrae los
             # sobrevivientes con `grep '→'` para ponerlos en el mensaje que el agente lee en
             # su reintento. Sin la flecha, esa extracción salía vacía SIEMPRE —en todas las
@@ -505,6 +512,9 @@ def main():
             # de vitest, el TODO, esto): el que imprime y el que raspa viven en archivos
             # distintos y nadie los lee juntos. Si se cambia esta línea, se cambia allá.
             print(f"     → {archivo}:{linea}  [{que}]   {texto.strip()[:60]}")
+        if tope_lista < len(sobrevivientes):
+            print(f"     · y {len(sobrevivientes) - tope_lista} más sin listar: DETALLE=todos "
+                  f"los muestra. Un informe que calla lo que no mostró manda a adivinar.")
         # 3 y no 1 cuando hay líneas que no se ejecutan: `escribir-tests.sh` imprime el
         # veredicto, y el que tenía escrito —«el test cubre las líneas»— es falso en ese
         # caso. Un código aparte es lo único que le permite no afirmarlo.
