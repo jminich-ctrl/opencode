@@ -4439,6 +4439,37 @@ class TestG4PreparaElCheckoutLimpioAntesDeJuzgarlo(CasoBase):
         self.assertIn("sin commitear", paso7,
                       f"éste es el caso que el paso existe para encontrar:\n{paso7}")
 
+    def test_si_el_clon_falla_dice_por_que_y_que_no_es_el_rojo_del_codigo(self):
+        """Un rojo sin evidencia. El paso tenía el `git clone` con `2>/dev/null`, así que
+        cuando no podía clonar informaba «no pude clonar el repo» y tiraba el motivo de git a
+        la basura — en el único de los ocho chequeos que mira lo COMMITEADO.
+
+        Lo encontré el 2026-10-26 al revés: el test de arriba falló UNA vez en cinco corridas
+        de la suite del método, y no pude diagnosticarlo porque este camino no deja rastro. El
+        test de arriba sigue pasando 8/8 solo y 12/12 en paralelo, así que de qué fue el fallo
+        no lo sé todavía; lo que sí sé es que si vuelve a pasar ahora queda escrito.
+
+        El `git` postizo falla SÓLO en `clone` y reenvía todo lo demás: corromper el `.git`
+        de verdad rompe los seis pasos anteriores y entonces el test mediría otra cosa."""
+        self.preparar()
+        bin_ = self.p.dir / ".bin"
+        bin_.mkdir(exist_ok=True)
+        postizo = bin_ / "git"
+        postizo.write_text(
+            '#!/usr/bin/env bash\n'
+            'for a in "$@"; do if [ "$a" = "clone" ]; then\n'
+            '  echo "fatal: no space left on device" >&2; exit 128; fi; done\n'
+            'exec /usr/bin/git "$@"\n')
+        postizo.chmod(0o755)
+        r = correr("bash scripts/pre-deploy.sh", self.p.dir, AGENTES=str(RAIZ),
+                   PATH=f"{bin_}:" + os.environ["PATH"])
+        paso7 = r.stdout.split("── 7.")[1] if "── 7." in r.stdout else ""
+        self.assertIn("no pude clonar", paso7, f"no llegó al camino que quiero medir:\n{paso7}")
+        self.assertIn("no space left on device", paso7,
+                      f"el rojo no dice por qué, que es todo el defecto:\n{paso7}")
+        self.assertIn("no llegó a juzgarlo", paso7,
+                      f"y tiene que decir de quién NO es el rojo:\n{paso7}")
+
     def test_sin_entorno_en_el_tronco_lo_dice_en_vez_de_inventarlo(self):
         """El control: si el tronco tampoco tiene el entorno, no hay nada que enlazar y el
         paso informa lo que pasó. Un enlace que no se pudo hacer no es un enlace hecho."""

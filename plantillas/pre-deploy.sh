@@ -179,7 +179,11 @@ echo "── 7. La suite sobre un checkout limpio"
 # porque nadie lo corrió en otro stack. Medido el 2026-10-26 en un proyecto JS con la suite
 # verde: «✗ la suite FALLA sobre un checkout limpio», con un ImportError de unittest.
 LIMPIO="$(mktemp -d)"
-if git clone -q --no-hardlinks --depth 1 "file://$RAIZ" "$LIMPIO/repo" 2>/dev/null; then
+# El `2>/dev/null` que estaba acá producía un rojo SIN EVIDENCIA: «no pude clonar el repo» y
+# nada más, con el motivo de git tirado a la basura. El 2026-10-26 este paso falló una vez en
+# cinco corridas de la suite del método y no se pudo diagnosticar por esto mismo — el único
+# chequeo que mira lo commiteado se volvió el único que no sabe decir por qué dijo no.
+if git clone -q --no-hardlinks --depth 1 "file://$RAIZ" "$LIMPIO/repo" 2>"$LIMPIO/clon.err"; then
   if [ ! -f "$LIMPIO/repo/${PREFIJO:-.}/scripts/correr-suite.sh" ]; then
     rojo "lo commiteado no incluye scripts/correr-suite.sh: no sé cómo correr la suite"
   else
@@ -228,6 +232,9 @@ if git clone -q --no-hardlinks --depth 1 "file://$RAIZ" "$LIMPIO/repo" 2>/dev/nu
   fi
 else
   rojo "no pude clonar el repo para verificar sobre lo commiteado"
+  echo "     No es el rojo de tu código: este paso no llegó a juzgarlo. git dijo:"
+  sed 's/^/     → /' "$LIMPIO/clon.err" 2>/dev/null | head -6
+  [ -s "$LIMPIO/clon.err" ] || echo "     → (git no dijo nada; mirá si queda disco: $(df -h . | tail -1 | awk '{print $4}'))"
 fi
 rm -rf "$LIMPIO"
 
