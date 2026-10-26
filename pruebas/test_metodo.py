@@ -11331,3 +11331,83 @@ class TestLoQueSeReplicaTieneQueEstarVivoYExplicado(unittest.TestCase):
         self.assertEqual(faltan, [],
                          "el gate exige estas rutas y la guía no dice de dónde salen: "
                          + ", ".join(faltan))
+
+
+class TestElValidadorPremiabaElIncumplimientoTotal(unittest.TestCase):
+    """`validar-plan.py` condicionaba TODO el chequeo de la tabla de tests a que hubiera al
+    menos una fila: `if tests_plan:`. Declarar una tarea obligaba a declararlas todas;
+    declarar NINGUNA no obligaba nada.
+
+    Medido el 2026-10-25: `ejemplo-pacman` tiene 19 tareas cerradas, ninguna declara su test,
+    17 de 19 están fuera del alcance de todos los chequeos que cruzan test contra
+    implementación, y su plan validaba limpio. Estaba «bien» ante el validador precisamente
+    por no haber declarado ni una.
+
+    Es la tercera vez en el día con la misma forma —una condición que protege al caso completo
+    y deja libre al vacío—: el brazo nulo conjunto absolvía a dos archivos si uno era
+    necesario, y la excepción de `conservar_intento` se leyó como excepción de la base.
+
+    Y la plantilla de PLAN.md no traía la tabla, así que el camino por DEFECTO producía
+    proyectos opacos."""
+
+    def plan_con(self, tests=""):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-tablatests-")).resolve()
+        (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
+        self.addCleanup(shutil.rmtree, str(d), True)
+        (d / "tareas").mkdir()
+        for tid in ("T01", "T02"):
+            (d / "tareas" / f"{tid}-cosa.md").write_text(
+                f"# {tid} — Cosa\n\n**Estado:** pendiente\n**Depende de:** —\n"
+                f"**Archivos que podés tocar:** src/{tid.lower()}.py\n"
+                f"**Prohibido tocar:** Ninguno\n\n## Objetivo\n\nAlgo.\n\n"
+                f"## Tests (ya escritos, fallando)\n\n"
+                f"Archivo: `tests/test_{tid.lower()}.py`, clase `Test{tid}`.\n")
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n**Estado del gate G0:** aprobado por nadie el 2026-01-01\n\n"
+            "## Requisitos\n\n- `algo` — que haya algo\n\n"
+            "## Tareas\n\n| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
+            "| T01 | Una | — | src/t01.py | pendiente |\n"
+            "| T02 | Otra | T01 | src/t02.py | pendiente |\n" + tests)
+        return d
+
+    TABLA = ("\n## Tests\n\n| Tarea | Archivo de test | Clase |\n|---|---|---|\n"
+             "| T01 | tests/test_t01.py | TestT01 |\n"
+             "| T02 | tests/test_t02.py | TestT02 |\n")
+
+    def validar(self, d):
+        return correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py", d)
+
+    def test_un_plan_sin_ninguna_fila_avisa_con_el_conteo(self):
+        r = self.validar(self.plan_con(""))
+        self.assertIn("ninguna de las 2 tarea(s)", r.stdout,
+                      f"no declarar NADA salía gratis:\n{r.stdout}")
+        # Y con la consecuencia, que es lo que distingue un aviso de un ruido.
+        self.assertIn("no pueden auditar NINGUNA", r.stdout, f"\n{r.stdout}")
+
+    def test_un_plan_con_la_tabla_completa_no_avisa(self):
+        r = self.validar(self.plan_con(self.TABLA))
+        self.assertNotIn("ninguna de las", r.stdout,
+                         f"declarando todo no corresponde el aviso:\n{r.stdout}")
+
+    def test_declarar_a_medias_sigue_siendo_error(self):
+        """El chequeo que ya existía no se tocó: una fila de dos es un error de forma, porque
+        `escribir-tests.sh` saltea la que falta."""
+        media = ("\n## Tests\n\n| Tarea | Archivo de test | Clase |\n|---|---|---|\n"
+                 "| T01 | tests/test_t01.py | TestT01 |\n")
+        r = self.validar(self.plan_con(media))
+        self.assertIn("sin test declarado", r.stdout, f"\n{r.stdout}")
+        self.assertNotEqual(r.returncode, 0, "declarar a medias es error, no aviso")
+
+    def test_la_plantilla_trae_la_tabla_y_el_validador_la_LEE(self):
+        """La plantilla es el camino por defecto: si no la trae, todo proyecto nuevo nace
+        opaco. Y tiene que ser LEGIBLE: mi primera versión usaba placeholders `Test<LoQueSea>`
+        y el validador exige que la clase sea un identificador, así que la tabla no se leía y
+        la plantilla avisaba CONTRA SÍ MISMA."""
+        plan = (PLANTILLAS / "PLAN.md").read_text()
+        self.assertRegex(plan, r"##+ *Tests", "la plantilla no trae la tabla de tests")
+        filas = re.findall(
+            r"^\|\s*(T\d+[a-z]?)\s*\|\s*`?([^|`]+?)`?\s*\|\s*`?([A-Za-z_][\w]*)`?\s*\|\s*$",
+            plan, re.M)
+        self.assertGreaterEqual(len(filas), 2,
+                                f"el validador no puede LEER la tabla de la plantilla: sus "
+                                f"filas tienen que cumplir el formato, sin `<>`. Leí: {filas}")

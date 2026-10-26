@@ -285,6 +285,28 @@ for tid, ruta, clase in FILA_TEST.findall(texto):
         continue
     tests_plan[tid] = (ruta.strip(), clase.strip())
 
+# Un plan CON tareas y SIN una sola fila de tests no lo auditaba nadie, y encima pasaba
+# limpio: el `if tests_plan` de abajo condiciona todo el chequeo a que haya al menos una
+# fila, así que declarar a medias salía caro y no declarar NADA salía gratis. Es la misma
+# forma del brazo nulo conjunto —bastaba que un archivo fuera necesario para absolver a los
+# otros— y de la excepción de `conservar_intento` que se leyó como excepción de la base: una
+# condición que protege al caso completo y deja libre al vacío.
+#
+# Medido el 2026-10-25: `ejemplo-pacman` tiene 19 tareas cerradas, ninguna declara su test,
+# 17 de 19 están fuera del alcance de todos los instrumentos que cruzan test contra
+# implementación, y su plan validaba sin un aviso.
+#
+# Es AVISO y no error a propósito: convertirlo en rojo dejaría a pacman sin validar de un
+# día para el otro, y un chequeo que muerde al material existente se apaga en una semana. Lo
+# que no puede faltar es el CONTEO y la consecuencia: un aviso sin número es ruido.
+if tareas and not tests_plan:
+    avisos.append(
+        f"ninguna de las {len(tareas)} tarea(s) declara su test en una «## Tests» con filas "
+        f"| T01 | ruta | Clase |: escribir-tests.sh no sabe qué archivo pedir, y los chequeos "
+        f"que cruzan test contra implementación —brazo nulo por archivo, aserciones que no "
+        f"pueden fallar, contrato que el test obliga— no pueden auditar NINGUNA. "
+        f"La plantilla la trae: plantillas/PLAN.md")
+
 if tests_plan:
     sin_test = sorted(set(tareas) - set(tests_plan))
     if sin_test:
