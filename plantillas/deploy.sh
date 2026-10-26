@@ -53,19 +53,43 @@ if [ "$DESTINO" = "produccion" ]; then
 fi
 
 # ── 3. Desplegar
+# ADAPTAR: el comando que despliega de verdad —rsync + systemctl, docker compose up,
+# kubectl apply, lo que uses—. Tiene que ser IDEMPOTENTE: correrlo dos veces no puede romper
+# nada. `$DESTINO` vale `staging` o `produccion`.
+#
+# Vacío a propósito, y por eso este script NO puede decir que desplegó: tal como venía, el
+# paso 3 eran dos comentarios y el final imprimía «✓ desplegado en staging» sin haber
+# desplegado nada. Es el defecto que este método persigue desde la primera línea —un paso que
+# no hizo nada informando éxito— y estaba en el único gate que toca usuarios y datos.
+COMANDO_DEPLOY=""
+
 echo "▶ desplegando a $DESTINO"
-# ADAPTAR: rsync + systemctl, docker compose up, kubectl apply, lo que uses.
-# Tiene que ser idempotente: correrlo dos veces no puede romper nada.
+if [ -z "$COMANDO_DEPLOY" ]; then
+  echo "✗ no hay comando de deploy configurado (COMANDO_DEPLOY en scripts/deploy.sh):"
+  echo "   no desplegué nada, y no puedo decir que sí. Adaptá el paso 3."
+  exit 1
+fi
+if ! "$SHELL" -c "$COMANDO_DEPLOY"; then
+  echo "✗ el comando de deploy falló — revertí ya: volver a $ANTERIOR"
+  exit 1
+fi
 
 # ── 4. Verificar que quedó arriba
 echo "▶ verificando"
 # ADAPTAR: el smoke contra el destino, no contra tu máquina.
-if bash scripts/smoke.sh; then
-  echo "✓ $DESTINO responde"
-else
-  echo "✗ $DESTINO NO responde — revertí ya: volver a $ANTERIOR"
-  exit 1
-fi
+# Los códigos del smoke son contrato y los leen DOS: G4 y esto. El 3 —«el proyecto declara
+# que no tiene nada que levantar», con su motivo— no es una falla: mandar a revertir por un
+# vacío declarado enseña a desconfiar del paso que verifica. Medido el 2026-10-26: le agregué
+# el 3 al contrato, actualicé G4 y no esto, y el deploy de una librería terminaba en «✗
+# staging NO responde — revertí ya» sobre un deploy que había ido bien.
+SAL_SMOKE_G5="$(bash scripts/smoke.sh 2>&1)"; RC_SMOKE_G5=$?
+printf '%s\n' "$SAL_SMOKE_G5" | grep . | sed 's/^/  /'
+case "$RC_SMOKE_G5" in
+  0) echo "✓ $DESTINO responde" ;;
+  3) echo "⊘ no verifiqué que $DESTINO responda: el proyecto declara que no hay nada que levantar" ;;
+  *) echo "✗ $DESTINO NO responde — revertí ya: volver a $ANTERIOR"
+     exit 1 ;;
+esac
 
 echo
 echo "✓ desplegado en $DESTINO"

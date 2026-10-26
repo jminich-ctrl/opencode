@@ -294,6 +294,30 @@ aplicados sobre lo que escribió el agente, **cinco muertos**. El sobreviviente 
 → `monto <= 0`, equivalente —con monto 0 el IVA es 0 de las dos formas— y de la clase que
 `mutar.py` excluye por árida: comparaciones contra 0. El verde está ganado.
 
+### G5, y el peor defecto de la noche estaba en la plantilla (08:20)
+
+`deploy.sh` del proyecto JS. El template no tiene ningún comando que salga hacia afuera —los
+pasos 3 y 4 son `ADAPTAR`— así que correrlo es inofensivo, y por eso nunca se había corrido.
+
+**Decía `✓ desplegado en staging` sin haber desplegado nada.** El paso 3 eran dos comentarios.
+Es el defecto que este método persigue desde su primera línea —un paso que no hizo nada
+informando éxito— en el ÚNICO gate que toca usuarios y datos, y en la plantilla que copia todo
+proyecto nuevo. Ahora el comando de deploy se declara en `COMANDO_DEPLOY`, y si está vacío el
+script **no se atribuye el deploy**: `✗ no desplegué nada, y no puedo decir que sí`.
+
+Y dos más:
+
+- **G5 no respetaba el contrato del smoke**, que acabábamos de extender: `if bash
+  scripts/smoke.sh` trata cualquier código distinto de 0 como falla, así que el vacío
+  declarado (código 3) terminaba en `✗ staging NO responde — revertí ya` sobre un deploy que
+  había ido bien. Un contrato con dos lectores necesita que se actualicen los dos: agregamos
+  el código a G4 y no a G5, en el mismo turno. Mandar a revertir por un vacío declarado es
+  peor que no verificar, porque enseña a desconfiar del paso que verifica.
+- **`.artefactos/` quedaba sin ignorar.** Lo crea G5 con `git archive`; el gate de la tarea
+  siguiente lo habría visto fuera de alcance y `cerrar-tarea.sh` habría commiteado un tarball.
+  Entró a la lista INFRA del gate, y de ahí el test del cruce lo exige en el `.gitignore` de la
+  guía.
+
 ### G4 en un proyecto nuevo, por primera vez (07:45)
 
 `pre-deploy.sh` nunca se había corrido fuera del Pacman —de los dos ejemplos sólo él lo tiene,

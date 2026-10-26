@@ -4287,6 +4287,110 @@ class TestLaLineaBaseDeFallasNoPuedeSalirVaciaEnSilencio(CasoBase):
                       f"la cabecera tiene que decir que `fallas` también sabe del corredor:\n{cab}")
 
 
+class TestG5NoPuedeDecirQueDesplegoSinDesplegar(CasoBase):
+    """La plantilla de `deploy.sh` tiene el paso 3 —desplegar— como un bloque ADAPTAR con
+    comentarios y ningún comando. Copiada tal cual, imprimía:
+
+        ▶ desplegando a staging
+        ▶ verificando
+        ✓ desplegado en staging
+
+    sin haber desplegado nada. Es el defecto que este método persigue desde la primera línea
+    —un paso que no hizo nada informando éxito— en el ÚNICO gate que toca usuarios y datos, y
+    estaba en la plantilla que copia todo proyecto nuevo.
+
+    El arreglo es el mismo mecanismo que el smoke: se declara. O hay un comando de deploy, o
+    el script dice que no lo hay y no se atribuye un deploy."""
+
+    def preparar(self, comando=None):
+        for n in ("pre-deploy.sh", "deploy.sh", "smoke.sh"):
+            shutil.copy(PLANTILLAS / n, self.p.dir / "scripts" / n)
+        sm = self.p.dir / "scripts" / "smoke.sh"
+        sm.write_text(sm.read_text().replace(
+            'SIN_ARRANQUE=""', 'SIN_ARRANQUE="librería: no hay nada que levantar"'))
+        if comando:
+            d = self.p.dir / "scripts" / "deploy.sh"
+            d.write_text(d.read_text().replace('COMANDO_DEPLOY=""', f'COMANDO_DEPLOY="{comando}"'))
+        self.p.implementar()
+        self.p.git("add -A"); self.p.git("commit -qm g5")
+
+    def test_sin_comando_de_deploy_no_dice_que_desplego(self):
+        self.preparar()
+        r = correr("bash scripts/deploy.sh staging", self.p.dir, AGENTES=str(RAIZ))
+        self.assertNotIn("✓ desplegado", r.stdout,
+                         f"se atribuyó un deploy que no hizo:\n{r.stdout}")
+        self.assertIn("no desplegué nada", r.stdout,
+                      f"y tiene que decirlo con esas palabras:\n{r.stdout}")
+        self.assertNotEqual(r.returncode, 0, "y salir distinto de cero")
+
+    def test_con_comando_configurado_despliega_y_lo_dice(self):
+        """El control: con el ADAPTAR hecho, el deploy pasa. Sin esto, lo de arriba lo aprueba
+        un G5 que nunca puede dar verde."""
+        self.preparar(comando="touch .deploy-hecho")
+        r = correr("bash scripts/deploy.sh staging", self.p.dir, AGENTES=str(RAIZ))
+        self.assertIn("✓ desplegado", r.stdout, f"{r.stdout}")
+        self.assertTrue((self.p.dir / ".deploy-hecho").exists(),
+                        "y el comando declarado tiene que haber CORRIDO")
+        self.assertEqual(r.returncode, 0, f"{r.stdout}{r.stderr}")
+
+
+class TestG5RespetaElContratoDelSmoke(CasoBase):
+    """Un contrato con DOS lectores necesita que los dos se actualicen, y yo actualicé uno.
+
+    El 2026-10-26 le agregué al smoke un código 3 —«este proyecto declara que no tiene nada
+    que levantar», con su motivo— para que una librería pudiera pasar G4 de forma honesta.
+    Actualicé G4 y NO G5: `deploy.sh` hace `if bash scripts/smoke.sh; then` y cualquier código
+    distinto de 0 es falla, así que el deploy terminaba en
+
+        ✗ staging NO responde — revertí ya: volver a <commit>
+
+    sobre un deploy que había ido bien. Mandar a revertir por un vacío declarado es peor que
+    no verificar: enseña a desconfiar del paso que verifica.
+
+    El método ya tenía el antecedente escrito —los códigos de `correr-suite.sh` los leen el
+    gate Y `escribir-tests.sh`, y mientras cada uno los interpretaba a su manera producían
+    diagnósticos falsos— y lo repetí con el contrato que acababa de escribir."""
+
+    def preparar_g5(self, codigo_smoke=3):
+        for n in ("pre-deploy.sh", "deploy.sh", "smoke.sh"):
+            shutil.copy(PLANTILLAS / n, self.p.dir / "scripts" / n)
+        # Con un comando de deploy declarado —inofensivo— porque sin él el script se frena en
+        # el paso 3 y no llega a verificar, que es lo que este test mide. Los dos arreglos de
+        # G5 de hoy interactúan: el fixture tiene que decir cuál de los dos está midiendo.
+        d = self.p.dir / "scripts" / "deploy.sh"
+        d.write_text(d.read_text().replace('COMANDO_DEPLOY=""', 'COMANDO_DEPLOY="true"'))
+        sm = self.p.dir / "scripts" / "smoke.sh"
+        if codigo_smoke == 3:
+            sm.write_text(sm.read_text().replace(
+                'SIN_ARRANQUE=""', 'SIN_ARRANQUE="es una librería: no hay nada que levantar"'))
+        else:
+            sm.write_text('#!/usr/bin/env bash\necho "  ✗ no arrancó"\nexit 1\n')
+        self.p.implementar()
+        self.p.git("add -A"); self.p.git("commit -qm g5")
+
+    def test_el_vacio_declarado_del_smoke_no_manda_a_revertir(self):
+        self.preparar_g5(codigo_smoke=3)
+        r = correr("bash scripts/deploy.sh staging", self.p.dir, AGENTES=str(RAIZ))
+        self.assertNotIn("NO responde", r.stdout,
+                         f"mandó a revertir por un vacío declarado:\n{r.stdout}")
+        self.assertIn("no tiene nada que levantar", r.stdout,
+                      f"y el motivo declarado tiene que quedar impreso:\n{r.stdout}")
+        self.assertEqual(r.returncode, 0, f"{r.stdout}{r.stderr}")
+
+    def test_un_smoke_que_falla_de_verdad_frena_el_deploy(self):
+        """El control, que es el que importa: el 3 es el ÚNICO código que no es falla.
+
+        No exige el mensaje «NO responde» del paso 4: con el smoke en rojo lo atrapa G4 —el
+        paso 0 de G5 es «nadie despliega sin G4 verde»— y el deploy ni llega a verificar. Mi
+        primera versión pedía ese texto y fallaba por eso: el invariante es que SE FRENE, no
+        cuál de los dos lo frena."""
+        self.preparar_g5(codigo_smoke=1)
+        r = correr("bash scripts/deploy.sh staging", self.p.dir, AGENTES=str(RAIZ))
+        self.assertNotEqual(r.returncode, 0,
+                            f"un smoke que falla tiene que frenar el deploy:\n{r.stdout}")
+        self.assertIn("✗", r.stdout, "y decir por qué")
+
+
 class TestG4NoTieneSuPropiaIdeaDeComoSeCorreLaSuite(CasoBase):
     """`pre-deploy.sh` —G4— corría la suite con `python3 -m unittest discover -s tests` CLAVADO,
     y el proyecto declara cómo se corre la suya en `scripts/correr-suite.sh`.

@@ -31,7 +31,7 @@ Detalle en [OPENCODE.md](OPENCODE.md) e [INFRAESTRUCTURA.md](INFRAESTRUCTURA.md)
 mkdir ~/mi-proyecto && cd ~/mi-proyecto && git init    # fuera del clon de este repo
 mkdir -p tareas scripts src tests
 touch src/__init__.py tests/__init__.py       # el gate descubre los tests como paquete
-printf '__pycache__/\n*.pyc\nnode_modules/\n.venv\n.entorno\n.mysql/\n.tarea.log\n.plan.log\n.segundos\n.opencode-data/\n.metricas/\n.base-ref\n.tests-base\nPLAN.md.previo\n' > .gitignore
+printf '__pycache__/\n*.pyc\nnode_modules/\n.venv\n.entorno\n.mysql/\n.tarea.log\n.plan.log\n.segundos\n.opencode-data/\n.metricas/\n.artefactos/\n.base-ref\n.tests-base\nPLAN.md.previo\n' > .gitignore
 cp $AGENTES/plantillas/PLAN.md .
 cp $AGENTES/plantillas/gate.sh scripts/            # el juez; buscá "ADAPTAR": son cuatro líneas
 cp $AGENTES/plantillas/correr-suite.sh scripts/    # CÓMO se corre tu suite: el gate lo exige y da rojo si falta
