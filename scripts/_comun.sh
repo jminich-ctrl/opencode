@@ -1353,6 +1353,32 @@ recordar_falla() {
   return 0
 }
 
+# El registro de enlaces de cobertura (`.cobertura.json`), commiteado EN EL ACTO y por el
+# mismo motivo que la memoria de arriba: lo escribe `cobertura.py` cuando `correr-todo.sh`
+# verifica la firma de G0 —o sea ANTES de la primera tarea— y si queda sin trackear,
+# `integrar.sh` frena la etapa 1 con las tareas en verde, con un mensaje («el tronco tiene
+# cambios sin commitear») que hace pensar en un descuido del humano. Ya pasó con `memoria/`.
+#
+# Y commitearlo no es sólo para desatascar: el valor entero del registro es que una
+# re-bendición de un enlace quede en el diff, y un archivo sin trackear no tiene diff.
+#
+# Pathspec al final, como arriba: commitea ESTE archivo y no barre lo que haya sucio al lado.
+commitear_cobertura() {
+  local reg="${1:-$BASE/.cobertura.json}"
+  # Sólo si está SIN TRACKEAR: si ya está en git, un cambio suyo es una re-bendición y ésa
+  # la commitea quien la decidió, no el runner por atrás.
+  [ -n "$(git -C "$RAIZ" ls-files --others --exclude-standard -- "$reg" 2>/dev/null)" ] || return 0
+  local i=0
+  while [ "$i" -lt 3 ]; do
+    git -C "$RAIZ" add "$reg" >/dev/null 2>&1 \
+      && git -C "$RAIZ" commit -q -m "G0: enlaces de cobertura aprobados" -- "$reg" >/dev/null 2>&1 \
+      && break
+    i=$((i+1)); sleep 1
+  done
+  [ "$i" -ge 3 ] && echo "  ⚠ no pude commitear .cobertura.json — integrar.sh va a frenar por tronco sucio" >&2
+  return 0
+}
+
 # Los registros que le sirven a una tarea: los de las tareas que tocaron ALGUNO de sus
 # archivos. No todos —un prompt lleno de memoria ajena es el caso C, que compra cero— ni
 # sólo los propios, porque la falla suele estar en el archivo compartido.

@@ -2737,6 +2737,154 @@ class TestLaMemoriaQueElRunnerEscribeNoFrenaLaIntegracion(CasoBase):
                          "sin motivo no se escribe ni el directorio")
 
 
+class TestElRegistroDeCoberturaNoFrenaLaIntegracion(CasoBase):
+    """El mismo defecto que ya pagó `memoria/`, un archivo más tarde.
+
+    `.cobertura.json` lo escribe `cobertura.py` cuando `correr-todo.sh` verifica la firma de
+    G0 —antes de la primera tarea—. Si queda sin trackear, `integrar.sh` se niega a mergear
+    con el tronco sucio (y tiene razón) y frena la etapa 1 con las tareas EN VERDE, diciendo
+    «el tronco tiene cambios sin commitear», que suena a descuido del humano.
+
+    Las dos puertas no coinciden y por eso no se puede confiar en la temprana: `correr-todo.sh`
+    filtra los sin-trackear de su chequeo de arranque (`grep -v '^?? '`) e `integrar.sh` no los
+    filtra. Medido el 2026-10-26: con un solo archivo sin trackear, la primera ve el árbol
+    limpio y la segunda lo ve sucio. Así que el arreglo va del lado del runner, como en
+    `memoria/`: commitea su propia salida, en su propio commit y con pathspec."""
+
+    def registro(self):
+        return self.p.dir / ".cobertura.json"
+
+    def commitear(self):
+        return correr("bash -c " + shlex.quote(
+            f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; ubicar_proyecto >/dev/null 2>&1; '
+            'commitear_cobertura'), self.p.dir)
+
+    def test_despues_de_registrar_el_tronco_queda_limpio(self):
+        self.registro().write_text('{"enlaces": {}}\n')
+        self.commitear()
+        sucio = correr("git status --porcelain", self.p.repo).stdout.strip()
+        self.assertEqual(sucio, "",
+                         f"el runner dejó el tronco sucio con su propia salida y la etapa "
+                         f"siguiente no va a poder integrar:\n{sucio}")
+
+    def test_viaja_en_su_propio_commit(self):
+        self.registro().write_text('{"enlaces": {}}\n')
+        self.commitear()
+        self.assertEqual(correr("git log -1 --format=%s", self.p.repo).stdout.strip(),
+                         "G0: enlaces de cobertura aprobados",
+                         "el commit tiene que nombrarse como los otros del runner")
+        archivos = [a for a in correr("git show --name-only --format= HEAD",
+                                      self.p.repo).stdout.split() if a]
+        self.assertEqual(archivos, ["proyecto/.cobertura.json"],
+                         "commitea ESE archivo y no barre lo que haya sucio al lado")
+
+    def test_no_barre_otros_cambios_sin_commitear(self):
+        """Brazo nulo: si commiteara todo, el runner se llevaría puesto el trabajo del humano
+        y el tronco quedaría «limpio» por el motivo equivocado."""
+        self.registro().write_text('{"enlaces": {}}\n')
+        ajeno = self.p.dir / "src" / "mio.py"
+        ajeno.write_text("# lo estaba editando yo\n")
+        self.commitear()
+        self.assertIn("src/mio.py", correr("git status --porcelain", self.p.repo).stdout,
+                      "se llevó puesto un cambio que no era suyo")
+        # Y NO QUEDA EN EL ÍNDICE. Lo midió la mutación: cambiar `add "$reg"` por `add -A` no
+        # rompía nada, porque el pathspec del `commit` ya limita lo que entra — pero deja el
+        # cambio ajeno preparado, y el próximo `commit` que no use pathspec se lo lleva. El
+        # test de `recordar_falla`, que es el precedente de esto, tiene el mismo punto ciego.
+        preparado = correr("git diff --cached --name-only", self.p.repo).stdout.strip()
+        self.assertEqual(preparado, "",
+                         f"dejó cambios ajenos en el índice:\n{preparado}")
+
+    def test_si_ya_esta_trackeado_no_lo_commitea_por_atras(self):
+        """Un cambio en un registro ya trackeado es una RE-BENDICIÓN, y ésa la commitea quien
+        la decidió. Si el runner la commiteara solo, la decisión que el registro existe para
+        dejar a la vista entraría en la historia sin que nadie la firme."""
+        self.registro().write_text('{"enlaces": {}}\n')
+        self.p.git("add -A"); self.p.git("commit -qm registro")
+        self.registro().write_text('{"enlaces": {"cosa": {}}}\n')
+        self.commitear()
+        self.assertIn(".cobertura.json", correr("git status --porcelain", self.p.repo).stdout,
+                      "una re-bendición no la commitea el runner")
+
+    def test_sin_registro_no_hay_commit_vacio(self):
+        antes = correr("git log -1 --format=%s", self.p.repo).stdout.strip()
+        self.commitear()
+        self.assertEqual(correr("git log -1 --format=%s", self.p.repo).stdout.strip(), antes,
+                         "sin registro no hay nada que commitear")
+
+    PAPELES = {"arquitecto": "m-razona", "plan": "m-razona", "reviewer": "m-razona",
+               "ejecutor": "m-escribe", "build": "m-escribe",
+               "title": "m-chico", "summary": "m-chico"}
+
+    def plataforma_falsa(self):
+        """La sonda de `correr-todo.sh` está ANTES del registro, así que para medir el camino
+        positivo hay que pasarla. Servidor local, como los otros andamios de este archivo."""
+        import http.server, threading
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-cob-plataforma-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        cfg = d / "opencode.json"
+        cfg.write_text(json.dumps({
+            "provider": {"colabhive": {"models": {m: {} for m in set(self.PAPELES.values())}}},
+            "agent": {pa: {"model": f"colabhive/{m}"} for pa, m in self.PAPELES.items()}}))
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                self.rfile.read(n)
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(CUERPO_CHAT_OK)))
+                self.end_headers()
+                self.wfile.write(CUERPO_CHAT_OK)
+
+            def log_message(self, *a):
+                pass
+
+        srv = ServidorFalso(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return cfg, f"http://127.0.0.1:{srv.server_address[1]}/v1"
+
+    def test_una_corrida_de_verdad_registra_y_commitea_el_registro(self):
+        """El camino POSITIVO del cableado, y hacía falta medirlo: con sólo el test del
+        ensayo, poner `RECORDAR_COB=""` —o sea que `correr-todo.sh` no registre nunca— no
+        rompía ningún test. Un chequeo que nunca se arma es decoración, que es justo el
+        riesgo que este registro tiene escrito en su propio docstring.
+
+        El plan va con TODO hecho a propósito: así el runner pasa por el registro y después
+        no tiene ninguna etapa que lanzar, y el test no necesita agentes."""
+        (self.p.dir / "OBJETIVO.md").write_text(
+            "# Qué queremos\n\nUna cosa.\n\n## Requisitos\n\n- `cosa` — que haya una cosa\n")
+        plan = self.p.dir / "PLAN.md"
+        plan.write_text(plan.read_text().replace("| pendiente |", "| ✅ hecha |"))
+        self.p.escribir_tarea("T01", "src/cosa.py", estado="✅ hecha")
+        self.p.git("add -A"); self.p.git("commit -qm 'plan hecho'")
+        cfg, base = self.plataforma_falsa()
+        r = correr(f"bash {SCRIPTS}/correr-todo.sh", self.p.dir, AGENTES=str(RAIZ),
+                   COLABHIVE_BASE_URL=base, COLABHIVE_API_KEY="x", CONFIG_OC=str(cfg),
+                   ARRANQUE_FRIO=5)
+        self.assertTrue(self.registro().exists(),
+                        f"una corrida de verdad tiene que registrar los enlaces:"
+                        f"\n{r.stdout[-1200:]}{r.stderr[-600:]}")
+        self.assertEqual(correr("git log -1 --format=%s", self.p.repo).stdout.strip(),
+                         "G0: enlaces de cobertura aprobados",
+                         f"y commitearlos, o integrar.sh frena después:\n{r.stdout[-600:]}")
+        self.assertEqual(correr("git status --porcelain", self.p.repo).stdout.strip(), "",
+                         "y el tronco tiene que quedar limpio")
+
+    def test_el_ensayo_no_escribe_ni_commitea(self):
+        """`SOLO_VER=1` promete «qué haría, sin tocar nada»: un ensayo que deja un commit es
+        un ensayo que miente."""
+        (self.p.dir / "OBJETIVO.md").write_text(
+            "# Qué queremos\n\nUna cosa.\n\n## Requisitos\n\n- `cosa` — que haya una cosa\n")
+        self.p.git("add -A"); self.p.git("commit -qm encargo")
+        correr(f"SOLO_VER=1 bash {SCRIPTS}/correr-todo.sh", self.p.dir, AGENTES=str(RAIZ))
+        self.assertFalse(self.registro().exists(),
+                         "el ensayo escribió el registro de cobertura")
+        self.assertEqual(correr("git log -1 --format=%s", self.p.repo).stdout.strip(),
+                         "encargo", "el ensayo dejó un commit")
+
+
 class TestElInstrumentoNoMandaAlHumanoAHacerLoQueNoVa(unittest.TestCase):
     """Dos mensajes del método que decían algo que no era, los dos cobrados el 2026-10-19
     mientras diagnosticaba por qué la etapa 1 no integraba. Chequeos de forma: el primero

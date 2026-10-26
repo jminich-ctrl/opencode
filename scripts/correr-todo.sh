@@ -101,9 +101,13 @@ fi
 # tarea que NOMBRE el requisito, y un requisito se puede debilitar sin dejar de ser nombrado.
 # «si-falta» y no «1»: re-bendecir en cada corrida haría que la comparación siempre diera
 # «igual», que es la forma de que el chequeo sea decoración.
-(cd "$BASE" && ENCARGO="${ENCARGO:-OBJETIVO.md}" PLAN=PLAN.md RECORDAR=si-falta \
+# `SOLO_VER=1` promete «qué haría, sin tocar nada», así que en ese modo no se registra ni se
+# commitea: un ensayo que deja un commit es un ensayo que miente.
+RECORDAR_COB="si-falta"; [ "$SOLO_VER" = "1" ] && RECORDAR_COB=""
+(cd "$BASE" && ENCARGO="${ENCARGO:-OBJETIVO.md}" PLAN=PLAN.md RECORDAR="$RECORDAR_COB" \
    python3 "$AQUI/cobertura.py") || {
   echo "✗ El plan no cubre el encargo. Eso se decide arriba, no acá." >&2; exit 1; }
+[ "$SOLO_VER" = "1" ] || commitear_cobertura
 
 # El stderr NO va a /dev/null: ahí viajan los dos avisos de que el corte de etapas puede
 # estar mal —«sin archivos declarados, no se les puede aplicar la regla del choque» de
