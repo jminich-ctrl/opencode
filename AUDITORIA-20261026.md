@@ -31,6 +31,7 @@ defectos no:
 | paso 5 del gate de clasificados | nada: ni el encabezado | el `[ -f ]` estaba en la condición del paso, así que sin el archivo no imprimía ni su título y el veredicto salía «GATE VERDE» limpio |
 | paso 6 del mismo | `·` suelto | la ausencia de suite reservada no sumaba a los vacíos. Y clasificados **no tiene** suite reservada: en 18 tareas cerradas, el único gate que mide lo no-optimizable nunca corrió |
 | paso 6, la ruta | `✓ Ran 1 test … de composición` | con los reservados **dentro del repo** el agente los lee. Es el hack más común, está medido, y nada lo verificaba |
+| `correr-plan.sh` | `✓ Todas las tareas de PLAN.md están marcadas como hechas: no hay nada que lanzar.` y código 0 | con un plan cuyas dependencias forman un ciclo, `_etapas.py` se niega a ordenarlo: sale con código **1** y escribe todo su diagnóstico a stderr, así que su stdout queda vacío. Se miraba sólo el código 2, el 1 seguía de largo, y `ETAPAS` vacío se informaba como plan terminado. **Cero tareas ejecutadas, reportadas como éxito**, en una de las cinco puertas. Y alcanzable de punta a punta: `validar-plan.py` tampoco detectaba ciclos, así que el plan cíclico salía «✓ sin errores de forma» y lo firmaba una persona |
 | sonda de plataforma | `✓ contesta` | un POST de 4 tokens, mirando sólo el código HTTP. Un 200 con `{"error":"model not loaded"}` contaba como sano (defecto 19, abierto desde el 20-10) |
 | `_aserciones.py` | `0` y silencio | sin argumentos, con un archivo que no existe, con uno que no es `.py`, y con uno que no parsea. Las cuatro se leían igual que «lo miré y está limpio» |
 | paso 7 de G4 | `✓ desplegado en staging` | el paso 3 de `deploy.sh` eran dos comentarios ADAPTAR: **no desplegaba nada**, en el único gate que toca usuarios |
@@ -104,4 +105,10 @@ Decisiones, no tareas:
   decisión, otro comando y otros jueces.
 - **Doce servidores falsos** en la suite, todos distintos, crecieron en tres esta noche.
   Deduplicarlos es un refactor de doce sitios; queda anotado con su medición, no hecho.
-- **Un plan de veinte tareas** sigue sin probarse: lo más largo medido son cinco.
+- **Un plan de veinte tareas**: probado el 2026-10-26 en la parte MECÁNICA, que es la que
+  escala —veinte tareas con seis escribiendo el mismo archivo salen en seis etapas distintas
+  sin perder ninguna; una cadena de veinte da veinte etapas; un ciclo da rojo y no se cuelga—.
+  Probarlo fue lo que destapó el veredicto falso de `correr-plan.sh`, que es el argumento
+  entero a favor de probar las escalas que nadie probó. **Lo que sigue sin medirse es la
+  ejecución con agentes a esa escala**: veinte worktrees, veinte merges y veinte corridas de
+  modelo, que es otro costo y otra clase de falla. Lo más largo ejecutado de verdad son cinco.

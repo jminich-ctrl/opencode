@@ -13,6 +13,11 @@ import re
 import sys
 from collections import OrderedDict
 
+# El directorio de este script, para que `_grafo` se encuentre igual corra desde donde corra:
+# estos scripts se invocan con `python3 "$AQUI/_etapas.py"` desde el directorio del PROYECTO.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _grafo import un_ciclo
+
 texto = open(os.environ.get("PLAN", "PLAN.md")).read()
 
 tareas = OrderedDict()
@@ -65,8 +70,18 @@ while pendientes:
             continue
         etapa.append(tid)
         ocupados |= t["archivos"]
-    if not etapa:                          # dependencia circular o hacia una tarea inexistente
+    if not etapa:
+        # Dos causas distintas, y decirlas juntas no sirve: «revisá sus dependencias» con 20
+        # tareas es una tarde de lectura. Acá se nombra CUÁL es el problema.
         print(" ".join(pendientes), file=sys.stderr)
+        for tid, t in pendientes.items():
+            fantasmas = sorted(t["deps"] - set(tareas))
+            if fantasmas:
+                print(f"   {tid} depende de {' '.join(fantasmas)}, que no está en la tabla",
+                      file=sys.stderr)
+        ciclo = un_ciclo({k: v["deps"] for k, v in pendientes.items()})
+        if ciclo:
+            print(f"   el ciclo: {' → '.join(ciclo)}", file=sys.stderr)
         sys.exit("✗ no pude ordenar estas tareas: revisá sus dependencias en el plan")
     print(" ".join(etapa))
     for tid in etapa:

@@ -28,6 +28,10 @@ import re
 import subprocess
 import sys
 
+# Ver `_grafo.py`: el mismo buscador de ciclos que usa `_etapas.py`, sin una segunda copia.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _grafo import un_ciclo
+
 RAIZ = pathlib.Path(os.environ.get("PLAN", "PLAN.md")).resolve().parent
 PLAN = pathlib.Path(os.environ.get("PLAN", "PLAN.md"))
 if not PLAN.exists():
@@ -85,8 +89,12 @@ for tid, celdas in filas:
     if tid in tareas:
         duplicadas.append(tid)
         continue
-    tareas[tid] = {"titulo": celdas[0], "deps": set(re.findall(r"T\d+[a-z]?", celdas[1])) - {tid},
-                   "archivos": celdas[2], "hecha": "✅" in celdas[-1]}
+    deps_crudas = set(re.findall(r"T\d+[a-z]?", celdas[1]))
+    tareas[tid] = {"titulo": celdas[0], "deps": deps_crudas - {tid},
+                   "archivos": celdas[2], "hecha": "✅" in celdas[-1],
+                   # Que la tabla la declare dependiente de sí misma se ANOTA y no se tira:
+                   # descartarla en silencio es lo que hacía mentir al rojo de más abajo.
+                   "auto": tid in deps_crudas}
 if duplicadas:
     errores.append(f"filas repetidas en la tabla: {' '.join(sorted(set(duplicadas)))}")
 
@@ -95,6 +103,25 @@ for tid, t in tareas.items():
     faltan = t["deps"] - set(tareas)
     if faltan:
         errores.append(f"{tid} depende de tareas que no están en la tabla: {' '.join(sorted(faltan))}")
+
+# ── Y dependencias circulares, que pasaban ENTERAS: un plan cíclico salía «✓ sin errores de
+# forma», lo firmaba una persona, y después `correr-plan.sh` decía «todas las tareas están
+# marcadas como hechas: no hay nada que lanzar» con código 0 sobre un plan donde no se podía
+# lanzar NINGUNA. Medido el 2026-10-26 con T01→T03→T02→T01.
+# Una tarea que se espera a sí misma es el ciclo de largo 1, y los dos parseos la trataban
+# distinto: el de la tabla la descartaba (`- {tid}`) y el del archivo de tarea no. Resultado,
+# el rojo de abajo informaba «declara «Depende de: T01» y la tabla dice «—»» sobre una tabla
+# que decía T01: el rojo frenaba el plan —bien— con una explicación FALSA. Medido el
+# 2026-10-26 probando formas de plan que nunca se habían medido.
+auto = sorted(t for t, v in tareas.items() if v.get("auto"))
+if auto:
+    errores.append(f"la tabla declara que {' '.join(auto)} depende de sí misma: una tarea que "
+                   f"se espera a sí misma no puede arrancar nunca")
+
+ciclo = un_ciclo({k: v["deps"] for k, v in tareas.items()})
+if ciclo:
+    errores.append(f"dependencias circulares: {' → '.join(ciclo)}. Ninguna de esas tareas "
+                   f"puede arrancar nunca, así que el plan no es ejecutable")
 
 # ── Plan y archivos de tarea tienen que coincidir en los dos sentidos
 dir_tareas = RAIZ / "tareas"
@@ -202,6 +229,11 @@ for tid in sorted(set(tareas) & set(en_disco)):
     m_dep = re.search(r"^\*\*Depende de:\*\* *(.*)$", cuerpo, re.M)
     if m_dep:
         del_archivo = set(re.findall(r"T\d+[a-z]?", m_dep.group(1)))
+        if tid in del_archivo:
+            errores.append(f"{f.name} declara que {tid} depende de sí misma")
+            # Y se saca ANTES de comparar, para que el rojo de abajo compare lo mismo contra
+            # lo mismo en vez de inventar una divergencia entre la tabla y el archivo.
+            del_archivo.discard(tid)
         if del_archivo != tareas[tid]["deps"]:
             errores.append(
                 f"{f.name} declara «Depende de: {' '.join(sorted(del_archivo)) or '—'}» y la "

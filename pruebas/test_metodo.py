@@ -4140,6 +4140,33 @@ class TestEtapas(CasoBase):
         self.assertEqual(r.stdout.split("\n")[0].split(), ["T01"])
         self.assertIn("T02", r.stdout.split("\n")[1])
 
+    def test_veinte_tareas_con_seis_que_chocan_salen_en_etapas_distintas(self):
+        """Un plan de veinte tareas no se había probado nunca: lo más largo medido eran cinco.
+
+        Con veinte independientes y seis escribiendo el MISMO archivo, la regla del choque es
+        lo único que decide, y tiene que empujar a las seis a seis etapas distintas sin perder
+        ninguna de las veinte por el camino. Es también el escenario donde el defecto de
+        `correr-plan.sh` apareció: probar veinte fue lo que lo destapó."""
+        comparten = [f"T{n:02d}" for n in (1, 4, 7, 10, 13, 16)]
+        filas = ""
+        for n in range(1, 21):
+            tid = f"T{n:02d}"
+            arch = "src/comun.py" if tid in comparten else f"src/m{n:02d}.py"
+            filas += f"| {tid} | Cosa {n} | — | {arch} | pendiente |\n"
+        self.tabla(filas)
+        r = self.etapas()
+        etapas = [l.split() for l in r.stdout.strip().splitlines() if l.strip()]
+        vistas = [t for e in etapas for t in e]
+        self.assertEqual(sorted(vistas), sorted(f"T{n:02d}" for n in range(1, 21)),
+                         f"se perdió o se repitió alguna de las veinte:\n{r.stdout}")
+        for i, e in enumerate(etapas, 1):
+            juntas = [t for t in e if t in comparten]
+            self.assertLessEqual(len(juntas), 1,
+                                 f"la etapa {i} manda {juntas} en paralelo al mismo archivo, "
+                                 f"que es la falla que este motor existe para evitar:\n{r.stdout}")
+        self.assertGreaterEqual(len(etapas), len(comparten),
+                                f"seis que chocan no caben en {len(etapas)} etapas:\n{r.stdout}")
+
     def test_choque_de_archivo_separa_tareas(self):
         """La regla que más cuesta aplicar a mano, y la que más se olvida."""
         self.tabla("| T01 | A | — | src/mismo.py | pendiente |\n"
@@ -4916,6 +4943,121 @@ class TestDeclararEtapasNoPuedeRelanzarLoQueYaEstaHecho(CasoBase):
         self.assertEqual(r.returncode, 0, f"{r.stdout}{r.stderr}")
         self.assertIn("hechas", r.stdout,
                       f"con todo hecho, lo dice y no lanza nada:\n{r.stdout}")
+
+
+class TestUnPlanQueNoSePuedeOrdenarNoEsUnPlanTerminado(CasoBase):
+    """El veredicto falso más barato que encontré hoy, y estaba en una de las cinco puertas.
+
+    Medido el 2026-10-26 probando por primera vez un plan de veinte tareas: con un plan cuyas
+    dependencias forman un ciclo —T01 depende de T03, T03 de T02, T02 de T01—, `_etapas.py`
+    se niega a ordenarlo y sale con código 1 escribiendo TODO su diagnóstico a stderr, así que
+    su stdout queda vacío. `correr-plan.sh` capturaba sólo stdout y miraba sólo el código 2,
+    de modo que el 1 seguía de largo, `ETAPAS` quedaba vacío, y veinte líneas más abajo eso
+    se informaba como
+
+        ✓ Todas las tareas de PLAN.md están marcadas como hechas: no hay nada que lanzar.
+
+    con código 0. Cero tareas ejecutadas, reportado como plan terminado.
+
+    Y era alcanzable de punta a punta, porque `validar-plan.py` TAMPOCO detectaba los ciclos:
+    el plan cíclico salía «✓ 3 tareas, sin errores de forma», lo firmaba una persona en G0 y
+    el runner lo declaraba terminado. Las dos mitades se arreglaron juntas: el validador lo
+    atrapa en G0 —que es donde lo arregla quien planifica— y el runner ya no confunde «no pude
+    ordenar» con «no queda nada»."""
+
+    CICLO = (("T01", "T03"), ("T02", "T01"), ("T03", "T02"))
+
+    def plan(self, deps, estado="pendiente"):
+        filas = "".join(f"| {t} | Cosa {t} | {d} | src/{t}.py | {estado} |\n" for t, d in deps)
+        (self.p.dir / "PLAN.md").write_text(
+            "# Plan\n\n**Estado del gate G0:** aprobado por nadie el 2026-01-01\n\n"
+            "## Requisitos\n\n- `cosa` — que haya una cosa\n\n"
+            "## Tareas\n\n| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
+            + filas)
+        for t, d in deps:
+            (self.p.dir / "tareas" / f"{t}-cosa.md").write_text(
+                f"# {t} — Cosa\n\n**Estado:** {estado}\n**Depende de:** {d}\n"
+                f"**Archivos que podés tocar:** src/{t}.py\n**Prohibido tocar:** tests/\n\n"
+                f"## Objetivo\n\nQue haya una cosa.\n")
+        self.p.git("add -A"); self.p.git("commit -qm plan")
+
+    def correr_plan(self):
+        return correr(f"SOLO_ETAPAS=1 bash {SCRIPTS}/correr-plan.sh", self.p.dir,
+                      AGENTES=str(RAIZ))
+
+    def test_el_runner_no_declara_terminado_un_plan_que_no_pudo_ordenar(self):
+        self.plan(self.CICLO)
+        r = self.correr_plan()
+        self.assertNotEqual(r.returncode, 0,
+                            f"un plan que no se puede ordenar no es un plan terminado:"
+                            f"\n{r.stdout}{r.stderr}")
+        self.assertNotIn("marcadas como hechas", r.stdout,
+                         f"ninguna tarea está hecha; esto es el veredicto falso:"
+                         f"\n{r.stdout}{r.stderr}")
+        self.assertIn("no es ejecutable", r.stdout + r.stderr)
+
+    def test_una_tarea_que_depende_de_si_misma_se_dice_sin_inventar_una_divergencia(self):
+        """El rojo era cierto y su explicación falsa, que es la mitad que el método no
+        perdona: decía «declara «Depende de: T01» y la tabla dice «—»» con la tabla diciendo
+        T01. Los dos parseos trataban distinto el mismo texto —el de la tabla descartaba la
+        auto-dependencia, el del archivo de tarea no— y la divergencia la fabricaba el
+        validador.
+
+        `_etapas.py` sí la descarta y ordena el plan igual, y está bien que lo haga: una tarea
+        que se espera a sí misma no significa nada. Lo que no puede pasar es que G0 lo explique
+        mal, porque es el único lugar donde se arregla."""
+        self.plan((("T01", "T01"), ("T02", "T01")))
+        r = correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py", self.p.dir)
+        self.assertRojo(r, "una tarea no puede esperarse a sí misma", motivo="de sí misma")
+        self.assertNotIn("la tabla dice «—»", r.stdout,
+                         f"la tabla dice T01: esa explicación es falsa:\n{r.stdout}")
+
+    def test_la_auto_dependencia_solo_en_la_tabla_tampoco_pasa(self):
+        """El caso que mató al mutante: si la auto-dependencia está SÓLO en la tabla y el
+        archivo de tarea dice «—», la comparación entre los dos no ve nada —el parseo de la
+        tabla la descarta, así que los dos quedan vacíos— y sin el chequeo propio el plan pasa
+        G0 entero con una tabla que dice algo imposible. Lo midió la mutación: con el caso
+        donde las dos fuentes la declaran, quitar este chequeo no rompía ningún test."""
+        self.plan((("T01", "T01"), ("T02", "T01")))
+        t = self.p.dir / "tareas" / "T01-cosa.md"
+        t.write_text(t.read_text().replace("**Depende de:** T01", "**Depende de:** —"))
+        self.p.git("add -A"); self.p.git("commit -qm 'sólo la tabla'")
+        r = correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py", self.p.dir)
+        self.assertRojo(r, "la tabla declara algo imposible", motivo="de sí misma")
+
+    def test_el_validador_lo_atrapa_en_G0_que_es_donde_se_arregla(self):
+        self.plan(self.CICLO)
+        r = correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py", self.p.dir)
+        self.assertRojo(r, "un ciclo es un error de forma del plan", motivo="circulares")
+
+    def test_el_rojo_nombra_el_ciclo_en_vez_de_mandar_a_leer_el_plan(self):
+        """«Revisá sus dependencias en el plan» con veinte tareas es una tarde de lectura, y
+        el método ya tiene la regla escrita para sus rojos: tienen que decir QUÉ está mal."""
+        self.plan(self.CICLO)
+        r = correr(f"PLAN=PLAN.md python3 {SCRIPTS}/_etapas.py", self.p.dir)
+        salida = r.stdout + r.stderr
+        self.assertIn("el ciclo:", salida, f"no nombró el ciclo:\n{salida}")
+        for t in ("T01", "T02", "T03"):
+            self.assertIn(t, salida.split("el ciclo:")[1])
+
+    def test_una_dependencia_a_una_tarea_que_no_existe_se_nombra_y_no_se_confunde(self):
+        """La otra causa de «no pude ordenar», y decirlas juntas no sirve de nada: un fantasma
+        no es un ciclo y se arregla distinto."""
+        self.plan((("T01", "T99"), ("T02", "T01")))
+        r = correr(f"PLAN=PLAN.md python3 {SCRIPTS}/_etapas.py", self.p.dir)
+        salida = r.stdout + r.stderr
+        self.assertIn("T99", salida, f"no nombró la tarea fantasma:\n{salida}")
+        self.assertIn("no está en la tabla", salida)
+        self.assertNotIn("el ciclo:", salida, f"un fantasma no es un ciclo:\n{salida}")
+
+    def test_un_plan_de_verdad_terminado_sigue_diciendo_que_no_hay_nada_que_lanzar(self):
+        """El control, y es el que impide que el arreglo se coma el camino bueno: con todo
+        ✅, `_etapas.py` también deja el stdout vacío, pero sale con 0. El único que
+        distingue los dos estados es el código de salida."""
+        self.plan((("T01", "—"), ("T02", "T01")), estado="✅ hecha")
+        r = self.correr_plan()
+        self.assertEqual(r.returncode, 0, f"{r.stdout}{r.stderr}")
+        self.assertIn("marcadas como hechas", r.stdout)
 
 
 class TestUnaReversionVaciaNoEsUnaReversionQuePaso(CasoBase):

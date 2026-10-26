@@ -90,6 +90,24 @@ if [ "${#ETAPAS[@]}" -eq 0 ]; then
     echo "  El plan lo escribe el arquitecto y lo aprueba una persona (gate G0)." >&2
     exit 1
   fi
+  # Código 1 = `_etapas.py` NO pudo ordenar el plan (un ciclo, o una dependencia a una tarea
+  # que no está en la tabla). Se miraba sólo el 2, así que el 1 seguía de largo con la salida
+  # vacía —todo el diagnóstico de `_etapas.py` va a stderr— y veinte líneas más abajo el
+  # `${#ETAPAS[@]}` -eq 0 lo informaba como «✓ Todas las tareas están marcadas como hechas:
+  # no hay nada que lanzar», con código 0.
+  #
+  # Era un VEREDICTO FALSO en una de las cinco puertas: cero tareas ejecutadas, reportadas
+  # como plan terminado. Y alcanzable de verdad, porque `validar-plan.py` tampoco detectaba
+  # los ciclos (se arregló junto con esto): el plan cíclico pasaba G0 entero.
+  #
+  # «Etapas vacías» y «el plan no se pudo ordenar» son estados distintos y el único que los
+  # distingue es el código de salida: con todo ✅, `_etapas.py` también sale con stdout vacío,
+  # pero con 0.
+  if [ "$rc_etapas" -ne 0 ]; then
+    echo "✗ no pude calcular el orden de las tareas de $PLAN: el plan no es ejecutable." >&2
+    echo "  El motivo está arriba, y lo arregla quien planifica — no es una tarea terminada." >&2
+    exit 1
+  fi
   while IFS= read -r linea; do
     [ -n "$linea" ] && ETAPAS+=("$linea")
   done <<< "$SALIDA_ETAPAS"
