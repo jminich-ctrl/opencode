@@ -42,6 +42,7 @@ La idea en tres líneas:
 | **[colabhive/](colabhive/)** | Los archivos reales: config, prompts, scripts y mediciones |
 | **[ejemplo-pacman/](ejemplo-pacman/)** | Un proyecto entero hecho con el método, con la bitácora de lo que salió mal |
 | **[AGENTS.md](AGENTS.md)** | Reglas que el agente lee solo (lo carga OpenCode) |
+| **AUDITORIA-\*.md** | Las auditorías del método contra sí mismo, con su fecha: [19-10](AUDITORIA-20261019.md) las formas de defecto, [20-10](AUDITORIA-20261020.md) la genericidad, [26-10](AUDITORIA-20261026.md) el instrumento en un proyecto que no es ninguno de los ejemplos |
 
 ## El entorno de ejecución
 
