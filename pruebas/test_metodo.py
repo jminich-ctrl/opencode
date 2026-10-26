@@ -10887,14 +10887,42 @@ class TestUnTestNoPuedeObligarUnContratoQueElEnunciadoNoDeclara(unittest.TestCas
         self.assertEqual(self.correr_chequeo(d).returncode, 0,
                          "una columna del esquema no la inventó el test")
 
+    def test_un_proyecto_SIN_base_de_datos_igual_se_audita(self):
+        """CERO columnas no es «no pude leer»: es un proyecto sin base, y ahí ninguna clave
+        puede ser columna, así que todas las no declaradas las inventó el test.
+
+        `cols or None` confundía los dos casos y con eso el chequeo quedaba INÚTIL en
+        cualquier proyecto sin SQL —que son la mayoría—. Medido el 2026-10-25 corriéndolo en
+        un proyecto nuevo sin migraciones: decía «no pude leer las columnas» y no afirmaba
+        nada sobre un test con tres defectos. El rc de `coherencia.py --columnas` ya
+        distinguía los dos casos: devuelve 0 con salida vacía cuando no hay migraciones."""
+        d = self.proyecto("def f() -> dict:\n    \"\"\"Devuelve algo.\"\"\"",
+                          "def test_f():\n    assert f() == {'inventada': 1}\n")
+        shutil.rmtree(d / "migraciones")      # un proyecto que no usa base de datos
+        r = self.correr_chequeo(d)
+        self.assertEqual(r.returncode, 1,
+                         f"sin base de datos el chequeo igual tiene que poder juzgar:"
+                         f"\n{r.stdout}{r.stderr}")
+        self.assertIn("inventada", r.stdout, f"\n{r.stdout}")
+
     def test_sin_poder_leer_el_esquema_no_afirma_nada(self):
         """Un chequeo que cruza tres fuentes y perdió una no puede dar un veredicto. Mi
         primera versión devolvía un set vacío envuelto en `except Exception` —fallando
-        ABIERTO— y con cero columnas leídas marcaba las que sí lo eran."""
+        ABIERTO— y con cero columnas leídas marcaba las que sí lo eran.
+
+        «No poder leer» es que el LECTOR falle, no que el proyecto no tenga base: eso último
+        es cero columnas y se audita igual (ver el test de arriba). Y no se provoca con un
+        esquema inválido —`coherencia.py --columnas` es tolerante: devuelve cero columnas sin
+        reventar, lo medí— sino con una INSTALACIÓN INCOMPLETA, que es el caso real: el
+        auxiliar corre sin su lector al lado."""
         d = self.proyecto("def f() -> dict:\n    \"\"\"Devuelve la fila.\"\"\"",
                           "def test_f():\n    assert f() == {'email': 'a@b'}\n")
-        shutil.rmtree(d / "migraciones")
-        r = self.correr_chequeo(d)
+        # El auxiliar, solo, sin `coherencia.py` al lado: una instalación a medias.
+        suelto = d / "solo"
+        suelto.mkdir()
+        shutil.copy(self.SCRIPT, suelto / "_contrato.py")
+        r = correr(f"python3 {suelto / '_contrato.py'} tests/test_cosa.py tareas/T01-cosa.md .",
+                   d)
         self.assertEqual(r.returncode, 2,
                          f"sin esquema tiene que ser ⊘, no un veredicto:\n{r.stdout}")
         self.assertIn("no afirma nada", r.stdout, f"\n{r.stdout}")

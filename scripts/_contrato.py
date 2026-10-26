@@ -93,13 +93,19 @@ def columnas_del_esquema(proyecto):
                        cwd=proyecto, capture_output=True, text=True,
                        env={**os.environ, "PROYECTO": "."})
     if r.returncode != 0:
-        return None
+        return None            # no se pudo leer: el llamador no afirma nada
     cols = set()
     for linea in r.stdout.split("\n"):
         if ":" not in linea:
             continue
         cols.update(c.strip() for c in linea.split(":", 1)[1].split(",") if c.strip())
-    return cols or None
+    # CERO columnas no es «no pude leer»: es un proyecto sin base de datos, y ahí ninguna
+    # clave puede ser columna, así que todas las no declaradas las inventó el test. El rc de
+    # `coherencia.py` ya distingue los dos casos y `cols or None` los confundía — con eso el
+    # chequeo quedaba inútil en cualquier proyecto sin SQL, que son la mayoría. Medido el
+    # 2026-10-25 corriéndolo en un proyecto nuevo sin migraciones: decía «no pude leer las
+    # columnas del esquema» y no afirmaba nada sobre un test con tres defectos.
+    return cols
 
 
 def main(ruta_test, ruta_tarea, proyecto="."):
