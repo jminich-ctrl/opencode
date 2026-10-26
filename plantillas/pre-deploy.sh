@@ -183,14 +183,47 @@ if git clone -q --no-hardlinks --depth 1 "file://$RAIZ" "$LIMPIO/repo" 2>/dev/nu
   if [ ! -f "$LIMPIO/repo/${PREFIJO:-.}/scripts/correr-suite.sh" ]; then
     rojo "lo commiteado no incluye scripts/correr-suite.sh: no sé cómo correr la suite"
   else
+    # El clon no tiene entorno: `.venv`, `node_modules`, `.mysql` y `.entorno` están
+    # gitignorados —y tienen que estarlo—, así que el corredor devuelve 3 («falta el
+    # corredor») y este paso queda en ROJO PERMANENTE para todo proyecto con dependencias.
+    # Medido el 2026-10-26 la primera vez que clasificados corrió su G4. Así es como un paso
+    # imposible termina borrado, y éste es el único que mira lo COMMITEADO.
+    #
+    # Se ENLAZA, no se instala: es instantáneo, y lo que este paso verifica es el código, no
+    # la instalación. Es lo mismo que el runner hace al crear un worktree —«enlazado .venv al
+    # tronco»— y por el mismo motivo.
+    for dep in .venv .entorno .mysql node_modules backend/node_modules frontend/node_modules; do
+      [ -e "$dep" ] || continue
+      [ -e "$LIMPIO/repo/${PREFIJO:-.}/$dep" ] && continue
+      mkdir -p "$(dirname "$LIMPIO/repo/${PREFIJO:-.}/$dep")" 2>/dev/null
+      ln -s "$PWD/$dep" "$LIMPIO/repo/${PREFIJO:-.}/$dep" 2>/dev/null \
+        && ENLAZADOS="${ENLAZADOS:-}${ENLAZADOS:+ }$dep"
+    done
+    [ -n "${ENLAZADOS:-}" ] && testigo_g4 "entorno enlazado al tronco: $ENLAZADOS"
     ( cd "$LIMPIO/repo/${PREFIJO:-.}" && bash scripts/correr-suite.sh ) >"$LIMPIO/salida" 2>&1
     case $? in
       0) verde "la suite pasa sobre lo commiteado"
          testigo_g4 "scripts/correr-suite.sh del checkout limpio" ;;
       2) rojo "sobre lo commiteado la suite no corrió NINGÚN test: sin tests no hay deploy" ;;
       3) rojo "falta el corredor de tests en el checkout limpio — es del método, no del código" ;;
-      *) rojo "la suite FALLA sobre un checkout limpio: hay algo sin commitear que la sostiene"
-         tail -12 "$LIMPIO/salida" | sed 's/^/     /' ;;
+      *) # ¿De quién es el rojo? Si la suite YA está roja en el tronco, el clon falla por lo
+         # mismo y «hay algo sin commitear que la sostiene» es un diagnóstico FALSO que manda
+         # a buscar un archivo fantasma. Medido el 2026-10-26 en clasificados, cuyo tronco
+         # tiene dos tests rojos de tareas escritas y no integradas.
+         #
+         # La segunda medición sólo se paga cuando hace falta —el clon falló— que es la misma
+         # regla que `escribir-tests.sh` ya usa para preguntarle a la plataforma.
+         if bash scripts/correr-suite.sh >"$LIMPIO/tronco" 2>&1; then
+           rojo "la suite FALLA sobre un checkout limpio: hay algo sin commitear que la sostiene"
+           tail -12 "$LIMPIO/salida" | sed 's/^/     /'
+         else
+           rojo "la suite ya está ROJA en el tronco: esto no mide lo commiteado"
+           echo "     No es un archivo sin commitear: el rojo está a la vista en el árbol."
+           # Con el extractor del proyecto y no con un `tail`: la salida de una suite de dos
+           # mitades TERMINA con la que pasó, así que el tail mostraba el éxito del frontend
+           # debajo de un ✗ por el backend. `--fallas` es el único que sabe leer este stack.
+           bash scripts/correr-suite.sh --fallas 2>/dev/null | head -6 | sed 's/^/     → /'
+         fi ;;
     esac
   fi
 else

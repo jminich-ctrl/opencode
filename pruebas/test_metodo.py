@@ -74,6 +74,22 @@ ERRORES_DE_SERVIDOR = []
 # del sujeto mide otra cosa — es el defecto que más veces apareció hoy.
 CUERPO_CHAT_OK = b'{"choices":[{"message":{"content":"OK"}}]}'
 
+# MEDIDO el 2026-10-26, para que la próxima sesión decida con datos y no vuelva a contar: hay
+# DOCE servidores falsos en este archivo, todos distintos, y crecieron en tres esta misma
+# noche. Lo que cada uno necesita: cinco básicos, cinco con código de error, tres con demora,
+# uno que mira el tamaño del pedido y uno que responde por modelo.
+#
+# El daño que la duplicación hizo de verdad fue UNO y está arreglado: tres contestaban `{}` en
+# su 200, y cuando la sonda pasó a exigir que el cuerpo SEA una respuesta, esos fixtures
+# dejaron de representar al endpoint. De ahí sale esta constante.
+#
+# Un guardia estático que exija esta constante en todo 200 produce falsos positivos: dos de los
+# servidores parametrizan el cuerpo A PROPÓSITO —el de la sonda necesita un 200 con cuerpo
+# inválido— y la extracción por ventana de texto se equivoca en otro. Una regla más ancha que
+# el defecto es lo que esta noche costó dos rojos falsos, así que no se puso. Deduplicarlos en
+# un solo ayudante parametrizado (respuestas, código, demora, tope de bytes, caídos, registro)
+# cubriría los doce casos; es un refactor de doce sitios y queda anotado, no hecho.
+
 
 
 def tirar_dir(ruta):
@@ -4332,6 +4348,106 @@ class TestG5NoPuedeDecirQueDesplegoSinDesplegar(CasoBase):
         self.assertTrue((self.p.dir / ".deploy-hecho").exists(),
                         "y el comando declarado tiene que haber CORRIDO")
         self.assertEqual(r.returncode, 0, f"{r.stdout}{r.stderr}")
+
+
+class TestG4PreparaElCheckoutLimpioAntesDeJuzgarlo(CasoBase):
+    """El paso 7 clona el repo para correr la suite sobre LO COMMITEADO. Pero el clon no tiene
+    entorno: `.venv`, `node_modules`, `.mysql` y `.entorno` están gitignorados —y tienen que
+    estarlo— así que el corredor devuelve 3, «falta el corredor», y el paso queda en ROJO
+    PERMANENTE para todo proyecto con dependencias.
+
+    Medido el 2026-10-26 la primera vez que clasificados corrió su G4: «✗ falta el corredor de
+    tests en el checkout limpio». Y así es como un paso imposible termina borrado, que es lo
+    peor que le puede pasar al único chequeo que mira lo commiteado.
+
+    Se ENLAZA, no se instala: instantáneo, y lo que este paso verifica es el código, no la
+    instalación. Es exactamente lo que el runner ya hace con los worktrees —«enlazado .venv al
+    tronco»— y por el mismo motivo."""
+
+    CORREDOR_CON_ENTORNO = ('#!/usr/bin/env bash\n'
+                            '# como pytest en un venv: sin su entorno no hay corredor\n'
+                            'cd "$(dirname "$0")/.." || exit 3\n'
+                            '[ -d .venv ] || exit 3\n'
+                            'if [ -n "${1:-}" ]; then exit 2; fi\n'
+                            'echo "2 pasaron"\nexit 0\n')
+
+    def preparar(self):
+        shutil.copy(PLANTILLAS / "pre-deploy.sh", self.p.dir / "scripts" / "pre-deploy.sh")
+        sm = self.p.dir / "scripts" / "smoke.sh"
+        shutil.copy(PLANTILLAS / "smoke.sh", sm)
+        sm.write_text(sm.read_text().replace(
+            'SIN_ARRANQUE=""', 'SIN_ARRANQUE="librería: no hay nada que levantar"'))
+        (self.p.dir / "scripts" / "correr-suite.sh").write_text(self.CORREDOR_CON_ENTORNO)
+        (self.p.dir / ".gitignore").write_text(".venv\n")
+        self.p.implementar()
+        self.p.git("add -A"); self.p.git("commit -qm g4")
+        # El entorno existe en el tronco y NO está commiteado, como corresponde.
+        (self.p.dir / ".venv").mkdir()
+        (self.p.dir / ".venv" / "marca").write_text("soy el entorno del tronco\n")
+
+    def test_el_paso_7_enlaza_el_entorno_del_tronco_al_clon(self):
+        self.preparar()
+        r = correr("bash scripts/pre-deploy.sh", self.p.dir, AGENTES=str(RAIZ))
+        paso7 = r.stdout.split("── 7.")[1] if "── 7." in r.stdout else ""
+        self.assertTrue(paso7, f"el paso 7 no corrió:\n{r.stdout[-700:]}")
+        self.assertNotIn("falta el corredor", paso7,
+                         f"el clon se quedó sin entorno y el paso es imposible:\n{paso7}")
+        self.assertIn("✓", paso7, f"con el entorno enlazado tiene que poder juzgar:\n{paso7}")
+
+    def test_con_el_tronco_ya_rojo_no_acusa_a_un_archivo_sin_commitear(self):
+        """El paso 7 dice «hay algo sin commitear que la sostiene» cuando la suite falla en el
+        clon. Si la suite YA ESTÁ ROJA en el tronco, eso es falso: el clon falla por lo mismo
+        que el tronco, y la frase manda a buscar un archivo fantasma.
+
+        Medido el 2026-10-26 en clasificados, cuyo tronco tiene dos tests rojos de tareas
+        escritas y no integradas: el paso 7 informó «algo sin commitear» sobre un rojo que
+        está commiteado y a la vista."""
+        self.preparar()
+        # Una suite que falla SIEMPRE, también en el tronco.
+        (self.p.dir / "scripts" / "correr-suite.sh").write_text(
+            '#!/usr/bin/env bash\ncd "$(dirname "$0")/.." || exit 3\n[ -d .venv ] || exit 3\n'
+            'if [ -n "${1:-}" ]; then exit 2; fi\necho "FAIL: test_x (tests.test_x.TestX)"\nexit 1\n')
+        self.p.git("add -A"); self.p.git("commit -qm 'suite roja'")
+        r = correr("bash scripts/pre-deploy.sh", self.p.dir, AGENTES=str(RAIZ))
+        paso7 = r.stdout.split("── 7.")[1] if "── 7." in r.stdout else ""
+        # La afirmación vive en la línea del VEREDICTO, no en la explicación: la línea que
+        # aclara dice «No es un archivo sin commitear», o sea que contiene la frase que esto
+        # quiere prohibir. Mi primera versión miraba todo el paso y fallaba por eso — quinta
+        # aserción más ancha que su defecto en una noche, y el repo ya lo tenía escrito: una
+        # aserción negativa sobre texto es frágil, porque la explicación cita lo que arregla.
+        veredicto = [l for l in paso7.splitlines() if l.strip().startswith("✗")]
+        self.assertTrue(veredicto, f"el paso 7 no dio rojo:\n{paso7}")
+        self.assertNotIn("hay algo sin commitear", veredicto[0],
+                         f"acusó a un archivo fantasma con el tronco ya rojo:\n{paso7}")
+        self.assertIn("tronco", veredicto[0].lower(),
+                      f"y tiene que decir dónde está el rojo de verdad:\n{paso7}")
+
+    def test_con_el_tronco_verde_y_el_clon_rojo_si_lo_acusa(self):
+        """El control, y es el propósito entero del paso: un archivo SIN COMMITEAR que hace
+        pasar los tests. Sin este caso, el arreglo de arriba apagaría el chequeo."""
+        self.preparar()
+        # La suite pasa sólo si existe un archivo que NO está commiteado.
+        (self.p.dir / "scripts" / "correr-suite.sh").write_text(
+            '#!/usr/bin/env bash\ncd "$(dirname "$0")/.." || exit 3\n[ -d .venv ] || exit 3\n'
+            'if [ -n "${1:-}" ]; then exit 2; fi\n'
+            '[ -f lo-que-falta.txt ] || { echo "FAIL: falta lo-que-falta.txt"; exit 1; }\n'
+            'echo "1 pasaron"\nexit 0\n')
+        self.p.git("add -A"); self.p.git("commit -qm 'suite que depende de un archivo'")
+        (self.p.dir / "lo-que-falta.txt").write_text("sin commitear\n")   # el sostén
+        r = correr("bash scripts/pre-deploy.sh", self.p.dir, AGENTES=str(RAIZ))
+        paso7 = r.stdout.split("── 7.")[1] if "── 7." in r.stdout else ""
+        self.assertIn("sin commitear", paso7,
+                      f"éste es el caso que el paso existe para encontrar:\n{paso7}")
+
+    def test_sin_entorno_en_el_tronco_lo_dice_en_vez_de_inventarlo(self):
+        """El control: si el tronco tampoco tiene el entorno, no hay nada que enlazar y el
+        paso informa lo que pasó. Un enlace que no se pudo hacer no es un enlace hecho."""
+        self.preparar()
+        shutil.rmtree(self.p.dir / ".venv")
+        r = correr("bash scripts/pre-deploy.sh", self.p.dir, AGENTES=str(RAIZ))
+        paso7 = r.stdout.split("── 7.")[1] if "── 7." in r.stdout else ""
+        self.assertIn("corredor", paso7.lower(),
+                      f"sin entorno, el motivo sigue siendo el corredor:\n{paso7}")
 
 
 class TestG5RespetaElContratoDelSmoke(CasoBase):
