@@ -3941,6 +3941,70 @@ class TestCobertura(CasoBase):
         self.assertVerde(self.cobertura(), "alcanza con que una alternativa aparezca")
 
 
+class TestLaCoberturaNoSeCubreConLaTablaDeTests(CasoBase):
+    """Un falso verde en la pregunta más cara de G0, y de los probables.
+
+    `cobertura.py` buscaba la clave de cada requisito en «las filas de la tabla de tareas»,
+    con un regex que matchea CUALQUIER fila que empiece con `| T0n |`. Un plan tiene más de
+    una tabla así —la de tareas y la de tests que hay que escribir— y la plantilla de PLAN.md
+    enseña a declarar las dos. Como los archivos de test se nombran como el requisito,
+    `tests/test_login.py` alcanzaba para que `login` contara como cubierto:
+
+        2 requisito(s) declarados en OBJETIVO.md
+        ✓ todos tienen al menos una tarea
+
+    con ninguna tarea haciendo login ni favoritos. Medido el 2026-10-26.
+
+    La lección estaba escrita a quince líneas, en `_etapas.py`, que se guarda de lo mismo con
+    su motivo: «Sin esto la segunda pisaba a la primera». El regex se copió sin la guarda."""
+
+    def encargo_y_tests(self, requisito, tabla_tests):
+        (self.p.dir / "OBJETIVO.md").write_text(
+            "# Qué queremos\n\nUna cosa.\n\n## Requisitos\n\n"
+            "- `cosa` — que haya una cosa\n" + requisito + "\n")
+        plan = self.p.dir / "PLAN.md"
+        plan.write_text(plan.read_text() + "\n## Tests\n\n" + tabla_tests)
+        return correr(f"ENCARGO=OBJETIVO.md PLAN=PLAN.md python3 {SCRIPTS}/cobertura.py",
+                      self.p.dir)
+
+    def test_una_fila_de_tests_de_una_tarea_que_no_existe_no_cubre_nada(self):
+        """La guarda que esto distingue es la de COLUMNAS. La otra —«de cada tarea, la primera
+        fila gana»— no sirve acá: T02 no está en la tabla de tareas, así que nunca fue vista y
+        su fila de tests entraría igual."""
+        r = self.encargo_y_tests(
+            "- `favoritos` — marcar avisos como favoritos",
+            "| Tarea | Archivo de test | Clase |\n|---|---|---|\n"
+            "| T02 | tests/test_favoritos.py | TestFavoritos |\n")
+        self.assertRojo(r, "ninguna TAREA hace favoritos", motivo="favoritos")
+
+    def test_una_tabla_de_tests_con_una_columna_mas_tampoco_cubre(self):
+        """Y ésta distingue la otra: con cuatro columnas la fila pasa el conteo —la tabla de
+        tareas tiene cinco, la de tests tres, y una tabla de tests con una columna de notas
+        cae justo en el medio— y lo único que la saca es que T01 ya fue vista en la tabla de
+        tareas. Lo midió la mutación: con un solo escenario, cada guarda tapaba el agujero de
+        la otra y ninguna de las dos estaba verificada."""
+        r = self.encargo_y_tests(
+            "- `login` — cuentas con login",
+            "| Tarea | Archivo de test | Clase | Notas |\n|---|---|---|---|\n"
+            "| T01 | tests/test_login.py | TestLogin | — |\n")
+        self.assertRojo(r, "ninguna TAREA hace login", motivo="login")
+
+    def test_y_la_tarea_que_si_lo_cubre_sigue_contando(self):
+        """El control: la guarda tiene que sacar la tabla de tests, no la de tareas."""
+        (self.p.dir / "OBJETIVO.md").write_text(
+            "# Qué queremos\n\nUna cosa.\n\n## Requisitos\n\n"
+            "- `cosa` — que haya una cosa\n- `login` — cuentas con login\n")
+        plan = self.p.dir / "PLAN.md"
+        plan.write_text(plan.read_text().replace(
+            "| T01 | Una cosa | — | src/cosa.py | pendiente |",
+            "| T01 | Una cosa | — | src/cosa.py | pendiente |\n"
+            "| T02 | Login por cookie | — | src/login.py | pendiente |") +
+            "\n## Tests\n\n| Tarea | Archivo de test | Clase |\n|---|---|---|\n"
+            "| T01 | tests/test_cosa.py | TestCosa |\n")
+        self.assertVerde(correr(f"ENCARGO=OBJETIVO.md PLAN=PLAN.md python3 {SCRIPTS}/cobertura.py",
+                                self.p.dir), "T02 lo cubre de verdad")
+
+
 class TestEnlacesDeCoberturaConVersion(CasoBase):
     """«¿Hay alguna tarea que lo nombre?» no es «¿sigue siendo la cobertura que se aprobó?».
 

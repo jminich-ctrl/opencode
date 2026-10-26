@@ -114,9 +114,28 @@ def huella(t):
 # siempre ahora puede decirlo.
 plan = PLAN.read_text()
 filas = []
+vistos = set()
 for linea in re.findall(r"^\|\s*T\d+[a-z]?\s*\|.*$", plan, re.M):
-    ident = re.match(r"^\|\s*(T\d+[a-z]?)\s*\|", linea).group(1)
-    filas.append((ident, linea))
+    celdas = [c.strip() for c in linea.strip("|").split("|")]
+    # Un plan tiene MÁS DE UNA tabla indexada por tarea: la de tareas y la de tests que hay
+    # que escribir, y la plantilla de PLAN.md enseña a declarar las dos. Sin esta guarda, un
+    # requisito contaba como cubierto porque su clave aparecía en el NOMBRE DE UN ARCHIVO DE
+    # TEST: con `- `login`` en el encargo y `| T03 | tests/test_login.py | TestLogin |` en la
+    # tabla de tests, esto imprimía «✓ todos tienen al menos una tarea» sin que ninguna tarea
+    # hiciera login. Un falso verde en la pregunta más cara de G0 —la que este archivo existe
+    # para contestar— y además probable, porque los tests se nombran como el requisito.
+    #
+    # Medido el 2026-10-26. La lección ya estaba escrita a quince líneas de acá, en
+    # `_etapas.py`: «Sin esto la segunda pisaba a la primera y todas las tareas quedaban sin
+    # dependencias». Misma causa, otro archivo, y el regex copiado sin la guarda.
+    #
+    # La regla es la del motor de etapas y no «buscar la sección ## Tareas»: cuenta columnas,
+    # así que no depende de cómo se tituló la sección. La tabla de tareas tiene cinco
+    # (# | Tarea | Depende de | Archivos | Estado) y la de tests tres.
+    if len(celdas) < 4 or celdas[0] in vistos:
+        continue
+    vistos.add(celdas[0])
+    filas.append((celdas[0], linea))
 
 faltan, cubren = [], {}
 for clave, texto in requisitos:
@@ -131,7 +150,13 @@ for clave, texto in requisitos:
 
 print(f"  {len(requisitos)} requisito(s) declarados en {ENCARGO.name}")
 if faltan:
-    print(f"  ✗ {len(faltan)} sin ninguna tarea que los cubra:")
+    # Las claves EN la línea del veredicto, no sólo debajo. Es la regla que el método ya le
+    # exige a sus rojos —«tiene que decir QUÉ falta, no que falta algo»— y la que `assertRojo`
+    # hace cumplir pidiendo el motivo en una línea marcada con ✗: un rojo cuyo motivo vive en
+    # otra línea se puede satisfacer informando el motivo en VERDE, que es el defecto que la
+    # mutación destapó en el gate. Abajo quedan igual, con la descripción del encargo.
+    print(f"  ✗ {len(faltan)} sin ninguna tarea que los cubra: "
+          f"{', '.join(c for c, _ in faltan)}")
     for clave, texto in faltan:
         print(f"     {clave}  {texto[:60]}")
 else:
