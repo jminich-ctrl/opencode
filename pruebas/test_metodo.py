@@ -11151,3 +11151,93 @@ class TestUnMutanteQueCuelgaElProgramaColgabaElGate(CasoBase):
         self.assertIn("tope por mutante", r.stdout, f"\n{r.stdout}")
         self.assertRegex(r.stdout, r"la suite sin mutar tarda \d+\.\d+s",
                          "tiene que decir con qué calibró")
+
+
+class TestElMetodoEsReplicableSiguiendoSuPropiaGuia(unittest.TestCase):
+    """¿Un proyecto NUEVO puede aplicar el método siguiendo `EMPEZAR.md`? Hasta el
+    2026-10-25 la respuesta era no, y el documento afirmaba lo contrario.
+
+    Seguido al pie de la letra, el procedimiento producía un proyecto donde el gate daba
+    ROJO por tres motivos distintos:
+
+      · no copiaba `scripts/correr-suite.sh`, que el gate exige —«el proyecto no declara
+        cómo se corre su suite»— y que vive en `plantillas/`;
+      · su sección 3 decía «tiene que dar verde sobre el repo limpio», que es IMPOSIBLE en
+        ese paso: el gate exige que la suite ejecute algo y todavía no hay tests. El verde
+        llega recién con la primera tarea hecha a mano;
+      · y nombraba `ejemplo-pacman/scripts/gate.sh` en vez del gate del proyecto nuevo,
+        residuo de copiar el comando de otro lado.
+
+    Este test EJECUTA los comandos del propio documento en vez de repetirlos acá. Si alguien
+    cambia el procedimiento, lo que se mide cambia con él; copiarlos sería medir mi copia, y
+    el repo ya tiene demasiadas prosas que dicen una cosa y código que hace otra."""
+
+    def bloques_de_bash(self):
+        """Los bloques ```bash del documento, en orden."""
+        texto = (RAIZ / "EMPEZAR.md").read_text()
+        return re.findall(r"```bash\n(.*?)```", texto, re.S)
+
+    def test_el_procedimiento_copia_lo_que_el_gate_exige(self):
+        """Los tres archivos que el gate reclama por su cuenta tienen que salir del
+        procedimiento o de `$AGENTES`: `correr-suite.sh` del proyecto, y los dos auxiliares
+        que provee el método."""
+        comandos = "\n".join(self.bloques_de_bash())
+        self.assertIn("plantillas/correr-suite.sh", comandos,
+                      "sin copiarlo, el gate da «el proyecto no declara cómo se corre su "
+                      "suite» y el documento promete verde")
+        self.assertIn("plantillas/gate.sh", comandos, "el juez tiene que copiarse")
+        # Los auxiliares del método NO se copian: se resuelven con $AGENTES, y el documento
+        # tiene que decir que esa variable se exporta.
+        self.assertIn("export AGENTES", comandos,
+                      "sin $AGENTES el gate no encuentra _imports.py ni _suprimidas.py")
+
+    def test_el_proyecto_armado_asi_da_el_rojo_ESPERADO_y_no_otro(self):
+        """La prueba de replicabilidad: se arma el proyecto con los comandos del documento y
+        se corre su gate. El rojo correcto es «la suite no corrió ningún test» —no hay tests
+        todavía—; cualquier otro rojo es una pieza que el procedimiento no deja en su lugar."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-replicable-")).resolve()
+        (d / ".quien-lo-creo").write_text(_test_en_curso() + "\n")
+        self.addCleanup(shutil.rmtree, str(d), True)
+        proy = d / "mi-proyecto"
+        # El bloque del paso 1, tal como está en el documento, con `~/mi-proyecto` apuntado
+        # al temporal y sin el `git clone` del paso 0.
+        paso1 = next(b for b in self.bloques_de_bash() if "mkdir -p tareas scripts src tests" in b)
+        guion = (f"set -e\nexport AGENTES={RAIZ}\n"
+                 + paso1.replace("~/mi-proyecto", str(proy))
+                        .replace("git commit -m", "git -c user.email=t@t -c user.name=t commit -m"))
+        r = correr(f"bash -c {shlex.quote(guion)}", d)
+        self.assertTrue(proy.is_dir(), f"el procedimiento no armó el proyecto:\n{r.stderr}")
+        g = correr(f"AGENTES={RAIZ} bash scripts/gate.sh", proy)
+        rojos = [l.strip() for l in g.stdout.splitlines() if l.strip().startswith("✗")]
+        self.assertEqual(len(rojos), 1,
+                         "el gate de un proyecto recién armado tiene UN rojo —el de la suite "
+                         f"vacía— y no {len(rojos)}:\n" + "\n".join(rojos))
+        self.assertIn("no corrió ningún test", rojos[0],
+                      f"el rojo tiene que ser el de la suite vacía, no una pieza faltante:\n"
+                      f"{rojos[0]}")
+
+    def test_la_guia_no_manda_a_probar_el_gate_de_un_ejemplo(self):
+        """Decía `ejemplo-pacman/scripts/gate.sh` donde va el del proyecto nuevo. Quien sigue
+        la guía termina probando el gate de otro proyecto y creyendo que probó el suyo."""
+        texto = (RAIZ / "EMPEZAR.md").read_text()
+        i = texto.index("## 3. Ajustá el gate")
+        seccion = texto[i:texto.index("## 4.", i)]
+        self.assertNotIn("ejemplo-pacman/scripts/gate.sh", seccion,
+                         f"manda a probar el gate de un ejemplo:\n{seccion[:300]}")
+
+    def test_la_guia_avisa_que_ese_paso_da_rojo(self):
+        """Prometer verde donde el rojo es obligado enseña a ignorar el rojo, que es lo último
+        que este método puede permitirse.
+
+        La aserción es POSITIVA —que avise del rojo— y no negativa sobre la frase vieja. Mi
+        primera versión buscaba que «tiene que dar verde sobre el repo limpio» no apareciera, y
+        la encontró en la prosa que EXPLICA que esa frase era falsa. Una aserción negativa
+        sobre texto es frágil por naturaleza: la explicación de un arreglo cita lo que
+        arregló. Novena vez en el día que un test mío matchea prosa."""
+        texto = (RAIZ / "EMPEZAR.md").read_text()
+        i = texto.index("## 3. Ajustá el gate")
+        seccion = texto[i:texto.index("## 4.", i)]
+        self.assertIn("ROJO", seccion,
+                      f"tiene que avisar que ese paso da rojo:\n{seccion[:300]}")
+        self.assertIn("sin tests no hay gate", seccion,
+                      "y decir POR QUÉ, que es lo que evita que alguien lo tome por una falla")

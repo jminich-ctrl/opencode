@@ -34,6 +34,7 @@ touch src/__init__.py tests/__init__.py       # el gate descubre los tests como 
 printf '__pycache__/\n*.pyc\n.tarea.log\n.opencode-data/\n.metricas/\n.base-ref\nPLAN.md.previo\n' > .gitignore
 cp $AGENTES/plantillas/PLAN.md .
 cp $AGENTES/plantillas/gate.sh scripts/            # el juez; buscá "ADAPTAR": son cuatro líneas
+cp $AGENTES/plantillas/correr-suite.sh scripts/    # CÓMO se corre tu suite: el gate lo exige y da rojo si falta
 cp $AGENTES/plantillas/_arquitectura.py scripts/   # el gate de coherencia; declará tus capas
 cp $AGENTES/plantillas/pre-deploy.sh scripts/      # G4, para cuando llegues
 cp $AGENTES/AGENTS.md .                       # las reglas del ejecutor; adaptalas a tu proyecto
@@ -77,12 +78,22 @@ No sigas hasta que el plan esté escrito. Es el gate G0.
 
 ## 3. Ajustá el gate
 
-`ejemplo-pacman/scripts/gate.sh` tiene que correr **tu** suite de tests y **tus** reglas de higiene.
-Probalo antes de usarlo:
+`scripts/gate.sh` —el que acabás de copiar— tiene que correr **tu** suite de tests y **tus**
+reglas de higiene.
 
 ```bash
-bash scripts/gate.sh     # tiene que dar verde sobre el repo limpio
+AGENTES=$AGENTES bash scripts/gate.sh
 ```
+
+Sobre un proyecto recién armado esto da **ROJO**, y está bien: «la suite no corrió ningún
+test: sin tests no hay gate». El gate exige que la suite ejecute algo, y todavía no
+escribiste nada. Medido el 2026-10-25 siguiendo este documento al pie de la letra: antes
+decía «tiene que dar verde sobre el repo limpio», que es imposible de cumplir en este paso.
+
+Lo que sí tiene que pasar acá es que el rojo sea **ése y no otro**: si te dice que falta
+`scripts/correr-suite.sh`, `_imports.py` o `_suprimidas.py`, lo que falta es la instalación
+—los dos últimos los provee el método y se resuelven con `$AGENTES`, así que esa variable
+tiene que estar exportada—. El verde del gate llega recién con el paso 4, cuando hay tests.
 
 ## 4. Hacé la primera tarea vos
 
