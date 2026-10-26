@@ -524,6 +524,18 @@ fi
 # vacía que ya estaba no la creó esta tarea, y en modo integración la pregunta no aplica
 # —el merge ya pasó—. Sin esa condición el chequeo informaba las carpetas que esperan a
 # tareas futuras, que es ruido y encima acusa a quien no hizo nada.
+#
+# Y los directorios del MÉTODO se podan enteros, no sólo su contenido. Las exclusiones eran
+# `-not -path './.opencode-data/*'`: eso saca a los HIJOS y deja al directorio mismo, así que
+# un `.opencode-data` VACÍO contaba como «directorio vacío nuevo». Lo crea el runner
+# (`export XDG_DATA_HOME="$wt/.opencode-data"; mkdir -p`) antes de lanzar al agente, y queda
+# vacío precisamente cuando el agente NO ESCRIBIÓ NADA —se cayó al arrancar, o se lo comió el
+# límite de tiempo—. O sea: el gate le cobraba a la tarea un directorio del método, y encima
+# tapaba la causa real con un rojo de higiene. Medido el 2026-10-26 con el ensayo determinista
+# del pipeline, en la primera corrida: dos intentos y punto muerto por esto.
+#
+# `-prune` y no más `-not -path`: poda el directorio y su contenido a cualquier profundidad,
+# que es lo que `*/node_modules/*` tampoco hacía con un `node_modules` vacío anidado.
 if [ -n "${TAREA:-}" ]; then
   NUEVAS_VACIAS=""
   while IFS= read -r d; do
@@ -535,10 +547,11 @@ if [ -n "${TAREA:-}" ]; then
 "
     fi
   done <<EOF
-$(find . -type d -empty \
-    -not -path './.git/*' -not -path './.venv/*' -not -path './.mysql/*' \
-    -not -path '*/node_modules/*' -not -path '*/__pycache__/*' \
-    -not -path './.opencode-data/*' 2>/dev/null || true)
+$(find . -type d \
+    \( -name .git -o -name .venv -o -name .mysql -o -name node_modules \
+       -o -name __pycache__ -o -name .opencode-data -o -name .metricas \
+       -o -name .artefactos \) -prune \
+    -o -type d -empty -print 2>/dev/null || true)
 EOF
   if [ -n "$NUEVAS_VACIAS" ]; then
     rojo "creaste directorios vacíos: git no los versiona y el merge no los lleva"

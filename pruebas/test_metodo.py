@@ -5822,6 +5822,12 @@ class TestEjemplosNoDerivan(Veredictos, unittest.TestCase):
         d = repo / "proyecto"
         for sub in ("tareas", "scripts", "permitido", "colado"):
             (d / sub).mkdir(parents=True)
+            # Un `.keep` COMMITEADO en cada uno. Sin esto, `colado/` quedaba vacío y git no
+            # versiona directorios vacíos, así que el gate lo veía como «directorio vacío
+            # nuevo» en TODOS los escenarios de esta clase — y el caso de la tabla que dice
+            # medir eso pasaba por el andamio y no por su escenario. Medido el 2026-10-26:
+            # quitándole el directorio al escenario, el caso seguía en verde.
+            (d / sub / ".keep").write_text("")
         shutil.copy(gate, d / "scripts" / "gate.sh")
         shutil.copy(gate.parent / "correr-suite.sh", d / "scripts" / "correr-suite.sh")
         (d / "tareas" / "T01-cosa.md").write_text(
@@ -5830,6 +5836,9 @@ class TestEjemplosNoDerivan(Veredictos, unittest.TestCase):
         correr("git init -q && git add -A && git commit -qm base", repo)
         for ruta, cuerpo in archivos.items():
             p = d / ruta
+            if ruta.endswith("/"):      # un directorio vacío, que no se puede expresar como archivo
+                p.mkdir(parents=True, exist_ok=True)
+                continue
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(cuerpo)
         if commitear:
@@ -5884,6 +5893,25 @@ class TestEjemplosNoDerivan(Veredictos, unittest.TestCase):
                 self.assertIn("no pudo verificarse", s6,
                               f"sin reservados el paso 6 es un vacío contado:\n{s6}")
 
+    def test_en_todos_un_directorio_del_metodo_vacio_no_es_culpa_de_la_tarea(self):
+        """`.opencode-data` lo crea el RUNNER antes de lanzar al agente, y queda vacío
+        precisamente cuando el agente no escribió nada: se cayó al arrancar o se lo comió el
+        límite de tiempo. El gate lo informaba como «creaste directorios vacíos», o sea que le
+        cobraba a la tarea un directorio del método y encima tapaba la causa real.
+
+        Las exclusiones del `find` eran `-not -path './.opencode-data/*'`: sacaban a los hijos
+        y dejaban al directorio. Medido el 2026-10-26 en la primera corrida del ensayo
+        determinista del pipeline — dos intentos y punto muerto por esto."""
+        for gate in self.GATES:
+            with self.subTest(gate=str(gate.relative_to(RAIZ))):
+                r = self.montar(gate, "permitido/",
+                                {"permitido/ok.py": "x = 1\n",
+                                 ".opencode-data/": "", ".metricas/": ""})
+                s3 = self.seccion(r.stdout, 3)
+                self.assertIsNotNone(s3, f"no imprimió el paso 3:\n{r.stdout[-700:]}")
+                self.assertIn("sin directorios vacíos nuevos", s3,
+                              f"le cobra a la tarea un directorio del método:\n{s3}")
+
     def test_en_todos_el_registro_de_cobertura_no_es_culpa_de_la_tarea(self):
         """`.cobertura.json` lo escribe `correr-todo.sh` cuando verifica la firma de G0, o sea
         ANTES de la primera tarea y sin que ninguna tarea lo declare. Si el gate lo viera como
@@ -5915,8 +5943,10 @@ class TestEjemplosNoDerivan(Veredictos, unittest.TestCase):
         # usaba `node_modules/a.js` y los tres gates lo «fallaban»: el escenario estaba mal.
         ("un archivo generado en el diff", "T01",
          {"permitido/ok.py": "x = 1\n", "permitido/__pycache__/x.pyc": "bin"}, "generados"),
+        # La ruta termina en «/»: un directorio DE VERDAD vacío, que es lo que el chequeo
+        # mira. Con un `.keep` adentro el directorio no está vacío y el caso no medía nada.
         ("un directorio vacío nuevo", "T01",
-         {"permitido/ok.py": "x = 1\n", "permitido/vacio/.keep": ""}, "vacíos"),
+         {"permitido/ok.py": "x = 1\n", "permitido/vacio/": ""}, "vacíos"),
         # Éste va en modo INTEGRACIÓN y no en modo tarea, a propósito y con su motivo escrito
         # en el gate: un test con ruta absoluta que ya estaba en el tronco no lo escribió esta
         # tarea. Mi primera medición lo corrió en modo tarea y los tres «fallaron» el mismo

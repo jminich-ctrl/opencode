@@ -463,10 +463,11 @@ if [ -n "${TAREA:-}" ]; then
 "
     fi
   done <<EOF
-$(find . -type d -empty \
-    -not -path './.git/*' -not -path './.venv/*' -not -path './.mysql/*' \
-    -not -path '*/node_modules/*' -not -path '*/__pycache__/*' \
-    -not -path './.opencode-data/*' 2>/dev/null || true)
+$(find . -type d \
+    \( -name .git -o -name .venv -o -name .mysql -o -name node_modules \
+       -o -name __pycache__ -o -name .opencode-data -o -name .metricas \
+       -o -name .artefactos \) -prune \
+    -o -type d -empty -print 2>/dev/null || true)
 EOF
   if [ -n "$NUEVAS_VACIAS" ]; then
     rojo "creaste directorios vacíos: git no los versiona y el merge no los lleva"
