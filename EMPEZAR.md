@@ -62,7 +62,7 @@ archivos intocables viva en el gate y no en el archivo de tarea.
 
 `_arquitectura.py` es el gate de coherencia: declarás tus capas en orden y verifica que
 cada una sólo importe las anteriores. Es lo único del método que mira **a través** de las
-tareas, y lo que adaptás son dos listas y una ruta. Las capas se reconocen por la **ruta** de
+tareas, y lo que adaptás son dos listas y una ruta: el juicio lo hace el método (`scripts/_arquitectura_motor.py`), que es por qué alcanza con `$AGENTES` exportada y no hay nada más que copiar. Las capas se reconocen por la **ruta** de
 cada módulo, así que sirven las dos formas: un directorio por capa (`src/datos/ads.py`) o un
 archivo por capa (`src/datos.py`). Si declarás capas que tu proyecto no tiene, da **rojo** y
 te dice cuáles son tus módulos: un chequeo de arquitectura mal configurado no encuentra nada

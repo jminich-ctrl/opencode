@@ -117,7 +117,10 @@ class Proyecto:
         # `mutar.py` entra en la lista: desde el 2026-10-25 el paso 4b del gate pregunta si
         # el test distingue ESTA implementación, y sin el auxiliar el paso da rojo —a propósito,
         # porque lo provee el método—. Un fixture al que le falta un auxiliar mide su ausencia.
-        for aux in ("_suprimidas.py", "_imports.py", "mutar.py"):
+        # `_arquitectura_motor.py` entra por lo mismo: desde el 2026-10-25 el juicio del
+        # paso 5 vive en el método y `scripts/_arquitectura.py` es sólo la config con las
+        # capas. Sin el motor, el paso da rojo —a propósito— y el fixture mediría eso.
+        for aux in ("_suprimidas.py", "_imports.py", "mutar.py", "_arquitectura_motor.py"):
             shutil.copy(SCRIPTS / aux, self.dir / "scripts" / aux)
         (self.dir / "src" / "__init__.py").touch()
         (self.dir / "tests" / "__init__.py").touch()
@@ -3509,6 +3512,30 @@ class TestLosChequeosDelMetodoVivenEnUnSoloLugar(unittest.TestCase):
     Lo que varía de verdad por proyecto es `correr-suite.sh` (cómo se corre SU suite) y la
     config de `_arquitectura.py` (sus capas). El juicio no varía, y por eso no se copia."""
 
+    def test_el_juicio_de_arquitectura_tambien_vive_en_un_solo_lugar(self):
+        """La excepción que se había hecho para `_arquitectura.py` —"lo que varía por
+        proyecto son sus capas"— era cierta de la CONFIG y falsa del motor, y costó un mes:
+        el nodo del grafo era el nombre del archivo, el chequeo mapeaba 0 módulos de
+        clasificados, y el arreglo hubo que escribirlo en las tres copias, 193 líneas
+        idénticas cada una. `cocambio.py` ya lo había medido: la plantilla y la copia del
+        ejemplo cambian juntas el 67% de las veces.
+
+        Lo que se mide acá es el JUICIO, no el archivo: `_arquitectura.py` sigue siendo uno
+        por proyecto porque lleva las capas, pero las funciones que deciden tienen que
+        existir una sola vez."""
+        for funcion in ("def grafo_de_imports", "def capa_de", "def destino_de"):
+            with self.subTest(funcion=funcion):
+                # `pruebas/` queda afuera a propósito: este test NOMBRA las funciones
+                # que busca, así que se encontraba a sí mismo. Undécima vez que un chequeo
+                # mío confunde la mención con la cosa.
+                donde = sorted(p.relative_to(RAIZ).as_posix()
+                               for p in RAIZ.rglob("*.py")
+                               if ".git" not in p.parts and "__pycache__" not in p.parts
+                               and "pruebas" not in p.parts
+                               and funcion in p.read_text())
+                self.assertEqual(donde, ["scripts/_arquitectura_motor.py"],
+                                 "un chequeo copiado es un chequeo que va a divergir")
+
     def test_hay_una_sola_copia_de_cada_chequeo_compartido(self):
         for n in ("_imports.py", "_suprimidas.py"):
             with self.subTest(chequeo=n):
@@ -3885,8 +3912,11 @@ class TestArquitectura(CasoBase):
         for nombre, contenido in modulos.items():
             (self.p.dir / "src" / f"{nombre}.py").write_text(contenido)
 
-    def arq(self):
-        return correr(f"python3 scripts/_arquitectura.py", self.p.dir)
+    def arq(self, **env):
+        # `AGENTES` exportada, como la exporta cualquier proyecto que siga EMPEZAR.md: el
+        # juicio vive en el método (`scripts/_arquitectura_motor.py`) y esta copia es config.
+        return correr("python3 scripts/_arquitectura.py", self.p.dir,
+                      **dict({"AGENTES": str(RAIZ)}, **env))
 
     def test_divergencia_da_rojo(self):
         self.preparar(["datos", "rutas"], [],
@@ -3981,6 +4011,24 @@ class TestArquitectura(CasoBase):
         # módulos, están las capas, y está medido que no se parecen. Un ⊘ no bloquea nada y
         # así es como esto duró un mes.
         self.assertRojo(self.arq(), "cobertura 0%", motivo="ninguno de los 2 módulos")
+
+    def test_sin_el_motor_del_metodo_da_rojo_y_dice_que_le_falta(self):
+        """El reparto config/motor agrega un modo de falla: que el motor no esté. Tiene que
+        dar ROJO y nombrar lo que falta, como ya hacen `_imports.py` y `_suprimidas.py` en
+        el gate. El antecedente es del propio repo: el único eslabón de esa cadena que
+        fallaba ABIERTO no imprimía nada y el veredicto salía «GATE VERDE» limpio."""
+        self.preparar(["datos"], [], {"datos": ""})
+        # El andamio lo copia como copia los otros auxiliares del método, así que para medir
+        # su ausencia hay que sacarlo: con el archivo puesto, el chequeo lo encuentra ahí
+        # mismo —tercer eslabón de la cadena— y este test no mediría nada.
+        (self.p.dir / "scripts" / "_arquitectura_motor.py").unlink(missing_ok=True)
+        r = self.arq(AGENTES="")
+        self.assertNotEqual(r.returncode, 0,
+                            f"sin el motor no verificó nada y no lo dijo:\n{r.stdout}{r.stderr}")
+        self.assertIn("_arquitectura_motor.py", r.stdout + r.stderr,
+                      "tiene que nombrar lo que falta, no tirar un traceback")
+        self.assertNotIn("Traceback", r.stderr,
+                         f"un chequeo que no puede correr lo informa, no explota:\n{r.stderr}")
 
     def test_una_RAIZ_que_no_existe_da_rojo_y_no_un_encogimiento_de_hombros(self):
         """Era `· no encuentro .../src: nada que verificar` con código 0, o sea «GATE VERDE»

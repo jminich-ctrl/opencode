@@ -204,7 +204,7 @@ La prueba que de verdad dice si el método está escrito o sólo propuesto: proy
 las plantillas copiadas tal cual, y el recorrido completo con `MANUAL=1`.
 
 ```
-plantillas → gate.sh, _arquitectura.py, pre-deploy.sh   copiados sin editar
+plantillas → gate.sh, _arquitectura.py, pre-deploy.sh   copiados; capas declaradas
 tests primero, fallando                                  3 tests
 MANUAL=1 correr-tarea.sh T01                             worktree listo
 (una persona implementa)
@@ -228,6 +228,11 @@ nuestras:
    que rechazar un importe de `0.00` no rompía nada. Escribimos el test que faltaba y el
    mutante murió. El código lo habíamos escrito nosotros, con los tests primero, y el
    agujero estaba igual.
+
+Nota de vigencia: esa corrida copió `_arquitectura.py` **sin editar**, y desde el
+2026-10-25 eso da rojo a propósito — con capas que el proyecto no tiene, el chequeo no puede
+encontrar nada y antes lo informaba con un ✓. Hoy hay que declarar las capas propias (dos
+listas y una ruta) o no copiar el archivo; el resto del recorrido es igual.
 
 Y una que el gate nos hizo a nosotros: **editamos `scripts/gate.sh` dentro del worktree** y
 el paso 0 lo marcó como archivo intocable. Es la regla que el método ya tenía escrita
