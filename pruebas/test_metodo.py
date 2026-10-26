@@ -4287,6 +4287,55 @@ class TestLaLineaBaseDeFallasNoPuedeSalirVaciaEnSilencio(CasoBase):
                       f"la cabecera tiene que decir que `fallas` también sabe del corredor:\n{cab}")
 
 
+class TestG4NoTieneSuPropiaIdeaDeComoSeCorreLaSuite(CasoBase):
+    """`pre-deploy.sh` —G4— corría la suite con `python3 -m unittest discover -s tests` CLAVADO,
+    y el proyecto declara cómo se corre la suya en `scripts/correr-suite.sh`.
+
+    Es la misma lección que el método ya tiene escrita para el gate —«el gate NO sabe cómo se
+    corre la suite: lo sabe correr-suite.sh, y mientras cada uno tenía su propia invocación
+    diferían en cuatro cosas, y cada diferencia producía un test imposible de pasar que el
+    método informaba como "el test está mal"»— y G4 se quedó afuera porque nadie lo corrió en
+    otro stack: de los dos ejemplos sólo el Pacman lo tiene, y el Pacman usa unittest.
+
+    Medido el 2026-10-26 en el proyecto JS: «✗ la suite FALLA sobre un checkout limpio: hay
+    algo sin commitear que la sostiene», con un ImportError de `unittest` sobre un proyecto que
+    corre `node --test` y cuya suite está verde. Un diagnóstico falso que bloquea el deploy y
+    manda a buscar un archivo sin commitear que no existe."""
+
+    def preparar_g4(self, corredor=None):
+        shutil.copy(PLANTILLAS / "pre-deploy.sh", self.p.dir / "scripts" / "pre-deploy.sh")
+        if corredor:
+            (self.p.dir / "scripts" / "correr-suite.sh").write_text(corredor)
+        self.p.implementar()
+        self.p.git("add -A"); self.p.git("commit -qm g4")
+
+    def g4(self):
+        return correr("bash scripts/pre-deploy.sh", self.p.dir, AGENTES=str(RAIZ))
+
+    def test_la_suite_del_checkout_limpio_sale_del_corredor_del_proyecto(self):
+        """El corredor de juguete dice VERDE y `unittest discover` no podría: si G4 usa el del
+        proyecto, el paso 7 pasa."""
+        self.preparar_g4(corredor='#!/usr/bin/env bash\n'
+                                  'if [ -n "${1:-}" ]; then exit 2; fi\n'
+                                  'echo "19 pasaron"\nexit 0\n')
+        (self.p.dir / "tests" / "__init__.py").unlink()   # unittest ya no puede descubrir
+        self.p.git("add -A"); self.p.git("commit -qm 'sin paquete de tests'")
+        r = self.g4()
+        paso7 = r.stdout.split("── 7.")[1] if "── 7." in r.stdout else ""
+        self.assertTrue(paso7, f"el paso 7 no corrió:\n{r.stdout[-800:]}")
+        self.assertNotIn("✗", paso7,
+                         f"G4 corrió su propia suite en vez de la del proyecto:\n{paso7}")
+
+    def test_G4_no_se_lee_a_si_mismo_como_codigo_del_proyecto(self):
+        """El paso 4 informó «variables usadas y no documentadas: MYSQL_PASSWORD» en un
+        proyecto JS sin base de datos: la variable está en un COMENTARIO de `pre-deploy.sh`,
+        que entró al diff porque se acababa de copiar. G4 leyéndose a sí mismo."""
+        self.preparar_g4()
+        r = self.g4()
+        self.assertNotIn("MYSQL_PASSWORD", r.stdout,
+                         f"G4 leyó su propio comentario como código del proyecto:\n{r.stdout}")
+
+
 class TestLoQueElGateLlamaInfraestructuraElGuiaLoIgnora(unittest.TestCase):
     """El gate tiene una lista de lo que es INFRAESTRUCTURA del método —`.base-ref`,
     `.tests-base`, `.metricas/`, `.venv`…— y la filtra del diff para no cobrarle a la tarea

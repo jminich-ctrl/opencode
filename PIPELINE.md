@@ -294,6 +294,34 @@ aplicados sobre lo que escribió el agente, **cinco muertos**. El sobreviviente 
 → `monto <= 0`, equivalente —con monto 0 el IVA es 0 de las dos formas— y de la clase que
 `mutar.py` excluye por árida: comparaciones contra 0. El verde está ganado.
 
+### G4 en un proyecto nuevo, por primera vez (07:45)
+
+`pre-deploy.sh` nunca se había corrido fuera del Pacman —de los dos ejemplos sólo él lo tiene,
+y usa unittest— así que en el proyecto JS dio **tres rojos, dos de ellos falsos**:
+
+| paso | qué informaba | qué era |
+|---|---|---|
+| 4. Variables de entorno | `✗ variables usadas y no documentadas: MYSQL_PASSWORD` | la variable está en un **comentario de `pre-deploy.sh`**, que entró al diff porque se acababa de copiar. G4 leyéndose a sí mismo, en un proyecto sin base de datos |
+| 7. Suite sobre checkout limpio | `✗ la suite FALLA: hay algo sin commitear que la sostiene` | corría `python3 -m unittest discover` **clavado**, con la suite del proyecto verde |
+| 6. Smoke de arranque | `✗ no hay scripts/smoke.sh` | cierto, y el método **no reparte esa plantilla**: exigía un archivo que nadie tenía de dónde copiar |
+
+Los tres arreglados, y el paso 7 es la misma lección que el método ya tenía escrita para el
+gate: **el que juzga no sabe cómo se corre la suite; lo sabe `correr-suite.sh`**, con sus
+códigos de contrato. G4 se había quedado afuera porque nadie lo corrió en otro stack.
+
+Lo que el paso 6 necesitaba además era un caso que no existía: **una librería no tiene nada que
+levantar.** Ahora `plantillas/smoke.sh` lo deja DECLARAR —código 3, con el motivo— y G4 lo
+cuenta como vacío en vez de exigir un arranque imposible o dejar que alguien borre el paso:
+
+```
+── 6. Smoke de arranque
+    ⊘ este proyecto no tiene nada que levantar: es una librería de cálculo
+PRE-DEPLOY VERDE — con 1 chequeo/s declarados sin material (⊘)
+```
+
+Control obligatorio: el G4 del Pacman sigue verde, con su smoke real arrancando el juego y sus
+103 tests sobre el checkout limpio.
+
 ### Y una etapa entera, con dos agentes en paralelo (06:45)
 
 `correr-plan.sh` sobre el mismo proyecto, etapa de dos tareas elegidas para que no fueran

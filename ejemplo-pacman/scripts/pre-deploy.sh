@@ -20,11 +20,36 @@ BASE="${1:-origin/main}"
 git rev-parse --verify -q "$BASE" >/dev/null || BASE="$(git rev-parse HEAD~1 2>/dev/null || echo HEAD)"
 
 FALLOS=0
+VACIOS_G4=0
 rojo()  { echo "  ✗ $1"; FALLOS=$((FALLOS+1)); }
 verde() { echo "  ✓ $1"; }
 aviso() { echo "  · $1"; }
+# Lo que miró, con nombre: sin esto «pasó» y «no miré» se imprimen igual.
+testigo_g4() { echo "     · inspeccionó: $1"; }
 
-DIFF="$(git diff --name-only "$BASE"...HEAD ${PREFIJO:+-- "$RAIZ/$PREFIJO"} 2>/dev/null)"
+# Las herramientas que PROVEE el método no son código del proyecto, y G4 las estaba leyendo
+# como si lo fueran. Medido el 2026-10-26: copiar `pre-deploy.sh` al proyecto y correrlo
+# informaba «✗ variables usadas y no documentadas: MYSQL_PASSWORD» —la variable está en un
+# COMENTARIO de este mismo archivo, el que explica por qué `os.environ.get('MYSQL_PASSWORD')`
+# NO es un secreto— y el paso de secretos citaba sus propios párrafos. G4 leyéndose a sí
+# mismo, y bloqueando el deploy de un proyecto que no tiene base de datos.
+#
+# Se excluyen por nombre y se DICE cuáles: un archivo que no se inspecciona y no se nombra es
+# un agujero. Lo que el proyecto escribe —incluido `smoke.sh`— se sigue inspeccionando.
+DEL_METODO='^(scripts/(gate|pre-deploy|deploy|correr-suite)\.sh|scripts/_[a-z_]+\.(py|sh))$'
+# Y el mismo criterio para los diffs que leen CONTENIDO (secretos, variables de entorno): sin
+# esto, los pasos 1 y 4 seguían citando los comentarios de este archivo aunque la lista de
+# nombres ya estuviera filtrada. Un pathspec negativo de git, uno por herramienta del método.
+EXCLUIR_METODO=(":(exclude)*/scripts/gate.sh" ":(exclude)scripts/gate.sh"
+                ":(exclude)*/scripts/pre-deploy.sh" ":(exclude)scripts/pre-deploy.sh"
+                ":(exclude)*/scripts/deploy.sh" ":(exclude)scripts/deploy.sh"
+                ":(exclude)*/scripts/correr-suite.sh" ":(exclude)scripts/correr-suite.sh"
+                ":(exclude)*/scripts/_*.py" ":(exclude)scripts/_*.py"
+                ":(exclude)*/scripts/_*.sh" ":(exclude)scripts/_*.sh")
+DIFF_CRUDO="$(git diff --name-only "$BASE"...HEAD ${PREFIJO:+-- "$RAIZ/$PREFIJO"} 2>/dev/null)"
+DIFF="$(printf '%s\n' "$DIFF_CRUDO" | grep -vE "$DEL_METODO" || true)"
+SALTEADAS_G4="$(printf '%s\n' "$DIFF_CRUDO" | grep -E "$DEL_METODO" | tr '\n' ' ' || true)"
+[ -n "${SALTEADAS_G4// /}" ] && aviso "no se inspeccionan (las provee el método): $SALTEADAS_G4"
 [ -n "$DIFF" ] || aviso "sin cambios contra $BASE"
 
 echo "── 1. Secretos"
@@ -51,7 +76,7 @@ TRIVIAL="${NOMBRE}[^a-z]{0,3}[:=] *['\"][^'\"]*${NOMBRE}"
 # El patrón flojo no desaparece: lo que antes era rojo ahora es AVISO, así que un secreto sin
 # comillas se sigue viendo y nadie lo descubre tarde por un acote nuestro.
 PATRON_FLOJO="${NOMBRE}[^a-z]{0,3}[:=][^=]"
-AGREGADAS="$(git diff "$BASE"...HEAD -U0 ${PREFIJO:+-- "$RAIZ/$PREFIJO"} 2>/dev/null | grep -iE '^\+' | grep -viE "$DEL_ENTORNO" || true)"
+AGREGADAS="$(git diff "$BASE"...HEAD -U0 ${PREFIJO:+-- "$RAIZ/$PREFIJO"} "${EXCLUIR_METODO[@]}" 2>/dev/null | grep -iE '^\+' | grep -viE "$DEL_ENTORNO" || true)"
 SOSPECHOSAS="$(printf '%s\n' "$AGREGADAS" | grep -iE "$PATRON" | grep -viE "$TRIVIAL" || true)"
 if [ -n "$SOSPECHOSAS" ]; then
   rojo "hay algo que parece un secreto en el diff"
@@ -96,7 +121,7 @@ fi
 
 echo "── 4. Variables de entorno"
 # Las que el código nuevo lee y no están declaradas en el ejemplo del repo
-USADAS="$(git diff "$BASE"...HEAD -U0 ${PREFIJO:+-- "$RAIZ/$PREFIJO"} | grep -E '^\+' \
+USADAS="$(git diff "$BASE"...HEAD -U0 ${PREFIJO:+-- "$RAIZ/$PREFIJO"} "${EXCLUIR_METODO[@]}" | grep -E '^\+' \
   | grep -oE "(os\.environ(\.get)?\(['\"][A-Z_]+|process\.env\.[A-Z_]+|getenv\(['\"][A-Z_]+)" \
   | grep -oE '[A-Z_]{3,}' | sort -u)"
 if [ -n "$USADAS" ]; then
@@ -118,8 +143,17 @@ echo "── 6. Smoke de arranque"
 # porque el bug vive en el arranque, el cableado y la configuración. Nuestro Pacman
 # crasheaba al arrancar con 70 tests en verde.
 # ADAPTAR: el comando que levanta tu app, y cuántos segundos esperar.
-if [ -x scripts/smoke.sh ]; then
-  if bash scripts/smoke.sh; then verde "la aplicación arranca"; else rojo "la aplicación NO arranca"; fi
+if [ -x scripts/smoke.sh ] || [ -f scripts/smoke.sh ]; then
+  SAL_SMOKE="$(bash scripts/smoke.sh 2>&1)"; RC_SMOKE=$?
+  printf '%s\n' "$SAL_SMOKE" | grep . | sed 's/^/  /'
+  case "$RC_SMOKE" in
+    0) verde "la aplicación arranca" ;;
+    # 3 = el proyecto DECLARA que no tiene nada que levantar, con su motivo. No es un pase
+    # silencioso: queda impreso, se cuenta como vacío y el veredicto lo dice. Sin esto, una
+    # librería no podía pasar G4 de ninguna forma honesta.
+    3) VACIOS_G4=$((VACIOS_G4+1)) ;;
+    *) rojo "la aplicación NO arranca" ;;
+  esac
 else
   # Rojo, no aviso: un G4 que da verde salteándose el chequeo que más atrapa es
   # exactamente la trampa que veníamos arreglando en el gate de tareas.
@@ -134,11 +168,21 @@ echo "── 7. La suite sobre un checkout limpio"
 # SWE-Bench Pro V2 atrapó contenidos de archivo falsificados.
 LIMPIO="$(mktemp -d)"
 if git clone -q --no-hardlinks --depth 1 "file://$RAIZ" "$LIMPIO/repo" 2>/dev/null; then
-  if ( cd "$LIMPIO/repo/${PREFIJO:-.}" && python3 -m unittest discover -s tests -t . -q ) >"$LIMPIO/salida" 2>&1; then
-    verde "la suite pasa sobre lo commiteado ($(grep -E '^Ran ' "$LIMPIO/salida" | head -1))"
+  # Con `scripts/correr-suite.sh` y sus códigos de contrato, no con una invocación propia:
+  # tener dos formas de correr la suite produce un diagnóstico falso que se informa como
+  # defecto del proyecto. Medido en un proyecto JS el 2026-10-26.
+  if [ ! -f "$LIMPIO/repo/${PREFIJO:-.}/scripts/correr-suite.sh" ]; then
+    rojo "lo commiteado no incluye scripts/correr-suite.sh: no sé cómo correr la suite"
   else
-    rojo "la suite FALLA sobre un checkout limpio: hay algo sin commitear que la sostiene"
-    tail -12 "$LIMPIO/salida" | sed 's/^/     /'
+    ( cd "$LIMPIO/repo/${PREFIJO:-.}" && bash scripts/correr-suite.sh ) >"$LIMPIO/salida" 2>&1
+    case $? in
+      0) verde "la suite pasa sobre lo commiteado ($(grep -E '^Ran |^# pass ' "$LIMPIO/salida" | head -1))"
+         testigo_g4 "scripts/correr-suite.sh del checkout limpio" ;;
+      2) rojo "sobre lo commiteado la suite no corrió NINGÚN test: sin tests no hay deploy" ;;
+      3) rojo "falta el corredor de tests en el checkout limpio — es del método, no del código" ;;
+      *) rojo "la suite FALLA sobre un checkout limpio: hay algo sin commitear que la sostiene"
+         tail -12 "$LIMPIO/salida" | sed 's/^/     /' ;;
+    esac
   fi
 else
   rojo "no pude clonar el repo para verificar sobre lo commiteado"
@@ -146,5 +190,7 @@ fi
 rm -rf "$LIMPIO"
 
 echo
-if [ "$FALLOS" -eq 0 ]; then echo "PRE-DEPLOY VERDE"; exit 0
+if [ "$FALLOS" -eq 0 ] && [ "$VACIOS_G4" -eq 0 ]; then echo "PRE-DEPLOY VERDE"; exit 0
+elif [ "$FALLOS" -eq 0 ]; then
+  echo "PRE-DEPLOY VERDE — con $VACIOS_G4 chequeo/s declarados sin material (⊘)"; exit 0
 else echo "PRE-DEPLOY ROJO ($FALLOS fallo/s) — el deploy no arranca"; exit 1; fi
