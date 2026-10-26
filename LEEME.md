@@ -31,7 +31,7 @@ La idea en tres líneas:
 | **[EMPEZAR.md](EMPEZAR.md)** | De cero a la primera tarea ejecutada. Empezá por acá |
 | **[PRUEBAS.md](PRUEBAS.md)** | Quién verifica a los verificadores: la clase de falla que más nos mordió, y la suite del método |
 | **[MEDICION.md](MEDICION.md)** | Validación de instrumentos: el instrumento que mide limpio y mide otra cosa. Las ocho preguntas antes de correr |
-| **[METODO.md](METODO.md)** | Principios, roles, los seis pasos del gate, integrar, cómo se ejecuta y qué medir |
+| **[METODO.md](METODO.md)** | Principios, roles, los ocho pasos del gate, integrar, cómo se ejecuta y qué medir |
 | **[DESCOMPOSICION.md](DESCOMPOSICION.md)** | Cómo bajar un proyecto enorme a tareas ejecutables |
 | **[HUMANO.md](HUMANO.md)** | El rol humano: qué decidimos, aprobamos y juzgamos, y cómo intervenir poco |
 | **[PIPELINE.md](PIPELINE.md)** | La otra mitad: arquitecto, pre-deploy (G4) y deploy (G5) |
@@ -53,7 +53,7 @@ las mediciones en `research/findings.md`. Instalación de punta a punta en su RE
 ## Las herramientas
 
 ```
-plantillas/gate.sh        el juez: seis pasos, decide si una tarea terminó
+plantillas/gate.sh        el juez: ocho pasos, decide si una tarea terminó
 plantillas/correr-suite.sh  cómo se corre TU suite (dos funciones que saben del corredor)
 plantillas/PLAN.md        plan de proyecto
 plantillas/TAREA.md       una tarea

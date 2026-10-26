@@ -228,6 +228,12 @@ buscar-y-reemplazar y deja las estructurales; con una sola cosa por vez, las hac
 4. **¿Los tests distinguen?**: revierte la implementación y exige que fallen **los tests que
    la tarea nombra**, no que "algo" falle — la tasa agregada casi no se mueve ante una
    regresión mientras las métricas por porción caen 25 a 91 puntos.
+4b. **¿Los tests distinguen ESTA implementación?**: muta la implementación línea por línea
+   y exige que la suite lo note. El paso 4 distingue «con código» de «sin código»; éste
+   distingue «este código» de «este código con un bug», que es otra pregunta — el detalle en
+   «El paso 4 es grueso; mutar es fino». Faltaba en esta lista hasta el 2026-10-26, con el
+   paso andando desde el día anterior: es el que atrapó el bug latente de T20 con el gate en
+   verde al primer intento.
 5. **Coherencia**, sólo sobre el tronco: las dependencias entre módulos van en una sola
    dirección.
 6. **Suite reservada**, sólo sobre el tronco: tests escritos por una persona que ningún

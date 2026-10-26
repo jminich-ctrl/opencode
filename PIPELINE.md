@@ -277,7 +277,7 @@ integrar.sh T02                 ✓ tronco verde; la línea base no se le cobró
 estado.sh                       T01 y T02 ✅ hechas · mergeadas · tronco verde
 ```
 
-El gate corre sus seis pasos con dos ⊘ honestos —los chequeos que son de Python: imports
+El gate corre sus ocho pasos con dos ⊘ honestos —los chequeos que son de Python: imports
 contra requirements, y mutación—. Lo que **no** funcionaba, y se arregló acá:
 
 1. **El contrato del corredor no estaba verificado.** Adaptar `correr_suite` a `node --test`

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Gate G1: decide si una tarea está terminada. No opina, ejecuta.
-#   0) integridad  1) tests  2) alcance  3) higiene  4) ¿distinguen?  5) coherencia
+#   0) integridad  1) tests  2) alcance  3) higiene  4) ¿distinguen?
+#   4b) ¿distinguen ESTA implementación?  5) coherencia  6) suite reservada
+# Son OCHO. El encabezado nombraba seis y se comía justo los dos que más atrapan: la
+# mutación del diff y la suite que el agente no pudo haber optimizado.
 #
 # PLANTILLA. Buscá "ADAPTAR": son TRES en este archivo —los directorios de código, lo
 # generado por tu stack, y la regla de imports no declarados— más DOS en
