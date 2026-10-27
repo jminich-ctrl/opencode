@@ -530,3 +530,130 @@ exclusiones del `find` sacaban a los hijos y dejaban al directorio. Dispara just
 agente no escribió nada —se cayó al arrancar o lo cortó el límite—, o sea que tapaba la causa
 real con un rojo de higiene. Tres tareas, dos intentos cada una, punto muerto. Un instrumento
 que en su primera corrida encuentra un defecto del instrumento anterior se paga solo.
+
+### Medición 5 — veintiuna tareas con modelos de verdad (2026-10-27)
+
+Lo que la Medición 1 dejó pendiente: las mismas 21 tareas, 3 etapas de 7 en paralelo, pero con
+el ejecutor real en lugar del agente determinista. Es otra clase de falla y lo demostró.
+
+| qué | resultado |
+|---|---|
+| tareas cerradas | **10** |
+| en punto muerto | 4 (T01b, T03b, T04b, T06b) · la etapa 2 se detuvo ahí |
+| de esos cuatro rojos, **del método** | **3** |
+| del modelo | 1 (T06b: el ejecutor no escribió nada, el archivo quedó vacío) |
+
+Los tres rojos del método son el hallazgo, y no es que el modelo falle: es que **el veredicto
+quedó correlacionado al revés de lo correcto**.
+
+Los siete tests de la etapa —escritos por el agente, antes de la implementación— parchearon el
+módulo donde el nombre **se define**:
+
+    with patch('src.datos.d1.leer1') as mock_leer1:
+        mock_leer1.return_value = 5
+        self.assertEqual(calcular1(), 50)
+
+Y el enunciado de la tarea pedía, textualmente, «Usa `from src.datos.d1 import leer1`». Con
+ese import el nombre queda ligado en `src.servicios.s1` **antes** de que el patch corra, así
+que el patch no toca nada: `calcular1()` devuelve `1*10`, el test espera 50, rojo.
+
+| tarea | qué escribió el ejecutor | ¿obedece el contrato? | veredicto |
+|---|---|---|---|
+| T01b, T03b, T04b | `from src.datos.dN import leerN` a nivel de módulo | **sí**, palabra por palabra | **ROJO** |
+| T02b | `import src.datos.d2` + `d2.leer2()` | no | verde |
+| T05b, T07b | el `from` adentro de la función | no | verde |
+
+Las tres que pasaron ganaron una apuesta: eligieron una forma de import que deja el patch
+efectivo. Las tres que leyeron el contrato al pie de la letra quedaron en **punto muerto —falló
+dos veces por lo mismo**, que acusa al implementador, y las tres salidas que el punto muerto
+ofrecía —relanzar, partir en dos, hacerla a mano— asumen las tres que el defecto está en la
+tarea o en el modelo. Ninguna lo arregla.
+
+**El arreglo** es `scripts/_mocks.py`, que corre en `escribir-tests.sh` —la puerta donde el
+test todavía se puede reescribir gratis— y se repite en `explicar_punto_muerto` para cuando ya
+pasó. La regla es exacta y no hace falta correr nada:
+
+> si el test parchea `X.nombre`, y el módulo bajo prueba trae ese nombre con
+> `from X import nombre` **a nivel de módulo**, el patch no puede tener efecto.
+
+«A nivel de módulo» es la mitad que la hace angosta: el mismo `from` adentro de la función se
+resuelve en cada llamada y ahí el patch **sí** pega, igual que `import X` + `X.nombre`. Un
+chequeo que marcara esas dos muerde al test honesto.
+
+**El brazo nulo**, que es lo único que hace al chequeo algo más que una opinión sobre
+`unittest.mock`: correr los cuatro casos de verdad y comparar.
+
+| caso real | `unittest` | `_mocks.py` |
+|---|---|---|
+| T01b, T03b, T04b | FAILED | rc=1 |
+| T02b, T05b, T07b | OK | rc=0 |
+
+Seis de seis, sin un falso positivo. Queda como test permanente
+(`TestElRojoNoSabiaSiEraDelTestODeLaImplementacion`) con esos cuatro casos más dos que miden
+el caso **normal** —la implementación todavía no existe, porque los tests van primero— y uno
+que mide la angostura: `patch.object(d1, "leer1")` nombra el objeto que parchea y no entra.
+
+Mi primera versión del chequeo **fallaba abierto justo en el escenario que vino a cubrir**:
+deducía el módulo bajo prueba de que su `.py` existiera, y cuando `escribir-tests.sh` corre no
+existe. Daba 0 y silencio. Lo encontró el caso E del par discriminante, no leer el código.
+
+Y cuando el enunciado **no** declara con qué import se trae el nombre, el chequeo sale con 2
+—«no se pudo verificar»—, porque ahí el test está apostando a una de tres formas y el defecto
+es del contrato. Eso lo decide quien planifica; el método no lo infiere.
+
+### Medición 6 — el chequeo se colaba por el chequeo (2026-10-27)
+
+Con `_mocks.py` puesto y la regla nueva en `AGENTS.md`, las mismas 21 tareas otra vez con
+modelos de verdad. Lo que salió en la primera tarea:
+
+    ▶ T01b · ejecutor escribe tests/test_s1.py::TestS1
+      ✓ falla sin la implementación
+      ✓ pasa con la implementación
+      ✓ los mutantes mueren: el test distingue
+      ✓ T01b: tests/test_s1.py aceptado y copiado al tronco
+
+Y el test aceptado traía, otra vez, `patch('src.datos.d1.leer1')`. Corrido a mano sobre ese
+mismo archivo, el chequeo sale con 1. En la corrida había salido con 0.
+
+**La causa**: en `escribir-tests.sh` la implementación que hay en el worktree es un BORRADOR
+que el método descarta —el agente escribe test e implementación, y de los dos se queda sólo
+con el test— y lo escribió **el mismo agente que escribió el test**, así que es coherente con
+su test por construcción. El chequeo, que prefiere la implementación en disco sobre el
+enunciado, le estaba preguntando al acusado.
+
+El par entero, reproducido a mano y fijado como test:
+
+| contra qué se corre el test | veredicto de `unittest` |
+|---|---|
+| el borrador del agente de tests (`from` adentro de la función) | **OK** |
+| la implementación que el contrato manda (`from` a nivel de módulo) | **FAILED** |
+
+Las dos implementaciones calculan lo mismo. La que decide si el test pasa es la forma del
+import, y la que estaba en disco cuando el chequeo miró no era la que iba a juzgarlo.
+
+**El arreglo** es la bandera `--segun-enunciado`, que `escribir-tests.sh` ahora pasa: en esa
+puerta el único compromiso que existe sobre la implementación futura es el contrato. Sin la
+bandera —en `explicar_punto_muerto`, donde la implementación ya es la de verdad— sigue
+ganando el disco.
+
+**Y lo que lo hizo invisible durante una corrida entera**: el chequeo no imprimía su testigo
+cuando daba verde. El método tiene la doctrina del `· inspeccionó:` justamente por esto y acá
+no la había seguido; ahora dice qué fuente miró, y eso solo habría mostrado el defecto en la
+primera tarea. Queda como test.
+
+### Lo que el log de esa corrida destapó además
+
+`· línea base: 0` y `0 test(s) ya fallando`, en dos líneas. Es el `$(grep -c … || echo 0)`
+—`grep -c` imprime el conteo **y** sale 1 cuando es cero, así que el `||` agrega un segundo
+cero— que este repo ya había pagado tres veces: un «HTTP 000000» en la sonda, la guarda de
+verde falso de `ensayo.sh` que no corría por un «integer expression expected», y un chequeo
+de `correr-tarea.sh` que comparaba contra «0». El arreglo estaba en `correr-tarea.sh`, **con
+el comentario que lo explica**, y `escribir-tests.sh` seguía con las dos mitades sin hacer:
+el contador y la guarda que frena cuando la suite está roja y la línea base salió vacía —que
+es la que evita gastar una corrida de agente para que el gate después le cobre a la tarea las
+fallas de sus hermanas—.
+
+Queda como invariante sobre todos los `.sh` del repo, con brazo nulo verificado: reintroducir
+el patrón en cualquier script lo hace fallar. Y su primera versión marcó dos líneas que eran
+**los comentarios que documentan este mismo defecto** — una regla más ancha que su defecto
+acusa a la documentación del defecto. Tercera vez en el día con esa forma de error.

@@ -735,7 +735,48 @@ explicar_punto_muerto() {
       echo "      Cuánto margen hay entre este presupuesto y el éxito más lento, medido"
       echo "      en la línea «éxito más lento» de:"
       echo "        bash \$AGENTES/scripts/metricas.sh" ;;
+    *"siguen fallando"*)
+      # El punto muerto nombraba un culpable sin material para distinguirlo: las tres
+      # salidas que ofrecía —relanzar, partir, hacer a mano— asumen las tres que el defecto
+      # está en la tarea o en el modelo. Medido el 2026-10-27 con modelos de verdad: de
+      # cuatro tareas en punto muerto, TRES eran del test (parcheaba el módulo donde el
+      # nombre se define, y el enunciado mandaba traerlo con `from`, así que el patch no
+      # pegaba) y la implementación era palabra por palabra la del contrato. Relanzar,
+      # partir o hacerla a mano no arreglan ninguna de las tres.
+      clasificar_test_de_la_tarea "${2:-}" ;;
   esac
+}
+
+# ¿El test de esta tarea puede pasar? Lo único que se puede afirmar barato es lo contrario:
+# que NO puede, porque parchea donde el patch no tiene efecto.
+#
+#   clasificar_test_de_la_tarea <id>
+clasificar_test_de_la_tarea() {
+  local id="$1" esperado ruta archivo sal rc
+  [ -n "$id" ] || return 0
+  if [ ! -f "$AQUI/_mocks.py" ]; then
+    echo "      ⊘ no pude revisar si el test puede pasar: falta \$AGENTES/scripts/_mocks.py."
+    echo "        Sin eso no sabés si el rojo es del test o de la implementación."
+    return 0
+  fi
+  esperado="$(sed -n "s/^| *$id *| *\`\{0,1\}\([^ |\`]*\)\`\{0,1\} *| *\`\{0,1\}\([A-Za-z0-9_]*\)\`\{0,1\} *|.*/\1/p" \
+              "$RAIZ/PLAN.md" 2>/dev/null | head -1)"
+  ruta="$esperado"
+  case "$ruta" in
+    *.py) ;;
+    *) return 0 ;;
+  esac
+  [ -f "$RAIZ/$ruta" ] || { echo "      ⊘ no encontré $ruta para revisar si el test puede pasar."; return 0; }
+  archivo="$(ls "$RAIZ/tareas/${id}"-*.md 2>/dev/null | head -1)"
+  sal="$(cd "$RAIZ" && "${PY_PROYECTO:-python3}" "$AQUI/_mocks.py" "$ruta" "${archivo:-}" . 2>&1)"; rc=$?
+  if [ "$rc" = "1" ]; then
+    echo "      El defecto está en el TEST, no en la implementación:"
+    printf '%s\n' "$sal" | sed 's/^  /        /'
+    echo "        Arreglá el test y relanzá. Relanzar sin tocarlo vuelve al mismo rojo."
+  elif [ "$rc" != "0" ]; then
+    echo "      ⊘ no pude determinar si el test puede pasar (rc=$rc):"
+    printf '%s\n' "$sal" | sed 's/^  /        /'
+  fi
 }
 
 # ¿Se movió el brazo de control respecto de su línea base?

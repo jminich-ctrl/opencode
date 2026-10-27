@@ -273,6 +273,8 @@ for etapa in "${ETAPAS[@]}"; do
     [ "${#MUERTAS[@]}" -gt 0 ] && echo "  En punto muerto (misma falla dos veces): ${MUERTAS[*]}"
     [ "${#IMPOSIBLES[@]}" -gt 0 ] && echo "  Declaradas imposibles por el agente: ${IMPOSIBLES[*]} — leé el motivo, suele ser cierto"
     echo "  Decide un humano (ver HUMANO.md §4):"
+    echo "    · si el rojo es del TEST —arriba se dice cuando se puede afirmar—, arreglá el test:"
+    echo "      las otras tres salidas no lo arreglan,"
     echo "    · relanzar con el error pegado en la tarea,"
     echo "    · partir la tarea en dos,"
     echo "    · o hacerla a mano."

@@ -12797,6 +12797,7 @@ class TestQuienLeeElVeredictoDistingueElNoPudeVerificar(unittest.TestCase):
     CONTRATOS = {
         "_aserciones.py": ("1", ["2"]),
         "_contrato.py": ("1", ["2"]),
+        "_mocks.py": ("1", ["2"]),
         "vaciar.py": ("3", ["2"]),
         "mutar.py": ("1", ["2", "3"]),
         "_imports.py": ("1", ["2", "3"]),
@@ -14321,3 +14322,306 @@ class TestElValidadorPremiabaElIncumplimientoTotal(unittest.TestCase):
         self.assertGreaterEqual(len(filas), 2,
                                 f"el validador no puede LEER la tabla de la plantilla: sus "
                                 f"filas tienen que cumplir el formato, sin `<>`. Leí: {filas}")
+
+
+class TestElRojoNoSabiaSiEraDelTestODeLaImplementacion(unittest.TestCase):
+    """Medido el 2026-10-27, 21 tareas con modelos de verdad, la etapa de los siete
+    `calcularN()`. Los siete tests que escribió el agente parchearon `src.datos.dN.leerN`
+    —el módulo donde el nombre se define— y el enunciado de la tarea pedía, textualmente,
+    «Usa `from src.datos.dN import leerN`». Con ese import el patch no pega.
+
+    Lo que salió de ahí no es que el modelo falle: es que el VEREDICTO quedó correlacionado
+    al revés de lo correcto. Las tres tareas que obedecieron el contrato dieron ROJO y
+    quedaron en «punto muerto, falló dos veces por lo mismo», que acusa al implementador con
+    la implementación palabra por palabra igual al contrato. Las tres que pasaron lo hicieron
+    DESOBEDECIENDO: una con `import src.datos.d2` y acceso por atributo, dos con el `from`
+    adentro de la función. Y las tres salidas que el punto muerto ofrecía —relanzar, partir,
+    hacer a mano— asumen las tres que el defecto está en la tarea o en el modelo.
+
+    Los casos de abajo son esos cuatro, con el código que cada agente escribió."""
+
+    # (etiqueta, código de la implementación o None si todavía no existe, objetivo del patch,
+    #  ¿el enunciado declara el import?, código esperado)
+    CASOS = (
+        ("A: el `from` a nivel de módulo, que es lo que el contrato pedía (T01b)",
+         "from src.datos.d1 import leer1\n\ndef calcular1():\n    return leer1() * 10\n",
+         "src.datos.d1.leer1", True, 1),
+        ("B: el mismo código, parcheando donde se USA",
+         "from src.datos.d1 import leer1\n\ndef calcular1():\n    return leer1() * 10\n",
+         "src.servicios.s1.leer1", True, 0),
+        ("C: `import` del módulo y acceso por atributo (T02b)",
+         "import src.datos.d1\n\ndef calcular1():\n    return src.datos.d1.leer1() * 10\n",
+         "src.datos.d1.leer1", True, 0),
+        ("D: el `from` adentro de la función (T05b, T07b)",
+         "def calcular1():\n    from src.datos.d1 import leer1\n    return leer1() * 10\n",
+         "src.datos.d1.leer1", True, 0),
+        ("E: la implementación no existe todavía —el caso NORMAL, los tests van primero—"
+         " y el enunciado declara el import",
+         None, "src.datos.d1.leer1", True, 1),
+        ("F: no existe todavía y el enunciado no declara el import: el test apuesta",
+         None, "src.datos.d1.leer1", False, 2),
+    )
+
+    def proyecto(self, impl, objetivo):
+        """Un proyecto mínimo con `leer1()` hecho, el test escrito y la implementación en el
+        estado que pide el caso."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-mocks-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        for sub in ("src/datos", "src/servicios", "tests", "tareas"):
+            (d / sub).mkdir(parents=True, exist_ok=True)
+        for ini in ("src/__init__.py", "src/datos/__init__.py",
+                    "src/servicios/__init__.py", "tests/__init__.py"):
+            (d / ini).touch()
+        (d / ".git").mkdir(exist_ok=True)
+        (d / "src/datos/d1.py").write_text("def leer1():\n    return 1\n")
+        if impl is not None:
+            (d / "src/servicios/s1.py").write_text(impl)
+        (d / "tests/test_s1.py").write_text(
+            "import unittest\n"
+            "from unittest.mock import patch\n"
+            "from src.servicios.s1 import calcular1\n\n"
+            "class TestS1(unittest.TestCase):\n"
+            "    def test_calcular1(self):\n"
+            f"        with patch('{objetivo}') as m:\n"
+            "            m.return_value = 5\n"
+            "            self.assertEqual(calcular1(), 50)\n")
+        return d
+
+    def tarea(self, d, declara):
+        t = d / "tareas" / "T01b-cosa.md"
+        cuerpo = ("# T01b\n\n## Contrato\n\n    def calcular1() -> int:\n"
+                  '        """Devuelve `leer1() * 10`."""\n')
+        if declara:
+            cuerpo += "\nUsa `from src.datos.d1 import leer1`.\n"
+        t.write_text(cuerpo)
+        return t
+
+    def revisar(self, impl, objetivo, declara):
+        d = self.proyecto(impl, objetivo)
+        t = self.tarea(d, declara)
+        return d, correr(f'python3 "{SCRIPTS}/_mocks.py" tests/test_s1.py "{t}" .', d)
+
+    def test_cada_caso_medido_da_el_codigo_que_le_toca(self):
+        for etiqueta, impl, objetivo, declara, esperado in self.CASOS:
+            with self.subTest(caso=etiqueta):
+                _, r = self.revisar(impl, objetivo, declara)
+                self.assertEqual(r.returncode, esperado,
+                                 f"{etiqueta}\n{r.stdout}{r.stderr}")
+
+    def test_lo_que_el_chequeo_afirma_es_lo_que_unittest_hace(self):
+        """El brazo nulo, y es el único test de acá que no se puede discutir: para cada caso
+        con implementación, correr el test DE VERDAD y exigir que el chequeo diga rojo
+        exactamente cuando `unittest` falla. Sin esto el chequeo sería una opinión sobre
+        `unittest.mock`."""
+        for etiqueta, impl, objetivo, declara, esperado in self.CASOS:
+            if impl is None:
+                continue
+            with self.subTest(caso=etiqueta):
+                d, r = self.revisar(impl, objetivo, declara)
+                real = correr("python3 -m unittest tests.test_s1 -q", d)
+                falla_de_verdad = real.returncode != 0
+                marcado = r.returncode == 1
+                self.assertEqual(
+                    marcado, falla_de_verdad,
+                    f"{etiqueta}\nel chequeo dice {'INEFECTIVO' if marcado else 'ok'} y "
+                    f"unittest dice {'FALLA' if falla_de_verdad else 'PASA'}:\n"
+                    f"--- chequeo:\n{r.stdout}--- unittest:\n{real.stdout}{real.stderr}")
+
+    def test_sin_implementacion_ni_enunciado_no_es_verde(self):
+        """El fallo-abierto que yo mismo escribí primero: deducía el módulo bajo prueba de que
+        su `.py` EXISTIERA, y los tests se escriben antes de la implementación, así que el
+        chequeo daba 0 y silencio justo en el escenario que vino a cubrir."""
+        d = self.proyecto(None, "src.datos.d1.leer1")
+        r = correr(f'python3 "{SCRIPTS}/_mocks.py" tests/test_s1.py "" .', d)
+        self.assertNotEqual(r.returncode, 0,
+                            f"sin implementación y sin enunciado no se puede afirmar que el "
+                            f"patch pega:\n{r.stdout}{r.stderr}")
+        self.assertIn("no pude determinar", r.stdout + r.stderr)
+
+    def test_patch_object_no_entra(self):
+        """`patch.object(d1, "leer1")` nombra el objeto que parchea, así que no puede fallar
+        por este defecto. Una regla más ancha que el defecto se apaga a la semana."""
+        d = self.proyecto("from src.datos.d1 import leer1\n\ndef calcular1():\n"
+                          "    return leer1() * 10\n", "src.datos.d1.leer1")
+        (d / "tests/test_s1.py").write_text(
+            "import unittest\n"
+            "from unittest.mock import patch\n"
+            "import src.datos.d1\n"
+            "from src.servicios.s1 import calcular1\n\n"
+            "class TestS1(unittest.TestCase):\n"
+            "    def test_calcular1(self):\n"
+            '        with patch.object(src.datos.d1, "leer1") as m:\n'
+            "            m.return_value = 5\n"
+            "            self.assertEqual(calcular1(), 50)\n")
+        t = self.tarea(d, True)
+        r = correr(f'python3 "{SCRIPTS}/_mocks.py" tests/test_s1.py "{t}" .', d)
+        self.assertEqual(r.returncode, 0, f"no es este defecto:\n{r.stdout}{r.stderr}")
+
+    def test_el_punto_muerto_dice_cuando_el_rojo_es_del_test(self):
+        """El punto muerto nombraba un culpable sin material para distinguirlo. Con la huella
+        de «los tests siguen fallando» tiene que mirar el test y decirlo."""
+        d = self.proyecto("from src.datos.d1 import leer1\n\ndef calcular1():\n"
+                          "    return leer1() * 10\n", "src.datos.d1.leer1")
+        self.tarea(d, True)
+        (d / "PLAN.md").write_text(
+            "## Tests\n\n| Tarea | Archivo de test | Clase |\n|---|---|---|\n"
+            "| T01b | tests/test_s1.py | TestS1 |\n")
+        guion = (f'AQUI="{SCRIPTS}" RAIZ="{d}" bash -c \'. "$AQUI/_comun.sh" >/dev/null 2>&1; '
+                 f'explicar_punto_muerto "los tests de T01b siguen fallando: AssertionError" T01b\'')
+        r = correr(guion, d)
+        self.assertIn("en el TEST", r.stdout,
+                      f"el punto muerto siguió acusando al implementador:\n{r.stdout}{r.stderr}")
+        self.assertIn("patch('src.servicios.s1.leer1')", r.stdout,
+                      "y tiene que decir qué poner en su lugar")
+
+    def test_el_punto_muerto_no_acusa_al_test_cuando_el_patch_pega(self):
+        """El par: con el `from` adentro de la función el patch pega, el rojo no es del test, y
+        el punto muerto no tiene que inventar un culpable nuevo."""
+        d = self.proyecto("def calcular1():\n    from src.datos.d1 import leer1\n"
+                          "    return leer1() * 10\n", "src.datos.d1.leer1")
+        self.tarea(d, True)
+        (d / "PLAN.md").write_text(
+            "## Tests\n\n| Tarea | Archivo de test | Clase |\n|---|---|---|\n"
+            "| T01b | tests/test_s1.py | TestS1 |\n")
+        guion = (f'AQUI="{SCRIPTS}" RAIZ="{d}" bash -c \'. "$AQUI/_comun.sh" >/dev/null 2>&1; '
+                 f'explicar_punto_muerto "los tests de T01b siguen fallando: AssertionError" T01b\'')
+        r = correr(guion, d)
+        self.assertNotIn("en el TEST", r.stdout,
+                         f"acusó al test con el patch efectivo:\n{r.stdout}")
+
+    def test_en_la_puerta_manda_el_enunciado_y_no_el_borrador_del_propio_agente(self):
+        """El falso verde que se colaba POR el chequeo, medido el 2026-10-27 dos horas después
+        de escribirlo. En `escribir-tests.sh` la implementación que hay en disco es el borrador
+        del MISMO agente que escribió el test —el método la descarta— y es coherente con su
+        test por construcción. El chequeo le preguntaba al acusado: daba verde, el test se
+        copiaba al tronco, y en la etapa siguiente el agente que implementaba el contrato al
+        pie de la letra se comía el rojo.
+
+        Los tres veredictos de abajo son el par entero: el borrador hace PASAR el test, el
+        contrato lo hace FALLAR, y el chequeo tiene que hablar del contrato."""
+        borrador = ("def calcular1():\n    from src.datos.d1 import leer1\n"
+                    "    return leer1() * 10\n")
+        contrato = "from src.datos.d1 import leer1\n\ndef calcular1():\n    return leer1() * 10\n"
+        d = self.proyecto(borrador, "src.datos.d1.leer1")
+        t = self.tarea(d, True)
+
+        con_borrador = correr("python3 -m unittest tests.test_s1 -q", d)
+        self.assertEqual(con_borrador.returncode, 0,
+                         f"el borrador tiene que hacer pasar el test, o este test no mide el "
+                         f"escenario:\n{con_borrador.stdout}{con_borrador.stderr}")
+
+        r = correr(f'python3 "{SCRIPTS}/_mocks.py" --segun-enunciado tests/test_s1.py "{t}" .', d)
+        self.assertEqual(r.returncode, 1,
+                         f"en la puerta manda el contrato, no el borrador:\n{r.stdout}{r.stderr}")
+
+        # Los `.pyc` del borrador, con `tirar_dir` y no con `ignore_errors=True`: una
+        # limpieza que se traga su falla es de la misma familia que un chequeo que no pudo
+        # correr y dice que pasó, y hay un invariante de esta suite que lo prohíbe — me lo
+        # marcó a mí, dos horas después de que yo mismo arreglara el bytecode viejo.
+        # Y hay que borrarlos: Python valida el `.pyc` por mtime y tamaño, así que escribir
+        # la otra implementación en el mismo segundo puede dejar corriendo la anterior.
+        (d / "src/servicios/s1.py").write_text(contrato)
+        for basura in sorted(d.rglob("__pycache__"), key=lambda x: -len(x.parts)):
+            tirar_dir(basura)
+        con_contrato = correr("python3 -m unittest tests.test_s1 -q", d)
+        self.assertNotEqual(con_contrato.returncode, 0,
+                            f"y la implementación del contrato tiene que fallar contra ese "
+                            f"test, que es de quién era el defecto:\n{con_contrato.stdout}"
+                            f"{con_contrato.stderr}")
+
+    def test_el_chequeo_dice_que_miro_tambien_cuando_da_verde(self):
+        """Lo que hizo invisible al falso verde durante una corrida entera fue que el chequeo
+        no decía qué había mirado. La doctrina del repo es el testigo —`· inspeccionó:`— y acá
+        no la había seguido."""
+        d = self.proyecto("import src.datos.d1\n\ndef calcular1():\n"
+                          "    return src.datos.d1.leer1() * 10\n", "src.datos.d1.leer1")
+        t = self.tarea(d, True)
+        r = correr(f'python3 "{SCRIPTS}/_mocks.py" tests/test_s1.py "{t}" .', d)
+        self.assertEqual(r.returncode, 0, f"\n{r.stdout}{r.stderr}")
+        self.assertIn("inspeccionó", r.stdout, f"verde sin testigo:\n{r.stdout}")
+        self.assertIn("la implementación en disco", r.stdout,
+                      "y el testigo tiene que decir CUÁL fuente miró")
+        r2 = correr(f'python3 "{SCRIPTS}/_mocks.py" --segun-enunciado tests/test_s1.py "{t}" .', d)
+        self.assertIn("el enunciado de la tarea", r2.stdout,
+                      f"con la bandera el testigo tiene que decir otra fuente:\n{r2.stdout}")
+
+    def test_escribir_tests_pregunta_por_el_enunciado_y_no_por_el_disco(self):
+        """La bandera tiene que estar en la invocación, no sólo disponible."""
+        codigo = (SCRIPTS / "escribir-tests.sh").read_text()
+        invoca = [l for l in codigo.split("\n") if "_mocks.py" in l and "python3" in l]
+        self.assertTrue(invoca, "escribir-tests.sh no corre _mocks.py")
+        self.assertIn("--segun-enunciado", "\n".join(invoca) + codigo[codigo.index("_mocks.py"):][:400],
+                      "sin la bandera le pregunta al borrador del propio agente")
+
+    def test_escribir_tests_corre_el_chequeo_y_exige_el_auxiliar(self):
+        """Los dos defectos que este repo repite: el chequeo que no se invoca nunca, y el
+        auxiliar ausente que deja pasar en silencio."""
+        codigo = (SCRIPTS / "escribir-tests.sh").read_text()
+        invoca = [l for l in codigo.split("\n") if "_mocks.py" in l and "python3" in l]
+        self.assertTrue(invoca, "escribir-tests.sh no corre _mocks.py")
+        self.assertIn('[ ! -f "$AQUI/_mocks.py" ]', codigo,
+                      "sin la guarda, un auxiliar ausente es un chequeo que no corrió")
+
+
+class TestElArregloVivePeroEnUnSoloHermano(unittest.TestCase):
+    """Dos defectos que este repo ya había arreglado y que seguían vivos en el script hermano.
+    Los encontró el log de una corrida real, no leer el diff: `· línea base: 0` y
+    `0 test(s) ya fallando` salían en DOS líneas.
+
+    El patrón, contado: `grep -c` imprime el conteo Y sale 1 cuando es cero, así que
+    `$(grep -c . archivo || echo 0)` vale «0\\n0». Ya había costado un «HTTP 000000» en la
+    sonda, un `[ "$CERRADAS" -ne 0 ]` que moría con «integer expression expected» en
+    `ensayo.sh` —o sea la guarda de verde falso sin correr— y un chequeo de `correr-tarea.sh`
+    que comparaba contra «0» y no disparaba nunca."""
+
+    def guiones(self):
+        return [p for p in (RAIZ / "scripts").glob("*.sh")] + \
+               [p for p in (RAIZ / "plantillas").glob("*.sh")]
+
+    def test_ningun_contador_se_arruina_con_el_doble_cero(self):
+        """Los comentarios no cuentan, y es la mitad que me faltó: mi primera versión marcó
+        dos líneas, y las dos eran los COMENTARIOS que explican este mismo defecto en
+        `escribir-tests.sh` y `ensayo.sh`. Una regla más ancha que su defecto acusa a la
+        documentación del defecto."""
+        culpables = []
+        for g in self.guiones():
+            for i, linea in enumerate(g.read_text().split("\n"), 1):
+                if linea.lstrip().startswith("#"):
+                    continue
+                if re.search(r"(grep -c|wc -l)[^|]*\|\|\s*echo\s+\d", linea):
+                    culpables.append(f"{g.relative_to(RAIZ).as_posix()}:{i}")
+        self.assertEqual([], culpables,
+                         f"`grep -c` ya imprime 0 y además sale 1: el `|| echo 0` agrega un "
+                         f"segundo cero y la variable queda «0\\n0». Va "
+                         f"`N=\"$(grep -c . f)\"; N=\"${{N:-0}}\"`. En: {culpables}")
+
+    def test_los_dos_scripts_que_cierran_verde_guardan_el_transcript_como_exito(self):
+        """La mitad positiva del dataset. `conservar_intento` guarda en `fallidos-<id>`, así
+        que sin el tercer argumento un éxito queda indistinguible de una falla — y son 21
+        transcripts de implementación exitosa por corrida, que es justo lo que hay que imitar.
+        En `escribir-tests.sh` el intento aceptado trae además la implementación de referencia
+        que el método descarta: el único registro de contra qué se validó el test."""
+        for nombre, camino in (("correr-tarea.sh", "exito"), ("escribir-tests.sh", "exito")):
+            with self.subTest(guion=nombre):
+                codigo = (SCRIPTS / nombre).read_text()
+                llamadas = re.findall(r"conservar_intento[^\n]*", codigo)
+                self.assertTrue(llamadas, f"{nombre} no conserva ningún intento")
+                self.assertTrue(
+                    any(camino in l for l in llamadas),
+                    f"{nombre} guarda todo como falla: ninguna de sus {len(llamadas)} "
+                    f"llamadas pasa «{camino}». Las llamadas son:\n" + "\n".join(llamadas))
+
+    def test_los_dos_scripts_que_gastan_una_corrida_frenan_con_la_linea_base_vacia(self):
+        """La guarda estaba sólo en `correr-tarea.sh`. `escribir-tests.sh` lanza una corrida de
+        agente con la misma línea base, y con la lista vacía el gate le cobra a la tarea las
+        fallas de sus hermanas — que es justo lo que la línea base existe para evitar. El gate
+        tiene su propia guarda, pero juzga al CERRAR: cuando ya se gastó."""
+        for nombre in ("correr-tarea.sh", "escribir-tests.sh"):
+            with self.subTest(guion=nombre):
+                codigo = (SCRIPTS / nombre).read_text()
+                self.assertIn("--fallas", codigo, "no escribe la línea base")
+                self.assertIn("RC_SUITE_BASE", codigo,
+                              "no mira si la suite está roja antes de lanzar al agente")
+                self.assertRegex(
+                    codigo, r'RC_SUITE_BASE" *= *"1" *\] *&& *\[ *"\$?\{?N_BASE',
+                    "la guarda tiene que pedir las DOS cosas: suite roja y línea base vacía")

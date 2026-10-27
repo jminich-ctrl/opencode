@@ -186,7 +186,26 @@ for id in "$@"; do
   git -C "$wt" rev-parse HEAD > "$wt/.base-ref"
   if [ -f "$wt/$PROYECTO/scripts/correr-suite.sh" ]; then
     ( cd "$wt/$PROYECTO" && bash scripts/correr-suite.sh --fallas > .tests-base 2>/dev/null ) || true
-    echo "  · línea base: $(grep -c . "$wt/$PROYECTO/.tests-base" 2>/dev/null || echo 0) test(s) ya fallando"
+    # Sexta vez que el arreglo vivía en el hermano y no acá, y las dos mitades son del
+    # hermano: `correr-tarea.sh` las tiene desde el 2026-10-26 con su comentario, y este
+    # script seguía con el `|| echo 0` —que da «0\n0», porque `grep -c` IMPRIME 0 y ADEMÁS
+    # sale 1— y sin la guarda. Lo delató el log de una corrida real: «· línea base: 0» y
+    # «0 test(s) ya fallando» en dos líneas.
+    N_BASE="$(grep -c . "$wt/$PROYECTO/.tests-base" 2>/dev/null)"; N_BASE="${N_BASE:-0}"
+    echo "  · línea base: ${N_BASE} test(s) ya fallando"
+    # Y la otra mitad: con la línea base vacía y la suite roja, el gate le cobra a esta tarea
+    # las fallas de sus hermanas, que es justo lo que la línea base existe para evitar. Este
+    # script lanza una corrida de agente igual que `correr-tarea.sh`, así que frenar antes
+    # vale lo mismo acá: el gate juzga al CERRAR, cuando ya se gastó.
+    ( cd "$wt/$PROYECTO" && bash scripts/correr-suite.sh >/dev/null 2>&1 ); RC_SUITE_BASE=$?
+    if [ "$RC_SUITE_BASE" = "1" ] && [ "$N_BASE" = "0" ]; then
+      echo "✗ la suite está en ROJO y la línea base salió VACÍA." >&2
+      echo "  La función «fallas» de scripts/correr-suite.sh no entiende la salida de este" >&2
+      echo "  corredor: es un EXTRACTOR y sabe del stack, igual que «correr_suite». Con la" >&2
+      echo "  lista vacía el gate le va a cobrar a $id las fallas de sus hermanas." >&2
+      echo "  Arreglá el patrón de «fallas» y volvé a lanzar." >&2
+      continue
+    fi
   fi
   # El venv del tronco, igual que en correr-tarea.sh: el del worktree es un enlace, pero
   # si el enlace no está, el validador correría con el intérprete del sistema y no vería
@@ -415,6 +434,46 @@ for id in "$@"; do
       elif [ "$RC_A" != "0" ]; then
         malo "_aserciones.py no pudo correr (rc=$RC_A): el chequeo no se puede saltear"
         printf '%s\n' "$SAL_A" | sed 's/^/     /'
+      fi
+    fi
+  fi
+
+  # ¿El test parchea donde el patch va a pegar? Medido el 2026-10-27 con modelos de verdad:
+  # los siete tests de una etapa parchearon el módulo donde el nombre se DEFINE, y el
+  # enunciado pedía traerlo con `from`, que es justo lo que vuelve el patch inefectivo. Tres
+  # de siete quedaron en punto muerto acusando al implementador, con la implementación
+  # palabra por palabra igual al contrato; las otras cuatro pasaron DESOBEDECIENDO el
+  # contrato. El veredicto quedó correlacionado al revés de lo correcto. Detalle y los tres
+  # casos en que el patch sí pega: scripts/_mocks.py.
+  case "$ruta" in *.py) MIRA_MOCKS=1 ;; *) MIRA_MOCKS=0 ;; esac
+  if [ "$fallos" -eq 0 ] && [ "$MIRA_MOCKS" = "1" ] && [ -f "$ruta" ]; then
+    if [ ! -f "$AQUI/_mocks.py" ]; then
+      malo "falta $AQUI/_mocks.py: no se puede revisar si los patch del test tienen efecto"
+      echo "     Lo provee el método. Un chequeo que no pudo correr no es un chequeo que pasó."
+    else
+      # `--segun-enunciado`: la implementación que hay en el worktree AHORA es el borrador
+      # del mismo agente que escribió el test —el método la descarta—, así que mirarla es
+      # preguntarle al acusado. Está medido: así se colaba el test defectuoso. El único
+      # compromiso sobre la implementación futura es el contrato.
+      SAL_K="$("${PY_PROYECTO:-python3}" "$AQUI/_mocks.py" --segun-enunciado \
+               "$ruta" "$archivo" . 2>&1)"; RC_K=$?
+      if [ "$RC_K" = "1" ]; then
+        malo "el test parchea un lugar donde el patch no va a tener efecto"
+        printf '%s\n' "$SAL_K" | sed 's/^  /     /'
+      elif [ "$RC_K" = "2" ]; then
+        echo "  ⊘ no pude determinar si los patch del test tienen efecto"
+        printf '%s\n' "$SAL_K" | sed 's/^  /     /'
+        echo "     Si el enunciado no declara con qué import la implementación trae el nombre,"
+        echo "     el test está apostando a una de tres formas. Eso lo decide quien planifica."
+      elif [ "$RC_K" != "0" ]; then
+        malo "_mocks.py no pudo correr (rc=$RC_K): el chequeo no se puede saltear"
+        printf '%s\n' "$SAL_K" | sed 's/^/     /'
+      else
+        # El testigo también en verde, y no es cosmética: este chequeo dio verde durante una
+        # corrida entera mirando la implementación equivocada, y lo que lo hacía invisible
+        # era justamente no decir qué había mirado.
+        echo "  ✓ los patch del test apuntan donde el patch pega"
+        printf '%s\n' "$SAL_K" | sed 's/^  /     · /'
       fi
     fi
   fi
@@ -729,7 +788,12 @@ for id in "$@"; do
     #
     # Dejarlos todos acumulados no es gratis: una corrida de un día dejó doce worktrees
     # registrados y doce ramas, y cada herramienta que recorre el repo los recorre.
-  conservar_intento "$wt" "${id:-${TAREA:-tests}}"
+    # `exito`: el transcript del test que SÍ pasó los cinco pasos es la mitad positiva del
+    # dataset, y acá además viene con la implementación de referencia que el método descarta
+    # —el único registro que queda de contra qué se validó el test—. Sin el prefijo cae en
+    # `fallidos-<id>` indistinguible de una falla. Séptima vez que el arreglo vivía en el
+    # hermano: `correr-tarea.sh` lo pasa desde hoy y acá seguía por omisión.
+    conservar_intento "$wt" "${id:-${TAREA:-tests}}" exito
     tirar_base_del_worktree "$wt"
     git -C "$RAIZ" worktree remove --force "$wt" 2>/dev/null
     git -C "$RAIZ" branch -D "tests/$id" >/dev/null 2>&1

@@ -471,6 +471,34 @@ tests reservados es el hack más común** (339 contra 222 ocurrencias del otro).
 6. **Ninguna tasa de falso-merge** está publicada por nadie —ni GitHub, ni Shopify, ni Uber,
    ni Google— y **no existe medición controlada de mergear en lote contra de a uno**. Nuestra
    elección de a una está *sin refutar*, no validada.
+7. **Contra qué implementación se valida un test escrito por un agente.** Nuestro validador
+   de tests tiene cinco pasos y tres de ellos comparan el test contra **versiones del
+   producto**: «pasa con la implementación», «los mutantes mueren», «el brazo nulo falla». La
+   implementación que usan es la que el agente de tests escribió en el mismo turno, y el
+   método **la descarta**: lo que se queda es sólo el test, y la implementación de verdad la
+   escribe otro agente en la etapa siguiente, desde el contrato.
+
+   Medido el 2026-10-27, 21 tareas con modelos de verdad: los **siete** tests de una etapa
+   pasaron los cinco pasos —incluido «pasa con la implementación»— y después **tres** fallaron
+   en la etapa de implementación con ese mismo test. Un test no puede pasar y fallar contra la
+   misma implementación, así que en 3 de 7 el borrador y la implementación final diferían
+   **justo en lo que decide el veredicto**; en este caso, la forma del import que hace que un
+   `patch()` pegue o no. O sea que tres de los cinco pasos del validador estuvieron midiendo
+   contra un sujeto que se tira, y lo escribió el mismo agente que escribió el test, así que
+   es coherente con él por construcción.
+
+   De los cinco pasos, dos no dependen del borrador —«falla sin la implementación» y el brazo
+   nulo con los cuerpos vacíos— y ésos siguen valiendo. El hueco es que **nada verifica que el
+   test sea satisfacible por una implementación que cumpla el contrato**. `scripts/_mocks.py`
+   cierra el único caso que es decidible sin correr nada; el resto está abierto.
+
+   El experimento, y es barato porque los datos ya salen de cada corrida: conservar el
+   borrador descartado junto al test aceptado y medir, sobre N tareas, cuántas veces difiere
+   de la implementación final de un modo que invierte el veredicto. Con ese número se decide
+   si los tres pasos se corren contra el borrador —y entonces hay que clasificar su rojo como
+   «puede ser del borrador»— o si se corren recién en la etapa de implementación, contra la
+   implementación real. Nadie publicó esa tasa: los dos papers más cercanos tienen al agente
+   escribiendo test e implementación **y quedándose con los dos**, que es otro arreglo.
 
 ---
 
