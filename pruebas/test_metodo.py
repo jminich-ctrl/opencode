@@ -8067,7 +8067,13 @@ class TestLaTerceraAuditoria(unittest.TestCase):
             "2026-01-01T00:50:00Z,p,T04,ROJO,30,m1,✗ los tests siguen fallando,0,aa",
         ]
         s = self.metricas(self.repo_con_registro(filas))
-        self.assertIn("Verde al PRIMER intento: 2/3", s,
+        # La aserción es sobre la FRACCIÓN, no sobre el texto del titular: clavaba
+        # «Verde al PRIMER intento: 2/3» y se rompió el día que el titular pasó a nombrar la
+        # fase que cuenta. Un test que fija la redacción entera obliga a tocarlo cada vez que
+        # el mensaje mejora, y el que lo toca de apuro afloja la aserción.
+        tasa = [l for l in s.split("\n") if "PRIMER intento" in l]
+        self.assertTrue(tasa, f"no imprimió la tasa:\n{s}")
+        self.assertIn("2/3", tasa[0],
                       f"T01 y T02 cuentan como verde al primer intento CONTABLE, "
                       f"T03 no cuenta, T04 cuenta en contra:\n{s}")
         self.assertIn("⊘ fuera de esa tasa: 1 tarea(s)", s,
@@ -14026,12 +14032,22 @@ class TestUnMutanteQueCuelgaElProgramaColgabaElGate(CasoBase):
 
     def test_no_deja_procesos_colgados(self):
         """Matar el shell y no el árbol deja al nieto girando, y el que lo paga es la próxima
-        corrida: el repo ya perdió 45 minutos así."""
+        corrida: el repo ya perdió 45 minutos así.
+
+        Se mide el DELTA y no el total, y eso es el arreglo de un rojo falso propio:
+        `pgrep -f correr-suite` cuenta los de toda la máquina, así que el 2026-10-27 este test
+        falló con «quedaron procesos de la suite girando: 2» mientras dos corridas de agente
+        ajenas usaban el gate en otros proyectos. `mutar.py` no había dejado nada: el test
+        medía un recurso global y se lo cobraba al acusado, que es justo el defecto que esta
+        suite persigue en el método. El delta mide lo que el test quiere decir —«no deja MÁS
+        de los que había»— y es inmune a lo que corra al lado."""
         self.con_loop()
+        antes = correr("pgrep -f 'correr-suite' | wc -l", self.p.dir).stdout.strip()
         self.mutar(tope=5)
-        vivos = correr("pgrep -f 'correr-suite' | wc -l", self.p.dir)
-        self.assertEqual(vivos.stdout.strip(), "0",
-                         f"quedaron procesos de la suite girando: {vivos.stdout}")
+        despues = correr("pgrep -f 'correr-suite' | wc -l", self.p.dir).stdout.strip()
+        self.assertLessEqual(int(despues or 0), int(antes or 0),
+                             f"mutar.py dejó procesos girando: había {antes}, quedaron "
+                             f"{despues}")
 
     def test_un_tope_menor_que_la_suite_no_es_un_pase(self):
         """El agujero que abre el arreglo, y había que cerrarlo antes de confiar: con un tope
@@ -14824,3 +14840,59 @@ class TestElConsejoDeRecuperacionLoRechazaElPropioMetodo(unittest.TestCase):
                          f"la guarda dejó saltear tareas pendientes:\n{r.stdout}{r.stderr}")
         self.assertIn("se saltean tareas que siguen pendientes", r.stderr,
                       f"y tiene que decir cuáles:\n{r.stderr}")
+
+
+class TestElResumenDecia100PorCientoYContabaUnTercio(unittest.TestCase):
+    """Medido el 2026-10-27 al cerrar las 21 tareas del ensayo con modelos de verdad. El
+    resumen decía:
+
+        Intentos: 21   ·   tareas intentadas: 21
+        Verde al PRIMER intento: 21/21 (100%)
+
+    Y las invocaciones reales del agente fueron **68**: 47 en la fase de TESTS y 21 en la de
+    implementación, repartidas así por corrida (tests/implementación): 21/7, 7/0, 13/7, 6/7.
+    El registro tiene 21 filas porque `escribir-tests.sh` no anota.
+
+    La afirmación es cierta sobre lo que el registro contiene y falsa como resumen del
+    trabajo, y no es cosmética: es el número con que el método calibra el presupuesto de
+    agente —el mensaje de punto muerto remite a `metricas.sh` para eso—. Un instrumento que
+    declara un tercio del costo hace parecer barato lo que no lo es.
+
+    El arreglo no inventa el dato que falta: nombra la fase que sí cuenta y DECLARA el hueco
+    con el comando que lo mide, que es lo que el método exige de todo chequeo que no pudo
+    verificar algo."""
+
+    def repo_con_registro(self, filas):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-fase-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        (d / "p" / "tareas").mkdir(parents=True)
+        (d / ".metricas").mkdir()
+        (d / "scripts").mkdir()
+        (d / "scripts" / "x.sh").write_text("echo 1\n")
+        enc = ("fecha,proyecto,tarea,veredicto,segundos,modelo,motivo,"
+               "concurrencia,instrumento")
+        (d / ".metricas" / "intentos.csv").write_text("\n".join([enc, *filas]) + "\n")
+        for cmd in (["init", "-q", "-b", "main"], ["add", "-A"],
+                    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"]):
+            subprocess.run(["git", *cmd], cwd=d, check=True, capture_output=True)
+        return d
+
+    FILA = "2026-10-27T20:19:07Z,p,T01a,VERDE,38,m1,,0,abc123"
+
+    def test_el_titular_dice_de_que_fase_habla(self):
+        d = self.repo_con_registro([self.FILA])
+        salida = correr(f'bash "{SCRIPTS}/metricas.sh"', d, PROYECTO="p").stdout
+        linea = [l for l in salida.split("\n") if "PRIMER intento" in l]
+        self.assertTrue(linea, f"no imprimió la tasa:\n{salida}")
+        self.assertIn("implementación", linea[0],
+                      f"el titular no dice de qué fase habla, y el registro no tiene la fase "
+                      f"de tests:\n{linea[0]}")
+
+    def test_declara_que_la_fase_de_tests_no_esta_contada(self):
+        d = self.repo_con_registro([self.FILA])
+        salida = correr(f'bash "{SCRIPTS}/metricas.sh"', d, PROYECTO="p").stdout
+        self.assertIn("fase de TESTS no está en este registro", salida,
+                      f"un hueco que no se declara se lee como cero:\n{salida}")
+        self.assertIn("ejecutor escribe", salida,
+                      "y tiene que traer el COMANDO que lo cuenta, no un número escrito a "
+                      "mano: un número en un mensaje envejece y después miente (regla P2)")

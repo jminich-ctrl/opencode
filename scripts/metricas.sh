@@ -109,8 +109,22 @@ if por_tarea:
     cuenta_deleg = [t for t in delegables if t not in imposibles]
     n_deleg = len(cuenta_deleg)
     pct = primera_verde * 100 // n_deleg if n_deleg else 0
-    print(f"Verde al PRIMER intento: {primera_verde}/{n_deleg} ({pct}%)"
+    # «de implementación», y la línea que declara lo que NO está en este registro. Medido el
+    # 2026-10-27: cerrar las 21 tareas del ensayo con modelos de verdad costó 68 invocaciones
+    # del agente —47 en la fase de TESTS y 21 en la de implementación— y en el registro hay
+    # 21 filas, porque `escribir-tests.sh` no anota. El titular decía «Verde al PRIMER
+    # intento: 21/21 (100%)», que es cierto sobre lo que cuenta y falso como resumen del
+    # trabajo: deja afuera dos tercios de las llamadas al modelo. Y es el número con que se
+    # calibra el presupuesto de agente, así que subdeclararlo no es cosmético.
+    #
+    # No lleva el número escrito a mano —envejece y después miente, regla P2— sino el comando
+    # que lo cuenta sobre el log de la corrida.
+    print(f"Verde al PRIMER intento (fase de implementación): {primera_verde}/{n_deleg} ({pct}%)"
           + (f"  [{len(imposibles)} imposible/s fuera del denominador]" if imposibles else ""))
+    print("  ⊘ la fase de TESTS no está en este registro: `escribir-tests.sh` no anota, así")
+    print("     que estas filas son las llamadas de implementación y nada más. Para contar")
+    print("     las de la fase de tests, sobre el log de la corrida:")
+    print("       grep -c '· ejecutor escribe' <log>")
     fuera = len(por_tarea) - len(delegables)
     if fuera or n_invalidas:
         print(f"  ⊘ fuera de esa tasa: {fuera} tarea(s) sin ningún intento atribuible a un "

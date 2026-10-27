@@ -803,3 +803,69 @@ venían de arreglar lo que el intento anterior les señaló.
 Lo que falta para que sea una medición y no una anécdota es el brazo de control: las mismas
 tareas con N=3 y nada más cambiado. Es barato —son dos tareas— y el número de hoy, 14 de 21,
 es la línea base contra la que se compara.
+
+### Medición 9 — 21 de 21 con modelos de verdad, y lo que el resumen no decía (2026-10-27)
+
+El brazo de control que pedía la medición 8: las mismas tareas, el mismo método congelado,
+`REINTENTOS_TESTS=3` como única diferencia.
+
+| | N=2 | N=3 |
+|---|---|---|
+| tareas cerradas | 14 de 21 | **21 de 21** |
+| código de salida del pipeline | 1 (detenido) | **0** |
+
+Las dos tareas que con N=2 agotaban el presupuesto con un motivo distinto en cada intento
+—primero no escribir la clase declarada, después el patch inefectivo— cerraron con el tercero.
+Y T05c, que con N=2 era punto muerto legítimo por tocar un archivo de la etapa anterior,
+también cerró: su tercer intento respetó el alcance.
+
+Es el primer dato real de la pregunta que §8.4 de INVESTIGACION.md tenía listada como no
+medida por nadie. **No alcanza para fijar N=3 como regla**: es una corrida, un plan de
+juguete y tres tareas, y lo que el dato dice es más preciso que «N=3 es mejor»:
+
+> cuando cada intento falla por algo DISTINTO, la huella cambia, así que el método no lo
+> llama punto muerto y el agente está arreglando de verdad lo que el intento anterior le
+> señaló. Gastar el presupuesto ahí no es insistir: es avanzar. El criterio «falló dos veces
+> por lo mismo» ya distingue los dos casos; lo que estaba mal calibrado era el techo.
+
+### Y lo que el resumen de métricas no decía
+
+La corrida que cerró el plan imprimió:
+
+    Intentos: 21   ·   tareas intentadas: 21
+    Verde al PRIMER intento: 21/21 (100%)
+
+Las invocaciones reales del agente para llegar ahí fueron **68**, contadas en los logs:
+
+| corrida | fase de tests | implementación |
+|---|---|---|
+| r23 | 21 | 7 |
+| r24 | 7 | 0 |
+| r25 | 13 | 7 |
+| r26 (N=3) | 6 | 7 |
+| **total** | **47** | **21** |
+
+El registro tiene 21 filas porque `escribir-tests.sh` no anota. O sea que el resumen declara
+el **31%** de las llamadas al modelo, y la frase «21/21 al primer intento (100%)» es cierta
+sobre lo que el registro contiene y falsa como resumen del trabajo. No es cosmético: es el
+número con que el método calibra el presupuesto de agente —el propio mensaje de punto muerto
+remite a `metricas.sh` para eso—, así que subdeclararlo hace parecer barato lo que no lo es.
+
+El arreglo no inventa el dato que falta: el titular dice **«fase de implementación»** y el
+resumen declara el hueco con el comando que lo mide (`grep -c '· ejecutor escribe' <log>`),
+que es lo que el método exige de cualquier chequeo que no pudo verificar algo. Queda como
+test con brazo nulo: sin el arreglo, los dos tests fallan.
+
+**Lo que sigue abierto**, y es el arreglo de fondo: que la fase de tests tenga su propio
+registro. No se hizo ahora porque meter sus filas en `intentos.csv` contaminaría todas las
+tasas que ese archivo sostiene —el 21/21 pasaría a contar tests como tareas— y eso se diseña
+con una medición, no de apuro al final del día.
+
+### El costo real, para que el número no se lea de más
+
+Las 21 tareas cerraron, pero el camino tuvo **cuatro corridas** y dos intervenciones humanas:
+el test de T05b escrito a mano (el agente recibió el reemplazo exacto tres veces en el prompt
+y volvió a escribir los tres patches equivocados) y la decisión de subir el techo de
+intentos. El método hizo lo que debía en los dos casos: frenó, dijo de quién era el defecto y
+pidió una persona. Pero «21 de 21» sin esta línea sería la misma clase de titular que esta
+medición vino a corregir.
