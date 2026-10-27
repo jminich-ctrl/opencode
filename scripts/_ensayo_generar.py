@@ -165,7 +165,12 @@ requisitos.append("- `cosa|grupo` — que cada grupo lea, calcule y responda")
     "## Tareas\n\n| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
     + "\n".join(filas) + "\n\n"
     "## Tests\n\n| Tarea | Archivo de test | Clase |\n|---|---|---|\n"
-    + "\n".join(filas_tests) + "\n")
+    + "\n".join(filas_tests) + "\n\n"
+    # El gate humano, que el validador exige: sin él `correr-todo.sh` frena el ensayo, y con
+    # razón. Un proyecto de ensayo que no es un proyecto bien formado no ensaya nada.
+    "### G3 — prueba de uso (responsable: nadie, 1 minuto)\n\n"
+    "- [ ] ¿Devuelve cada grupo lo que su contrato dice?\n"
+    "- [ ] ¿Se entiende qué hace cada capa sin leer los tests?\n")
 
 sh("git init -q .")
 sh("git add -A")

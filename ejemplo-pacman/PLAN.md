@@ -114,6 +114,25 @@ pantalla falsa). El análisis está en [BITACORA.md](BITACORA.md).
   ⚠️ **Esta segunda parte se salteó, y por eso el juego terminó verde y malo.**
   Ver el post-mortem en [BITACORA.md](BITACORA.md).
 
+### G3 — prueba de uso (responsable: sin asignar, 5 minutos)
+
+**NUNCA SE CORRIÓ, y las casillas quedan sin marcar a propósito.** El método pide que este
+gate esté escrito en el plan «con preguntas concretas y un responsable, o no se hace», y este
+plan lo decía en prosa sin escribir las preguntas: no había nada que contestar ni nadie a
+quien pedírselo. Las cinco cosas que aparecieron al jugarlo en el primer minuto —teclas que se
+perdían, un solo fantasma, personajes que se atravesaban— no estaban rotas según los 54 tests
+en verde, porque ninguna era testeable y por eso ninguna había entrado en el plan.
+
+Quedan escritas acá, sin marcar, porque es el ejemplo más caro que tiene este repo: así se ve
+qué habría preguntado el gate que no se hizo. El validador del plan exige esta sección desde
+el 2026-10-27, y fue este plan el que lo destapó.
+
+- [ ] ¿Responde a cada tecla, o se pierden pulsaciones?
+- [ ] ¿Los personajes chocan, o se atraviesan?
+- [ ] ¿Es un juego o una demo? (cuántos fantasmas, se puede perder, se puede ganar)
+- [ ] ¿Lo entiende y lo juega alguien que no lo programó, sin explicación?
+- [ ] ¿Se siente fluido, o se siente trabado?
+
 ## Riesgos
 
 | Riesgo | Qué haríamos |

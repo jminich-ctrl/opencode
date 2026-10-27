@@ -248,6 +248,16 @@ lanzar() {
     # veredicto.
     if [ "$rc" -eq 0 ]; then
       echo "✓ $id gate VERDE"
+      # El transcript del intento que SALIÓ BIEN. `conservar_intento` sólo se llamaba al
+      # arrancar un reintento, así que de una tarea que cierra al primer intento no quedaba
+      # NADA: la fábrica de dataset recogía los éxitos del camino de tests —`escribir-tests.sh`
+      # conserva también cuando acepta— y cero del camino de implementación. Medido el
+      # 2026-10-27 con el ensayo determinista: 21 tareas cerradas al primer intento dejaron 21
+      # transcripts de escritura de tests y ninguno de implementación.
+      #
+      # Para entrenar hace falta el par: lo que falló y lo que anduvo. Con sólo fallas, el
+      # dataset enseña a reconocer errores y no a escribir la implementación que cierra.
+      conservar_intento "$wt" "$id" exito
       [ -n "$error" ] && echo "   (nota: la herramienta informó «${error}», y el gate pasó igual)"
     elif [ -n "$error" ]; then
       echo "✗ $id gate ROJO, y la herramienta falló: $error"

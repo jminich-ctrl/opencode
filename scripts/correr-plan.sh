@@ -290,7 +290,8 @@ echo "══ Todas las etapas en verde."
 echo "Lo que sigue:"
 echo "  1. G2 — leer los diffs (bash $AQUI/estado.sh te dice qué ramas hay)"
 echo "  2. integrar: bash $AQUI/integrar.sh   — de a una, con el gate del tronco por merge"
-echo "  3. G3 — USAR la cosa (las preguntas están en PLAN.md)"
+echo "  3. G3 — USAR la cosa. Las preguntas, del plan:"
+preguntas_de_g3 "$PLAN" || true
 echo "  4. G4 — bash $PROYECTO/scripts/pre-deploy.sh"
 echo "  5. G5 — bash $PROYECTO/scripts/deploy.sh staging"
 bash "$AQUI/metricas.sh" 2>/dev/null || true

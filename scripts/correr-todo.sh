@@ -36,6 +36,23 @@ if grep -qE '^\*\*Estado del gate G0:\*\*.*borrador' "$PLAN"; then
   exit 1
 fi
 
+# Y el gate humano G3 tiene que estar ESCRITO, con preguntas cerradas. Misma puerta y mismo
+# criterio que la firma de G0: es algo que pone una persona, y lo que se puede saber antes se
+# dice antes —gastar 21 corridas de agente para descubrir al final que nadie escribió las
+# preguntas de lo que ningún comando puede medir es el peor orden posible.
+#
+# El Pacman es la evidencia: 8 tareas cerradas, 54 tests en verde, y cinco problemas en el
+# primer minuto de juego —teclas que se perdían, un solo fantasma, personajes que se
+# atravesaban—, ninguno roto según los tests porque ninguno era testeable y por eso ninguno
+# estaba en el plan. Su PLAN.md no tenía la sección hasta el 2026-10-27.
+if [ "$SOLO_VER" != "1" ] && ! preguntas_de_g3 "$PLAN" >/dev/null 2>&1; then
+  echo "✗ $PLAN no declara el gate humano G3 con preguntas cerradas." >&2
+  preguntas_de_g3 "$PLAN" >&2 2>&1 || true
+  echo "  Lo escribe una persona, igual que la firma de G0: la plantilla lo trae en" >&2
+  echo "  plantillas/PLAN.md. Sin eso, esto termina verde y malo." >&2
+  exit 1
+fi
+
 # Y la plataforma tiene que responder. Arrancar diez etapas contra una API caída gasta
 # horas de reintentos y produce diagnósticos que señalan al agente.
 if [ "$SOLO_VER" != "1" ]; then
@@ -337,7 +354,8 @@ done
 echo
 echo "══ Todas las etapas en verde."
 echo "Lo que sigue lo hace una persona:"
-echo "  1. G3 — USÁ la cosa. Las preguntas están en PLAN.md."
+echo "  1. G3 — USÁ la cosa. Las preguntas, del plan:"
+preguntas_de_g3 "$PLAN" || true
 echo "  2. G4 — bash $BASE/scripts/pre-deploy.sh"
 echo "  3. G5 — bash $BASE/scripts/deploy.sh staging"
 bash "$AQUI/metricas.sh" 2>/dev/null || true

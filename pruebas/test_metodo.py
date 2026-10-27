@@ -253,7 +253,12 @@ class Proyecto:
             "# Plan\n\n**Estado del gate G0:** aprobado por nadie el 2026-01-01\n\n"
             "## Requisitos\n\n- `cosa` — que haya una cosa\n\n"
             "## Tareas\n\n| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
-            "| T01 | Una cosa | — | src/cosa.py | pendiente |\n")
+            "| T01 | Una cosa | — | src/cosa.py | pendiente |\n\n"
+            # El gate humano G3, que el validador exige desde el 2026-10-27: un plan sin él
+            # es un plan que se olvidó de lo que ningún comando puede medir.
+            "### G3 — prueba de uso (responsable: nadie, 1 minuto)\n\n"
+            "- [ ] ¿Se siente bien usarlo?\n"
+            "- [ ] ¿Lo entiende alguien que no lo programó?\n")
         self.git("init -q")
         self.git("add -A"); self.git('commit -qm base')
 
@@ -4336,6 +4341,102 @@ class TestEnlacesDeCoberturaConVersion(CasoBase):
                         self.assertTrue(cruces, f"rojo sin ✗ que lo explique:\n{r.stdout}")
 
 
+class TestElGateQueMideLoQueNingunComandoMide(CasoBase):
+    """G3 —la prueba de uso— es el único gate que mide lo que ningún comando puede medir, y
+    hasta el 2026-10-27 era el único que NADIE verificaba.
+
+    La evidencia de qué cuesta que falte está medida y escrita en cuatro documentos del repo:
+    el Pacman cerró 8 tareas con 54 tests en verde y al jugarlo aparecieron cinco problemas en
+    el primer minuto —teclas que se perdían, un solo fantasma, personajes que se atravesaban—,
+    **ninguno roto según los tests porque ninguno era testeable y por eso ninguno había
+    entrado en el plan**. De ahí salió la regla: «lo que no es verificable por comando no
+    desaparece del proyecto, desaparece del plan».
+
+    Y la respuesta del método a eso ya existía: escribir G3 en el plan, con preguntas cerradas
+    y un responsable, «o no se hace» (METODO.md). Lo que faltaba era que algo lo comprobara:
+
+    · `validar-plan.py` no exigía la sección.
+    · `correr-plan.sh` y `correr-todo.sh` decían «las preguntas están en PLAN.md», apuntando a
+      preguntas que podían no existir.
+    · `pre-deploy.sh` decía «corre después de G3» sin comprobar nada.
+
+    Medido al escribir esto: `ejemplo-pacman/PLAN.md` —el plan del proyecto que PROBÓ el
+    hueco— no tenía la sección, y `ejemplo-clasificados/PLAN.md` sí, con sus cinco preguntas y
+    su responsable. El plan de pacman ahora la tiene con las casillas SIN MARCAR, que es la
+    verdad: el gate nunca se corrió."""
+
+    def sin_g3(self):
+        plan = self.p.dir / "PLAN.md"
+        plan.write_text(plan.read_text().split("### G3")[0])
+
+    def puerta(self):
+        return correr(f"bash {SCRIPTS}/correr-todo.sh", self.p.dir, AGENTES=str(RAIZ))
+
+    def test_la_puerta_no_arranca_una_corrida_sin_el_gate_humano(self):
+        """El freno va en la PUERTA y no en el validador, por el precedente del propio método:
+        la firma de G0 tampoco la exige `validar-plan.py` —ahí es un aviso— la exige
+        `correr-todo.sh` antes de gastar una corrida. Y por el mismo motivo: lo que se puede
+        saber antes se dice antes. Descubrir al final de 21 corridas de agente que nadie
+        escribió las preguntas de lo que ningún comando puede medir es el peor orden posible.
+
+        Mi primera versión lo puso como ✗ del validador y rompió 18 fixtures de la suite
+        —planes sintéticos escritos para medir otra cosa—. Eso no era que los fixtures
+        estuvieran mal: era el chequeo en el lugar equivocado."""
+        self.sin_g3()
+        self.p.git("add -A"); self.p.git("commit -qm 'sin G3'")
+        r = self.puerta()
+        self.assertNotEqual(r.returncode, 0,
+                            f"la puerta tiene que frenar:\n{r.stdout[-600:]}{r.stderr[-600:]}")
+        salida = r.stdout + r.stderr
+        self.assertIn("G3", salida, f"y decir qué falta:\n{salida[-600:]}")
+        self.assertNotIn("contesta", salida,
+                         f"y frenar ANTES de sondear la plataforma: lo que se puede saber "
+                         f"antes se dice antes:\n{salida[-600:]}")
+
+    def test_una_seccion_de_prosa_sin_preguntas_cerradas_no_es_un_gate(self):
+        """«Con preguntas concretas, respondibles con sí o no.» Es exactamente lo que le pasaba
+        al plan del Pacman: decía «más una partida real jugada a mano» y no escribía ninguna
+        pregunta, así que no había nada que contestar ni nadie a quien pedírselo."""
+        plan = self.p.dir / "PLAN.md"
+        plan.write_text(plan.read_text().split("### G3")[0]
+                        + "### G3 — prueba de uso (responsable: nadie, 1 minuto)\n\n"
+                        + "Hay que usar la cosa y ver si está bien.\n")
+        self.p.git("add -A"); self.p.git("commit -qm 'G3 de prosa'")
+        self.assertNotEqual(self.puerta().returncode, 0,
+                            "una sección de prosa no es un gate")
+
+    def test_el_validador_lo_avisa_sin_poner_el_plan_en_rojo(self):
+        """El aviso sí, el ✗ no: el plan puede ser válido de forma y faltarle el gate humano,
+        que lo pone una persona. Igual que «sigue marcado como borrador»."""
+        self.sin_g3()
+        r = correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py", self.p.dir)
+        self.assertVerde(r, f"la forma del plan no es el problema:\n{r.stdout}")
+        self.assertIn("G3", r.stdout, f"pero tiene que avisarlo:\n{r.stdout}")
+
+    def preguntas(self):
+        return correr("bash -c " + shlex.quote(
+            f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; preguntas_de_g3 PLAN.md; echo "rc=$?"'),
+            self.p.dir)
+
+    def test_la_puerta_imprime_las_preguntas_en_vez_de_apuntar_al_archivo(self):
+        """Las dos puertas que cierran una corrida mandaban a una persona a buscar las
+        preguntas a un archivo que podía no tenerlas. Un puntero a algo que puede no existir es
+        la misma falla que un extractor que busca una forma que el productor no emite, con una
+        persona en el lugar del extractor."""
+        r = self.preguntas()
+        self.assertIn("¿Se siente bien usarlo?", r.stdout,
+                      f"tiene que imprimir las preguntas del plan:\n{r.stdout}")
+        self.assertIn("rc=0", r.stdout, f"con preguntas, sale bien:\n{r.stdout}")
+
+    def test_y_si_el_plan_no_las_tiene_lo_dice_fuerte(self):
+        self.sin_g3()
+        r = self.preguntas()
+        self.assertIn("NO tiene preguntas de G3", r.stdout, f"\n{r.stdout}")
+        self.assertNotIn("rc=0", r.stdout,
+                         f"sin preguntas no puede salir bien: la puerta estaría mandando a "
+                         f"una persona a la nada:\n{r.stdout}")
+
+
 class TestEtapas(CasoBase):
     def etapas(self):
         return correr(f"PLAN=PLAN.md python3 {SCRIPTS}/_etapas.py", self.p.dir)
@@ -4483,6 +4584,69 @@ class TestMutar(CasoBase):
         r = self.mutar()
         self.assertNotIn("sobrevivieron", r.stdout,
                          f"el test mira el valor: el mutante tiene que morir:\n{r.stdout}")
+
+    def test_un_mutante_del_mismo_tamaño_no_sobrevive_por_bytecode_viejo(self):
+        """El rojo falso que frenó la primera corrida de 21 tareas con modelos de verdad.
+
+        Medido el 2026-10-27: la corrida se detuvo en la etapa 1 porque los mutantes de
+        `return 2` y `return 7` «sobrevivían», y el test que el agente había escrito era
+        `self.assertEqual(leer2(), 2)` —correcto—. La causa: `2` y `3` ocupan lo MISMO, la
+        escritura cae en el MISMO SEGUNDO, y Python valida el bytecode cacheado por mtime y
+        tamaño: corre el `.pyc` viejo y el mutante no se ejecuta nunca.
+
+        O sea un rojo que dice «el test cubre las líneas y no verifica su comportamiento»
+        sobre un test que sí lo verifica. No es de CRP: afecta a cualquier mutación que
+        conserve el tamaño —cambiar `+` por `-` también—, y el reemplazo de constante la
+        volvió común.
+
+        La condición que faltaba para verlo es PRECALENTAR el `.pyc`: en la corrida real lo
+        crea `escribir-tests.sh` al correr sus pasos 1 y 2 antes de mutar. Sin eso, el test de
+        acá arriba —mismo escenario, sin cache— pasaba y el defecto quedaba invisible."""
+        self.p.implementar(); self.p.git("add -A"); self.p.git("commit -qm impl")
+        (self.p.dir / "tests" / "test_cosa.py").write_text(
+            "import unittest\nfrom src.cosa import f\n\n"
+            "class TestCosa(unittest.TestCase):\n"
+            "    def test_f(self):\n        self.assertEqual(f(), 43)\n")
+        self.p.implementar("def f():\n    return 43\n")
+        self.p.git("add -A"); self.p.git("commit -qm 'test que mira el valor'")
+        # El precalentado: deja el .pyc de `return 43` en disco, como en la corrida real.
+        correr("bash scripts/correr-suite.sh", self.p.dir)
+        self.assertTrue(list((self.p.dir / "src" / "__pycache__").glob("cosa.*.pyc")),
+                        "el escenario necesita el .pyc ya escrito, o no mide nada")
+        r = self.mutar()
+        self.assertNotIn("sobrevivieron", r.stdout,
+                         f"el test mira el valor: el mutante tiene que MORIR, y si «sobrevive» "
+                         f"es porque corrió el bytecode viejo:\n{r.stdout}")
+
+    def test_invalidar_bytecode_hace_visible_un_cambio_del_mismo_tamaño(self):
+        """El mecanismo, aislado y sin depender del reloj: con el `.pyc` en disco, un cambio
+        del mismo tamaño no se ve hasta que se invalida el cache."""
+        import importlib, sys
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-pyc-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        mod = d / "sujeto.py"
+        mod.write_text("def v():\n    return 2\n")
+        sys.path.insert(0, str(d))
+        self.addCleanup(lambda: sys.path.remove(str(d)))
+        self.addCleanup(lambda: sys.modules.pop("sujeto", None))
+        import sujeto
+        self.assertEqual(sujeto.v(), 2)
+        self.assertTrue(list((d / "__pycache__").glob("sujeto.*.pyc")),
+                        "hace falta el .pyc para que el escenario exista")
+        mod.write_text("def v():\n    return 3\n")      # mismo tamaño
+        sal = correr("python3 -c " + shlex.quote(
+            "import importlib.util, pathlib, sys;"
+            "sys.path.insert(0, '.');"
+            "spec = importlib.util.spec_from_file_location('mutar', "
+            f"'{SCRIPTS}/mutar.py');"
+            "m = importlib.util.module_from_spec(spec);"
+            "sys.argv = ['mutar.py'];"
+            "exec(open(spec.origin).read().split('def main')[0], m.__dict__);"
+            "m.invalidar_bytecode(pathlib.Path('sujeto.py'));"
+            "print('invalidado')"), d)
+        self.assertIn("invalidado", sal.stdout, f"{sal.stdout}{sal.stderr}")
+        self.assertFalse(list((d / "__pycache__").glob("sujeto.*.pyc")),
+                         "el .pyc tiene que quedar borrado: si no, el intérprete corre el viejo")
 
     def test_un_docstring_no_es_un_mutante(self):
         """Cambiarle el texto a un docstring produce un mutante que ningún test puede matar, y
@@ -6005,6 +6169,7 @@ class TestElEnsayoDelPipelineCorreDePuntaAPunta(Veredictos, unittest.TestCase):
         cfg, base = self.plataforma_falsa()
         donde = pathlib.Path(tempfile.mkdtemp(prefix="prueba-ensayo-corrida-")).resolve()
         self.addCleanup(tirar_dir, donde)
+        self.donde = donde
         return correr(f"bash {SCRIPTS}/ensayo.sh {donde}", RAIZ,
                       GRUPOS="1", COMPORTAMIENTO=comportamiento, ARRANQUE_FRIO="5",
                       COLABHIVE_BASE_URL=base, COLABHIVE_API_KEY="x", CONFIG_OC=str(cfg))
@@ -6014,6 +6179,31 @@ class TestElEnsayoDelPipelineCorreDePuntaAPunta(Veredictos, unittest.TestCase):
         self.assertVerde(r, f"el pipeline completo tiene que cerrar:\n{r.stdout[-1500:]}{r.stderr[-500:]}")
         self.assertIn("3/3 cerradas y la suite del proyecto en verde", r.stdout,
                       f"{r.stdout[-1200:]}")
+
+    def test_el_transcript_del_exito_queda_para_el_dataset(self):
+        """La fábrica de dataset recogía los éxitos del camino de TESTS y NINGUNO del camino de
+        implementación.
+
+        `conservar_intento` sólo se llamaba al arrancar un reintento —el worktree del intento
+        anterior—, así que de una tarea que cierra al PRIMER intento no quedaba nada.
+        `escribir-tests.sh` sí conserva cuando acepta, y por eso la asimetría pasaba
+        desapercibida: había transcripts, todos de la mitad del proceso que no es la
+        implementación. Medido el 2026-10-27 con el ensayo determinista: 21 tareas cerradas al
+        primer intento, 21 transcripts de escritura de tests, cero de implementación.
+
+        Para entrenar hace falta el PAR —lo que falló y lo que anduvo—: con sólo fallas, el
+        dataset enseña a reconocer errores y no a escribir la implementación que cierra."""
+        r = self.ensayar("cumple")
+        self.assertVerde(r, f"{r.stdout[-800:]}")
+        exitos = sorted(self.donde.glob("fallidos-*/exito-*.log"))
+        self.assertTrue(exitos,
+                        f"las tres tareas cerraron y no quedó un solo transcript del éxito: "
+                        f"el dataset se queda sin ejemplos positivos de implementación\n"
+                        f"lo que hay: {sorted(p.name for p in self.donde.glob('fallidos-*'))}")
+        texto = exitos[0].read_text()
+        self.assertIn("[ensayo]", texto,
+                      f"el transcript tiene que ser el del agente, no un archivo vacío:\n"
+                      f"{texto[:300]}")
 
     def test_un_agente_que_afirma_gate_verde_no_cierra_nada(self):
         """El defecto que fundó el método, medido de frente: el agente no escribe nada y

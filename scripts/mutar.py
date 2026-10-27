@@ -348,6 +348,35 @@ def candidatos(archivo, lineas_cambiadas):
     return [(archivo, linea, nodo, que) for linea, (_, nodo, que) in sorted(por_linea.items())]
 
 
+def invalidar_bytecode(archivo):
+    """Borra el `.pyc` del archivo que se acaba de escribir.
+
+    Sin esto, una mutación del MISMO TAMAÑO escrita en el MISMO SEGUNDO es invisible: Python
+    valida el bytecode cacheado por mtime y tamaño, los dos coinciden, y el intérprete corre el
+    `.pyc` VIEJO. El mutante no llega a ejecutarse nunca y se informa como SOBREVIVIENTE, o
+    sea un rojo que dice «el test cubre las líneas y no verifica su comportamiento» sobre un
+    test que sí lo verifica.
+
+    Medido el 2026-10-27 en la primera corrida de 21 tareas con modelos de verdad: se detuvo en
+    la etapa 1 porque los mutantes de `return 2` y `return 7` «sobrevivían», y el test que el
+    agente había escrito era `self.assertEqual(leer2(), 2)` — correcto. Reproducido después en
+    cuatro líneas: mutar `return 2` a `return 3` y correr la suite da VERDE con el `.pyc` viejo.
+    `2` y `3` ocupan lo mismo, y el reemplazo de constante es justo el operador que más
+    mutaciones del mismo tamaño produce.
+    
+    También al RESTAURAR, y por el mismo motivo al revés: si queda el `.pyc` del mutante, el
+    siguiente mutante corre con el bytecode del anterior.
+    """
+    cache = archivo.resolve().parent / "__pycache__"
+    if not cache.is_dir():
+        return
+    for pyc in cache.glob(archivo.stem + ".*.pyc"):
+        try:
+            pyc.unlink()
+        except OSError:
+            pass
+
+
 # El tope de tiempo por pasada, en segundos. Se calibra con lo que tarda la suite SIN mutar
 # (`calibrar_tope`), porque una suite de 0,2 s y una de 15 minutos no pueden compartir número.
 TOPE = [None]
@@ -467,11 +496,13 @@ def nunca_se_ejecuta(archivo, linea, nodo, original):
             return None                     # no se pudo preguntar: no se afirma nada
         tocado = ast.fix_missing_locations(Mutador(objetivo, centinela=True).visit(arbol))
         archivo.write_text(ast.unparse(tocado))
+        invalidar_bytecode(archivo)
         return correr()                     # la suite pasa con la excepción puesta
     except (SyntaxError, ValueError, RecursionError):
         return None
     finally:
         archivo.write_text(original)
+        invalidar_bytecode(archivo)
 
 
 def lineas_cambiadas(archivo):
@@ -550,6 +581,7 @@ def main():
                 continue
             mutado = ast.fix_missing_locations(Mutador(objetivo).visit(arbol))
             archivo.write_text(ast.unparse(mutado))
+            invalidar_bytecode(archivo)
             if correr():          # la suite pasó CON el código mutado: nadie lo verifica
                 sobrevivientes.append([archivo, linea, que,
                                        original.split("\n")[linea - 1], nodo, original])
@@ -557,6 +589,7 @@ def main():
             continue
         finally:
             archivo.write_text(original)
+            invalidar_bytecode(archivo)
 
     print(f"  {len(todos)} mutante(s) probados sobre el diff, uno por línea")
     if sobrevivientes:

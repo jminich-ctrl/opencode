@@ -521,6 +521,36 @@ else:
                 f"que revertir—. O se borra el archivo y se reconstruye, o la tarea se "
                 f"marca hecha")
 
+# ── El gate humano G3 tiene que estar ESCRITO en el plan, con preguntas cerradas.
+#
+# Es el único gate que mide lo que ningún comando puede medir, y el método ya lo dice en tres
+# documentos: «tiene que estar escrita en el plan, con preguntas concretas y un responsable, o
+# NO SE HACE» (METODO.md), «lo que no está en el plan, no lo construye nadie»
+# (DESCOMPOSICION.md). Y la evidencia de qué pasa cuando falta está medida: el Pacman cerró 8
+# tareas con 54 tests en verde y al jugarlo aparecieron cinco problemas en el primer minuto
+# —teclas que se pierden, un solo fantasma, personajes que se atraviesan—, ninguno roto según
+# los tests porque ninguno estaba en el plan.
+#
+# Hasta el 2026-10-27 NADIE verificaba esto. La plantilla traía la sección, `correr-plan.sh` y
+# `correr-todo.sh` decían «las preguntas están en PLAN.md» —apuntando a preguntas que podían
+# no existir— y `pre-deploy.sh` decía «corre después de G3» sin comprobar nada. Medido en ese
+# momento: `ejemplo-pacman/PLAN.md`, el plan del proyecto que PROBÓ el hueco, no tiene la
+# sección; `ejemplo-clasificados/PLAN.md` sí, con sus cinco preguntas y su responsable.
+#
+# Va como AVISO y no como ✗, y la ubicación la decide el precedente del propio método: la
+# firma de G0 tampoco la exige el validador —acá es un aviso, «el plan sigue marcado como
+# borrador»— la exige LA PUERTA, `correr-todo.sh`, antes de gastar una corrida. G3 es lo
+# mismo: algo que pone una persona, no el arquitecto. El intento de exigirlo acá rompió 18
+# fixtures de la suite —planes sintéticos escritos para medir otra cosa— y eso es la señal de
+# que el chequeo estaba en el lugar equivocado, no de que los fixtures estén mal.
+m_g3 = re.search(r"^#+ *G3\b[^\n]*prueba de uso[^\n]*$(.*?)(?=^#+ |\Z)", texto, re.M | re.S)
+if not m_g3 or not re.findall(r"^\s*[-*] \[[ xX]\]", m_g3.group(1), re.M):
+    avisos.append(f"{PLAN.name} no declara el gate humano G3 con preguntas cerradas. Es el "
+                  f"único que mide lo que ningún comando mide, y sin él el proyecto termina "
+                  f"verde y malo: el Pacman cerró con 54 tests en verde y cinco problemas en "
+                  f"el primer minuto de juego. La plantilla lo trae (plantillas/PLAN.md), y "
+                  f"`correr-todo.sh` no arranca sin él")
+
 # ── El estado del gate G0 tiene que estar firmado por alguien, no por el agente
 if re.search(r"\*\*Estado del gate G0:\*\*.*borrador", texto):
     avisos.append("el plan sigue marcado como «borrador»: G0 lo firma una persona")

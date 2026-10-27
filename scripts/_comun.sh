@@ -540,7 +540,12 @@ tirar_base_del_worktree() {
 }
 
 conservar_intento() {
-  local wt="$1" id="${2:-tarea}" dest log
+  # $3 = prefijo del archivo, `intento` por defecto y `exito` cuando el gate dio VERDE. El
+  # dataset necesita distinguir el positivo del negativo, y el directorio se llama
+  # `fallidos-<id>`: sin el prefijo, un éxito guardado ahí queda indistinguible de una falla.
+  # (El nombre del directorio quedó: renombrarlo toca cuatro scripts, los documentos y los
+  # `fallidos-*` que ya existen en disco en los proyectos. Anotado, no hecho.)
+  local wt="$1" id="${2:-tarea}" pre="${3:-intento}" dest log
   [ -d "$wt" ] || return 0
   dest="$RAIZ/../fallidos-$id"
   # El log se llama distinto según el camino: .tarea.log en el runner, .tests.log al
@@ -553,7 +558,7 @@ conservar_intento() {
     # que el transcript se había perdido: comparé dos relojes distintos y por un rato creí
     # que el método destruía su propia evidencia. Con la fecha, además, dos corridas del
     # mismo minuto de días distintos no se pisan.
-    cp "$log" "$dest/intento-$(date -u +%Y%m%dT%H%M%SZ).log" 2>/dev/null
+    cp "$log" "$dest/$pre-$(date -u +%Y%m%dT%H%M%SZ).log" 2>/dev/null
     break
   done
   # El parche: lo que el agente escribió, aplicable con `git apply`. Sin los archivos de
@@ -1363,6 +1368,31 @@ recordar_falla() {
 # re-bendición de un enlace quede en el diff, y un archivo sin trackear no tiene diff.
 #
 # Pathspec al final, como arriba: commitea ESTE archivo y no barre lo que haya sucio al lado.
+# Las preguntas del gate humano G3, leídas del plan e IMPRESAS. No «están en PLAN.md».
+#
+# Las dos puertas que cierran una corrida —`correr-plan.sh` y `correr-todo.sh`— mandaban a una
+# persona a buscarlas a un archivo, y el archivo podía no tenerlas: medido el 2026-10-27, el
+# plan de `ejemplo-pacman` no tiene la sección G3, y es justamente el proyecto donde el hueco
+# se midió (54 tests verdes, cinco problemas en el primer minuto de juego). Un puntero a algo
+# que puede no existir es la misma falla que un extractor que busca una forma que el productor
+# no emite, con una persona en el lugar del extractor.
+#
+# Acá, y no copiado en las dos puertas: es un juicio —qué cuenta como pregunta de G3— y el
+# método ya tiene medido lo que cuesta copiar un juicio.
+preguntas_de_g3() {
+  local plan="${1:-$PLAN}" seccion
+  [ -f "$plan" ] || { echo "  ⊘ no encuentro $plan: no puedo mostrarte las preguntas de G3"; return 0; }
+  seccion="$(awk '/^#+ *G3[^|]*prueba de uso/{d=1;next} d && /^#+ /{exit} d' "$plan"              | grep -E '^[[:space:]]*[-*] \[[ xX]\]' || true)"
+  if [ -z "$seccion" ]; then
+    echo "  ✗ $plan NO tiene preguntas de G3, y G3 es el único gate que mide lo que ningún"
+    echo "    comando mide. Sin él, esto termina verde y malo. La plantilla las trae:"
+    echo "    plantillas/PLAN.md — y el validador del plan ahora lo exige."
+    return 1
+  fi
+  printf '%s\n' "$seccion" | sed 's/^[[:space:]]*/    /'
+  return 0
+}
+
 commitear_cobertura() {
   local reg="${1:-$BASE/.cobertura.json}"
   # Sólo si está SIN TRACKEAR: si ya está en git, un cambio suyo es una re-bendición y ésa
