@@ -740,3 +740,66 @@ lo que faltaba era que el reemplazo concreto viajara en el prompt del reintento,
 único canal del que hay evidencia de que el modelo chico atiende. Para el método en general:
 documentar una regla en `AGENTS.md` no es un canal confiable para un modelo chico, y una
 corrección que el método ya calculó no se delega a que el agente la deduzca de una lista.
+
+
+### Medición 8 — el reemplazo en el prompt, y 14 de 21 con modelos de verdad (2026-10-27)
+
+El control estaba escrito antes de correr, que es lo que la vuelve una medición: con el
+titular pelado, **0 de 4** tareas en punto muerto se recuperaron.
+
+| | el reemplazo en el prompt del agente | se recuperaron | tests aceptados |
+|---|---|---|---|
+| titular pelado | **0 veces** | 0 de 4 | 3 de 7 |
+| con el detalle | **sí** | **3 de 4** | **6 de 7**, los seis con el objetivo correcto |
+
+La prueba de que el detalle llegó **al agente** no es el log del método —ahí sólo consta que
+el método lo imprimió— sino la tabla `part` de la base de la sesión de OpenCode, que guarda
+el mensaje tal como se envió. Lo conté primero en el log y eso no medía lo que dice medir:
+el productor y el receptor son dos lugares distintos.
+
+**El rojo que quedó es del modelo, y está probado.** El prompt del reintento de T05b llevaba
+el reemplazo exacto **tres veces**, una por cada patch del archivo:
+
+    Un intento anterior falló así: el test parchea un lugar donde el patch no va a tener
+    efecto. El chequeo dijo exactamente esto, y dice qué poner en su lugar:
+      tests/test_s5.py:7  patch('src.datos.d5.leer5') no va a tener efecto
+         … Parcheá donde se usa:  patch('src.servicios.s5.leer5')
+      tests/test_s5.py:14 … tests/test_s5.py:21 …
+
+Y volvió a escribir los tres equivocados. Eso es lo que HUMANO.md §4 manda que decida una
+persona: el test de T05b quedó escrito a mano, con el motivo en su docstring.
+
+### El pipeline completo, con modelos de verdad
+
+| etapa | qué cerró |
+|---|---|
+| `a` — leer (7 tareas) | **7 de 7**, gates verdes |
+| `b` — calcular (7 tareas) | **7 de 7**, gates verdes |
+| `c` — responder (7 tareas) | detenida: 4 tests aceptados, 3 no |
+| **cerradas en el plan** | **14 de 21** |
+
+Los tres rojos de la etapa `c` son legítimos y de tres clases distintas:
+
+- **T01c, T02c**: agotaron sus dos intentos con un motivo **distinto en cada uno** —primero
+  no escribieron la clase declarada, después el patch inefectivo—, así que no hubo punto
+  muerto: hubo dos fallas diferentes.
+- **T05c**: tocó `src/servicios/s5.py`, que es de la etapa anterior y no de su alcance. Dos
+  veces lo mismo, punto muerto.
+
+Y un resultado que no estaba buscado: **el chequeo de patches generalizó solo a la capa de
+rutas**. Se escribió mirando `src/servicios/sN.py` y atrapó
+`patch('src.servicios.s1.calcular1')` en un test de `src/rutas/r1.py`, porque la regla está
+escrita sobre la relación entre el import y el objetivo, no sobre nombres de capas.
+
+### Evidencia para §8.4 de INVESTIGACION.md: N=2 contra N=3 intentos
+
+Esa pregunta estaba listada como no medida por nadie, incluido nosotros. Esta corrida da el
+primer dato: de las tres tareas que no cerraron, **dos agotaron los intentos con motivos
+distintos en cada uno**. Con N=2 y una falla nueva por intento, el presupuesto se consume sin
+que el método pueda distinguir «no aprende» de «todavía no terminó de arreglar»: la huella
+cambia, así que ni siquiera cuenta como punto muerto. N=3 las habría dejado seguir, y las dos
+venían de arreglar lo que el intento anterior les señaló.
+
+Lo que falta para que sea una medición y no una anécdota es el brazo de control: las mismas
+tareas con N=3 y nada más cambiado. Es barato —son dos tareas— y el número de hoy, 14 de 21,
+es la línea base contra la que se compara.
