@@ -472,9 +472,11 @@ tests reservados es el hack más común** (339 contra 222 ocurrencias del otro).
    ni Google— y **no existe medición controlada de mergear en lote contra de a uno**. Nuestra
    elección de a una está *sin refutar*, no validada.
 7. **Contra qué implementación se valida un test escrito por un agente.** Nuestro validador
-   de tests tiene cinco pasos y tres de ellos comparan el test contra **versiones del
-   producto**: «pasa con la implementación», «los mutantes mueren», «el brazo nulo falla». La
-   implementación que usan es la que el agente de tests escribió en el mismo turno, y el
+   de tests tiene cinco pasos, cuatro de ellos comparan el test contra **versiones del
+   producto** —sin la implementación, con ella, mutada, con los cuerpos vacíos— y **dos** de
+   esos cuatro dependen de cuál sea esa implementación: «pasa con la implementación» y «los
+   mutantes mueren». La implementación que usan es la que el agente de tests escribió en el
+   mismo turno, y el
    método **la descarta**: lo que se queda es sólo el test, y la implementación de verdad la
    escribe otro agente en la etapa siguiente, desde el contrato.
 
@@ -483,13 +485,14 @@ tests reservados es el hack más común** (339 contra 222 ocurrencias del otro).
    en la etapa de implementación con ese mismo test. Un test no puede pasar y fallar contra la
    misma implementación, así que en 3 de 7 el borrador y la implementación final diferían
    **justo en lo que decide el veredicto**; en este caso, la forma del import que hace que un
-   `patch()` pegue o no. O sea que tres de los cinco pasos del validador estuvieron midiendo
+   `patch()` pegue o no. O sea que dos de los cinco pasos del validador estuvieron midiendo
    contra un sujeto que se tira, y lo escribió el mismo agente que escribió el test, así que
    es coherente con él por construcción.
 
-   De los cinco pasos, dos no dependen del borrador —«falla sin la implementación» y el brazo
-   nulo con los cuerpos vacíos— y ésos siguen valiendo. El hueco es que **nada verifica que el
-   test sea satisfacible por una implementación que cumpla el contrato**. `scripts/_mocks.py`
+   Los otros dos que tocan el producto —«falla sin la implementación» y el brazo nulo con los
+   cuerpos vacíos— esperan FALLA, y eso es robusto a qué borrador haya: un cuerpo vacío es un
+   cuerpo vacío. Ésos siguen valiendo. El hueco es que **nada verifica que el test sea
+   satisfacible por una implementación que cumpla el contrato**. `scripts/_mocks.py`
    cierra el único caso que es decidible sin correr nada; el resto está abierto.
 
    El experimento, y es barato porque los datos ya salen de cada corrida: conservar el

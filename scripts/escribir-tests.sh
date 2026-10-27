@@ -65,7 +65,14 @@ CORTES_MAX="${CORTES_MAX:-12}"
 CORTES_TOTAL_MAX="${CORTES_TOTAL_MAX:-2}"
 
 # Diagnostica y deja el motivo anotado para el reintento.
-malo() { echo "  ✗ $1"; MOTIVO_TESTS="$1"; fallos=1; }
+# El segundo argumento es el DETALLE: la salida del chequeo que reprobó, la que dice qué
+# poner en lugar de lo que está mal. Sin esto el reintento le pasaba al agente SÓLO el
+# titular —«el test parchea un lugar donde el patch no va a tener efecto»— y el reemplazo
+# concreto, que el chequeo calcula y imprime, se quedaba en el log del humano. Medido el
+# 2026-10-27: de siete tareas, cuatro repitieron el mismo patch dos veces y quedaron en punto
+# muerto; el reemplazo exacto llegó al transcript del agente CERO veces. Un rojo que el
+# acusado no puede leer no es accionable, aunque sea correcto.
+malo() { echo "  ✗ $1"; MOTIVO_TESTS="$1"; [ -n "${2:-}" ] && DETALLE_TESTS="$2"; fallos=1; }
 # Uno o varios directorios de código, separados por coma. El Pacman tiene uno (`src`); un
 # proyecto con back y front tiene dos. Asumir uno era un supuesto que se colaba de calibrar
 # contra un solo proyecto.
@@ -106,7 +113,7 @@ for id in "$@"; do
     continue
   fi
 
-  intento=1; cortes=0; cortes_total=0; MOTIVO_TESTS=""; HUELLA_ANTERIOR=""
+  intento=1; cortes=0; cortes_total=0; MOTIVO_TESTS=""; HUELLA_ANTERIOR=""; DETALLE_TESTS=""
   ENUNCIADO_ANTERIOR=""   # por tarea: sin esto la tarea hereda la huella de la anterior
   while :; do
   wt="$RAIZ/../tests-$id"
@@ -160,7 +167,7 @@ for id in "$@"; do
   ENUNCIADO="$(huella_enunciado "$wt/$PROYECTO/tareas/$(basename "$archivo")")"
   if el_enunciado_cambio "$ENUNCIADO" "${ENUNCIADO_ANTERIOR:-}"; then
     echo "  · $id: el enunciado cambió — intentos y cortes vuelven a cero (sujeto nuevo)"
-    intento=1; cortes=0; cortes_total=0; MOTIVO_TESTS=""; HUELLA_ANTERIOR=""
+    intento=1; cortes=0; cortes_total=0; MOTIVO_TESTS=""; HUELLA_ANTERIOR=""; DETALLE_TESTS=""
   fi
   ENUNCIADO_ANTERIOR="$ENUNCIADO"
   # El worktree es nuevo: no tiene venv ni node_modules. Sin esto, una tarea de frontend
@@ -282,7 +289,7 @@ for id in "$@"; do
     cd "$wt/$PROYECTO" || exit 1
     export XDG_DATA_HOME="$wt/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
     con_limite "${LIMITE_AGENTE:-1200}" opencode run --agent "$AGENTE" \
-      "${MOTIVO_TESTS:+Un intento anterior falló así: $MOTIVO_TESTS. No repitas ese camino. }Leé $wt/$PROYECTO/tareas/$(basename \"$archivo\"). Ojo: esta corrida es la que CREA los tests, así que todavía no existen, los estás creando vos. Hacé la tarea completa: la implementación Y sus tests, las dos cosas con la herramienta write. El archivo de test es '$ruta' y su agrupador se llama '$clase'. Las reglas de cómo escribir tests están en AGENTS.md: leelas. Al terminar corré 'bash scripts/correr-suite.sh $ruta::$clase' y mostrá su salida real." 2>&1
+      "${MOTIVO_TESTS:+Un intento anterior falló así: $MOTIVO_TESTS. ${DETALLE_TESTS:+El chequeo dijo exactamente esto, y dice qué poner en su lugar: $(printf '%s' "$DETALLE_TESTS" | head -12 | cut -c1-200 | tr '\n' ' ') }No repitas ese camino. }Leé $wt/$PROYECTO/tareas/$(basename \"$archivo\"). Ojo: esta corrida es la que CREA los tests, así que todavía no existen, los estás creando vos. Hacé la tarea completa: la implementación Y sus tests, las dos cosas con la herramienta write. El archivo de test es '$ruta' y su agrupador se llama '$clase'. Las reglas de cómo escribir tests están en AGENTS.md: leelas. Al terminar corré 'bash scripts/correr-suite.sh $ruta::$clase' y mostrá su salida real." 2>&1
   ) > "$log" 2>&1
   RC_AGENTE=$?
 
@@ -413,7 +420,7 @@ for id in "$@"; do
     SAL_C="$("${PY_PROYECTO:-python3}" "$AQUI/_contrato.py" "$ruta" "$archivo" . 2>&1)"
     RC_C=$?
     if [ "$RC_C" = "1" ]; then
-      malo "el test obliga un contrato que el enunciado no declara"
+      malo "el test obliga un contrato que el enunciado no declara" "$SAL_C"
       printf '%s\n' "$SAL_C" | sed 's/^  /     /'
     elif [ "$RC_C" = "2" ]; then
       echo "  ⊘ no pude cruzar el contrato del test contra el enunciado y el esquema"
@@ -429,7 +436,7 @@ for id in "$@"; do
     else
       SAL_A="$("${PY_PROYECTO:-python3}" "$AQUI/_aserciones.py" "$ruta" 2>&1)"; RC_A=$?
       if [ "$RC_A" = "1" ]; then
-        malo "el test tiene aserciones que no pueden fallar con ninguna implementación"
+        malo "el test tiene aserciones que no pueden fallar con ninguna implementación" "$SAL_A"
         printf '%s\n' "$SAL_A" | sed 's/^  /     /'
       elif [ "$RC_A" != "0" ]; then
         malo "_aserciones.py no pudo correr (rc=$RC_A): el chequeo no se puede saltear"
@@ -458,7 +465,7 @@ for id in "$@"; do
       SAL_K="$("${PY_PROYECTO:-python3}" "$AQUI/_mocks.py" --segun-enunciado \
                "$ruta" "$archivo" . 2>&1)"; RC_K=$?
       if [ "$RC_K" = "1" ]; then
-        malo "el test parchea un lugar donde el patch no va a tener efecto"
+        malo "el test parchea un lugar donde el patch no va a tener efecto" "$SAL_K"
         printf '%s\n' "$SAL_K" | sed 's/^  /     /'
       elif [ "$RC_K" = "2" ]; then
         echo "  ⊘ no pude determinar si los patch del test tienen efecto"
@@ -816,7 +823,7 @@ for id in "$@"; do
   # «un intento anterior falló así» con un motivo que el enunciado no puede arreglar.
   if [ "${PLATAFORMA_CORTO:-0}" = "1" ]; then
     PLATAFORMA_CORTO=0
-    HUELLA_ANTERIOR=""; MOTIVO_TESTS=""
+    HUELLA_ANTERIOR=""; MOTIVO_TESTS=""; DETALLE_TESTS=""
     cortes=$((cortes+1))
     if [ "$cortes" -gt "$CORTES_MAX" ]; then
       echo "  ✗ $id: $cortes cortes seguidos y el último fue de plataforma."

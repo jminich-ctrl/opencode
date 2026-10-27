@@ -14625,3 +14625,111 @@ class TestElArregloVivePeroEnUnSoloHermano(unittest.TestCase):
                 self.assertRegex(
                     codigo, r'RC_SUITE_BASE" *= *"1" *\] *&& *\[ *"\$?\{?N_BASE',
                     "la guarda tiene que pedir las DOS cosas: suite roja y línea base vacía")
+
+
+class TestElRojoQueElAcusadoNoPodiaLeer(unittest.TestCase):
+    """Medido el 2026-10-27 con modelos de verdad. El chequeo de patches hizo su trabajo —la
+    etapa se detuvo en la fase de TESTS, antes de gastar una corrida de implementación— pero
+    cuatro de siete tareas repitieron el mismo patch dos veces y quedaron en punto muerto.
+
+    La causa no era el modelo: el reintento le pasaba al agente **sólo el titular** —«el test
+    parchea un lugar donde el patch no va a tener efecto»— y el reemplazo concreto, que el
+    chequeo calcula e imprime (`Parcheá donde se usa: patch('src.servicios.s3.leer3')`), se
+    quedaba en el log del humano. Contado en los transcripts: llegó al agente CERO veces.
+
+    De las tres que sí pasaron, una corrigió el patch por su cuenta y dos resolvieron la tarea
+    sin mockear nada. Un rojo que el acusado no puede leer no es accionable aunque sea
+    correcto: es la cuarta pregunta del método —¿quien decide lee lo mismo que el que mide
+    dijo?— aplicada al agente, que acá es quien tiene que arreglar."""
+
+    def proyecto(self):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-detalle-")).resolve()
+        self.addCleanup(tirar_dir, tmp)
+        d = tmp / "repo"; d.mkdir()
+        correr("git init -q . && git config user.email a@b && git config user.name a", d)
+        for sub in ("tareas", "scripts", "src/datos", "src/servicios", "tests"):
+            (d / sub).mkdir(parents=True, exist_ok=True)
+        for ini in ("src/__init__.py", "src/datos/__init__.py",
+                    "src/servicios/__init__.py", "tests/__init__.py"):
+            (d / ini).touch()
+        (d / "src/datos/d1.py").write_text("def leer1():\n    return 1\n")
+        (d / "tareas" / "T01b-cosa.md").write_text(
+            "# T01b — calcular del grupo 1\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** src/servicios/s1.py\n**Prohibido tocar:** tests/\n\n"
+            "## Objetivo\n\nQue `calcular1()` devuelva lo que su test espera.\n\n"
+            "## Contrato\n\n    def calcular1() -> int:\n"
+            '        """Devuelve `leer1() * 10`."""\n\n'
+            "Usa `from src.datos.d1 import leer1`.\n\n"
+            "## Tests\n\nArchivo: `tests/test_s1.py`, clase `TestS1`\n")
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n## Tareas\n\n"
+            "| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
+            "| T01b | calcular | — | `src/servicios/s1.py` | pendiente |\n\n"
+            "## Tests\n\n| Tarea | Archivo de test | Clase |\n|---|---|---|\n"
+            "| T01b | tests/test_s1.py | TestS1 |\n")
+        (d / "scripts" / "correr-suite.sh").write_text(
+            (PLANTILLAS / "correr-suite.sh").read_text())
+        correr("git add -A && git commit -qm base", d)
+        return d
+
+    def agente_que_insiste(self, d):
+        """Un `opencode` que escribe SIEMPRE el patch al módulo donde el nombre se define —el
+        que escribieron los siete agentes reales— y que guarda el prompt que recibió."""
+        bin_ = d / ".bin"; bin_.mkdir()
+        # `agent list` ANTES de `run`, y distinguirlos no es un detalle del fixture: mi
+        # primera versión respondía a los dos escribiendo los archivos, así que el test
+        # aparecía en el tronco antes de empezar y el script lo salteaba con «ya declara
+        # TestS1 — no se toca». Un agente falso que no distingue el subcomando mide el
+        # andamio.
+        (bin_ / "opencode").write_text(
+            "#!/usr/bin/env bash\n"
+            'if [ "$1" = "agent" ]; then echo "tester (primary)"; exit 0; fi\n'
+            'printf "%s\\n" "$*" >> "$PROMPTS"\n'
+            "mkdir -p src/servicios tests\n"
+            "cat > src/servicios/s1.py <<'EOF'\n"
+            "from src.datos.d1 import leer1\n\n\n"
+            "def calcular1() -> int:\n"
+            "    return leer1() * 10\n"
+            "EOF\n"
+            "cat > tests/test_s1.py <<'EOF'\n"
+            "import unittest\n"
+            "from unittest.mock import patch\n"
+            "from src.servicios.s1 import calcular1\n\n\n"
+            "class TestS1(unittest.TestCase):\n"
+            "    def test_calcular1(self):\n"
+            "        with patch('src.datos.d1.leer1') as m:\n"
+            "            m.return_value = 5\n"
+            "            self.assertEqual(calcular1(), 50)\n"
+            "EOF\n")
+        (bin_ / "opencode").chmod(0o755)
+        return bin_
+
+    def test_el_reintento_le_dice_al_agente_que_poner_en_lugar_del_patch(self):
+        d = self.proyecto()
+        bin_ = self.agente_que_insiste(d)
+        prompts = d.parent / "prompts.txt"
+        r = correr(f'PATH="{bin_}:$PATH" PROMPTS="{prompts}" PROYECTO=. LIMITE_AGENTE=60 '
+                   f'AGENTES="{RAIZ}" bash "{SCRIPTS}/escribir-tests.sh" T01b', d)
+        texto = prompts.read_text() if prompts.exists() else ""
+        self.assertIn("no va a tener efecto", r.stdout + r.stderr,
+                      f"el chequeo no reprobó el test, así que este test no mide nada:\n"
+                      f"{r.stdout}{r.stderr}")
+        self.assertGreaterEqual(len(texto.strip().split("\n")), 2,
+                                f"no hubo reintento: el agente corrió una sola vez.\n"
+                                f"{r.stdout}{r.stderr}")
+        self.assertIn("patch('src.servicios.s1.leer1')", texto,
+                      f"el reintento no le dijo al agente QUÉ PONER: le pasó sólo el titular, "
+                      f"que es lo que dejó a cuatro tareas repitiendo el mismo patch.\n"
+                      f"--- prompts que recibió el agente:\n{texto}")
+
+    def test_el_primer_intento_no_lleva_reproche(self):
+        """El par: sin intento anterior no hay nada que contarle, y un reproche inventado en el
+        primer prompt es el falso reproche que este repo ya pagó una vez."""
+        d = self.proyecto()
+        bin_ = self.agente_que_insiste(d)
+        prompts = d.parent / "prompts.txt"
+        correr(f'PATH="{bin_}:$PATH" PROMPTS="{prompts}" PROYECTO=. LIMITE_AGENTE=60 '
+               f'AGENTES="{RAIZ}" bash "{SCRIPTS}/escribir-tests.sh" T01b', d)
+        primero = (prompts.read_text().split("\n")[0] if prompts.exists() else "")
+        self.assertNotIn("Un intento anterior falló", primero,
+                         f"el primer prompt no puede reprochar nada:\n{primero[:300]}")

@@ -657,3 +657,58 @@ Queda como invariante sobre todos los `.sh` del repo, con brazo nulo verificado:
 el patrón en cualquier script lo hace fallar. Y su primera versión marcó dos líneas que eran
 **los comentarios que documentan este mismo defecto** — una regla más ancha que su defecto
 acusa a la documentación del defecto. Tercera vez en el día con esa forma de error.
+
+### Medición 7 — el chequeo funcionó y el rojo no se podía leer (2026-10-27)
+
+Tercera corrida de las 21 con modelos de verdad, con `_mocks.py --segun-enunciado` puesto y
+la regla del patch en `AGENTS.md`. Lo primero que hay que decir es que el arreglo hizo su
+trabajo:
+
+| qué | antes (medición 5) | ahora |
+|---|---|---|
+| dónde se detuvo la etapa de los `calcularN()` | en la fase de **implementación** | en la fase de **tests** |
+| a quién acusaba el rojo | al implementador, con el contrato cumplido | al test, que es de quien era |
+| corridas de implementación gastadas en el defecto | 4 tareas × 2 intentos | **0** |
+| etapa 1 (las siete tareas de leer) | 7 gates verdes | 7 gates verdes |
+
+Y el testigo del chequeo salió en cada tarea —`✓ los patch del test apuntan donde el patch
+pega · inspeccionó: N patch(es)…`—, que es lo que prueba que corrió. La línea base, además,
+ya sale entera: `· línea base: 0 test(s) ya fallando`.
+
+**Pero cuatro de siete no pasaron la puerta**: T03b, T05b, T06b y T07b escribieron el mismo
+`patch('src.datos.dN.leerN')` dos veces y quedaron en punto muerto en la fase de tests. Las
+tres que pasaron lo hicieron por dos caminos distintos:
+
+| tarea | qué hizo |
+|---|---|
+| T01b | **corrigió el patch** a `patch('src.servicios.s1.leer1')` |
+| T02b, T04b | resolvieron la tarea **sin mockear nada**: el test usa `leer1()` de verdad |
+
+La causa de los cuatro no era el modelo. El reintento le pasaba al agente **sólo el titular**:
+
+    Un intento anterior falló así: el test parchea un lugar donde el patch
+    no va a tener efecto. No repitas ese camino.
+
+El chequeo calcula e imprime el reemplazo exacto —`Parcheá donde se usa:
+patch('src.servicios.s3.leer3')`— y eso se quedaba en el log del humano. Contado en los
+transcripts de los cuatro: llegó al agente **cero veces**. Un rojo que el acusado no puede
+leer no es accionable aunque sea correcto, y pedirle «no repitas ese camino» sin decirle cuál
+es el otro camino deja al modelo adivinando entre tres formas de import.
+
+Es la cuarta pregunta del método —¿quien decide lee lo mismo que el que mide dijo?— aplicada
+al **agente**, que en esta puerta es quien tiene que arreglar. Las seis veces anteriores que
+esa pregunta encontró algo, el que leía mal era un `case` de bash.
+
+**El arreglo**: `malo` toma un segundo argumento con el detalle del chequeo, y el prompt del
+reintento lo lleva. Vale para los tres chequeos que producen salida detallada —`_mocks.py`,
+`_aserciones.py`, `_contrato.py`—, no sólo para el de patches.
+
+Queda como test de punta a punta con un `opencode` falso que insiste siempre con el patch
+equivocado: se exige que el prompt del **segundo** intento contenga el reemplazo concreto, y
+que el del primero no reproche nada. Brazo nulo verificado: quitando el detalle del prompt,
+el test falla mostrando el titular pelado, que es lo que recibieron los cuatro agentes.
+
+Y el fixture tuvo su propia lección: la primera versión del `opencode` falso respondía igual
+a `agent list` que a `run`, así que escribía el test antes de empezar y el script lo salteaba
+con «ya declara TestS1 — no se toca». Un agente falso que no distingue el subcomando mide el
+andamio. Lo encontró `bash -x`, no leer el fixture.
