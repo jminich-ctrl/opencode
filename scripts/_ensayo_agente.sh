@@ -43,13 +43,13 @@ else
   COMO="${ENSAYO_COMPORTAMIENTO:-cumple}"
 fi
 
-copiar() {   # $1 = subdirectorio de la clave
-  local sub="$1"
+copiar() {   # $1 = subdirectorio de la clave · $2 = destino (por defecto, el mismo)
+  local sub="$1" dst="${2:-$1}"
   [ -d "$CLAVES/$TID/$sub" ] || return 0
   (cd "$CLAVES/$TID/$sub" && find . -type f) | while read -r f; do
-    mkdir -p "$(dirname "$sub/${f#./}")"
-    cp "$CLAVES/$TID/$sub/${f#./}" "$sub/${f#./}"
-    echo "[ensayo] escribí $sub/${f#./}"
+    mkdir -p "$(dirname "$dst/${f#./}")"
+    cp "$CLAVES/$TID/$sub/${f#./}" "$dst/${f#./}"
+    echo "[ensayo] escribí $dst/${f#./}"
   done
 }
 
@@ -79,6 +79,16 @@ case "$COMO" in
   cumple)
     copiar src
     [ "$CREA_TESTS" = "1" ] && copiar tests
+    ;;
+  tests_vacuo|tests_imposible|tests_flojo|tests_otraclase)
+    # Comportamientos de la FASE DE TESTS: escriben la implementación de referencia bien y el
+    # TEST degradado, uno por cada cosa que `escribir-tests.sh` afirma atrapar antes de
+    # aceptar un test. El gate ya estaba medido; el validador de tests no, y es la pieza que
+    # decide qué entra al tronco — de ahí en adelante, es el juez de todo lo demás.
+    copiar src
+    if [ "$CREA_TESTS" = "1" ]; then
+      copiar "degradados/${COMO#tests_}/tests" tests
+    fi
     ;;
   *)
     echo "[ensayo] comportamiento desconocido: $COMO"; exit 1 ;;

@@ -93,6 +93,43 @@ for g in range(1, grupos + 1):
         (k / mod.replace("src/", "src/")).write_text(cuerpo)
         (k / ruta_test).write_text(test)
 
+        # Variantes DEGRADADAS del test, una por cada cosa que `escribir-tests.sh` afirma
+        # atrapar antes de aceptar un test. Sin esto el ensayo mide el gate y NO mide el
+        # validador de tests, que es la pieza que decide si un test entra al tronco — y de
+        # ahí en adelante es el juez de todo lo demás.
+        #
+        #   vacuo      pasa contra el código actual: no prueba nada           (afirmación 1)
+        #   imposible  no pasa ni con la implementación de referencia          (afirmación 2)
+        #   flojo      pasa con la referencia y SOBREVIVE a la mutación        (afirmación 3)
+        #   otraclase  el archivo y la clase no son los que declara el plan    (afirmación 4)
+        importa = {"a": f"from src.datos.d{g} import leer{g}",
+                   "b": f"from src.servicios.s{g} import calcular{g}",
+                   "c": f"from src.rutas.r{g} import responder{g}"}[sufijo]
+        llamada = {"a": f"leer{g}()", "b": f"calcular{g}()",
+                   "c": f"responder{g}()"}[sufijo]
+        degradados = {
+            "vacuo": ("import unittest\n\n\n"
+                      f"class {clase}(unittest.TestCase):\n"
+                      "    def test_la_cosa_funciona(self):\n"
+                      "        self.assertTrue(True)\n"),
+            "imposible": (f"import unittest\n{importa}\n\n\n"
+                          f"class {clase}(unittest.TestCase):\n"
+                          "    def test_la_cosa_funciona(self):\n"
+                          f"        self.assertEqual({llamada}, 'nada que ver')\n"),
+            "flojo": (f"import unittest\n{importa}\n\n\n"
+                      f"class {clase}(unittest.TestCase):\n"
+                      "    def test_la_cosa_funciona(self):\n"
+                      f"        self.assertIsNotNone({llamada})\n"),
+            "otraclase": (f"import unittest\n{importa}\n\n\n"
+                          "class TestOtraCosa(unittest.TestCase):\n"
+                          "    def test_la_cosa_funciona(self):\n"
+                          f"        self.assertIsNotNone({llamada})\n"),
+        }
+        for nombre, cuerpo_test in degradados.items():
+            d = k / "degradados" / nombre / "tests"
+            d.mkdir(parents=True, exist_ok=True)
+            (d / pathlib.Path(ruta_test).name).write_text(cuerpo_test)
+
         # El `## Contrato` con la firma Y el import que la tarea usa: sin él, el cruce de
         # imports del validador no tiene nada que leer y avisa —con razón— que no pudo
         # verificar ninguna. Un ensayo que deja chequeos sin material no ensaya el pipeline.

@@ -175,6 +175,13 @@ class Mutador(ast.NodeTransformer):
             if cambio:
                 nodo.op = cambio()
             return nodo
+        if isinstance(nodo, ast.Constant):         # CRP: la constante cambia de valor
+            v = nodo.value
+            if isinstance(v, bool):
+                return ast.Constant(value=not v)
+            if isinstance(v, (int, float)):
+                return ast.Constant(value=v + 1)
+            return nodo
         return ast.Pass()                          # SBR: la sentencia se borra
 
 
@@ -243,12 +250,65 @@ def candidatos(archivo, lineas_cambiadas):
                 and nodo.targets[0].id not in leidos:
             muertas.add(id(nodo))
 
+    # Las constantes que son una SENTENCIA —docstrings y cadenas sueltas— no son código que
+    # un test pueda distinguir. El filtro de abajo ya las saltea como sentencia; acá se saca
+    # el nodo `Constant` en sí, que si no entraría como candidato de CRP.
+    #
+    # Y la aridez SE HEREDA de la sentencia que la contiene, que es la mitad que me faltaba:
+    # `es_arido` está definida sobre la sentencia —`logging.info('hola')` es árida, un
+    # `raise ValueError('imposible')` es árido— pero el candidato de CRP es la constante de
+    # ADENTRO, y para ella `es_arido` da False. Resultado medido al correr la suite: CRP
+    # proponía mutar el texto de un log y el mensaje de una excepción, que son mutantes que
+    # NINGÚN test puede matar. Es la misma lección que el método ya tiene escrita para las
+    # anotaciones de tipo, y la volví a pagar en el nodo de al lado.
+    sueltas = set()
+    for nodo in ast.walk(arbol):
+        if isinstance(nodo, ast.Expr) and isinstance(nodo.value, ast.Constant):
+            sueltas.add(id(nodo.value))
+        if isinstance(nodo, ast.stmt) and es_arido(nodo, fuente):
+            for hijo in ast.walk(nodo):
+                if isinstance(hijo, ast.Constant):
+                    sueltas.add(id(hijo))
+        # Y los VALORES POR OMISIÓN de los parámetros, fuera. Mutar `def f(x=42)` a `x=43` es
+        # un mutante legítimo en teoría —el comportamiento cambia para quien no pasa el
+        # argumento— pero dispara en CADA firma nueva que entra al diff, y un test que no
+        # ejercita el valor por omisión queda acusado de «no verifica su comportamiento»
+        # cuando lo que pasa es que la tarea no pedía ejercitarlo. El método ya pagó esa
+        # lección en esta misma línea con las anotaciones de tipo: los candidatos de la línea
+        # de la firma, en un archivo nuevo, acusan al test de algo que no es suyo.
+        #
+        # Lo encontró un test que ya existía —el de la variable leída desde una closure— al
+        # pasar de 1 mutante a 2, con el segundo sobreviviendo. No lo vi leyendo el cambio.
+        if isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for d in list(nodo.args.defaults) + [k for k in nodo.args.kw_defaults if k]:
+                for hijo in ast.walk(d):
+                    if isinstance(hijo, ast.Constant):
+                        sueltas.add(id(hijo))
+
     por_linea = {}
     for nodo in ast.walk(arbol):
         if id(nodo) in muertas:
             continue
         linea = getattr(nodo, "lineno", None)
-        if linea is None or linea not in lineas_cambiadas or linea in aridos:
+        if linea is None or linea not in lineas_cambiadas:
+            continue
+        # `hojas_todas_return` marca árida toda función cuyo cuerpo son puros `return`, y su
+        # justificación —«no se muta con provecho»— es sobre BORRAR la sentencia: borrar
+        # `return 1` deja la función devolviendo None, que es un mutante que mata cualquier
+        # test que mire el valor Y cualquiera que sólo mire que no sea None. No discrimina.
+        #
+        # Para el VALOR es al revés y está medido: con `def leer{n}(): return {n}` el paso de
+        # mutación no tenía nada que mutar, informaba «⊘ … No es un pase: no se probó ni un
+        # mutante», y `escribir-tests.sh` aceptaba igual un test que sólo afirmaba
+        # `assertIsNotNone(leer1())`. Ese test entró al tronco y después certificó tres tareas
+        # en verde (2026-10-26, con el ensayo determinista). `return 1` → `return 2` mata al
+        # test que mira el valor y SOBREVIVE al que no: es el único mutante que los separa.
+        #
+        # Y es el caso NORMAL, no un borde: las tareas chicas —las que este método apunta—
+        # son casi todas `return <literal>`.
+        if linea in aridos and not isinstance(nodo, ast.Constant):
+            continue
+        if id(nodo) in sueltas:
             continue
         if id(nodo) in anotados:
             continue
@@ -270,6 +330,21 @@ def candidatos(archivo, lineas_cambiadas):
             por_linea.setdefault(linea, (2, nodo, "cambiar and por or"))
         elif isinstance(nodo, ast.BinOp):
             por_linea.setdefault(linea, (3, nodo, "cambiar el operador aritmético"))
+        elif isinstance(nodo, ast.Constant) and isinstance(nodo.value, (bool, int, float)):
+            # Prioridad 4, la última: en una línea con comparación, booleano o aritmética se
+            # sigue usando el operador de siempre. CRP entra donde hoy no entraba NADA, que
+            # es exactamente donde el paso de mutación salía ⊘.
+            #
+            # Números y booleanos, NO cadenas. El agujero medido era numérico —`return 1`
+            # contra un `assertIsNotNone`— y ahí es donde se esconde la ceguera al valor.
+            # Mutar cadenas es otra cosa: la primera versión cambiaba una clave de
+            # diccionario (`return {'id': id, …}`) y dejaba sobreviviente en un test que
+            # medía algo distinto, y las cadenas del código son casi siempre claves, rutas o
+            # mensajes —el contrato de las claves ya lo mira `_contrato.py` y los mensajes
+            # están cubiertos por las reglas de aridez—. Lo encontró la suite, no la lectura:
+            # es la tercera cosa que este operador se llevó puesta por ser más ancho que su
+            # defecto (anotaciones, valores por omisión, cadenas).
+            por_linea.setdefault(linea, (4, nodo, "cambiar el valor de la constante"))
     return [(archivo, linea, nodo, que) for linea, (_, nodo, que) in sorted(por_linea.items())]
 
 
@@ -518,6 +593,22 @@ def main():
         # 3 y no 1 cuando hay líneas que no se ejecutan: `escribir-tests.sh` imprime el
         # veredicto, y el que tenía escrito —«el test cubre las líneas»— es falso en ese
         # caso. Un código aparte es lo único que le permite no afirmarlo.
+        #
+        # Pero sólo si son TODOS. Con `muertas` a secas alcanzaba UN sobreviviente de línea
+        # no ejecutada para tapar a los demás, y entonces el gate informaba «hay líneas que
+        # el test NO EJECUTA» y se callaba «cubre esas líneas y no verifica su
+        # comportamiento», que seguía siendo cierto para los otros. Las dos mitades del
+        # diagnóstico son distintas —una es cobertura, la otra son las aserciones— y el que
+        # recibe el veredicto necesita la que le toca. Apareció al agregar el operador de
+        # constante: metió un sobreviviente de línea no ejecutada en un escenario que antes
+        # sólo tenía del otro tipo, y el test del caso T20 lo cazó.
+        #
+        # Un código ÚNICO no puede expresar una mezcla, y probé que no: con «todos los
+        # sobrevivientes son de línea no ejecutada» rompí los dos tests del caso T26 —donde
+        # el sobreviviente «ejecutado» es un `HONDO = []` de nivel de módulo y la historia
+        # real sigue siendo el mock— y con «hay alguno sabido ejecutado» rompí el mismo par.
+        # La mezcla se resuelve en el TITULAR del gate, que ahora nombra las dos lecturas, no
+        # acá. Esta línea queda como estaba.
         return 3 if muertas else 1
     print("  ✓ todos los mutantes murieron: la suite distingue el código cambiado")
     return 0

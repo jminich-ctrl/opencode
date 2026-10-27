@@ -472,6 +472,57 @@ juzga a sí mismo: con un comportamiento malo, PASA cuando el pipeline se detien
 cierra; si cerrara alguna, informa «es un VERDE FALSO» y sale ≠0. Verificado mutando el agente
 para que «nada» cumpla: el ensayo lo cazó.
 
+### Medición 3 — ¿el validador de tests atrapa un test que no verifica nada? (2026-10-26)
+
+    GRUPOS=1 COMPORTAMIENTO_TESTS=tests_flojo bash $AGENTES/scripts/ensayo.sh
+
+El gate ya estaba medido; el VALIDADOR DE TESTS no, y es la pieza que decide qué entra al
+tronco — de ahí en adelante es el juez de todo lo demás. Sus cuatro afirmaciones están en el
+encabezado de `escribir-tests.sh`, así que hay un comportamiento por afirmación:
+
+| el test que escribe el agente | afirmación | ¿lo atrapó? |
+|---|---|---|
+| pasa contra el código actual (no prueba nada) | 1 | sí |
+| no pasa ni con la implementación de referencia | 2 | sí |
+| **pasa con la referencia y sobrevive a la mutación** | 3 | **NO — cerró las 3 tareas** |
+| el archivo y la clase no son los del plan | 4 | sí |
+
+Tres de cuatro. La cuarta **cerró las tres tareas con tres gates verdes** con un test que sólo
+afirmaba `assertIsNotNone(leer1())` para una tarea cuyo contrato dice «devuelve 1».
+
+La causa, y es más interesante que el síntoma: el paso de mutación **no tenía nada que mutar**.
+`def leer1(): return 1` no produce candidatos —`Return` está excluido del borrado de sentencia,
+no hay comparación ni booleano ni aritmética, y la heurística `hojas_todas_return` marcaba árida
+la función entera— así que el paso informaba
+
+    ⊘ no hubo nada que mutar … el tercero (¿distingue?) no pudo verificarse. No es un pase.
+      ⊘ el diff no tiene nada que mutar con provecho (todo árido o sin operadores)
+         No es un pase: no se probó ni un mutante.
+
+y el validador **aceptaba igual**. El mensaje decía «no es un pase» y la decisión lo tomaba como
+pase: §4 de este documento, violada en el punto donde se decide.
+
+Y el ⊘ no era un borde: `return <literal>` es la forma NORMAL de una tarea chica, que son las
+que este método apunta.
+
+El arreglo no fue tocar la decisión —rechazar por ⊘ habría bloqueado también a los tests
+BUENOS, que tenían el mismo ⊘— sino darle al mutador el operador que faltaba: **reemplazo de
+constante** (`return 1` → `return 2`). Es el único mutante que separa los dos casos:
+
+| el mutante | test que mira el valor | test que sólo mira «no es None» |
+|---|---|---|
+| borrar el `return` (devuelve None) | muere | **muere también** — no discrimina |
+| `return 1` → `return 2` | muere | **sobrevive** — ahí está la diferencia |
+
+Medido después del arreglo: `tests_flojo` queda rechazado por «sobreviven mutantes … [cambiar
+el valor de la constante] return 1» y cierra 0 de 3; `cumple` sigue cerrando 3 de 3 con la
+suite del proyecto en verde. Sin el control de la derecha, el arreglo podría haber sido
+rechazar todo.
+
+La aridez se hereda de la sentencia, y esa mitad me faltaba: la primera versión proponía mutar
+el texto de un `logging.info('hola')` y el mensaje de un `raise ValueError(...)`, que son
+mutantes que ningún test puede matar. Lo encontró la suite del método, no la lectura.
+
 ### Lo que encontró en su primera corrida
 
 El gate le cobraba a la tarea un `.opencode-data` **vacío que crea el propio runner**: las

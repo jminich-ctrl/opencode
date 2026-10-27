@@ -4444,6 +4444,62 @@ class TestMutar(CasoBase):
         flechas = [l for l in r.stdout.splitlines() if "→" in l]
         self.assertEqual(len(flechas), 12, f"los doce:\n{r.stdout}")
 
+    # ── CRP: el valor de la constante. Medido el 2026-10-26 con el ensayo determinista.
+    #
+    # `def leer1(): return 1` no tenía NINGÚN candidato: `Return` está excluido del borrado de
+    # sentencia, no hay comparación ni booleano ni aritmética, y `hojas_todas_return` marcaba
+    # árida la función entera. El paso de mutación salía «⊘ … No es un pase: no se probó ni un
+    # mutante» y `escribir-tests.sh` ACEPTABA igual un test que sólo afirmaba
+    # `assertIsNotNone(leer1())`. Ese test entró al tronco y certificó tres tareas en verde.
+    #
+    # Y es el caso normal de una tarea chica, no un borde.
+
+    def test_un_test_que_no_mira_el_valor_deja_sobreviviente(self):
+        self.p.implementar(); self.p.git("add -A"); self.p.git("commit -qm impl")
+        # El mismo código; lo que cambia es el TEST.
+        (self.p.dir / "tests" / "test_cosa.py").write_text(
+            "import unittest\nfrom src.cosa import f\n\n"
+            "class TestCosa(unittest.TestCase):\n"
+            "    def test_f(self):\n        self.assertIsNotNone(f())\n")
+        self.p.implementar("def f():\n    return 43\n")
+        self.p.git("add -A"); self.p.git("commit -qm 'test flojo'")
+        r = self.mutar()
+        self.assertIn("sobrevivieron", r.stdout,
+                      f"un test que no mira el valor tiene que dejar sobreviviente:\n{r.stdout}")
+        self.assertIn("cambiar el valor de la constante", r.stdout,
+                      f"y el mutante tiene que ser el del valor:\n{r.stdout}")
+
+    def test_el_mismo_codigo_con_un_test_que_mira_el_valor_no_deja_ninguno(self):
+        """El control, y es el que hace al de arriba una medición y no una afirmación: mismo
+        código, mismo mutante, test que SÍ mira el valor → el mutante muere. Sin este caso,
+        «deja sobreviviente» podría venir de cualquier otra cosa."""
+        self.p.implementar(); self.p.git("add -A"); self.p.git("commit -qm impl")
+        (self.p.dir / "tests" / "test_cosa.py").write_text(
+            "import unittest\nfrom src.cosa import f\n\n"
+            "class TestCosa(unittest.TestCase):\n"
+            "    def test_f(self):\n        self.assertEqual(f(), 43)\n")
+        self.p.implementar("def f():\n    return 43\n")
+        self.p.git("add -A"); self.p.git("commit -qm 'test que mira el valor'")
+        r = self.mutar()
+        self.assertNotIn("sobrevivieron", r.stdout,
+                         f"el test mira el valor: el mutante tiene que morir:\n{r.stdout}")
+
+    def test_un_docstring_no_es_un_mutante(self):
+        """Cambiarle el texto a un docstring produce un mutante que ningún test puede matar, y
+        el método ya tiene esa lección escrita para las anotaciones de tipo: un mutante
+        inmatable informado como «la suite no nota estos cambios» culpa al test de algo
+        imposible."""
+        self.p.implementar(); self.p.git("add -A"); self.p.git("commit -qm impl")
+        self.p.implementar('def f():\n    """Devuelve cuarenta y tres."""\n    return 43\n')
+        (self.p.dir / "tests" / "test_cosa.py").write_text(
+            "import unittest\nfrom src.cosa import f\n\n"
+            "class TestCosa(unittest.TestCase):\n"
+            "    def test_f(self):\n        self.assertEqual(f(), 43)\n")
+        self.p.git("add -A"); self.p.git("commit -qm docstring")
+        r = self.mutar()
+        self.assertIn("1 mutante(s) probados", r.stdout,
+                      f"el docstring no puede ser uno de los mutantes:\n{r.stdout}")
+
     def test_mutante_que_sobrevive_se_informa(self):
         self.p.implementar(); self.p.git("add -A"); self.p.git("commit -qm impl")
         self.p.implementar("def f():\n    return 42\n\n\ndef tope(x):\n"

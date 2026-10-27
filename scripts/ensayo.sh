@@ -25,6 +25,9 @@ set -uo pipefail
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GRUPOS="${GRUPOS:-1}"
 COMPORTAMIENTO="${COMPORTAMIENTO:-cumple}"
+# El comportamiento de la fase de TESTS es otra perilla: el validador de tests y el gate son
+# jueces distintos y hay que poder apuntarle a uno sin tocar al otro.
+COMPORTAMIENTO_TESTS="${COMPORTAMIENTO_TESTS:-cumple}"
 DONDE="${1:-$(mktemp -d)}"
 mkdir -p "$DONDE" || { echo "✗ no puedo escribir en $DONDE" >&2; exit 1; }
 PROY="$DONDE/proy"; CLAVES="$DONDE/claves"; LOG="$DONDE/ensayo.log"
@@ -38,11 +41,13 @@ BIN="$DONDE/bin"; mkdir -p "$BIN"
 ln -sf "$AQUI/_ensayo_agente.sh" "$BIN/opencode"
 
 echo "══ ensayo: $((GRUPOS * 3)) tarea(s), comportamiento «${COMPORTAMIENTO}»"
+[ "$COMPORTAMIENTO_TESTS" = "cumple" ] || echo "   fase de tests: «${COMPORTAMIENTO_TESTS}»"
 echo "   proyecto: $PROY"
 (
   cd "$PROY" || exit 1
   AGENTES="$(cd "$AQUI/.." && pwd)" PATH="$BIN:$PATH" \
   ENSAYO_CLAVES="$CLAVES" ENSAYO_COMPORTAMIENTO="$COMPORTAMIENTO" \
+  ENSAYO_COMPORTAMIENTO_TESTS="$COMPORTAMIENTO_TESTS" \
   ARRANQUE_FRIO="${ARRANQUE_FRIO:-5}" bash "$AQUI/correr-todo.sh"
 ) > "$LOG" 2>&1
 RC_PIPELINE=$?
@@ -63,7 +68,7 @@ CERRADAS="${CERRADAS:-0}"; VERDES="${VERDES:-0}"
 echo "   pipeline: código $RC_PIPELINE · $CERRADAS/$TOTAL tarea(s) cerradas · $VERDES gate(s) verde(s)"
 echo "   log: $LOG"
 
-if [ "$COMPORTAMIENTO" = "cumple" ]; then
+if [ "$COMPORTAMIENTO" = "cumple" ] && [ "$COMPORTAMIENTO_TESTS" = "cumple" ]; then
   if [ "$RC_PIPELINE" -ne 0 ] || [ "$CERRADAS" -ne "$TOTAL" ]; then
     echo "✗ con un agente que cumple, el pipeline tiene que cerrar las $TOTAL"
     grep -E '^ *✗ ' "$LOG" | sort -u | head -6 | sed 's/^/     /'
@@ -78,11 +83,12 @@ if [ "$COMPORTAMIENTO" = "cumple" ]; then
   echo "✓ $TOTAL/$TOTAL cerradas y la suite del proyecto en verde"
 else
   # El ensayo de un comportamiento malo pasa cuando el método NO lo deja pasar.
+  MALO="$COMPORTAMIENTO"; [ "$COMPORTAMIENTO" = "cumple" ] && MALO="$COMPORTAMIENTO_TESTS"
   if [ "$RC_PIPELINE" -eq 0 ] || [ "$CERRADAS" -ne 0 ]; then
-    echo "✗ «${COMPORTAMIENTO}» cerró $CERRADAS tarea(s) con código $RC_PIPELINE: es un VERDE FALSO"
+    echo "✗ «${MALO}» cerró $CERRADAS tarea(s) con código $RC_PIPELINE: es un VERDE FALSO"
     exit 1
   fi
-  echo "✓ «${COMPORTAMIENTO}» no pasó. El gate dijo:"
+  echo "✓ «${MALO}» no pasó. El método dijo:"
   grep -E '^ *✗ ' "$LOG" | grep -vE 'punto muerto|se detuvo|quedaron en rojo|gate ROJO' \
     | sort -u | head -3 | sed 's/^/     /'
 fi

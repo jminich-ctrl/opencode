@@ -729,7 +729,17 @@ if [ -n "${TAREA:-}" ] && [ "${FALLOS:-0}" = "0" ]; then
       0) verde "los mutantes de esta implementación mueren: $CLASE_M distingue el cambio" ;;
       2) vacuo "no hubo nada que mutar con provecho bajo «${CODIGO_M}»"
          printf '%s\n' "$SAL_M" | sed 's/^/     /' ;;
-      3) rojo "hay líneas de la implementación que $CLASE_M NO EJECUTA"
+      # El titular nombra las DOS lecturas, porque las dos pueden ser ciertas en la misma
+      # corrida y el detalle de abajo las separa línea por línea —cada sobreviviente dice si
+      # es «la línea NO se ejecuta» o qué operador lo produjo—. Decía sólo «NO EJECUTA» y se
+      # callaba que además hay mutantes vivos sobre líneas que el test SÍ corre, que es el
+      # otro diagnóstico y pide otra cosa: uno es cobertura, el otro son las aserciones.
+      # Apareció al agregar el operador de constante, que metió un sobreviviente de línea no
+      # ejecutada en un escenario que antes sólo tenía del otro tipo.
+      #
+      # Lo que NO puede decir es «cubre esas líneas»: eso sería afirmar lo contrario de lo
+      # que acabó de medir, y hay un test que lo prohíbe.
+      3) rojo "sobreviven mutantes, y hay líneas que $CLASE_M NO EJECUTA"
          printf '%s\n' "$SAL_M" | grep '→' | sed 's/^/     /'
          echo "     Si mockeás lo que esta tarea define, estás reemplazando lo que vino a probar." ;;
       1) rojo "sobreviven mutantes: $CLASE_M cubre esas líneas y no verifica su comportamiento"
