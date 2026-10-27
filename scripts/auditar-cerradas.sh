@@ -126,22 +126,48 @@ $(printf '%s' "$sal" | sed 's/^  /     /')" ;;
   # 2026-10-25 y encontró DOS tests ya aceptados que lo hacen —T20 y T21—, así que es
   # exactamente el material que esta herramienta existe para revisar.
   if [ -f "$AQUI/_contrato.py" ]; then
-    sal_c="$( (cd "$BASE" && python3 "$AQUI/_contrato.py" "$su_test" "${tf#$BASE/}" .) 2>&1 )"
-    [ $? -eq 1 ] && rojo_de_esta="${rojo_de_esta}
-$(printf '%s' "$sal_c" | sed 's/^  /     /')"
+    sal_c="$( (cd "$BASE" && python3 "$AQUI/_contrato.py" "$su_test" "${tf#$BASE/}" .) 2>&1 )"; rc_c=$?
+    # Con `case` y no con `[ $? -eq 1 ]`, por el mismo motivo que el paso 2 de arriba, que ya
+    # tiene la lección escrita: `_contrato.py` emite 2 —«no pude verificar»— y acá se iba en
+    # silencio, así que una tarea cuyo contrato NO SE PUDO cruzar salía «· pasa los chequeos
+    # de hoy». El otro consumidor del mismo chequeo —`escribir-tests.sh`— sí lo distingue y
+    # lo informa con un ⊘: mismo productor, dos consumidores, uno ciego.
+    case "$rc_c" in
+      1) rojo_de_esta="${rojo_de_esta}
+$(printf '%s' "$sal_c" | sed 's/^  /     /')" ;;
+      2) vacios_de_esta="${vacios_de_esta}
+$(printf '%s' "$sal_c" | sed 's/^  /     /')" ;;
+    esac
   fi
   # ── 3. El brazo nulo, archivo por archivo: ¿el test nota que cada archivo quedó sin cuerpo?
   for f in $impl; do
     [ -f "$BASE/$f" ] || continue
     sal_v="$( (cd "$BASE" && python3 "$AQUI/vaciar.py" "$f") 2>&1 )"; rc_v=$?
+    # Las TRES salidas, no dos. `vaciar.py` emite 3 (ya es un stub: veredicto), 0 (vaciado,
+    # se puede preguntar) y 2 (no había funciones que vaciar: el brazo nulo es IMPOSIBLE).
+    # El 2 no tenía rama y el «0 pero falta el corredor» tampoco, así que el paso 3 de esta
+    # herramienta no corría y nadie lo decía: la tarea salía «· pasa los chequeos de hoy».
+    #
+    # Esta herramienta tiene el mecanismo —`$vacios_de_esta` y el veredicto «⊘ auditada a
+    # medias», con su comentario «eso no es pasa»— e igual se lo salteaba en su propio paso 3.
+    # Es la tercera vez que el mismo defecto aparece en este archivo: el paso 2 ya lo tenía
+    # arreglado y escrito tres líneas más arriba.
     if [ "$rc_v" = "3" ]; then
       rojo_de_esta="${rojo_de_esta}
 $(printf '%s' "$sal_v" | sed 's/^  /     /')"
-    elif [ "$rc_v" = "0" ] && [ -f "$BASE/scripts/correr-suite.sh" ]; then
-      if (cd "$BASE" && bash scripts/correr-suite.sh "$su_test" >/dev/null 2>&1); then
-        rojo_de_esta="${rojo_de_esta}
+    elif [ "$rc_v" = "0" ]; then
+      if [ -f "$BASE/scripts/correr-suite.sh" ]; then
+        if (cd "$BASE" && bash scripts/correr-suite.sh "$su_test" >/dev/null 2>&1); then
+          rojo_de_esta="${rojo_de_esta}
      ✗ el test pasa con los cuerpos de $f VACÍOS: no prueba ese archivo."
+        fi
+      else
+        vacios_de_esta="${vacios_de_esta}
+     ⊘ $f: no hay scripts/correr-suite.sh, así que el brazo nulo no se pudo correr"
       fi
+    else
+      vacios_de_esta="${vacios_de_esta}
+     ⊘ $f: el brazo nulo no se pudo preguntar ($(printf '%s' "$sal_v" | tr '\n' ' ' | sed 's/^ *//'))"
     fi
     (cd "$BASE" && python3 "$AQUI/vaciar.py" --restaurar >/dev/null 2>&1)
   done

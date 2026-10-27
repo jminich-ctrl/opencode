@@ -12582,6 +12582,109 @@ class TestReabrirNoPuedeRomperUnaTareaQueSigueHecha(unittest.TestCase):
                       f"\n{r.stdout}")
 
 
+class TestQuienLeeElVeredictoDistingueElNoPudeVerificar(unittest.TestCase):
+    """La pregunta 4 del skill `auditar-el-juez`, como test permanente: ¿quien DECIDE lee lo
+    mismo que el que MIDE dijo?
+
+    De los seis veredictos falsos del 2026-10-26, CUATRO estaban en esta costura: el chequeo
+    emitía su código de «no pude verificar» y el consumidor lo leía como pase. El ⊘ de
+    mutación que `escribir-tests.sh` aceptó como ✓, el código 3 que el `case` del gate no
+    contaba, el `AttributeError` que `correr-todo.sh` informó como «el plan se contradice», y
+    el 3 de `_imports.py` que nadie leía. Y el 2026-10-27, aplicando el skill a las piezas que
+    quedaron sin auditar, otros dos en `auditar-cerradas.sh`.
+
+    No son bugs del chequeo: son del contrato entre dos archivos que nadie lee juntos. Este
+    test los lee juntos.
+
+    La regla está ACOTADA al defecto a propósito, y la forma de acotarla importa: se exige el
+    manejo del «no pude» SÓLO a los consumidores que ya distinguen el código de FALLA. Si
+    alguien se tomó el trabajo de ramificar en el 1, entonces está leyendo códigos — y dejar
+    el 2 sin rama ahí no es una decisión, es el agujero. Un consumidor que ignora todos los
+    códigos y sólo mira `if comando; then` no entra: ésa es otra conversación."""
+
+    # Productor → (código de falla, códigos de «no pude verificar»). Cada uno declarado en el
+    # propio productor; si se agrega uno nuevo, va acá.
+    CONTRATOS = {
+        "_aserciones.py": ("1", ["2"]),
+        "_contrato.py": ("1", ["2"]),
+        "vaciar.py": ("3", ["2"]),
+        "mutar.py": ("1", ["2", "3"]),
+        "_imports.py": ("1", ["2", "3"]),
+    }
+
+    def bloque(self, texto, productor, ventana=26):
+        """Las líneas que siguen a cada invocación del productor, cortadas cuando empieza OTRO
+        chequeo.
+
+        Dos veces me pasé de ancho antes de acertar, y las dos las cazó leer los acusados:
+        primero 22 líneas fijas, que se metían en el chequeo vecino (4 falsos positivos de 5);
+        después cortando en cualquier `$AQUI/`, que corta en la llamada de RESTAURACIÓN del
+        mismo productor —`vaciar.py --restaurar`— y dejaba afuera la rama que sí existe. Sólo
+        corta otro PRODUCTOR distinto del que se está mirando."""
+        otros = [o for o in self.CONTRATOS if o != productor]
+        lineas = texto.split("\n")
+        tramos = []
+        for i, l in enumerate(lineas):
+            if productor in l and ("python3" in l or "PY_PROYECTO" in l):
+                tramo = []
+                for siguiente in lineas[i + 1:i + ventana]:
+                    if any(o in siguiente for o in otros):
+                        break
+                    tramo.append(siguiente)
+                tramos.append("\n".join(tramo))
+        return tramos
+
+    def exacto(self, tramo, codigo):
+        """¿El tramo ramifica EXPLÍCITAMENTE en este código? Los idiomas reales del repo,
+        medidos leyéndolos: un brazo de `case` (`2)`) o una comparación.
+
+        El brazo del `case` se ancla al PRINCIPIO de la línea, y eso lo pidió la mutación: con
+        `codigo in tramo` a secas, cambiar `2)` por `22)` dejaba el mutante vivo porque «22)»
+        contiene «2)». Un matcher por subcadena no distingue el defecto que dice medir."""
+        for linea in tramo.split("\n"):
+            t = linea.strip()
+            if t.startswith(f"{codigo})") or t.startswith(f'"{codigo}")'):
+                return True
+            if any(m in t for m in (f'= "{codigo}"', f"-eq {codigo}", f"= {codigo} ]")):
+                return True
+        return False
+
+    def ramifica(self, tramo, codigo):
+        """Explícito, o con uno de los dos atrapa-todo —`!= "0"` y un `else`— que cubren
+        cualquier código distinto de cero y por lo tanto también a éste."""
+        if self.exacto(tramo, codigo):
+            return True
+        for linea in tramo.split("\n"):
+            t = linea.strip()
+            if any(m in t for m in ('!= "0"', "-ne 0")) or t.startswith("else"):
+                return True
+        return False
+
+    def test_el_que_ramifica_en_la_falla_tambien_ramifica_en_el_no_pude(self):
+        ciegos = []
+        for productor, (falla, no_pude) in self.CONTRATOS.items():
+            fuente_p = (SCRIPTS / productor).read_text()
+            for codigo in [falla] + no_pude:
+                self.assertIn(f"return {codigo}" if f"return {codigo}" in fuente_p
+                              else f"sys.exit({codigo})", fuente_p,
+                              f"{productor} ya no emite el código {codigo}: actualizá CONTRATOS")
+            for consumidor in sorted(SCRIPTS.glob("*.sh")):
+                texto = consumidor.read_text()
+                for tramo in self.bloque(texto, productor):
+                    # ¿Este consumidor lee códigos? Se detecta por el manejo de la FALLA.
+                    # ¿Este consumidor lee códigos? Se detecta por el manejo EXACTO de la
+                    # falla: un atrapa-todo no cuenta como «lee códigos».
+                    if not self.exacto(tramo, falla):
+                        continue
+                    for codigo in no_pude:
+                        if not self.ramifica(tramo, codigo):
+                            ciegos.append(f"{consumidor.name} lee el {falla} de {productor} "
+                                          f"pero no el {codigo}")
+        self.assertEqual([], sorted(set(ciegos)),
+                         "estos consumidores ramifican en la falla y leen el «no pude "
+                         "verificar» como pase:\n  " + "\n  ".join(sorted(set(ciegos))))
+
+
 class TestLoViejoNoVuelveAPasarPorElInstrumentoNuevo(unittest.TestCase):
     """El método mejora sus instrumentos y los instrumentos nuevos encuentran cosas en lo ya
     cerrado — pero nada vuelve a pasar el material viejo por el instrumento nuevo. El gate
@@ -12739,6 +12842,47 @@ class TestLoViejoNoVuelveAPasarPorElInstrumentoNuevo(unittest.TestCase):
         self.assertEqual((d / "PLAN.md").read_text(), antes_plan)
         self.assertEqual(list((d / "src").glob("*.vaciar-original")), [],
                          "quedaron respaldos de vaciar.py tirados")
+
+    def test_un_brazo_nulo_que_no_se_pudo_correr_no_sale_como_pasa(self):
+        """Encontrado el 2026-10-27 aplicando el skill `auditar-el-juez` a las piezas que la
+        sesión anterior NO había auditado, con su pregunta 4: enumerar los códigos que cada
+        chequeo emite y cruzarlos con las ramas que su consumidor maneja.
+
+        `vaciar.py` emite TRES: 3 (ya es un stub, que es un veredicto), 0 (vaciado, se puede
+        preguntar) y 2 (no había funciones que vaciar, o sea que el brazo nulo es IMPOSIBLE).
+        El paso 3 de esta herramienta manejaba el 3 y el 0, y el 2 no tenía rama: la tarea
+        salía «· pasa los chequeos de hoy» con el brazo nulo sin correr. Lo mismo con «el 0
+        pero falta scripts/correr-suite.sh».
+
+        Lo filoso es que la herramienta TIENE el mecanismo —`$vacios_de_esta` y el veredicto
+        «⊘ auditada a medias», con el comentario «eso no es pasa»— y se lo salteaba en su
+        propio paso 3. Y su paso 2 ya tenía la lección escrita TRES LÍNEAS más arriba: «El 2
+        —no pude mirar— se informa, no se descarta»."""
+        sin_funciones = self.proyecto(
+            "LIMITE = 42\n",
+            test_cuerpo=("import unittest\nfrom src.cosa import LIMITE\n\n\n"
+                         "class TestCosa(unittest.TestCase):\n"
+                         "    def test_limite(self):\n"
+                         "        self.assertEqual(LIMITE, 42)\n"))
+        r = self.auditar(sin_funciones)
+        self.assertIn("auditada a medias", r.stdout,
+                      f"el brazo nulo no se pudo correr y la herramienta no lo dijo:\n{r.stdout}")
+        self.assertNotIn("pasa los chequeos de hoy", r.stdout,
+                         f"un chequeo que no corrió no es un chequeo que pasó:\n{r.stdout}")
+
+    def test_y_una_tarea_cuyo_brazo_nulo_SI_se_pudo_correr_sigue_pasando(self):
+        """El par del de arriba, y es el que lo convierte en medición: mismo instrumento, un
+        sujeto donde el brazo nulo SÍ se puede preguntar y el test lo nota. Sin este caso,
+        «auditada a medias» podría venir de que la herramienta ahora marca todo."""
+        d = self.proyecto(
+            self.BUENA,
+            test_cuerpo=("import unittest\nfrom src.cosa import f\n\n\n"
+                         "class TestCosa(unittest.TestCase):\n"
+                         "    def test_f(self):\n        self.assertEqual(f(), 42)\n"))
+        r = self.auditar(d)
+        self.assertIn("pasa los chequeos de hoy", r.stdout,
+                      f"con el brazo nulo corrido y en verde, la tarea pasa:\n{r.stdout}")
+        self.assertNotIn("auditada a medias", r.stdout, f"\n{r.stdout}")
 
     def test_cero_auditadas_no_es_un_pase(self):
         """Mi primera versión informaba «✓ ninguna tarea cerrada falla los chequeos de hoy»

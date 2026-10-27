@@ -342,6 +342,14 @@ for id in "$@"; do
       SAL_I="$("${PY_PROYECTO:-python3}" "$AQUI/_imports.py" ${PY_TOCADOS} 2>&1)"; RC_I=$?
       if [ "$RC_I" -eq 1 ]; then
         malo "$(echo "$SAL_I" | sed -n 's/^  ✗ //p' | head -1)"
+      elif [ "$RC_I" -eq 2 ]; then
+        # El 2 de `_imports.py` es «no hay archivos .py que cruzar — no pudo verificarse», y
+        # acá se iba en SILENCIO: el cruce no corría y nadie se enteraba. Pasa cuando los
+        # archivos que el agente tocó ya no están en disco (renombrados, borrados) o quedaron
+        # bajo `.venv`. Lo encontró el test de la costura, aplicando la pregunta 4 del skill
+        # `auditar-el-juez` a las piezas que la sesión anterior no había auditado.
+        echo "$SAL_I" | sed 's/^/     /'
+        echo "     · el cruce de imports no se verificó (ver arriba): no es del test"
       elif [ "$RC_I" -eq 3 ]; then
         # Callado era lo peor de las tres opciones: el cruce no corría y nadie se enteraba.
         # Y `malo` tampoco va: un intérprete viejo no mejora reintentando, así que gastaría
