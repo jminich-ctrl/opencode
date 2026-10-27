@@ -14438,6 +14438,37 @@ class TestElRojoNoSabiaSiEraDelTestODeLaImplementacion(unittest.TestCase):
                             f"patch pega:\n{r.stdout}{r.stderr}")
         self.assertIn("no pude determinar", r.stdout + r.stderr)
 
+    def test_el_decorador_con_comillas_dobles_tambien_entra(self):
+        """`@patch("src.datos.d1.leer1")` es la forma que escribieron dos de los siete agentes
+        reales, y mis trece tests usaban todos `with patch('…')` con comillas simples. El
+        chequeo la cubría —va por AST, y ni el decorador ni las comillas cambian el árbol—,
+        pero eso estaba sin medir, y lo que no se mide se rompe en el refactor siguiente.
+
+        Lo que sí me falló fue el grep con que REPORTÉ la corrida: buscaba comillas simples,
+        no encontró estos dos y concluí que habían resuelto la tarea sin mockear. Los tres que
+        pasaron la puerta corrigieron el patch. Es el error de extractor del catálogo —buscar
+        una forma que el productor no emite— y esta vez estaba en mi medición, no en el
+        método."""
+        for etiqueta, objetivo, esperado in (
+                ("el decorador al módulo donde se DEFINE", "src.datos.d1.leer1", 1),
+                ("el decorador al módulo donde se USA", "src.servicios.s1.leer1", 0)):
+            with self.subTest(caso=etiqueta):
+                d = self.proyecto(None, "src.datos.d1.leer1")
+                (d / "tests/test_s1.py").write_text(
+                    "import unittest\n"
+                    "from unittest.mock import patch\n"
+                    "from src.servicios.s1 import calcular1\n\n"
+                    "class TestS1(unittest.TestCase):\n"
+                    f'    @patch("{objetivo}")\n'
+                    "    def test_calcular1(self, mock_leer1):\n"
+                    "        mock_leer1.return_value = 5\n"
+                    "        self.assertEqual(calcular1(), 50)\n")
+                t = self.tarea(d, True)
+                r = correr(f'python3 "{SCRIPTS}/_mocks.py" --segun-enunciado '
+                           f'tests/test_s1.py "{t}" .', d)
+                self.assertEqual(r.returncode, esperado,
+                                 f"{etiqueta}\n{r.stdout}{r.stderr}")
+
     def test_patch_object_no_entra(self):
         """`patch.object(d1, "leer1")` nombra el objeto que parchea, así que no puede fallar
         por este defecto. Una regla más ancha que el defecto se apaga a la semana."""
@@ -14733,3 +14764,63 @@ class TestElRojoQueElAcusadoNoPodiaLeer(unittest.TestCase):
         primero = (prompts.read_text().split("\n")[0] if prompts.exists() else "")
         self.assertNotIn("Un intento anterior falló", primero,
                          f"el primer prompt no puede reprochar nada:\n{primero[:300]}")
+
+
+class TestElConsejoDeRecuperacionLoRechazaElPropioMetodo(unittest.TestCase):
+    """Medido el 2026-10-27, siguiendo el mensaje al pie de la letra. La corrida paró con:
+
+        ⏸  Se detuvo en la etapa 2: los tests de T03b T05b T06b T07b no pasaron su propia
+           validación. Para retomar después de arreglarlo:
+             bash .../correr-todo.sh 2
+
+    Relancé con eso y la corrida siguiente se negó a arrancar: «✗ Al empezar en la etapa 2 se
+    saltean tareas que siguen pendientes: T01b T02b … Corré sin argumento». Entre las dos
+    corridas la etapa 1 había cerrado, así que las `b` pasaron a ser la 1 y el número que el
+    mensaje imprimió ya no significaba lo mismo.
+
+    El método tenía las dos mitades y no coincidían: `rechazar_salteo` existe desde que esto
+    mismo salteó tres tareas en silencio, y tres líneas arriba del consejo el propio `parar`
+    advierte «NO uses `correr-todo.sh N`: re-corre la etapa entera y tira los worktrees que ya
+    están en verde». El consejo por omisión recomendaba justo eso.
+
+    La regla que queda, y es general: **un comando que el método imprime como instrucción de
+    recuperación tiene que pasar sus propias guardas.**"""
+
+    def guarda(self, desde, etapas):
+        """Ejercita `rechazar_salteo` de verdad, que es lo que decide. Mirar el texto del
+        consejo mide la redacción; esto mide si el consejo sirve."""
+        guion = (f'. "{SCRIPTS}/_comun.sh" >/dev/null 2>&1; '
+                 f'rechazar_salteo {desde} "bash correr-todo.sh" {etapas}; echo ACEPTADO')
+        return correr("bash -c " + shlex.quote(guion), RAIZ)
+
+    def test_el_consejo_por_omision_no_lleva_numero_de_etapa(self):
+        codigo = (SCRIPTS / "correr-todo.sh").read_text()
+        # El cuerpo de `parar` desde el consejo hasta su `exit`, cortado por ESTRUCTURA y no
+        # por una ventana de N caracteres: mi primera versión usó 1400 y el comentario que
+        # documenta el arreglo empujó el `echo` más allá, así que el test no encontraba
+        # ninguna sugerencia y fallaba por el motivo equivocado. Cuarta vez en el día que
+        # corto por longitud lo que hay que cortar por estructura.
+        i = codigo.index("Para retomar después de arreglarlo")
+        bloque = codigo[i:codigo.index("\n  exit 1", i)]
+        sugerencias = [l for l in bloque.split("\n")
+                       if "correr-todo.sh" in l and "NO uses" not in l and "#" != l.strip()[:1]]
+        self.assertTrue(sugerencias, "parar() no sugiere ningún comando")
+        with_numero = [l for l in sugerencias if re.search(r"correr-todo\.sh \$?\{?[0-9n]", l)]
+        self.assertEqual([], with_numero,
+                         f"el consejo lleva un número de etapa, y los números se recalculan "
+                         f"en cada corrida: {with_numero}")
+
+    def test_el_comando_que_aconseja_pasa_su_propia_guarda(self):
+        """Sin argumento, `DESDE` vale 1 y la guarda no puede rechazarlo. Es el par del de
+        abajo: la misma guarda, el mismo plan, y el veredicto se invierte con el número."""
+        r = self.guarda(1, "T01b T02b")
+        self.assertIn("ACEPTADO", r.stdout,
+                      f"la guarda rechaza el comando que el método aconseja:\n{r.stdout}{r.stderr}")
+
+    def test_con_el_numero_viejo_la_guarda_frena(self):
+        """El control: si la guarda aceptara todo, el test de arriba no mediría nada."""
+        r = self.guarda(2, "T01b T02b")
+        self.assertNotIn("ACEPTADO", r.stdout,
+                         f"la guarda dejó saltear tareas pendientes:\n{r.stdout}{r.stderr}")
+        self.assertIn("se saltean tareas que siguen pendientes", r.stderr,
+                      f"y tiene que decir cuáles:\n{r.stderr}")

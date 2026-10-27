@@ -681,8 +681,15 @@ tres que pasaron lo hicieron por dos caminos distintos:
 
 | tarea | qué hizo |
 |---|---|
-| T01b | **corrigió el patch** a `patch('src.servicios.s1.leer1')` |
-| T02b, T04b | resolvieron la tarea **sin mockear nada**: el test usa `leer1()` de verdad |
+| T01b | corrigió el patch a `patch('src.servicios.s1.leer1')` |
+| T02b, T04b | lo mismo, con decorador: `@patch("src.servicios.sN.leerN")` |
+
+Los tres **corrigieron el objetivo del patch**; ninguno lo evitó. La primera versión de esta
+medición decía que T02b y T04b habían resuelto la tarea sin mockear, y era un error de mi
+grep: buscaba `patch('…')` con comillas simples y estos dos usan decorador con comillas
+dobles. El error de extractor del catálogo —buscar una forma que el productor no emite—, esta
+vez en la medición y no en el método. `_mocks.py` va por AST y las cubre; lo que faltaba era
+el test que lo fija.
 
 La causa de los cuatro no era el modelo. El reintento le pasaba al agente **sólo el titular**:
 
@@ -712,3 +719,24 @@ Y el fixture tuvo su propia lección: la primera versión del `opencode` falso r
 a `agent list` que a `run`, así que escribía el test antes de empezar y el script lo salteaba
 con «ya declara TestS1 — no se toca». Un agente falso que no distingue el subcomando mide el
 andamio. Lo encontró `bash -x`, no leer el fixture.
+
+### Por qué el arreglo va en el prompt y no en más documentación
+
+Medido sobre los transcripts de esa misma corrida: de los siete agentes de la fase de tests,
+**ninguno abrió `AGENTS.md` con la herramienta de lectura**, y los siete leyeron su archivo de
+tarea. La primera lectura —«no lo vio»— es falsa, y conviene decirlo porque es la que invita
+al arreglo equivocado: la config declara `"instructions": ["AGENTS.md", "CLAUDE.md",
+".opencode/rules/*.md"]`, así que OpenCode lo **inyecta** en el contexto del sistema. No lo
+abrieron porque ya lo tenían.
+
+O sea que la regla del patch llegó a los siete y **cuatro no la aplicaron**. Con los tamaños
+que ya estaban medidos en OPENCODE.md —1.250 + 1.745 tokens de `AGENTS.md` contra 1.166 del
+prompt del ejecutor, sobre 32.000 de ventana— no es un problema de espacio: es que la regla
+número 13 de una lista de 15, en un documento inyectado, no compite con la instrucción
+puntual del turno.
+
+De ahí la forma del arreglo. Agregar la regla al documento ya estaba hecho y no alcanzó;
+lo que faltaba era que el reemplazo concreto viajara en el prompt del reintento, que es el
+único canal del que hay evidencia de que el modelo chico atiende. Para el método en general:
+documentar una regla en `AGENTS.md` no es un canal confiable para un modelo chico, y una
+corrección que el método ya calculó no se delega a que el agente la deduzca de una lista.

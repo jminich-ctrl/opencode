@@ -251,7 +251,18 @@ parar() {
     echo "   NO uses \`correr-todo.sh $1\`: re-corre la etapa entera y tira los worktrees"
     echo "   que ya están en verde. Los de esta etapa están en: git worktree list"
   else
-    echo "     bash $AQUI/correr-todo.sh $1"
+    # SIN número de etapa, y es el arreglo de una contradicción del propio script: tres
+    # líneas más arriba, cuando hay un comando preciso, dice «NO uses `correr-todo.sh N`:
+    # re-corre la etapa entera y tira los worktrees que ya están en verde» — y acá lo
+    # recomendaba. Peor: los números se recalculan en cada corrida, así que si la etapa
+    # anterior cerró, el número que este mensaje imprime es el que `rechazar_salteo` va a
+    # rechazar. Medido el 2026-10-27: la corrida paró «en la etapa 2», seguí este mensaje al
+    # pie de la letra y la corrida siguiente se negó a arrancar —«al empezar en la etapa 2 se
+    # saltean tareas que siguen pendientes»—, con el relanzamiento ya lanzado.
+    #
+    # Sin argumento arranca en la primera etapa con trabajo pendiente, que es exactamente lo
+    # que uno quiere al retomar. La guarda y el consejo dicen ahora la misma cosa.
+    echo "     bash $AQUI/correr-todo.sh    # arranca en la primera etapa con trabajo pendiente"
   fi
   exit 1
 }
