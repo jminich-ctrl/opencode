@@ -1217,3 +1217,120 @@ script por sus marcas y lo ejercitan con una cola de juguete. Ejercitar el códi
 copia es deliberado —una copia del criterio divergiría, que es el defecto que este repo
 cuenta diez veces en un día— y permitió cubrir los dos defectos históricos del vigilante por
 sus casos exactos: tres entradas de texto idéntico, y una cola reemplazada con ids nuevos.
+
+### §16 — El canal: dónde está escrita la regla decide si se cumple (2026-10-28)
+
+El sesgo es el mismo de §5 a §15: en la etapa de los `calcularN()` el test del agente parchea
+`src.datos.dN.leerN` —donde el nombre se define— y el módulo bajo prueba lo trae con
+`from src.datos.dN import leerN` a nivel de módulo, así que el patch no pega. Tres canales ya
+habían fallado en corregirlo (`AGENTS.md` inyectado, el prompt del reintento, el contrato que
+lo declara). Faltaban dos, y son los que separan «decirlo» de «mostrarlo donde el agente
+mira».
+
+**Brazo H — una referencia de test que mockea bien, sembrada en `tests/test_s0.py`.** Resultado
+**nulo por invalidez**: en siete repeticiones el agente **no abrió el archivo ni una vez**. Su
+nombre aparece en un listado de directorio (`./tests/test_s0.py`, línea 19 de un transcript) y
+nada más: cero `Read`, cero menciones en el razonamiento. Las tres repeticiones de la segunda
+tanda cerraron 21/21 en 3, 2 y 2 pasadas, con 14, 12 y 11 rechazos por objetivo del patch — la
+banda de siempre. **Un archivo en el repo no es un canal.**
+
+**Brazo I — el mismo ejemplo, dentro del archivo de tarea.**
+
+| | cerradas | pasadas | rechazos por objetivo del patch |
+|---|---|---|---|
+| sin ejemplo (base, tope 4) | 4/5 | 2, 4, 4, 4 | 8, 9, 10, 16 |
+| H · referencia en `tests/` (nunca leída) | 3/3 | 3, 2, 2 | 14, 12, 11 |
+| **I · ejemplo en el archivo de tarea** | **3/3** | **1, 2, 4** | **6, 4, 6** |
+
+La banda de I queda entera por debajo de la de H y del mínimo de la base. Y hay literatura que
+lo explica, no sólo acompaña: el factorial de adherencia (arXiv 2605.10039, 1.650 sesiones,
+16.050 funciones) mide el cumplimiento de una instrucción trivial verificable por AST en
+**54,9%-57,7%**, y su efecto más grande es **intra-sesión**: cada función que el agente genera
+baja las chances de cumplir 5,6% (OR 0,944, IC95% [0,937, 0,951]). Ninguna de las cuatro
+variables de estructura del archivo de configuración tuvo efecto. Si la obediencia decae con la
+posición, una regla que viaja en el archivo de tarea —leído inmediatamente antes de escribir—
+tiene que ganarle a la misma regla en un archivo del repo. El brazo I no es un truco: es la
+predicción de ese modelo. Y de paso le da a la descomposición un argumento nuevo: si cada
+función cuesta 5,6% de obediencia, una tarea de tres funciones es estructuralmente más obediente
+que una de doce.
+
+#### El control está adentro de la misma corrida, y es el dato más fuerte del día
+
+El ejemplo lo siembra el generador **sólo en las siete tareas `b`** (las de `calcularN`, que
+mockean a la capa de datos). Las siete `c` —`responderN`, que traen `calcularN` con
+`from src.servicios.sN import calcularN` a nivel de módulo— tienen **el mismo problema
+estructural y ningún ejemplo**. Así que cada corrida trae su propio control, sin comparar entre
+corridas ni entre días:
+
+| clase de tarea | ¿tiene el ejemplo? | H · rechazos por objetivo del patch / intentos | I · rechazos / intentos |
+|---|---|---|---|
+| `a` (leer, no mockea) | no hace falta | 0 / 53 | 0 / 42 |
+| **`b` (calcular, mockea)** | **sí en I** | 21 / 70 = **0,30** | 2 / 46 = **0,043** |
+| `c` (responder, mockea) | **no**, en ninguno | 16 / 64 = 0,25 | 14 / 74 = 0,19 |
+
+**El efecto cae exactamente donde está el ejemplo y no donde no está**: siete veces menos
+rechazos en la clase tratada, y la clase sin tratar queda igual dentro del ruido. Es la misma
+corrida, el mismo modelo, el mismo contrato y el mismo gate, así que no hay varianza entre
+corridas que explique la diferencia —que es justo lo que arruinó la lectura del §14, donde el
+mismo contrato dio 21 y 7—.
+
+Y **corrige una afirmación mía de §15**: escribí que «el cuello es siempre la etapa de los
+`calcularN()`». No es la etapa: es **la capa cuyo test tiene que mockear y no tiene ejemplo**.
+Con el ejemplo puesto, `calcularN` deja de ser el cuello y el cuello pasa a `responderN`, que
+es la que quedó sin ejemplo. La afirmación vieja confundía el lugar del problema con el lugar
+donde lo habíamos visto primero.
+
+#### El cuello se movió, y eso es el hallazgo que deja trabajo
+
+Clases de rechazo contadas sobre los seis logs completos:
+
+| Clase | H (3 corridas) | I (3 corridas) |
+|---|---|---|
+| el test parchea donde el patch no pega | **37** | **16** |
+| tocó archivos que no le corresponden a esta etapa | 1 | **12** |
+| el test no pasa ni con la implementación del propio agente | 5 | 3 |
+| no escribió el archivo de test que el plan pedía | 4 | 3 |
+| sobreviven mutantes | 1 | 0 |
+
+Los 12 de alcance son todos la misma forma: en la etapa de tests de `T03c` —que debe escribir
+`tests/test_r3.py`— el agente **además edita `src/servicios/s3.py`**, la implementación del
+colaborador, para que su test pase. Los **dos únicos puntos muertos** de los tres brazos I
+salieron de ahí. Bajar el primer bloqueo dejó visible el segundo, que ya estaba y quedaba
+tapado.
+
+Quedan encolados dos brazos, y las dos predicciones se escriben **antes** de correrlos:
+
+- **Brazo K** — la misma vía, el archivo de tarea, con la regla que falta: «en esta etapa
+  escribís SÓLO el test; si necesitás que `leerN()` devuelva otra cosa, es con el patch, no
+  editando su implementación». Columna nueva, `rechazos_alcance`. **Predicción:** los 12
+  rechazos por alcance bajan a la banda de 0-3, y los dos puntos muertos desaparecen.
+- **Brazo L** — el mismo ejemplo del patch, puesto **también en las siete tareas `c`**, que son
+  las que quedaron sin él. **Predicción:** los rechazos de la clase `c` caen de 0,19 por intento
+  a la banda de la `b` tratada (0,04), y entonces el canal queda confirmado dos veces, en dos
+  capas distintas, con el control adentro de cada corrida. Si **no** cae, lo que funcionó en `b`
+  no era el ejemplo sino algo propio de esa capa, y hay que buscar qué.
+
+Los dos contadores por clase de tarea se validaron antes de usarlos, contra un resultado que ya
+se conocía: sobre los tres logs del brazo I dan `b=1,c=5`, `b=1,c=3` y `b=0,c=6`, y cada par suma
+exactamente el total de rechazos por patch de su corrida (6, 4 y 6). Un instrumento nuevo que no
+se verifica contra un caso conocido es la mitad de los errores de medición de este repo.
+
+#### Dos experimentos que se cayeron antes de gastar una corrida
+
+Los dos los bajó una medición sobre los datos que ya estaban en disco, y eso es lo que hay que
+repetir: **antes de encolar tres corridas, verificar que el fenómeno que se quiere mover existe
+en este sustrato.**
+
+1. **Mutación como feedback.** MutGen (arXiv 2506.02954, Llama-3.3 70B local, la configuración
+   publicada más parecida a la nuestra) sube el mutation score de 77,9% a 89,5% devolviéndole al
+   modelo el mutante que sobrevivió. Nuestro gate corre mutación como puerta y nunca devuelve el
+   mutante, así que parecía once puntos tirados. Conté los veredictos: **14 de 14 mutantes
+   mueren por corrida, y en seis corridas hay un solo rechazo por «sobreviven mutantes»**. No
+   hay superficie donde actuar en este sustrato. Para medirlo haría falta un proyecto donde los
+   tests dejen mutantes vivos.
+2. **El borrador descartado (§8.7 de INVESTIGACION.md).** Esperaba reconstruirlo de los
+   transcripts: el log del éxito registra `Write src/servicios/s1.py` **sin el contenido**. Y el
+   camino del éxito no guarda parche: **42 transcripts de éxito contra 19 parches, y los 19
+   están en tareas que habían fallado.** O sea que el método conserva la evidencia de lo que
+   falla y tira la de lo que pasa, que es justo al revés de lo que este experimento necesita.
+   Necesita un cambio chico en `escribir-tests.sh` y una corrida.

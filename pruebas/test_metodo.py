@@ -14891,6 +14891,45 @@ class TestElRojoQueElAcusadoNoPodiaLeer(unittest.TestCase):
         self.assertIn("aceptado y copiado al tronco", r.stdout,
                       f"corregido, el test tiene que aceptarse:\n{r.stdout}")
 
+    def test_el_borrador_contra_el_que_se_valido_queda_guardado(self):
+        """Dos de los cinco pasos del validador —«pasa con la implementación» y «los mutantes
+        mueren»— juzgan el test contra una implementación que el método DESCARTA: la escribió
+        el mismo agente en el mismo turno, así que es coherente con el test por construcción.
+        La de verdad la escribe otro agente en la etapa siguiente, desde el contrato.
+
+        Medido el 2026-10-27, con modelos reales: los siete tests de una etapa pasaron los
+        cinco pasos y TRES fallaron después contra la implementación final, con el mismo test.
+        Un test no puede pasar y fallar contra la misma implementación, así que en 3 de 7 el
+        borrador y la implementación final diferían justo en lo que decide el veredicto.
+
+        Para medir esa tasa hay que tener el borrador, y el 2026-10-28 comprobé que no estaba
+        en ninguna parte: el transcript del éxito registra `Write src/servicios/s1.py` sin el
+        contenido, y `conservar_intento` guardó parche en 19 de 42 casos, todos en tareas que
+        habían fallado. El método conservaba la evidencia de lo que falla y tiraba la de lo
+        que pasa.
+
+        La aserción no es «se guardó un archivo»: es que adentro esté **la forma del import**,
+        que es el detalle que decide si el `patch()` del test pega. Un artefacto de medición
+        que pierde justo el dato que se quiere medir es decoración."""
+        d = self.proyecto()
+        bin_ = self.agente_que_insiste(d)
+        prompts = d.parent / "prompts.txt"
+        r = self.correr_puerta(d, bin_, prompts, CORREGIR_PATCH=1)
+        self.assertIn("aceptado y copiado al tronco", r.stdout,
+                      f"sin aceptación no hay borrador que guardar: este test no mide nada\n"
+                      f"{r.stdout}{r.stderr}")
+        guardados = sorted((d / ".metricas" / "borrador-aceptado" / "T01b").rglob("*.py"))
+        self.assertTrue(guardados,
+                        f"el borrador se tiró con el worktree:\n{r.stdout[-600:]}")
+        cuerpos = [g.read_text() for g in guardados]
+        self.assertTrue(any("def calcular1" in c for c in cuerpos),
+                        f"se guardó algo que no es la implementación: {guardados}")
+        self.assertTrue(any("from src.datos.d1 import leer1" in c for c in cuerpos),
+                        "el borrador guardado perdió la forma del import, que es el dato que "
+                        f"decide el veredicto: {cuerpos}")
+        self.assertFalse(any("class TestS1" in c for c in cuerpos),
+                         "guardó el test, no la implementación: el test ya está en el tronco")
+
     def test_la_bandera_se_ofrece_solo_donde_esta_medido_que_paga(self):
         """La corrección automática mejora un caso y empeora el otro, medido: con un contrato
         que declara la consecuencia del import baja de 21 a 7 tareas cerradas; con uno que no

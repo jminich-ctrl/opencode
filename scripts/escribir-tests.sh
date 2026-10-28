@@ -848,6 +848,26 @@ for id in "$@"; do
     # Al tronco llega SÓLO el test. La referencia se queda en el worktree, que se tira.
     mkdir -p "$(dirname "$BASE/$ruta")"
     cp "$ruta" "$BASE/$ruta"
+    # El borrador contra el que se validó ESTE test, antes de tirar el worktree. Dos de los
+    # cinco pasos —«pasa con la implementación» y «los mutantes mueren»— lo usan de sujeto, y
+    # el sujeto se descarta: la implementación de verdad la escribe otro agente en la etapa
+    # siguiente, desde el contrato. Sin guardarlo no hay forma de medir cuántas veces difiere
+    # de la implementación final JUSTO en lo que decide el veredicto (INVESTIGACION.md §8.7).
+    #
+    # Y no se podía reconstruir de otro lado: medido el 2026-10-28, el transcript del éxito
+    # registra `Write src/servicios/s1.py` sin el contenido, y `conservar_intento` guarda
+    # parche en 19 de 42 casos, todos en tareas que habían fallado. El método conservaba la
+    # evidencia de lo que falla y tiraba la de lo que pasa.
+    #
+    # Va a `.metricas/`, que está en el .gitignore: es dato de medición, no del proyecto.
+    BORRADOR="$BASE/.metricas/borrador-aceptado/$id"
+    rm -rf "$BORRADOR"; mkdir -p "$BORRADOR"
+    for f in $impl; do
+      [ -f "$f" ] || continue
+      mkdir -p "$BORRADOR/$(dirname "$f")"
+      cp "$f" "$BORRADOR/$f"
+    done
+    echo "  · borrador conservado en .metricas/borrador-aceptado/$id: $(echo "$impl" | grep -c .) archivo/s"
     echo "  ✓ $id: $ruta aceptado y copiado al tronco (la implementación se descarta)"
     cd "$RAIZ" || true
     # El worktree de validación ya no hace falta: el test está en el tronco y la

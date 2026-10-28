@@ -33,6 +33,8 @@ Es la lección más transferible de todo el documento, y se pagó tres veces:
 | qué funciona con modelos chicos | §4 |
 | si vale la pena escribir más reglas en `AGENTS.md` | §5 |
 | qué podríamos medir nosotros, porque nadie lo hizo | §6 y segunda vuelta §8 |
+| dónde hay que escribir una regla para que se cumpla | cuarta vuelta §1 |
+| contra qué implementación se valida un test de un agente | segunda vuelta §8.7 y cuarta vuelta §2 |
 | de dónde salen los tres instrumentos de coherencia | tercera vuelta |
 
 ---
@@ -724,3 +726,208 @@ Dos agentes implementaron bien, los dos quedaron en rojo, y el gate dijo exactam
 pasaba —el paso 4 confirmó que la implementación era real— **pero sólo si uno lee más allá
 de `GATE ROJO`**. De ahí salió la regla de validar el test contra una implementación de
 referencia antes de lanzar ([METODO.md](METODO.md) P2).
+
+---
+
+# Cuarta vuelta (2026-10-28): el canal, el oráculo y la mutación como feedback
+
+Esta vuelta la disparó una medición propia, no una lectura: el brazo H —una referencia que
+mockea bien, puesta en `tests/test_s0.py`— dio **nulo por invalidez**: en siete repeticiones el
+agente no abrió el archivo ni una vez. Su nombre aparece en un listado de directorio y nada
+más. La pregunta que abrió es «¿dónde tiene que estar escrita una regla para que se cumpla?», y
+resulta que hay trabajo publicado que la mide de frente.
+
+## 0. Sobre las fuentes de esta vuelta
+
+Primario, leído del texto: SWT-Bench (arXiv 2406.12952v3, Tablas 2 a 5), TDD-Bench Verified
+(arXiv 2412.02883v1, Tablas III a VII), MutGen (arXiv 2506.02954v8, Tabla I y §II-III), y el
+estudio factorial de adherencia (arXiv 2605.10039, PDF extraído con `pdftotext`).
+
+Secundario y **sin verificar**, marcado como tal donde aparece: el AGENTbench de ETH (+4% con
+archivos escritos por humanos, −2% con archivos generados por LLM, +20% de costo), el censo de
+22.854 repos (26,3% tienen archivo de instrucciones; 59,6% entre los más estrellados), y los
+papers de trazabilidad (TVR, TraceLLM, RefSQ'25, ReqToCode).
+
+**Y un cuarto caso para la lista del encabezado del documento.** El número que circula de
+MutGen en resúmenes de terceros es «53% vanilla → 89,5% con feedback». El 53% **no es un
+agregado**: es un sujeto, `id_81` de HumanEval-Java, citado como ejemplo en §II-F. El agregado
+de la Tabla I es **77,9%** para el prompt vanilla. Y el famoso «100% de cobertura con 4% de
+mutation score» es el mismo sujeto `id_81`, no una población. El salto real es 77,9 → 89,5, no
+53 → 89,5: la mitad del efecto que anuncia el resumen. Cuarta vez que un resumen de un paper
+que nadie abrió trae un número inflado, y la primera en que el inflado viene de confundir un
+caso con una media.
+
+## 1. El canal: dónde está escrita la regla decide si se cumple
+
+**Lo nuestro.** Tres canales medidos contra el mismo sesgo (un `patch()` apuntado al módulo
+donde el nombre se define y no donde se usa):
+
+| Canal | Resultado |
+|---|---|
+| `AGENTS.md` inyectado | llegó a 7/7 una vez; **4 repeticiones lo ignoraron** |
+| prompt del reintento | recuperación 0/4 → 3/4; la primera pasada no cambia |
+| contrato que lo declara | 8 rechazos contra 8 |
+| archivo de referencia en `tests/` (brazo H) | **0 lecturas en 7 repeticiones**; rechazos 11-14, la banda de siempre |
+| ejemplo dentro del archivo de tarea (brazo I) | 21/21 las dos veces, en **1 y 2 pasadas, con 6 y 4 rechazos** (n=2, la tercera en curso) |
+
+**Lo publicado, y es mejor de lo que esperaba.** El estudio factorial (2605.10039) mide
+exactamente esto: 1.650 sesiones de Claude Code CLI, 16.050 observaciones a nivel de función,
+dos codebases TypeScript, cinco tareas, Sonnet 4.6 como modelo principal. La instrucción medida
+es deliberadamente trivial y verificable por AST: poner `// @tracked` al principio de cada
+función nueva o modificada.
+
+1. **La tasa de cumplimiento (ICR) es de 54,9% a 57,7%** según la celda. Más de cuatro de cada
+   diez funciones salen sin la anotación que el archivo de configuración pide, con la
+   instrucción más fácil de cumplir y de verificar que se puede escribir.
+2. **El efecto más grande que midieron es intra-sesión**: cada función adicional que el agente
+   genera baja las chances de cumplir un 5,6% (OR = 0,944, IC 95% de Wald [0,937, 0,951],
+   p ≈ 1e-48). No es monotónico, pero el signo es firme y lo replican por codebase
+   (OR 0,960 [0,928, …] y 0,934 [0,894, 0,976]).
+3. **Ninguna de las cuatro variables de estructura del archivo tuvo efecto detectable** tras
+   corregir por comparaciones múltiples; dos de ellas (tamaño y conflicto) con factores de
+   Bayes BF10 entre 0,05 y 0,10, o sea evidencia *a favor* del nulo.
+4. **La tarea importa más que el archivo**: 26,2 puntos porcentuales entre dos tareas del mismo
+   codebase (T4 45,1% contra T5 71,3%).
+
+**Qué nos cambia.** Tres cosas, y una es una corrección a nosotros mismos:
+
+- Que `AGENTS.md` fuera ignorado en 4 de 7 repeticiones **no es un defecto de nuestra
+  redacción**: es el valor esperado publicado. Dejar de pelear con la redacción del archivo y
+  mover la regla al punto de uso es la lectura correcta de los dos resultados juntos.
+- **El mecanismo publicado explica nuestro brazo I.** Si el cumplimiento decae con la posición
+  dentro de la sesión, una regla que viaja en el archivo de tarea —que el agente lee
+  inmediatamente antes de escribir— tiene que ganarle a la misma regla en un archivo del repo
+  leído al arrancar, o nunca. Nuestro I no es un truco: es la predicción.
+- **Y le da respaldo a la descomposición**, que hasta ahora defendíamos por otros motivos: si
+  cada función generada cuesta 5,6% de obediencia, una tarea que produce tres funciones es
+  estructuralmente más obediente que una que produce doce. Eso es medible en nuestro arnés y
+  nadie lo cruzó con el tamaño de tarea.
+
+**Experimento barato que falta, y lo pondría ya:** medir *nuestro* ICR con la misma instrucción
+trivial verificable por AST (un marcador en cada función que el ejecutor escriba), en tres
+celdas: en `AGENTS.md`, en el archivo de tarea, y en los dos. Con eso tenemos un número
+comparable con una publicación, sobre nuestros modelos chicos, que es justo donde nadie midió.
+
+## 2. Contra qué implementación se valida un test de un agente
+
+Es el §8.7 de la segunda vuelta, y ahora tiene anclas publicadas. Los dos benchmarks que más se
+le parecen **validan contra el parche humano real**, no contra una implementación del mismo
+modelo. Nuestra pregunta sigue sin publicar — eso quedó confirmado contra los dos textos
+primarios, no contra resúmenes.
+
+**SWT-Bench** (Lite, 276 instancias, GPT-4 salvo donde dice otra cosa; Tabla 2, en %):
+
+| | fail→pass | pasan antes y después (P→P) | cobertura del parche dorado (Δ𝒞) |
+|---|---|---|---|
+| parche dorado | 100 | 11,2 | 72,0 |
+| SWE-Agent+ | **19,2** | 10,1 | 27,6 |
+| aider | 17,0 | 8,7 | 27,8 |
+| ZeroShot | 5,8 | 3,6 | 7,6 |
+| Pass@5 (oráculo, no practicable) | 22,1 | 7,2 | — |
+
+Dos lecturas nuestras. **Una**: el mejor agente reproduce el bug en 19,2% de los casos y cubre
+27,6% del parche, contra 72% del test humano. **Otra, la que nos importa**: entre 3,6% y 10,1%
+de los tests generados *pasan antes y después del arreglo* — el paper los llama «correct but
+unhelpful». Ese es exactamente el defecto que nuestro paso de «aserciones que no pueden fallar»
+y el brazo nulo persiguen, con una tasa publicada para comparar.
+
+**TDD-Bench Verified** (449 instancias de SWE-bench Verified; Tabla III):
+
+| Modelo · técnica | fail→pass | tests que **siguen fallando** sobre el código ya arreglado |
+|---|---|---|
+| GPT-4o · Auto-TDD | **23,6%** (106) | 286 |
+| GPT-4o · zero-shot | 18,7% (84) | 189 |
+| Mistral-Large · Auto-TDD | 18,9% (85) | 318 |
+| Llama-3.1 70B · zero-shot | 11,4% (51) | 192 |
+| **Llama-3.1 70B · Auto-TDD** | **8,2%** (37) | 294 |
+
+Tres hallazgos que nos pegan de lleno:
+
+1. **El modo de falla dominante es el test que falla contra la implementación correcta**: 189 a
+   318 casos de 449. Eso es «test insatisfacible» en la literatura sin que nadie lo llame así.
+   Nuestro gate lo caza localmente con los cinco pasos; el número publicado dice que es la
+   norma, no la excepción.
+2. **La adecuación separa los dos mundos**: los tests dorados puntúan 0,94; los generados que
+   llegan a fail→pass, 0,91-0,97; los que **no** llegan, 0,49-0,59. Un test que no reproduce
+   tampoco cubre: las dos fallas vienen juntas.
+3. **Y el que más importa para este método: el andamiaje que ayuda a un modelo grande puede
+   empeorar a uno chico.** Auto-TDD sube a GPT-4o de 18,7 a 23,6 y **baja** a Llama-3.1 70B de
+   11,4 a **8,2**. El paper lo reconoce. Es el primer respaldo publicado para lo que medimos de
+   otra forma —que tres canales no corrigieron el sesgo del modelo— y es una advertencia
+   directa: cada andamio que agregamos hay que medirlo *con nuestros modelos*, porque el signo
+   del efecto depende del tamaño del modelo.
+
+**El experimento, sin cambios respecto de §8.7 pero ahora con contexto:** conservar el borrador
+descartado junto al test aceptado y medir en cuántas tareas difiere de la implementación final
+*de un modo que invierte el veredicto*. Dato que ya tenemos: 2026-10-27, los siete tests de una
+etapa pasaron los cinco pasos y tres fallaron después con la implementación real. 3 de 7.
+
+## 3. Mutación: la usamos como aceptación y nunca como feedback
+
+**MutGen** (arXiv 2506.02954v8) es, de todo lo que leímos en cuatro vueltas, **la configuración
+más parecida a la nuestra**: un solo modelo abierto de 70B (Llama-3.3) servido local con Ollama
+a temperatura 0, sobre 104 sujetos de HumanEval-Java y 100 de LeetCode-Java.
+
+| | HumanEval-Java | LeetCode-Java |
+|---|---|---|
+| EvoSuite | 69,5% | 58,9% |
+| prompt vanilla (Genvanilla) | 77,9% | 69,9% |
+| **MutGen** (mutante sobreviviente como feedback) | **89,5%** | **89,1%** |
+
+No comparan contra tests escritos por humanos: ese hueco sigue abierto y es el nuestro.
+
+**Qué nos cambia.** Nuestro gate corre mutación como **puerta**: si los mutantes no mueren, el
+test se rechaza, y el agente recibe «no distingue». Lo que nunca hicimos es **devolverle el
+mutante sobreviviente**, que es precisamente la diferencia entre 77,9 y 89,5 en la única
+configuración publicada con un modelo del tamaño del nuestro. Es un arma que tenemos cargada y
+sin usar: el mutante ya está generado por `mutar.py`, el costo de pasarlo al prompt es una
+línea, y el efecto publicado es de once puntos.
+
+## 4. La verdad de los enlaces requisito→tarea
+
+Nuestro hueco, medido: `cobertura.py` verifica que cada requisito tenga **alguna tarea que lo
+nombre**, y los enlaces los declara el planificador, que es el evaluado. En clasificados los 12
+de 12 requisitos están «nombrados en algún archivo de tarea» y **ningún enlace es nominal**. Hoy
+el `OBJETIVO.md` que le escribí al Pacman lleva la advertencia en el propio archivo: un encargo
+escrito un mes después del plan tiene garantizado que el plan lo cubre.
+
+La recuperación de enlaces de trazabilidad es un campo maduro y hay trabajo con LLM de 2025-2026
+(TVR, TraceLLM, el RAG de RefSQ'25, ReqToCode). **Todo secundario acá: no abrí los PDF**, así
+que no cito ninguna cifra. Lo que sí se puede afirmar es la forma: existe la tarea «recuperar
+los enlaces con un modelo independiente» y nosotros la estamos reemplazando por «preguntarle al
+que planificó».
+
+**Experimento, y no cuesta tiempo de agente de tarea:** recuperar los enlaces requisito→tarea
+con un segundo modelo, desde el encargo y los archivos de tarea, y contar los desacuerdos con
+los declarados. Cada desacuerdo es un candidato a requisito no cubierto que hoy pasa en verde.
+
+## 5. Lo que esta vuelta confirma que nadie publicó
+
+1. **La tasa a la que un test aceptado contra un borrador del mismo modelo se invierte contra la
+   implementación real.** Los dos benchmarks del área usan el parche humano como oráculo.
+2. **Si una regla en el archivo de tarea le gana a la misma regla en un archivo del repo.** El
+   factorial mide estructura *dentro* del archivo de configuración y el decaimiento por
+   posición; nadie contrastó los dos lugares. Nuestros brazos H e I son esa medición.
+3. **Mutación como feedback dentro de un pipeline de dos agentes** (uno escribe el test, otro la
+   implementación, y el test no se puede tocar). MutGen tiene un solo agente que escribe y
+   corrige sus propios tests.
+4. **N=2 contra N=3** para «falló dos veces por lo mismo». Sigue sin medirse, por nadie.
+5. **El ICR de un modelo chico** con una instrucción trivial verificable por AST. El publicado
+   es de Sonnet 4.6.
+
+## 6. La cola de experimentos, replanificada
+
+Orden por «cuánto cambia una decisión del método dividido lo que cuesta»:
+
+| # | Experimento | Costo | Qué decide |
+|---|---|---|---|
+| 1 | **I-2 e I-3** (en curso) | ya lanzado | si el canal del archivo de tarea es real o fue varianza (con n=2: rechazos 6 y 4 contra 11-16) |
+| 2 | **Mutante sobreviviente al prompt** | una línea + 2 corridas | once puntos publicados con un modelo de nuestro tamaño |
+| 3 | **Borrador descartado conservado** | un `cp` + 1 corrida de 21 tareas | si dos de los cinco pasos del validador miden contra un sujeto que se tira |
+| 4 | **ICR propio** (marcador trivial: `AGENTS.md` / tarea / ambos) | 3 corridas | número comparable con 2605.10039 sobre modelos chicos |
+| 5 | **Enlaces recuperados por un segundo modelo** | sin corrida de tarea | si el ✓ de cobertura de G0 es cierto |
+| 6 | **Adopción ajena** (`EMPEZAR.md`, agente sin memoria del repo) | 1 corrida larga | cada pregunta que los documentos no contestan es un defecto del método |
+| 7 | **Tamaño de tarea contra obediencia** | reanálisis de corridas ya hechas | si el 5,6% por función se replica en nuestros modelos |
+
+**Y saco H2-3 de la cola.** Un cuarto dato de un brazo nulo por invalidez no agrega nada: el
+canal no se leyó, y eso ya está medido siete veces.
