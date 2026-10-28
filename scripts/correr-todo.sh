@@ -148,14 +148,46 @@ RECORDAR_COB="si-falta"; [ "$SOLO_VER" = "1" ] && RECORDAR_COB=""
 # `planificar.sh` hace lo contrario con la misma sonda: captura sólo stderr y lo imprime. El
 # que lo tiraba era el único que corre sin nadie mirando.
 AVISOS_ETAPAS="$(mktemp)"
-ETAPAS_TXT="$(SOLO_ETAPAS=1 bash "$AQUI/correr-plan.sh" 2>"$AVISOS_ETAPAS" | sed -n 's/^  ETAPA [0-9]*: //p')"
+# El código de salida de `correr-plan.sh`, no el del `sed`: la salida vacía es el MISMO
+# síntoma de tres estados distintos —el plan terminado, el plan sin tabla de tareas y el plan
+# que no se puede ordenar— y el único que los separa es el código. Leído a través del pipe,
+# con las 19 tareas de `ejemplo-pacman` en ✅ esto decía «✗ No pude deducir las etapas del
+# plan» y salía 1: un plan correcto y terminado acusado de ilegible, que es el veredicto falso
+# más caro de los tres porque manda a arreglar lo que está bien.
+#
+# `correr-plan.sh` ya tenía esta lección escrita adentro, al pie del arreglo de su propio
+# `rc_etapas`. La aprendió el script que calcula las etapas y no el que lo llama: así es como
+# una lección se pierde. Octava vez en este repo que un código de salida se lee del
+# envoltorio y no del programa.
+SALIDA_ETAPAS="$(SOLO_ETAPAS=1 bash "$AQUI/correr-plan.sh" 2>"$AVISOS_ETAPAS")"; RC_ETAPAS=$?
+ETAPAS_TXT="$(printf '%s\n' "$SALIDA_ETAPAS" | sed -n 's/^  ETAPA [0-9]*: //p')"
 if grep -q ⚠ "$AVISOS_ETAPAS" 2>/dev/null; then
   echo "⚠ el corte de etapas se dedujo CON AVISOS — leelos, pueden poner dos tareas que"
   echo "   escriben el mismo archivo en la misma etapa:"
   sed 's/^/     /' "$AVISOS_ETAPAS"
 fi
+if [ "$RC_ETAPAS" -ne 0 ]; then
+  # El motivo lo dijo `correr-plan.sh`, y es de quien planifica: un ciclo, una dependencia a
+  # una tarea que no está en la tabla, un plan sin tabla. Se repite acá porque su stdout se
+  # capturó y si no se imprime el rojo no dice qué pasó.
+  printf '%s\n' "$SALIDA_ETAPAS" >&2
+  sed 's/^/  /' "$AVISOS_ETAPAS" >&2
+  rm -f "$AVISOS_ETAPAS"
+  echo "✗ el plan no es ejecutable: el motivo está arriba y lo arregla quien planifica." >&2
+  exit 1
+fi
 rm -f "$AVISOS_ETAPAS"
-[ -n "$ETAPAS_TXT" ] || { echo "✗ No pude deducir las etapas del plan" >&2; exit 1; }
+if [ -z "$ETAPAS_TXT" ]; then
+  # Terminado, no ilegible. Y con código 0, porque no hay nada roto: lo que queda son los
+  # gates que no son de comando.
+  # Su propia línea —«todas las tareas están marcadas como hechas: no hay nada que lanzar»—
+  # ya lo dice, así que no se repite: lo que falta es qué hacer con eso.
+  printf '%s\n' "$SALIDA_ETAPAS"
+  echo "  Nada roto. Lo que sigue no lo corre este runner: G3 —la prueba de uso, con las"
+  echo "  preguntas del plan— y G5, el despliegue. Para ver al agente trabajar, escribí una"
+  echo "  tarea nueva con plantillas/TAREA.md, commiteala y lanzala."
+  exit 0
+fi
 
 ETAPAS=()
 while IFS= read -r l; do [ -n "$l" ] && ETAPAS+=("$l"); done <<< "$ETAPAS_TXT"

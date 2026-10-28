@@ -518,6 +518,14 @@ for id in "$@"; do
         printf '%s\n' "$SAL_K" | sed 's/^  /     /'
         echo "     Si el enunciado no declara con qué import la implementación trae el nombre,"
         echo "     el test está apostando a una de tres formas. Eso lo decide quien planifica."
+        # Y acá —y SÓLO acá— la corrección automática paga. Medido el 2026-10-28: con un
+        # contrato que declara la consecuencia, corregir baja de 21 a 7 tareas cerradas; con
+        # uno que NO la declara, sube de 7 a 14. Este ⊘ es exactamente la señal de que el
+        # contrato no la declara, así que es el único lugar del método donde ofrecerla no es
+        # una receta a ciegas. Caso real y no hipotético: en `ejemplo-clasificados` hay siete
+        # tareas cuyo test mockea y ninguna lo declara.
+        echo "     Mientras el contrato siga así, \`CORREGIR_PATCH=1\` hace que el método"
+        echo "     corrija la ruta y deje constancia; con el contrato arreglado, NO conviene."
       elif [ "$RC_K" != "0" ]; then
         malo "_mocks.py no pudo correr (rc=$RC_K): el chequeo no se puede saltear"
         printf '%s\n' "$SAL_K" | sed 's/^/     /'

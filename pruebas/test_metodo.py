@@ -3753,11 +3753,39 @@ class TestLosCuatroHallazgosQueFaltaban(unittest.TestCase):
         `_etapas.py` existe para evitar y que ya pasó una vez (BITACORA §13). El síntoma
         aparece tres pasos después, como un conflicto de merge que acusa a la segunda."""
         s = (SCRIPTS / "correr-todo.sh").read_text()
-        linea = next(l for l in s.split("\n") if "SOLO_ETAPAS=1" in l and "ETAPAS_TXT" in l)
+        # La línea que INVOCA el corte, no la que arma la lista: el `2>` que importa es el de
+        # la invocación. Los dos nombres dejaron de vivir en el mismo renglón cuando el runner
+        # pasó a leer el código de salida de `correr-plan.sh` en vez del del pipe, y este test
+        # se rompió sin que el aviso hubiera dejado de viajar: medía la forma, no el hecho.
+        linea = next(l for l in s.split("\n")
+                     if "SOLO_ETAPAS=1" in l and "correr-plan.sh" in l)
         self.assertNotIn("2>/dev/null", linea, "sigue tirando los avisos")
         self.assertIn("AVISOS_ETAPAS", linea)
-        i = s.index("AVISOS_ETAPAS")
-        self.assertIn("echo", s[i:i + 900], "capturarlos sin imprimirlos es lo mismo que tirarlos")
+        # Por ESTRUCTURA y no por 900 caracteres: entre el `mktemp` que crea el archivo de
+        # avisos y el `rm -f` que lo borra tiene que haber algo que lo mande a la salida. La
+        # versión vieja miraba una ventana de 900 caracteres desde la primera mención, y un
+        # comentario largo —el que explica el arreglo del código de salida— empujó el `echo`
+        # afuera: la suite reprobó un script que seguía imprimiendo los avisos. Cuarto caso en
+        # este repo de un extractor cortado por longitud en vez de por estructura, y el
+        # primero en el que la víctima es un chequeo de la propia suite.
+        # El bloque que trata los AVISOS, no todo el tramo: con el tramo entero, quitar el
+        # volcado de los avisos seguía dando verde porque el volcado del camino de ERROR
+        # —otro `sed` sobre el mismo archivo— alcanzaba para satisfacer la aserción. Lo
+        # comprobé con el brazo nulo: saqué la línea que importa y el test no se movió. Una
+        # aserción que pasa por el vecino no custodia a nadie.
+        ini = s.index('if grep -q ⚠ "$AVISOS_ETAPAS"')
+        fin = s.index("\nfi", ini)
+        bloque = s[ini:fin]
+        self.assertIn("echo", bloque,
+                      "capturarlos sin imprimirlos es lo mismo que tirarlos")
+        # Y que lo que sale sea EL CONTENIDO DEL ARCHIVO, no un `echo` cualquiera. Mi primera
+        # versión de esta línea concatenaba el bloque consigo mismo y no podía fallar nunca:
+        # una aserción vacua, que es justo lo que el paso 3 del gate le rechaza a los agentes.
+        vuelca = [l for l in bloque.split("\n")
+                  if '"$AVISOS_ETAPAS"' in l and not l.strip().startswith("#")
+                  and ("sed" in l or "cat" in l)]
+        self.assertTrue(vuelca,
+                        "nada manda el contenido del archivo de avisos a la salida:\n" + bloque)
 
     def test_los_intocables_de_la_plantilla_cubren_los_layouts_de_dos_mitades(self):
         """`^(tests/|scripts/)` no cubre `backend/tests/test_x.py` ni
@@ -14863,6 +14891,30 @@ class TestElRojoQueElAcusadoNoPodiaLeer(unittest.TestCase):
         self.assertIn("aceptado y copiado al tronco", r.stdout,
                       f"corregido, el test tiene que aceptarse:\n{r.stdout}")
 
+    def test_la_bandera_se_ofrece_solo_donde_esta_medido_que_paga(self):
+        """La corrección automática mejora un caso y empeora el otro, medido: con un contrato
+        que declara la consecuencia del import baja de 21 a 7 tareas cerradas; con uno que no
+        la declara, sube de 7 a 14. Una bandera así no se prende por omisión ni se esconde: se
+        ofrece donde el método YA SABE que corresponde.
+
+        El único lugar donde lo sabe es el ⊘ de «el enunciado no declara con qué import se
+        trae el nombre», que es exactamente la condición del caso bueno para corregir. Y no es
+        hipotético: `ejemplo-clasificados` tiene siete tareas cuyo test mockea y ninguna lo
+        declara.
+
+        Antes de esto estuve por SACAR la bandera del método, y ese dato de clasificados me
+        hizo cambiar la decisión: sacarla quitaba una capacidad medida a los proyectos que ya
+        están escritos."""
+        codigo = (SCRIPTS / "escribir-tests.sh").read_text()
+        i = codigo.index("no pude determinar si los patch del test tienen efecto")
+        bloque = codigo[i:codigo.index("elif", i)]
+        self.assertIn("CORREGIR_PATCH=1", bloque,
+                      "el ⊘ es la señal de que el contrato no declara la consecuencia: es el "
+                      "único lugar donde ofrecer la corrección no es una receta a ciegas")
+        self.assertIn("NO conviene", bloque,
+                      "y tiene que decir que con el contrato arreglado no conviene, o la "
+                      "oferta se lee como recomendación general")
+
     def test_por_omision_el_patch_SI_llega_al_reintento(self):
         """El par, y es el comportamiento que el 2x2 dice que conviene: sin la bandera el
         método no toca el test, lo rechaza, y el agente lo arregla en el reintento con el
@@ -15344,3 +15396,162 @@ class TestLoQueElEnsayoSabeLoSabeLaPlantilla(unittest.TestCase):
         # de n=2 — el tercer proyecto lo refutó.
         self.assertNotIn("dos veces de dos", seccion,
                          "esa afirmación no se replicó: 21, 21 y 7 sobre tres proyectos")
+
+
+class TestElVigilanteNoDiceQueNoHayTrabajoCuandoHay(unittest.TestCase):
+    """`scripts/vigilante.sh` lanza lo que haya en una cola cuando no hay nada corriendo, para
+    que la máquina no quede ociosa esperando a una persona. Entró al repo el 2026-10-28 después
+    de una noche de uso en la que tuvo DOS defectos, los dos encontrados a mano y los dos con
+    la misma forma: informaba «cola vacía» con trabajo pendiente.
+
+      · identificaba la entrada por su TEXTO: tres líneas idénticas se consumían de una;
+      · después por su POSICIÓN: al reemplazar la cola, los números se reusan y las entradas
+        nuevas nacían marcadas como hechas.
+
+    Las dos veces el síntoma salió por el mensaje que existe para avisar que NO hay trabajo,
+    así que un aviso correcto afirmaba algo falso — y nadie lo iba a notar salvo mirando el
+    log y la cola juntos. Por eso entra con estos tests y no sólo copiado: un vigilante sin
+    prueba propia es el único pedazo del método que nadie juzga."""
+
+    def vigilar(self, entradas, hechos=()):
+        """Ejercita el selector de la cola sin lanzar nada: lo que decide es qué entrada toma,
+        y eso tiene que poder probarse sin gastar una corrida."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-vigilante-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        (d / "cola.txt").write_text("\n".join(entradas) + "\n")
+        (d / "hechos.txt").write_text("".join(f"0 |{h}| x\n" for h in hechos))
+        guion = (f'S={shlex.quote(str(d))}; COLA="$S/cola.txt"; HECHO="$S/hechos.txt"; '
+                 + self.selector() + '; echo "ELEGIDO:${id_pend:-}"')
+        return correr("bash -c " + shlex.quote(guion), RAIZ).stdout.strip().split(
+            "ELEGIDO:")[-1].strip()
+
+    def selector(self):
+        """El bloque de decisión, extraído del script por sus marcas. Se ejercita EL CÓDIGO
+        del vigilante y no una copia: una copia divergiría, que es el defecto que este repo
+        cuenta diez veces."""
+        codigo = (SCRIPTS / "vigilante.sh").read_text()
+        i = codigo.index("  id_pend=\"\"; pendiente=\"\"")
+        j = codigo.index('done < "$COLA"', i) + len('done < "$COLA"')
+        return codigo[i:j]
+
+    def test_dos_entradas_con_el_mismo_texto_son_dos_entradas(self):
+        """El primer defecto: encolé tres repeticiones idénticas de una medición, corrió una,
+        y el vigilante informó «cola vacía» con dos pendientes."""
+        self.assertEqual("a1", self.vigilar(["a1|echo IGUAL", "a2|echo IGUAL"]))
+        self.assertEqual("a2", self.vigilar(["a1|echo IGUAL", "a2|echo IGUAL"], hechos=["a1"]))
+
+    def test_una_cola_reemplazada_no_nace_hecha(self):
+        """El segundo: con ids nuevos, lo ya hecho no puede contaminar. Cuando identificaba por
+        número de línea, reemplazar la cola hacía nacer «hechas» a las entradas nuevas."""
+        self.assertEqual("b1", self.vigilar(["b1|echo NUEVO", "b2|echo NUEVO"],
+                                            hechos=["a1", "a2", "a3"]))
+
+    def test_cuando_de_verdad_no_queda_nada_lo_dice(self):
+        """El par de los dos anteriores: si aflojara el criterio para no volver a esconder
+        trabajo, perdería la capacidad de informar que la cola se vació, que es la única forma
+        legítima de que no haya nada corriendo."""
+        self.assertEqual("", self.vigilar(["a1|echo X"], hechos=["a1"]))
+
+    def test_una_entrada_sin_id_se_informa_y_no_se_adivina(self):
+        """Adivinarle un id a una entrada mal escrita es volver al primer defecto."""
+        self.assertEqual("b1", self.vigilar(["sin-barra echo X", "b1|echo Y"]))
+
+    def test_sin_DONDE_no_arranca(self):
+        """Una ruta de sesión clavada en un script del método sólo sirve en esa sesión. El
+        vigilante nació en un scratchpad con la ruta adentro; al entrar al repo, el directorio
+        lo pasa quien llama y la falta se informa.
+
+        CON TOPE DE TIEMPO, y no es precaución de más: el vigilante es un bucle `while :`, así
+        que si algún día deja de exigir `DONDE` este test arranca un proceso que no termina
+        nunca y cuelga la suite entera. Lo destapó el brazo nulo de este mismo test —al
+        reintroducir la ruta clavada, la corrida se colgó— y no leerlo. Un test que ejecuta un
+        demonio sin tope es una trampa puesta a la próxima corrida."""
+        r = subprocess.run(f'bash "{SCRIPTS}/vigilante.sh"', shell=True, capture_output=True,
+                           text=True, errors="replace", timeout=20)
+        self.assertNotEqual(r.returncode, 0, "arrancó sin saber dónde está la cola")
+        self.assertIn("DONDE", r.stdout + r.stderr)
+
+    def test_no_quedo_ninguna_ruta_de_sesion(self):
+        codigo = (SCRIPTS / "vigilante.sh").read_text()
+        self.assertNotIn("scratchpad", codigo,
+                         "quedó una ruta de la sesión donde nació")
+        self.assertNotRegex(codigo, r"claude-\d+/-Users-",
+                            "quedó una ruta de sesión de Claude Code")
+
+
+class TestUnPlanTerminadoNoEsUnPlanIlegible(unittest.TestCase):
+    """`correr-todo.sh` leía las etapas a través de un `sed` y descartaba el código de salida
+    de `correr-plan.sh`, así que los tres estados que su llamado distingue —terminado, sin
+    tabla de tareas, imposible de ordenar— llegaban iguales: salida vacía. Con todas las
+    tareas ✅ imprimía «✗ No pude deducir las etapas del plan» y salía 1.
+
+    Es un veredicto falso, y en la dirección que más cuesta: el plan está bien, está
+    terminado, y el runner dice que no lo pudo leer. `ejemplo-pacman` es el caso real —19
+    tareas, todas hechas— y por eso el ejemplo no se podía lanzar ni para mirar el preflight.
+
+    `correr-plan.sh` ya tenía esta lección escrita a los pies de su propio arreglo: «"etapas
+    vacías" y "el plan no se pudo ordenar" son estados distintos y el único que los distingue
+    es el código de salida». La aprendió el script que las calcula y no el que lo llama, que
+    es la forma en que una lección se pierde: arreglada en un archivo, intacta en el de al
+    lado. Mismo defecto, octava vez en este repo, y las ocho por leer el código de salida de
+    un envoltorio en vez del del programa."""
+
+    def setUp(self):
+        self.p = Proyecto()
+        # Sin encargo, `cobertura.py` sale 1 y la puerta frena DOS pasos antes de las etapas:
+        # el test daría rojo —o verde, en el caso cíclico— por un motivo que no es el suyo.
+        # Es el mismo error que este repo cuenta tres veces: medir un brazo contra el vecino
+        # equivocado. El encargo mínimo con su clave es lo que pone la medición en el paso
+        # que se quiere medir.
+        (self.p.dir / "OBJETIVO.md").write_text(
+            "# Qué queremos\n\nUna cosa.\n\n## Requisitos\n\n- `cosa` — que haya una cosa\n")
+        self.p.git("add -A"); self.p.git("commit -qm encargo")
+
+    def tearDown(self):
+        self.p.tirar()
+
+    def todo_hecho(self):
+        """La tarea hecha en los DOS lugares donde el runner la mira: la fila del plan (que
+        lee `_etapas.py`) y el estado del archivo de tarea (que filtra `correr-plan.sh`)."""
+        plan = self.p.dir / "PLAN.md"
+        plan.write_text(plan.read_text().replace(
+            "| T01 | Una cosa | — | src/cosa.py | pendiente |",
+            "| T01 | Una cosa | — | src/cosa.py | ✅ |"))
+        self.p.escribir_tarea("T01", "src/cosa.py", estado="✅")
+        self.p.git("add -A"); self.p.git("commit -qm 'T01 hecha'")
+
+    def correr_la_puerta(self):
+        return correr(f"SOLO_VER=1 bash {SCRIPTS}/correr-todo.sh", self.p.dir,
+                      AGENTES=str(RAIZ))
+
+    def test_con_todo_hecho_lo_dice_y_no_acusa_al_plan(self):
+        self.todo_hecho()
+        r = self.correr_la_puerta()
+        salida = r.stdout + r.stderr
+        self.assertNotIn("No pude deducir", salida,
+                         f"un plan terminado informado como ilegible:\n{salida[-800:]}")
+        self.assertEqual(r.returncode, 0,
+                         f"y además con código de error:\n{salida[-800:]}")
+        self.assertIn("nada que lanzar", salida,
+                      f"tiene que decir que no queda nada pendiente:\n{salida[-800:]}")
+
+    def test_un_plan_que_no_se_puede_ordenar_sigue_siendo_rojo(self):
+        """El par del anterior, y la razón de que esté: un arreglo que haga pasar al de arriba
+        aflojando el freno convierte un plan cíclico en «terminado», que es el veredicto falso
+        que `correr-plan.sh` ya había tenido que arreglar adentro."""
+        plan = self.p.dir / "PLAN.md"
+        plan.write_text(plan.read_text().replace(
+            "| T01 | Una cosa | — | src/cosa.py | pendiente |",
+            "| T01 | Una cosa | T02 | src/cosa.py | pendiente |\n"
+            "| T02 | Otra cosa | T01 | src/otra.py | pendiente |"))
+        self.p.git("add -A"); self.p.git("commit -qm 'plan ciclico'")
+        r = self.correr_la_puerta()
+        salida = r.stdout + r.stderr
+        self.assertNotEqual(r.returncode, 0,
+                            f"un plan cíclico no es un plan terminado:\n{salida[-800:]}")
+        self.assertNotIn("nada que lanzar", salida,
+                         f"y no se informa como terminado:\n{salida[-800:]}")
+        # Y por el motivo suyo: que no se pudo ordenar. Sin esto el test lo daba por bueno
+        # cuando la puerta frenaba por falta de encargo, dos pasos antes de mirar las etapas.
+        self.assertRegex(salida, r"orden|ciclo|dependencia",
+                         f"tiene que frenar por el orden de las tareas:\n{salida[-800:]}")

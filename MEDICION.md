@@ -1185,3 +1185,35 @@ una desmentida por la medición siguiente:
 Las cuatro veces el error estuvo en el **tamaño de la afirmación**, no en el dato. Y las
 cuatro las corrigió la corrida siguiente, no releer lo escrito. El tope de dos corridas, que
 yo elegí sin pensarlo, fue lo que hizo parecer binario un resultado que no lo es.
+
+### Un test que ejecuta un demonio no lo prueba: lo pone en producción (2026-10-28)
+
+Al traer el vigilante al repo escribí un test que verifica que **no arranque sin `DONDE`**, el
+directorio de la cola. Mientras verificaba su brazo nulo —reintroducir la ruta de sesión que
+el script tenía clavada cuando vivía en el scratchpad— la corrida se colgó, y el log del
+vigilante que estaba trabajando de verdad registró un arranque que nadie había ordenado:
+
+    11:35:12  ▶ watchdog arriba · ciclo 120s · tope 6/hora
+
+Lo que pasó: con la ruta clavada, mi test ejecutó el script **y el script hizo su trabajo**.
+Levantó un segundo vigilante, apuntando al mismo directorio que el real, compartiendo su log
+y su cola, y entró en su bucle `while :` — de ahí el cuelgue. Dos vigilantes sobre una misma
+cola pueden lanzar la misma entrada dos veces, que es gastar una corrida de agente por un
+test.
+
+Dos lecciones, y la segunda es la que vale fuera de este caso:
+
+1. **Un test que lanza un proceso que puede no terminar lleva tope o es una trampa para la
+   próxima corrida.** El de abajo tiene 20 segundos. Sin eso, el día que el vigilante deje de
+   exigir `DONDE` la suite entera se cuelga en ese test.
+2. **Un script con una ruta absoluta adentro no se puede probar sin efectos.** Mientras la
+   ruta estaba clavada, ejecutarlo ERA operarlo; no había forma de verificar su comportamiento
+   sin tocar el sistema real. Por eso `DONDE` es obligatorio y hay un test que verifica que no
+   quede ninguna ruta de sesión en el script: los escribí por prolijidad y resultó que
+   previenen el incidente que yo mismo causé veinte minutos antes de escribirlos.
+
+El selector de la cola, en cambio, **sí** se prueba sin efectos: los tests lo extraen del
+script por sus marcas y lo ejercitan con una cola de juguete. Ejercitar el código y no una
+copia es deliberado —una copia del criterio divergiría, que es el defecto que este repo
+cuenta diez veces en un día— y permitió cubrir los dos defectos históricos del vigilante por
+sus casos exactos: tres entradas de texto idéntico, y una cola reemplazada con ids nuevos.
