@@ -1139,3 +1139,49 @@ dos» cuando lo que tenía era un brazo, dos brazos y dos brazos con una corrida
 La medición que lo corrigió la diseñé yo para **confirmar** la recomendación, y la refutó
 treinta minutos después de commitearla. Eso es lo único de esta sesión que funcionó como
 tiene que funcionar, y el texto de `plantillas/TAREA.md` ya dice 2 de 3 en vez de 2 de 2.
+
+### Medición 15 — la tasa, por fin con n: 4 de 5 cierran con hasta cuatro pasadas (2026-10-28)
+
+Doce proyectos de 21 tareas, modelos de verdad, método commiteado con el contrato que declara
+dónde parchear y `--corregir` apagado. La tabla está partida por el **tope de corridas**,
+porque ese tope es un parámetro y no una propiedad del método:
+
+| tope | proyectos | cerraron las 21 | corridas que necesitaron los que cerraron |
+|---|---|---|---|
+| 2 | 7 | 3 | 2, 2, 2 |
+| **4** | **5** | **4** | **2, 4, 4, 4** |
+
+**Con hasta cuatro pasadas, 4 de 5 proyectos cierran el plan completo sin intervención
+humana.** Tres de los cuatro necesitaron la tercera o la cuarta; uno cerró en dos. El que no
+cerró agotó las cuatro.
+
+Eso convierte la pregunta de replicabilidad en una operativa y respondible: no «¿el método
+cierra un plan?» sino **«¿cuántas pasadas presupuestar?»** — y la respuesta medida es cuatro.
+Compárese con lo que teníamos ayer a la mañana: las 21 cerraron tras cuatro corridas Y dos
+intervenciones humanas; estas cuatro no necesitaron ninguna.
+
+### Y lo que no cambia en ninguno de los doce
+
+El cuello es **siempre** la etapa de los `calcularN()` —las tareas que necesitan mockear la
+dependencia— y nunca el resto del plan. Las siete tareas de leer cierran en la primera pasada
+en los doce proyectos; las de responder, cuando llegan. Eso es más accionable que la tasa: no
+hay que mejorar el método en general, hay que mirar esa etapa.
+
+Y ningún proyecto se trabó por el mismo motivo dos veces seguidas de forma predecible: C2
+cerró con una sola tarea trabada y otro no cerró con una sola. Con los datos de estos doce
+**no hay predictor** de cuál va a cerrar: la variabilidad está en si el modelo resuelve esa
+tarea en la pasada siguiente, y eso no se deduce del log anterior.
+
+### Cómo se llegó a este número, que es la parte que cuesta
+
+Sobre esta misma celda afirmé cuatro cosas distintas en doce horas, cada una con datos y cada
+una desmentida por la medición siguiente:
+
+1. «el contrato no sirve» — midiendo sólo la primera pasada;
+2. «cierra el plan, dos de dos» — con n=2 y corridas desiguales;
+3. «el 21 no se replica» — cuando el tercer proyecto dio 7 con tope 2;
+4. «el que no cierra en dos tampoco en cuatro» — con un solo caso, refutado por el siguiente.
+
+Las cuatro veces el error estuvo en el **tamaño de la afirmación**, no en el dato. Y las
+cuatro las corrigió la corrida siguiente, no releer lo escrito. El tope de dos corridas, que
+yo elegí sin pensarlo, fue lo que hizo parecer binario un resultado que no lo es.
