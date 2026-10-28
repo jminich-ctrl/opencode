@@ -45,9 +45,12 @@ Cuanto más preciso esto, menos improvisa el modelo.>
         """Qué hace."""
 
 <Y si el contrato fija CÓMO traer un nombre de otra capa, decí también la consecuencia:
-dónde hay que parchearlo si el test necesita controlarlo. Eso es lo único medido del método
-que cerró un plan de 21 tareas con modelos chicos sin intervención humana, dos veces de dos
-—MEDICION.md §13—, y no cuesta nada escribirlo:>
+dónde hay que parchearlo si el test necesita controlarlo. Medido sobre tres proyectos de 21
+tareas con modelos chicos (MEDICION.md §13 y §14): no reduce los rechazos del chequeo de
+patches —el modelo igual parchea donde el nombre se define— pero en 2 de 3 el plan cerró
+completo y en el tercero no, contra 0 de 2 sin la línea. No cuesta nada escribirlo y la
+varianza entre proyectos es alta: tomalo como lo que es, una línea que no daña y que puede
+ayudar, no como una garantía.>
 
     Usa `from src.datos.d1 import leer1`.
 

@@ -15337,5 +15337,10 @@ class TestLoQueElEnsayoSabeLoSabeLaPlantilla(unittest.TestCase):
         seccion = plantilla[i:j]
         self.assertIn("MEDICION.md", seccion,
                       "sin la referencia a la medición, esto es una opinión")
-        self.assertRegex(seccion, r"21 tareas|21 de 21",
+        self.assertRegex(seccion, r"21 tareas|2 de 3",
                          "y tiene que traer el número que lo respalda")
+        # Y no puede prometer más de lo medido: la celda dio 21, 21 y 7 sobre tres
+        # proyectos. «Dos veces de dos» estuvo escrito acá media hora y era un artefacto
+        # de n=2 — el tercer proyecto lo refutó.
+        self.assertNotIn("dos veces de dos", seccion,
+                         "esa afirmación no se replicó: 21, 21 y 7 sobre tres proyectos")

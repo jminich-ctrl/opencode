@@ -1099,3 +1099,43 @@ Sobre la misma hipótesis me equivoqué dos veces en direcciones opuestas:
 Las dos veces el error fue el mismo que esta sesión persigue en el método: **medir un sujeto y
 concluir sobre otro**. Y las dos veces el que lo corrigió fue el dato siguiente, no releer lo
 escrito.
+
+### Medición 14 — el 21 no se replicó, y lo refutó la medición que lo iba a confirmar (2026-10-28)
+
+El brazo G midió la configuración recomendada **sobre el método commiteado** y no sobre un
+parche: generador con el contrato enriquecido, `--corregir` apagado, `HEAD` en `1064071`.
+Verificó sus tres condiciones antes de arrancar y las pasó.
+
+| celda «contrato enriquecido, sin corregir», 2 corridas cada una | cerradas /21 |
+|---|---|
+| C (contrato como parche a `98f7698`) | 21 |
+| C2 (mismo parche, proyecto nuevo) | 21 |
+| **G (contrato commiteado, método de `1064071`)** | **7** |
+
+**21, 21, 7.** El contrato generado es **idéntico** en los tres —comparado con `diff`— y los
+motivos de rechazo son los mismos: el patch inefectivo domina igual (9 en C2, 10 en G).
+Ninguno de los cuatro commits intermedios toca ese camino con la corrección apagada. Así que
+la diferencia es **varianza entre proyectos generados**, y mi «cierra el plan, dos de dos» era
+cierto de los dos que corrí y falso como generalización.
+
+Lo que queda en pie, y es menos de lo que escribí a las 22:30:
+
+- **El contrato NO reduce los rechazos del chequeo de patches.** Eso está medido tres veces
+  (16, 9, 10) y era exactamente la conclusión que saqué a mediodía y después creí refutada.
+  La de mediodía era la correcta.
+- **Con la línea, 2 de 3 proyectos cerraron el plan; sin la línea, 0 de 2.** Es una señal, no
+  una garantía, y con esta varianza hacen falta más corridas para decir algo más fuerte.
+- **El 7 de 21 en una sola corrida sigue siendo el número replicado**: todas las celdas, todos
+  los proyectos, siempre 7 en la primera vuelta.
+
+### Lo que esto dice del día
+
+Sobre la misma hipótesis cambié de opinión tres veces, y cada vez con datos: refutada a
+mediodía (midiendo la primera pasada), confirmada a las 22:30 (con n=2 y corridas desiguales),
+y ahora degradada a «señal débil» por un tercer proyecto. Las tres veces el error no fue el
+dato sino **el tamaño de la afirmación**: escribí «se cayó», «es el que más rinde» y «dos de
+dos» cuando lo que tenía era un brazo, dos brazos y dos brazos con una corrida extra.
+
+La medición que lo corrigió la diseñé yo para **confirmar** la recomendación, y la refutó
+treinta minutos después de commitearla. Eso es lo único de esta sesión que funcionó como
+tiene que funcionar, y el texto de `plantillas/TAREA.md` ya dice 2 de 3 en vez de 2 de 2.
