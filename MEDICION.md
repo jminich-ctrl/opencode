@@ -869,3 +869,128 @@ y volvió a escribir los tres patches equivocados) y la decisión de subir el te
 intentos. El método hizo lo que debía en los dos casos: frenó, dijo de quién era el defecto y
 pidió una persona. Pero «21 de 21» sin esta línea sería la misma clase de titular que esta
 medición vino a corregir.
+
+### Medición 10 — tres brazos, y la hipótesis que se cayó (2026-10-27)
+
+La pregunta de replicabilidad, la única que importa para llevar el método a un proyecto:
+**¿cuántas de 21 tareas cierran en UNA corrida, sin intervención humana?** Hasta acá sólo
+sabíamos 21 de 21 tras cuatro corridas y dos intervenciones, que no es lo mismo.
+
+Tres brazos, un solo factor distinto cada uno, mismo método congelado (`98f7698`), proyectos
+generados de cero:
+
+| | B | A | C |
+|---|---|---|---|
+| reintentos de tests | 2 | 3 | 3 |
+| contrato de las tareas `b` | mudo sobre el patch | mudo | **dice dónde parchear** |
+| **cerradas / 21** | **7** | **7** | **7** |
+| tests aceptados en la etapa `b` | 3 de 7 | **5 de 7** | 4 de 7 |
+| rechazos por patch inefectivo | 8 | 9 | **8** |
+| llamadas en fase de tests | 22 | 23 | 22 |
+| gates verdes | 7 | 7 | 7 |
+
+**Los tres se detienen en la misma etapa.** El método no cierra este plan sin intervención
+humana, replicado tres veces, y el cuello de botella tiene nombre: el objetivo del `patch`.
+
+**La hipótesis de C se cayó.** Decirle al agente en el contrato de la tarea dónde parchear
+—declarando la consecuencia del import que el propio contrato manda— dio los **mismos 8
+rechazos** que el contrato mudo. A mitad de corrida el brazo llevaba 1 y escribí que el dato
+iba a favor; al cierre eran 8. Un conteo parcial de un proceso en curso no es una medición, y
+esta vez lo dije antes de afirmarlo.
+
+### Lo que queda medido: tres canales no corrigen el sesgo
+
+| canal | efecto medido |
+|---|---|
+| la regla en `AGENTS.md`, que OpenCode **inyecta** | llegó a 7 de 7 agentes; **4 no la aplicaron** |
+| el reemplazo exacto en el prompt del reintento | mejora la **recuperación** (0 de 4 → 3 de 4), no la primera pasada |
+| el contrato de la tarea | **ningún efecto** sobre los rechazos (8 contra 8) |
+
+El modelo chico tiene un sesgo fuerte y sistemático a parchear donde el nombre se **define**
+—8 o 9 rechazos sobre siete tareas, en los tres brazos— y la instrucción textual no lo mueve
+por ninguno de los tres canales. Es un resultado negativo y vale más que si hubiera salido al
+revés: cierra tres arreglos que parecían obvios y que habrían costado trabajo cada uno.
+
+Lo que sí funciona es lo que ya está puesto: **el chequeo mecánico**, que lo atrapa el 100% de
+las veces y convierte 8 tests malos en 8 rechazos en la puerta donde se arreglan gratis, en
+vez de 8 rojos que paga el implementador dos etapas después. Y subir el techo de intentos
+mejora los tests aceptados (3 → 5) al mismo costo en llamadas (22 → 23), aunque con un brazo
+por condición ese número es débil.
+
+**Lo que queda abierto**, y ahora con la evidencia de que no se arregla hablándole al modelo:
+o el plan no pide tests que mockeen la dependencia —y entonces lo decide quien planifica—, o
+el método corrige el objetivo del patch él mismo. Lo segundo es mecánico y el chequeo ya
+calcula el reemplazo exacto; lo que falta medir es si un método que **reescribe** el test del
+agente sigue midiendo al agente, que es la pregunta que hace falta responder antes de
+escribir una línea de eso.
+
+### Medición 11 — los ocho rechazos eran correctos salvo una ruta (2026-10-27)
+
+Sobre los tests que los tres brazos rechazaron y quedaron en disco, contado por árbol
+sintáctico —clase declarada, aserciones presentes, objetivo del patch—:
+
+| brazo | tests rechazados | fallaban SÓLO por el objetivo del patch |
+|---|---|---|
+| B | 3 | 3 |
+| A | 2 | 2 |
+| C | 3 | 3 |
+| **total** | **8** | **8** |
+
+Ocho de ocho. Con el defecto dominante contenido pero no resuelto, los tres brazos cerraban 7
+de 21 y se detenían en la misma etapa; la diferencia entre eso y cerrar el plan era una ruta
+de import por test.
+
+Con eso y con los tres canales ya descartados —`AGENTS.md` inyectado, el prompt del reintento
+y el contrato de la tarea—, el método **corrige** el objetivo del patch y lo declara. Lo que
+se decidió, y por qué de esta forma y no de otra:
+
+- **Se toca una ruta, no un test.** Un test de la suite fija que el diff sea exactamente eso:
+  aserciones, valores esperados, nombres de casos y docstrings quedan idénticos. Si alguien
+  amplía la reparación, ese test falla. Es el límite entre «el método juzga» y «el método
+  escribe los tests», puesto como comando y no como intención.
+- **Sirve, medido de punta a punta**: el test del agente falla contra la implementación que el
+  contrato manda, y corregido pasa. Los cinco pasos que preguntan si el test distingue corren
+  después, sobre el test corregido, y siguen pudiendo reprobarlo.
+- **Deja constancia en tres lugares**: el log dice `✎ … lo hizo el método, no el agente`;
+  `.metricas/correcciones.csv` guarda tarea, línea, origen y destino; y el test original queda
+  en `.metricas/del-agente/`. Si no puede registrar, **revierte**. Corregir en silencio sería
+  el método tapando la señal que vino a medir: el sesgo del modelo es parte del dataset.
+- **El original va a `.metricas/`** y no al lado del test, porque ahí ya está ignorado y
+  filtrado por los tres gates. Dejarlo en `tests/` se lo cobraría a la tarea como archivo
+  fuera de alcance, y obligaría a tocar dos listas que un test de esta suite cruza.
+- **Sin la bandera sigue siendo juez puro**: no toca nada y reprueba, que es lo que
+  corresponde en `explicar_punto_muerto`, donde la implementación ya está escrita.
+
+Lo que falta medir es si con esto los brazos cierran el plan en una corrida. El número a
+batir está fijo: **7 de 21**, replicado tres veces.
+
+### Lo que la suite destapó al poner la corrección: un arreglo que deja sin efecto a otro
+
+El lote de la medición 11 lo rechazó un test del lote de la medición 8 —el que exige que el
+reintento le pase al agente el reemplazo concreto y no sólo el titular—. Y el rechazo era
+correcto: **con `--corregir` ya no hay reintento**. El log del fallo lo muestra entero:
+
+    ▶ T01b · tester escribe tests/test_s1.py::TestS1
+      ✓ sólo tocó el test y los archivos de la tarea
+      ✎ corregí el objetivo de algún patch — lo hizo el método, no el agente
+      ✓ falla sin la implementación
+      ✓ pasa con la implementación
+      ✓ T01b: tests/test_s1.py aceptado y copiado al tronco
+
+Una sola llamada al agente. El arreglo de la medición 8 quedó **sin efecto para este
+defecto**, porque el de la medición 11 lo precede: el método repara antes de que exista un
+intento anterior del que hablar.
+
+No es un test mal escrito ni un arreglo de más. Es que **un arreglo posterior puede volver
+inalcanzable el camino que un test anterior protege**, y entonces ese test pasa a custodiar un
+comportamiento que ya no existe. Si se lo «arregla» aflojándolo, se pierden las dos cosas: la
+medición vieja y la nueva.
+
+Lo que quedó, que es la forma de no perder ninguna de las dos:
+
+- el detalle en el prompt se mide ahora con un chequeo que **no repara** —una aserción que no
+  puede fallar, que `_aserciones.py` rechaza y nadie corrige—, porque ahí el reintento sigue
+  siendo el único canal y el hallazgo de la medición 8 sigue vigente;
+- y el comportamiento nuevo se fija aparte: con el patch corregido **no se gasta un
+  reintento**, el test se acepta en el primer intento, y eso es exactamente lo que en tres
+  brazos de 21 tareas costó que ninguno pasara de 7 cerradas.

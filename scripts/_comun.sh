@@ -834,6 +834,35 @@ control_se_movio() {
   return 0
 }
 
+# ¿Por qué esta tarea no tiene test en el tronco? Son dos causas y piden cosas opuestas.
+#
+#   clasificar_sin_tests <base> <id>...
+#     imprime dos líneas: "validacion: <ids>" y "entorno: <ids>"
+#
+# «No hay test» puede ser que el agente escribió uno que no pasó la validación —eso es del
+# agente— o que el método no llegó a lanzarlo. Medido el 2026-10-27: dos corridas en paralelo
+# compartieron el directorio padre de los worktrees, `git worktree add` falló con «already
+# exists», y la etapa cerró diciendo «los tests de T01a T06a no pasaron su propia validación.
+# Los escribe una persona o se repiensa la tarea». Las dos tareas nunca llegaron al agente.
+#
+# Vive acá y no inline en `correr-todo.sh` por la misma razón que la regla de mayoría del
+# banco y `rechazar_salteo`: una regla que decide el resultado tiene que poder ejercitarse sin
+# correr la campaña. Inline sólo se podía verificar montando un plan que pasara todas las
+# puertas anteriores, que es medir el andamio.
+clasificar_sin_tests() {
+  local base="$1"; shift
+  local val="" ent="" t
+  for t in "$@"; do
+    if [ -f "$base/.metricas/entorno-$t" ]; then
+      ent="${ent:+$ent }$t"
+    else
+      val="${val:+$val }$t"
+    fi
+  done
+  echo "validacion: $val"
+  echo "entorno: $ent"
+}
+
 # Registro de intentos: una línea por corrida, para que las métricas lean datos y no
 # adivinen del texto de las tareas. Vive fuera del árbol versionado del proyecto.
 anotar_intento() {

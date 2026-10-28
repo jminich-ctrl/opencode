@@ -92,6 +92,24 @@ CUERPO_CHAT_OK = b'{"choices":[{"message":{"content":"OK"}}]}'
 
 
 
+def codigo_de(guion):
+    """El texto de un script de bash SIN sus comentarios.
+
+    Existe porque un invariante que busca una cadena en el texto crudo acusa a la PROSA que
+    documenta el defecto, y eso pasó tres veces el 2026-10-27: mi regla del `|| echo 0` marcó
+    los dos comentarios que explican ese mismo defecto, y `TestTodoWorktreeJuzgadoTieneEntorno`
+    marcó a `_comun.sh` por un comentario que menciona `git worktree add` —el script no crea
+    ningún worktree—. Es «la regla más ancha que el defecto» del catálogo, en su forma más
+    barata de cometer.
+
+    No pretende ser un parser de bash: saca las líneas que son comentario completo, que es la
+    forma en que este repo escribe su prosa. Un `#` al final de una línea de código deja el
+    código, que es lo que se quiere mirar.
+    """
+    return "\n".join(l for l in guion.read_text().split("\n")
+                      if not l.lstrip().startswith("#"))
+
+
 def tirar_dir(ruta):
     """Borra un directorio de prueba SIN tragarse la falla.
 
@@ -1194,9 +1212,26 @@ class TestElTranscriptDelFalloSeConserva(unittest.TestCase):
         """Generalizado: lo arreglé en escribir-tests.sh y no en correr-tarea.sh, y volví a
         perder el transcript de un fallo en el otro camino. Arreglar un lado y no el otro
         es el patrón que este repo repite; el test tiene que cubrir los dos."""
+        # Las excepciones, DECLARADAS y con su motivo, que es como este repo ya trata el
+        # invariante de `.gitignore` contra el filtro del gate. `congelar-banco.sh` quedaba
+        # exento por accidente: tiene cuatro comentarios «conservar_intento: no-aplica — es un
+        # worktree de CONSTRUCCIÓN del banco» y el test leía el texto crudo, así que los
+        # tomaba por código. La exención es correcta —ese worktree no es el intento de un
+        # agente, no hay transcript que perder— pero el mecanismo no: cualquier script podía
+        # silenciar este invariante escribiendo la palabra en un comentario.
+        EXCEPCIONES = {
+            "congelar-banco.sh": "el worktree es de CONSTRUCCIÓN del banco de ítems, no el "
+                                 "intento de un agente: no hay transcript que conservar",
+        }
         culpables = []
         for s in sorted(SCRIPTS.glob("*.sh")):
-            texto = s.read_text()
+            if s.name in EXCEPCIONES:
+                continue
+            # Sobre el código y no sobre la prosa, por lo mismo que el test hermano de
+            # `TestTodoWorktreeJuzgadoTieneEntorno`: los comentarios de este repo nombran las
+            # formas que los invariantes buscan, así que leer el texto crudo castiga a quien
+            # documenta — y, al revés, exime a quien no corresponde.
+            texto = codigo_de(s)
             recrea = "worktree add" in texto and ("rm -rf" in texto or "worktree remove" in texto)
             # `conservar_intento` (en _comun.sh) es el que guarda, y guarda el transcript Y el
             # parche. Antes cada script hacía su propio `cp` del log, y esa duplicación es
@@ -1656,7 +1691,11 @@ class TestTodoWorktreeJuzgadoTieneEntorno(unittest.TestCase):
     def test_el_que_crea_worktree_y_juzga_prepara_el_entorno(self):
         culpables = []
         for s in sorted(SCRIPTS.glob("*.sh")):
-            texto = s.read_text()
+            # Sobre el CÓDIGO y no sobre el texto crudo: `_comun.sh` quedó acusado el
+            # 2026-10-27 por un comentario que menciona `git worktree add` para explicar una
+            # colisión entre dos corridas. No crea ningún worktree. Un invariante que lee la
+            # prosa castiga a quien documenta.
+            texto = codigo_de(s)
             crea = "worktree add" in texto
             juzga = "cerrar_con_gate" in texto or "gate.sh" in texto
             if crea and juzga and "preparar-entorno.sh" not in texto:
@@ -14751,23 +14790,69 @@ class TestElRojoQueElAcusadoNoPodiaLeer(unittest.TestCase):
         (bin_ / "opencode").chmod(0o755)
         return bin_
 
-    def test_el_reintento_le_dice_al_agente_que_poner_en_lugar_del_patch(self):
+    def agente_con_asercion_vacua(self, d):
+        """Un `opencode` que escribe una aserción que no puede fallar con ninguna
+        implementación. Se eligió ESE defecto y no el del patch porque el del patch ya no
+        llega al reintento: desde que `_mocks.py --corregir` está puesto, el método lo arregla
+        en el primer intento y el test se acepta. El detalle en el prompt sigue valiendo para
+        los chequeos que NO reparan —`_aserciones.py`, `_contrato.py`— y es ahí donde hay que
+        medirlo. La suite misma destapó esto: el test de abajo exigía un reintento que ya no
+        ocurre."""
+        bin_ = d / ".bin"; bin_.mkdir()
+        (bin_ / "opencode").write_text(
+            "#!/usr/bin/env bash\n"
+            'if [ "$1" = "agent" ]; then echo "tester (primary)"; exit 0; fi\n'
+            'printf "%s\\n" "$*" >> "$PROMPTS"\n'
+            "mkdir -p src/servicios tests\n"
+            "cat > src/servicios/s1.py <<'EOF'\n"
+            "from src.datos.d1 import leer1\n\n\n"
+            "def calcular1() -> int:\n"
+            "    return leer1() * 10\n"
+            "EOF\n"
+            "cat > tests/test_s1.py <<'EOF'\n"
+            "import unittest\n\n\n"
+            "class TestS1(unittest.TestCase):\n"
+            "    def test_calcular1(self):\n"
+            "        esperado = 10\n"
+            "        self.assertEqual(esperado, 10)\n"
+            "EOF\n")
+        (bin_ / "opencode").chmod(0o755)
+        return bin_
+
+    def test_el_detalle_del_chequeo_que_no_repara_llega_al_reintento(self):
+        """Lo que la medición 8 fijó: el reintento no le pasa sólo el titular. Medido con un
+        defecto que el método NO corrige, porque el del patch ya se corrige solo."""
+        d = self.proyecto()
+        bin_ = self.agente_con_asercion_vacua(d)
+        prompts = d.parent / "prompts.txt"
+        r = correr(f'PATH="{bin_}:$PATH" PROMPTS="{prompts}" PROYECTO=. LIMITE_AGENTE=60 '
+                   f'AGENTES="{RAIZ}" bash "{SCRIPTS}/escribir-tests.sh" T01b', d)
+        texto = prompts.read_text() if prompts.exists() else ""
+        self.assertIn("no pueden fallar", r.stdout + r.stderr,
+                      f"el chequeo de aserciones no reprobó: este test no mide nada\n"
+                      f"{r.stdout}{r.stderr}")
+        self.assertGreaterEqual(len(texto.strip().split("\n")), 2,
+                                f"no hubo reintento:\n{r.stdout}{r.stderr}")
+        self.assertIn("El chequeo dijo exactamente esto", texto,
+                      f"el reintento le pasó sólo el titular:\n{texto}")
+
+    def test_el_patch_ya_no_llega_al_reintento_porque_el_metodo_lo_corrige(self):
+        """El comportamiento NUEVO, fijado para que no se pierda: con `--corregir`, el defecto
+        del patch se arregla en el primer intento y no se gasta una llamada más. Antes de la
+        medición 11 esto costaba un reintento por tarea, y en tres brazos de 21 tareas costó
+        que ninguno pasara de 7 cerradas."""
         d = self.proyecto()
         bin_ = self.agente_que_insiste(d)
         prompts = d.parent / "prompts.txt"
         r = correr(f'PATH="{bin_}:$PATH" PROMPTS="{prompts}" PROYECTO=. LIMITE_AGENTE=60 '
                    f'AGENTES="{RAIZ}" bash "{SCRIPTS}/escribir-tests.sh" T01b', d)
         texto = prompts.read_text() if prompts.exists() else ""
-        self.assertIn("no va a tener efecto", r.stdout + r.stderr,
-                      f"el chequeo no reprobó el test, así que este test no mide nada:\n"
-                      f"{r.stdout}{r.stderr}")
-        self.assertGreaterEqual(len(texto.strip().split("\n")), 2,
-                                f"no hubo reintento: el agente corrió una sola vez.\n"
-                                f"{r.stdout}{r.stderr}")
-        self.assertIn("patch('src.servicios.s1.leer1')", texto,
-                      f"el reintento no le dijo al agente QUÉ PONER: le pasó sólo el titular, "
-                      f"que es lo que dejó a cuatro tareas repitiendo el mismo patch.\n"
-                      f"--- prompts que recibió el agente:\n{texto}")
+        self.assertIn("corregí el objetivo", r.stdout,
+                      f"el método no corrigió el patch:\n{r.stdout}{r.stderr}")
+        self.assertEqual(1, len(texto.strip().split("\n")),
+                         f"gastó un reintento en algo que el método ya sabe arreglar:\n{texto}")
+        self.assertIn("aceptado y copiado al tronco", r.stdout,
+                      f"corregido, el test tiene que aceptarse:\n{r.stdout}")
 
     def test_el_primer_intento_no_lleva_reproche(self):
         """El par: sin intento anterior no hay nada que contarle, y un reproche inventado en el
@@ -14896,3 +14981,206 @@ class TestElResumenDecia100PorCientoYContabaUnTercio(unittest.TestCase):
         self.assertIn("ejecutor escribe", salida,
                       "y tiene que traer el COMANDO que lo cuenta, no un número escrito a "
                       "mano: un número en un mensaje envejece y después miente (regla P2)")
+
+
+class TestElRojoMandabaAReescribirUnTestQueNuncaSeEscribio(unittest.TestCase):
+    """Medido el 2026-10-27 con dos corridas de agente en paralelo. Los worktrees se crean en
+    `$RAIZ/..` y se llaman `tests-<id>`, sin el proyecto en el nombre, así que dos corridas
+    que comparten ese directorio padre se pisan. El log decía:
+
+        fatal: '.../tests-T01a' already exists
+        ✗ T01a: no pude crear el worktree
+        ...
+        ⏸  Se detuvo en la etapa 1: los tests de T01a T06a no pasaron su propia validación.
+           Los escribe una persona o se repiensa la tarea.
+
+    Las dos tareas nunca llegaron al agente. No había test que reescribir ni tarea que
+    repensar, y el veredicto mandaba a hacer las dos cosas. La pregunta que lo detecta es la
+    del catálogo: ¿esto lo puede arreglar el acusado?
+
+    `correr-plan.sh` ya separaba su lista ENTORNO con «no es la tarea ni el modelo»; ésta era
+    la mitad que faltaba, del lado de los tests."""
+
+    def clasificar(self, marcadas, todas):
+        """Ejercita `clasificar_sin_tests` sin montar una corrida. Mi primera versión corría
+        `correr-todo.sh` entero y no llegaba nunca al bloque: frena antes en la puerta de G3,
+        y montar un plan que pase todas las puertas anteriores es medir el andamio. La regla
+        está en el repo —«una regla que decide el resultado tiene que poder ejercitarse sin
+        correr la campaña»— y por eso la decisión vive en `_comun.sh`."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-clasif-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        (d / ".metricas").mkdir()
+        for t in marcadas:
+            (d / ".metricas" / f"entorno-{t}").write_text("no pude crear el worktree\n")
+        guion = (f'. "{SCRIPTS}/_comun.sh" >/dev/null 2>&1; '
+                 f'clasificar_sin_tests "{d}" {" ".join(todas)}')
+        salida = correr("bash -c " + shlex.quote(guion), RAIZ).stdout
+        leer = lambda k: [x for x in re.search(rf"^{k}: ?(.*)$", salida, re.M).group(1).split() if x]
+        return leer("validacion"), leer("entorno")
+
+    def test_la_que_no_llego_al_agente_no_va_en_la_lista_del_test(self):
+        val, ent = self.clasificar(marcadas=["T01a", "T06a"], todas=["T01a", "T06a"])
+        self.assertEqual([], val, "mandó a reescribir tests que nunca se escribieron")
+        self.assertEqual(["T01a", "T06a"], ent, "no las clasificó como del entorno")
+
+    def test_un_test_rechazado_de_verdad_sigue_siendo_del_agente(self):
+        """El par, y es el que impide que el arreglo se trague el diagnóstico que sí había:
+        sin marca de entorno, la causa es que el test no pasó su validación."""
+        val, ent = self.clasificar(marcadas=[], todas=["T01a", "T06a"])
+        self.assertEqual(["T01a", "T06a"], val, "perdió el diagnóstico del agente")
+        self.assertEqual([], ent, "informó una falla de entorno que no hubo")
+
+    def test_las_dos_causas_a_la_vez_se_informan_separadas(self):
+        """El caso mezclado, que es el que un veredicto único no puede expresar: una lista
+        sola obliga a elegir un culpable para las dos."""
+        val, ent = self.clasificar(marcadas=["T06a"], todas=["T01a", "T06a", "T07a"])
+        self.assertEqual(["T01a", "T07a"], val)
+        self.assertEqual(["T06a"], ent)
+
+    def test_escribir_tests_deja_la_marca_cuando_el_worktree_no_se_puede_crear(self):
+        """La costura entre los dos scripts, que es donde este repo encuentra la mitad de sus
+        defectos: sin la marca, el consumidor no puede distinguir nada."""
+        codigo = (SCRIPTS / "escribir-tests.sh").read_text()
+        self.assertIn("entorno-$id", codigo,
+                      "escribir-tests.sh no deja marca de la falla de entorno")
+        i = codigo.index("no pude crear el worktree")
+        self.assertIn("metricas", codigo[i - 400:i + 400],
+                      "la marca tiene que escribirse en el mismo lugar donde falla")
+
+    def test_correr_todo_usa_la_funcion_y_no_una_copia(self):
+        """Un juicio copiado es un juicio que va a divergir, y de eso hay ocho ejemplos
+        contados hoy."""
+        codigo = (SCRIPTS / "correr-todo.sh").read_text()
+        self.assertIn("clasificar_sin_tests", codigo,
+                      "correr-todo.sh no usa la función: tiene su propia copia del criterio")
+
+
+class TestElMetodoCorrigeLaRutaDelPatchYLoDeclara(unittest.TestCase):
+    """Medido el 2026-10-27 en tres brazos de 21 tareas con modelos de verdad: de los ocho
+    tests que el chequeo de patches rechazó, **los ocho** eran correctos salvo el objetivo
+    —clase declarada, aserciones presentes, valores bien— y los tres brazos se detuvieron en
+    la misma etapa por eso, cerrando 7 de 21 cada uno.
+
+    Y tres canales para decírselo al agente no mueven el sesgo: la regla en `AGENTS.md`, que
+    OpenCode inyecta (llegó a 7 de 7 y 4 la ignoraron); el reemplazo exacto en el prompt del
+    reintento (mejora la recuperación, 0 de 4 → 3 de 4, no la primera pasada); y el contrato
+    de la tarea diciéndolo (ningún efecto: 8 rechazos contra 8). Con eso, rechazar sólo compra
+    una corrida perdida.
+
+    Lo que el método corrige es **una ruta de import**. Los tests de abajo fijan las dos
+    mitades: que la corrección sirva —el test pasa a distinguir la implementación del
+    contrato— y que no toque nada más, porque un método que reescribe tests dejaría de medir
+    al agente."""
+
+    AGENTE = ("import unittest\n"
+              "from unittest.mock import patch\n"
+              "from src.servicios.s1 import calcular1\n\n"
+              "class TestS1(unittest.TestCase):\n"
+              "    def test_calcular1_multiplica_por_diez(self):\n"
+              '        """Lo que el agente quiso decir."""\n'
+              "        with patch('src.datos.d1.leer1') as m:\n"
+              "            m.return_value = 5\n"
+              "            self.assertEqual(calcular1(), 50)\n")
+
+    def proyecto(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-corrige-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        for sub in ("src/datos", "src/servicios", "tests", "tareas", ".git"):
+            (d / sub).mkdir(parents=True, exist_ok=True)
+        for ini in ("src/__init__.py", "src/datos/__init__.py",
+                    "src/servicios/__init__.py", "tests/__init__.py"):
+            (d / ini).touch()
+        (d / "src/datos/d1.py").write_text("def leer1():\n    return 1\n")
+        (d / "tareas/T01b.md").write_text(
+            "# T01b\n\n**Archivos que podés tocar:** src/servicios/s1.py\n\n"
+            "Usa `from src.datos.d1 import leer1`.\n")
+        (d / "tests/test_s1.py").write_text(self.AGENTE)
+        return d
+
+    def corregir(self, d):
+        return correr(f'python3 "{SCRIPTS}/_mocks.py" --segun-enunciado --corregir '
+                      f'tests/test_s1.py tareas/T01b.md .', d)
+
+    def test_el_test_corregido_distingue_la_implementacion_del_contrato(self):
+        """La mitad que justifica corregir: el test del agente FALLA contra la implementación
+        que el contrato manda, y corregido PASA. Si esto no se cumpliera, la corrección sería
+        cosmética."""
+        d = self.proyecto()
+        contrato = ("from src.datos.d1 import leer1\n\n\n"
+                    "def calcular1() -> int:\n    return leer1() * 10\n")
+        (d / "src/servicios/s1.py").write_text(contrato)
+        antes = correr("python3 -m unittest tests.test_s1 -q", d)
+        self.assertNotEqual(antes.returncode, 0,
+                            f"el test del agente tenía que fallar contra el contrato, o este "
+                            f"test no mide el escenario:\n{antes.stdout}{antes.stderr}")
+        self.corregir(d)
+        for basura in sorted(d.rglob("__pycache__"), key=lambda x: -len(x.parts)):
+            tirar_dir(basura)
+        despues = correr("python3 -m unittest tests.test_s1 -q", d)
+        self.assertEqual(despues.returncode, 0,
+                         f"corregido tiene que pasar:\n{despues.stdout}{despues.stderr}")
+
+    def test_no_toca_nada_mas_que_la_ruta(self):
+        """La otra mitad, y es la que impide que esto se convierta en «el método escribe los
+        tests»: aserciones, valores esperados, nombres de casos y docstrings quedan igual. El
+        diff tiene que ser exactamente la ruta."""
+        d = self.proyecto()
+        self.corregir(d)
+        nuevo = (d / "tests/test_s1.py").read_text()
+        esperado = self.AGENTE.replace("src.datos.d1.leer1", "src.servicios.s1.leer1")
+        self.assertEqual(esperado, nuevo,
+                         "la corrección cambió algo más que la ruta del patch")
+
+    def test_queda_constancia_en_tres_lugares(self):
+        """Corregir en silencio sería el método tapando la señal que vino a medir: el sesgo
+        del modelo es parte del dataset. Log, registro y el test original del agente."""
+        d = self.proyecto()
+        r = self.corregir(d)
+        self.assertIn("corregí el objetivo del patch", r.stdout,
+                      f"no lo dijo en la salida:\n{r.stdout}")
+        # Directo sobre el texto que el código emite. Mi primera versión metía una
+        # condicional dentro del `assertIn` y buscaba una frase que nadie imprime: una
+        # aserción que uno no puede leer de un tirón es una aserción que mide otra cosa.
+        self.assertIn("MÉTODO, no el agente", r.stdout,
+                      f"no aclara de quién es la corrección:\n{r.stdout}")
+        csv = d / ".metricas" / "correcciones.csv"
+        self.assertTrue(csv.is_file(), "no registró la corrección")
+        filas = csv.read_text().strip().split("\n")
+        self.assertEqual("fecha,tarea,archivo,linea,de,a", filas[0])
+        self.assertIn("src.datos.d1.leer1,src.servicios.s1.leer1", filas[1])
+        original = d / ".metricas" / "del-agente" / "test_s1.py"
+        self.assertTrue(original.is_file(), "no guardó el test del agente")
+        self.assertEqual(self.AGENTE, original.read_text(),
+                         "el original guardado no es el que escribió el agente")
+
+    def test_el_original_va_a_metricas_y_no_al_lado_del_test(self):
+        """`.metricas/` ya está en el `.gitignore` del método y en el filtro de infraestructura
+        de los tres gates. Una copia al lado del test se le cobraría a la tarea como archivo
+        fuera de alcance, y obligaría a tocar esas dos listas —que un test de esta suite
+        cruza— por un archivo de diagnóstico."""
+        d = self.proyecto()
+        self.corregir(d)
+        sueltos = [p.name for p in (d / "tests").iterdir() if ".del-agente" in p.name]
+        self.assertEqual([], sueltos,
+                         f"dejó la copia dentro del árbol del proyecto: {sueltos}")
+
+    def test_sin_la_bandera_no_corrige(self):
+        """El par: el chequeo tiene que seguir sirviendo como juez puro donde no corresponde
+        reparar —en `explicar_punto_muerto`, sobre una implementación ya escrita—."""
+        d = self.proyecto()
+        r = correr(f'python3 "{SCRIPTS}/_mocks.py" --segun-enunciado '
+                   f'tests/test_s1.py tareas/T01b.md .', d)
+        self.assertEqual(r.returncode, 1, f"sin --corregir tiene que reprobar:\n{r.stdout}")
+        self.assertEqual(self.AGENTE, (d / "tests/test_s1.py").read_text(),
+                         "tocó el test sin que se lo pidieran")
+        self.assertFalse((d / ".metricas" / "correcciones.csv").exists(),
+                         "registró una corrección que no hizo")
+
+    def test_la_puerta_pasa_la_bandera(self):
+        codigo = (SCRIPTS / "escribir-tests.sh").read_text()
+        invoca = [l for l in codigo.split("\n") if "_mocks.py" in l and "python3" in l]
+        self.assertTrue(any("--corregir" in l for l in invoca),
+                        f"escribir-tests.sh no corrige: {invoca}")
+        self.assertIn("lo hizo el método, no el agente", codigo,
+                      "el titular no distingue una corrección del método de un acierto del "
+                      "agente")

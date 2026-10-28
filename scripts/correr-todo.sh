@@ -312,14 +312,27 @@ for etapa in "${ETAPAS[@]}"; do
   # 1. Los tests, con su validación mecánica. Lo que no pase no se lanza.
   echo "── 1/3 tests"
   bash "$AQUI/escribir-tests.sh" "${tareas[@]}" || true
-  sin_tests=()
+  sin_tests=(); por_entorno=()
+  faltan=()
   for t in "${tareas[@]}"; do
-    archivo="$(ls "$BASE/tareas/${t}"-*.md 2>/dev/null | head -1)"
     ruta="$(sed -n "s/^| *$t *| *\`\{0,1\}\([^ |\`]*\)\`\{0,1\} *|.*/\1/p" "$PLAN" | head -1)"
-    [ -n "$ruta" ] && [ -f "$BASE/$ruta" ] || sin_tests+=("$t")
+    [ -n "$ruta" ] && [ -f "$BASE/$ruta" ] || faltan+=("$t")
   done
-  if [ "${#sin_tests[@]}" -gt 0 ]; then
-    parar "$n" "los tests de ${sin_tests[*]} no pasaron su propia validación. Los escribe una persona o se repiensa la tarea."
+  if [ "${#faltan[@]}" -gt 0 ]; then
+    # La clasificación vive en `_comun.sh` para poder ejercitarla sin montar una corrida.
+    CLAS="$(clasificar_sin_tests "$BASE" "${faltan[@]}")"
+    read -r -a sin_tests <<< "$(printf '%s' "$CLAS" | sed -n 's/^validacion: //p')"
+    read -r -a por_entorno <<< "$(printf '%s' "$CLAS" | sed -n 's/^entorno: //p')"
+    for t in ${por_entorno[@]+"${por_entorno[@]}"}; do rm -f "$BASE/.metricas/entorno-$t"; done
+    if [ "${#por_entorno[@]}" -gt 0 ]; then
+      echo "  ⊘ no llegué a lanzar al agente en: ${por_entorno[*]}"
+      echo "     No es el test ni la tarea: es el entorno. El motivo está arriba, en la línea"
+      echo "     del worktree. Arreglalo y relanzá: no hay nada que reescribir."
+    fi
+    motivo=""
+    [ "${#sin_tests[@]}" -gt 0 ] && motivo="los tests de ${sin_tests[*]} no pasaron su propia validación. Los escribe una persona o se repiensa la tarea."
+    [ "${#por_entorno[@]}" -gt 0 ] && motivo="${motivo:+$motivo Y }en ${por_entorno[*]} no llegué a lanzar al agente: eso es del entorno, no del test."
+    parar "$n" "$motivo"
   fi
   git -C "$RAIZ" add -A >/dev/null 2>&1
   git -C "$RAIZ" commit -q -m "tests de la etapa $n: ${tareas[*]}" >/dev/null 2>&1 || true

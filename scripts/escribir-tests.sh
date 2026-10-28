@@ -158,7 +158,20 @@ for id in "$@"; do
   # contra la implementación de referencia del propio agente, las dos escritas contra el
   # enunciado que el agente vio. Los tres pasos pasan y el artefacto equivocado aterriza.
   tarea_sin_commitear "$id" || break
-  git -C "$RAIZ" worktree add -q -b "tests/$id" "$wt" || { echo "✗ $id: no pude crear el worktree"; break; }
+  # La marca, porque el motivo se perdía y el veredicto acusaba al que no era. Medido el
+  # 2026-10-27: dos corridas en paralelo compartieron el directorio padre de los worktrees
+  # —los nombres son `tests-<id>` y no llevan el proyecto—, `git worktree add` falló con
+  # «already exists», y `correr-todo.sh` cerró la etapa diciendo «los tests de T01a T06a no
+  # pasaron su propia validación. Los escribe una persona o se repiensa la tarea». Las dos
+  # tareas NUNCA llegaron al agente: no había test que reescribir ni tarea que repensar.
+  # `correr-plan.sh` ya separa su lista ENTORNO con «no es la tarea ni el modelo»; esto es
+  # la mitad que faltaba del lado de los tests.
+  if ! git -C "$RAIZ" worktree add -q -b "tests/$id" "$wt" 2>&1; then
+    echo "✗ $id: no pude crear el worktree — es del entorno, no del test"
+    mkdir -p "$RAIZ/.metricas"
+    printf 'no pude crear el worktree %s\n' "$wt" > "$RAIZ/.metricas/entorno-$id"
+    break
+  fi
   # El enunciado que el agente va a leer es el de ESTE worktree, recién salido de HEAD. Si
   # cambió desde el intento anterior, el sujeto es otro y los contadores arrancan de cero:
   # ver `huella_enunciado` en _comun.sh. MOTIVO_TESTS y HUELLA_ANTERIOR también, porque
@@ -462,7 +475,15 @@ for id in "$@"; do
       # del mismo agente que escribió el test —el método la descarta—, así que mirarla es
       # preguntarle al acusado. Está medido: así se colaba el test defectuoso. El único
       # compromiso sobre la implementación futura es el contrato.
-      SAL_K="$("${PY_PROYECTO:-python3}" "$AQUI/_mocks.py" --segun-enunciado \
+      # `--corregir`: el objetivo del patch lo arregla el MÉTODO, en el primer intento, y
+      # queda constancia. Medido el 2026-10-27 en tres brazos de 21 tareas: de los ocho tests
+      # que este chequeo rechazó, los ocho eran correctos salvo esa ruta, y los tres brazos
+      # se detuvieron en la misma etapa por eso. Decírselo al agente no sirve —tres canales
+      # medidos, ninguno mueve el sesgo— así que rechazar sólo compra una corrida perdida.
+      # Lo que se toca es una ruta de import, no un test: ninguna aserción, ningún valor
+      # esperado, ningún nombre de caso. Los cinco pasos que preguntan si el test DISTINGUE
+      # corren después, sobre el test corregido, y siguen pudiendo reprobarlo.
+      SAL_K="$("${PY_PROYECTO:-python3}" "$AQUI/_mocks.py" --segun-enunciado --corregir \
                "$ruta" "$archivo" . 2>&1)"; RC_K=$?
       if [ "$RC_K" = "1" ]; then
         malo "el test parchea un lugar donde el patch no va a tener efecto" "$SAL_K"
@@ -479,7 +500,14 @@ for id in "$@"; do
         # El testigo también en verde, y no es cosmética: este chequeo dio verde durante una
         # corrida entera mirando la implementación equivocada, y lo que lo hacía invisible
         # era justamente no decir qué había mirado.
-        echo "  ✓ los patch del test apuntan donde el patch pega"
+        #
+        # Y el titular distingue «apuntaban bien» de «los corregí»: si el método reparó algo,
+        # decir ✓ a secas sería atribuirle al agente un test que escribió mal.
+        case "$SAL_K" in
+          *"corregí el objetivo del patch"*)
+            echo "  ✎ corregí el objetivo de algún patch — lo hizo el método, no el agente" ;;
+          *) echo "  ✓ los patch del test apuntan donde el patch pega" ;;
+        esac
         printf '%s\n' "$SAL_K" | sed 's/^  /     · /'
       fi
     fi

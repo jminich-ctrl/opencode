@@ -57,8 +57,32 @@ respetar. Si el contrato no fija la forma, el defecto está en el contrato.
   0  ningún patch inefectivo (o no hay patches con objetivo literal)
   1  hay al menos un patch que no puede tener efecto
   2  hay patches cuyo efecto no se pudo determinar — NO es verde
+
+## `--corregir`: por qué el método repara esto y nada más
+
+Medido el 2026-10-27 en tres brazos de 21 tareas con modelos de verdad: de los ocho tests
+rechazados por este chequeo, **los ocho** eran correctos salvo el objetivo del patch —clase
+declarada, aserciones presentes, valores bien— y los tres brazos se detuvieron en la misma
+etapa por eso. Y tres canales distintos para decírselo al agente no mueven el sesgo: la regla
+en `AGENTS.md` (que OpenCode inyecta: llegó a 7 de 7 y 4 la ignoraron), el reemplazo exacto en
+el prompt del reintento (mejora la recuperación, no la primera pasada) y el contrato de la
+tarea (ningún efecto: 8 rechazos contra 8).
+
+Lo que se corrige es **una ruta de import, no un test**: no se toca ninguna aserción, ningún
+valor esperado ni ningún nombre de caso. El objetivo correcto es una consecuencia mecánica
+del import que el contrato ya fija, se calcula por árbol sintáctico y tiene par discriminante
+—con el `from` adentro de la función o con `import X` + `X.n` el patch SÍ pega y no se toca
+nada—. Los cinco pasos que preguntan si el test distingue siguen juzgando después, sobre el
+test corregido.
+
+El riesgo de corregir no es aflojar el gate: es **perder la señal** de que el modelo tiene el
+sesgo, que es parte del dataset que este método existe para producir. Por eso corregir deja
+constancia en tres lugares y no uno: el log de la corrida, `.metricas/correcciones.csv` y una
+copia del test tal como lo escribió el agente. Una corrección en silencio sería un verde
+falso del método sobre sí mismo.
 """
 import ast
+import datetime
 import pathlib
 import re
 import sys
@@ -164,9 +188,60 @@ def el_enunciado_declara_el_from(texto, modulo, simbolo):
     return False
 
 
+def corregir_en_archivo(test, inefectivos, tarea):
+    """Reescribe el objetivo de cada patch inefectivo, y sólo eso.
+
+    Línea por línea y no sobre el archivo entero: la posición sale del árbol sintáctico, así
+    que se toca exactamente la línea del `patch` y nada más. El original queda al lado como
+    `<test>.del-agente`, porque el dataset necesita lo que el agente escribió, no lo que el
+    método dejó.
+    """
+    lineas = test.read_text(encoding="utf-8", errors="replace").split("\n")
+    hechas = []
+    for modulo, simbolo, nro, destino, _fuente in inefectivos:
+        i = nro - 1
+        if not (0 <= i < len(lineas)):
+            continue
+        viejo, nuevo = "%s.%s" % (modulo, simbolo), "%s.%s" % (destino, simbolo)
+        if viejo not in lineas[i]:
+            continue
+        lineas[i] = lineas[i].replace(viejo, nuevo)
+        hechas.append((nro, viejo, nuevo))
+    if not hechas:
+        return []
+    reg = pathlib.Path(".metricas")
+    original = reg / "del-agente" / test.name
+    try:
+        original.parent.mkdir(parents=True, exist_ok=True)
+        if not original.exists():
+            original.write_text(test.read_text(encoding="utf-8", errors="replace"),
+                                encoding="utf-8")
+    except OSError as e:
+        print("  ✗ no pude guardar el test del agente (%s): no corrijo" % e)
+        return []
+    test.write_text("\n".join(lineas), encoding="utf-8")
+    try:
+        reg.mkdir(parents=True, exist_ok=True)
+        with (reg / "correcciones.csv").open("a", encoding="utf-8") as f:
+            if f.tell() == 0:
+                f.write("fecha,tarea,archivo,linea,de,a\n")
+            for nro, viejo, nuevo in hechas:
+                f.write("%s,%s,%s,%d,%s,%s\n" % (
+                    datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    (tarea.stem if tarea is not None else "?"), test, nro, viejo, nuevo))
+    except OSError as e:
+        # Que no se pueda registrar NO es un detalle: una corrección sin constancia es el
+        # método tapando la señal que vino a medir. Se informa y se devuelve como no hecha.
+        print("  ✗ corregí el patch pero NO pude registrarlo (%s): revertí" % e)
+        test.write_text(original.read_text(encoding="utf-8"), encoding="utf-8")
+        return []
+    return hechas
+
+
 def main(argv):
     segun_enunciado = "--segun-enunciado" in argv
-    argv = [a for a in argv if a != "--segun-enunciado"]
+    corregir = "--corregir" in argv
+    argv = [a for a in argv if a not in ("--segun-enunciado", "--corregir")]
     if not argv:
         print("uso: _mocks.py <archivo_de_test> [<archivo_de_tarea>] [<raiz>]", file=sys.stderr)
         return 2
@@ -227,6 +302,18 @@ def main(argv):
     for modulo, simbolo, linea, destino, por_que in sin_verificar:
         print("  %s:%d  no pude determinar si patch('%s.%s') tiene efecto sobre %s: %s"
               % (test, linea, modulo, simbolo, destino, por_que))
+
+    if inefectivos and corregir:
+        hechas = corregir_en_archivo(test, inefectivos, tarea)
+        if hechas:
+            for nro, viejo, nuevo in hechas:
+                print("  ✎ %s:%d  corregí el objetivo del patch: %s → %s"
+                      % (test, nro, viejo, nuevo))
+            print("     Lo corrigió el MÉTODO, no el agente. Queda en "
+                  ".metricas/correcciones.csv y el original en "
+                  ".metricas/del-agente/%s" % test.name)
+            print("     Sólo la ruta del patch: ninguna aserción ni valor esperado se tocó.")
+            inefectivos = []
 
     print("  inspeccionó: %d patch(es) con objetivo literal contra %s"
           % (len(objetivos), fuente_mirada))
