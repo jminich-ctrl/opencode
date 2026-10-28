@@ -44,6 +44,21 @@ Cuanto más preciso esto, menos improvisa el modelo.>
     def nombre_funcion(param: tipo) -> tipo:
         """Qué hace."""
 
+<Y si el contrato fija CÓMO traer un nombre de otra capa, decí también la consecuencia:
+dónde hay que parchearlo si el test necesita controlarlo. Eso es lo único medido del método
+que cerró un plan de 21 tareas con modelos chicos sin intervención humana, dos veces de dos
+—MEDICION.md §13—, y no cuesta nada escribirlo:>
+
+    Usa `from src.datos.d1 import leer1`.
+
+    Si el test necesita controlar lo que devuelve `leer1()`, parcheá
+    `src.servicios.s1.leer1` —el módulo donde se USA—, no `src.datos.d1.leer1`:
+    con ese import el nombre ya quedó ligado cuando el patch corre.
+
+<Sin esa línea, el modelo chico parchea donde el nombre se DEFINE —8 o 9 veces sobre siete
+tareas, en tres brazos medidos— el patch no pega, y el rojo lo paga el que implementa.
+Decírselo en `AGENTS.md` no alcanza: llegó a 7 de 7 agentes y 4 no lo aplicaron.>
+
 ## Tests (ya escritos, fallando)
 
 Los tests de esta tarea **ya están en el repo y fallan**. El trabajo del agente es hacerlos

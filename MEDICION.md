@@ -1047,3 +1047,55 @@ el código de salida de un pipe); una mutación que no verifiqué que se aplicar
 probados informado como ✓»—; y, cuando ya se aplicaba, un test que encontraba el registro que
 había dejado **su propia corrida anterior**, porque lo escribía en `d.parent` y `d` sale de
 `mkdtemp`, o sea el directorio temporal del sistema. El caso de prueba pasaba por el andamio.
+
+### Medición 13 — el 2x2 completo: el arreglo es del plan, no del chequeo (2026-10-28)
+
+Cuatro celdas, **dos corridas cada una**, 21 tareas, modelos de verdad, método congelado:
+
+| | contrato mudo | contrato que dice dónde parchear |
+|---|---|---|
+| **sin corregir** | **7** (A) | **21** (C) · **21** (C2) |
+| **el método corrige la ruta** | **14** (E) | **7** (F) |
+
+Dos resultados, y el segundo va contra el arreglo que yo mismo escribí ayer:
+
+**1. El contrato que declara la consecuencia de su propio import cierra el plan. Replicado,
+dos de dos.** Es el único arreglo de toda la sesión con señal repetida, y es del
+**planificador**: no hay chequeo nuevo, no hay código del método. El contrato dice
+
+    Usa `from src.datos.d1 import leer1`.
+
+    Si el test necesita controlar lo que devuelve `leer1()`, parcheá
+    `src.servicios.s1.leer1` —el módulo donde se USA—, no `src.datos.d1.leer1`.
+
+y con eso 21 de 21, dos veces, sin intervención humana.
+
+**2. Corregir la ruta sólo ayuda cuando el contrato es malo, y arruina el caso bueno.**
+7 → 14 con el contrato mudo; **21 → 7** con el contrato bueno. La causa cierra con lo medido:
+con el contrato enriquecido el agente acierta el patch casi siempre, y cuando no, lo arregla
+él en el reintento —eso ya estaba medido en la §8: 0 de 4 → 3 de 4 con el detalle en el
+prompt—. Si el método se lo corrige antes, aparece el conflicto entre la ruta corregida —que
+sigue al contrato— y el **borrador** del agente, que puede traer el nombre de otra forma: 24
+rechazos de «el test no pasa ni con la implementación del propio agente» en E, 16 en su
+primera corrida, 15 en D.
+
+Por eso `--corregir` queda **apagado por omisión** y prendible con `CORREGIR_PATCH=1`. La
+maquinaria se queda porque está toda medida —el límite de tocar sólo la ruta, la constancia en
+tres lugares, el brazo nulo— y porque el 7 → 14 es real en proyectos cuyo contrato no declare
+la consecuencia. Un arreglo que mejora un caso y empeora otro se deja prendible, no prendido.
+
+### Y lo que esta medición dice de cómo leí los datos durante el día
+
+Sobre la misma hipótesis me equivoqué dos veces en direcciones opuestas:
+
+- **A mediodía la declaré refutada**: «decirle al agente en el contrato dónde parchear no
+  reduce los rechazos, 8 contra 8». Era cierto *de la primera pasada* y lo escribí como
+  juicio del contrato. El contrato no reduce los rechazos **y** cierra el plan: las dos cosas
+  a la vez, y yo medí una y concluí sobre la otra.
+- **A las 22:30 dije que era el que más rendía** con un brazo por celda, y estuve a punto de
+  reportar que mi corrección «empeora el método» comparándola con C, que tiene otro factor
+  cambiado. El control de E era A, no C.
+
+Las dos veces el error fue el mismo que esta sesión persigue en el método: **medir un sujeto y
+concluir sobre otro**. Y las dos veces el que lo corrigió fue el dato siguiente, no releer lo
+escrito.

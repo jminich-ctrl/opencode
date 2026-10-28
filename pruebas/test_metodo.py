@@ -14836,23 +14836,52 @@ class TestElRojoQueElAcusadoNoPodiaLeer(unittest.TestCase):
         self.assertIn("El chequeo dijo exactamente esto", texto,
                       f"el reintento le pasó sólo el titular:\n{texto}")
 
-    def test_el_patch_ya_no_llega_al_reintento_porque_el_metodo_lo_corrige(self):
-        """El comportamiento NUEVO, fijado para que no se pierda: con `--corregir`, el defecto
-        del patch se arregla en el primer intento y no se gasta una llamada más. Antes de la
-        medición 11 esto costaba un reintento por tarea, y en tres brazos de 21 tareas costó
-        que ninguno pasara de 7 cerradas."""
+    def correr_puerta(self, d, bin_, prompts, **env):
+        entorno = " ".join(f'{k}={v}' for k, v in env.items())
+        return correr(f'PATH="{bin_}:$PATH" PROMPTS="{prompts}" PROYECTO=. LIMITE_AGENTE=60 '
+                      f'{entorno} AGENTES="{RAIZ}" bash "{SCRIPTS}/escribir-tests.sh" T01b', d)
+
+    def test_con_la_bandera_prendida_el_patch_no_llega_al_reintento(self):
+        """Lo que hace `CORREGIR_PATCH=1`: el defecto del patch se arregla en el primer
+        intento y no se gasta una llamada más.
+
+        Corre con la bandera EXPLÍCITA, y eso es el arreglo de un rechazo de la suite: el test
+        medía esto cuando corregir era el comportamiento por omisión, y al apagarlo —2x2 de
+        MEDICION.md §13: corregir baja 21 a 7 con el contrato bueno— quedó custodiando un
+        camino que ya no es el de omisión. Es la misma lección que la §11 dejó en el otro
+        sentido: un cambio posterior puede volver inalcanzable lo que un test protege, y
+        aflojar la aserción pierde las dos mediciones."""
         d = self.proyecto()
         bin_ = self.agente_que_insiste(d)
         prompts = d.parent / "prompts.txt"
-        r = correr(f'PATH="{bin_}:$PATH" PROMPTS="{prompts}" PROYECTO=. LIMITE_AGENTE=60 '
-                   f'AGENTES="{RAIZ}" bash "{SCRIPTS}/escribir-tests.sh" T01b', d)
+        r = self.correr_puerta(d, bin_, prompts, CORREGIR_PATCH=1)
         texto = prompts.read_text() if prompts.exists() else ""
         self.assertIn("corregí el objetivo", r.stdout,
-                      f"el método no corrigió el patch:\n{r.stdout}{r.stderr}")
+                      f"con la bandera prendida tiene que corregir:\n{r.stdout}{r.stderr}")
         self.assertEqual(1, len(texto.strip().split("\n")),
-                         f"gastó un reintento en algo que el método ya sabe arreglar:\n{texto}")
+                         f"gastó un reintento en algo que ya sabía arreglar:\n{texto}")
         self.assertIn("aceptado y copiado al tronco", r.stdout,
                       f"corregido, el test tiene que aceptarse:\n{r.stdout}")
+
+    def test_por_omision_el_patch_SI_llega_al_reintento(self):
+        """El par, y es el comportamiento que el 2x2 dice que conviene: sin la bandera el
+        método no toca el test, lo rechaza, y el agente lo arregla en el reintento con el
+        reemplazo en el prompt. Eso es lo que lleva 21 de 21 cuando el contrato declara la
+        consecuencia de su import, contra 7 cuando el método corrige."""
+        d = self.proyecto()
+        bin_ = self.agente_que_insiste(d)
+        prompts = d.parent / "prompts.txt"
+        r = self.correr_puerta(d, bin_, prompts)
+        texto = prompts.read_text() if prompts.exists() else ""
+        self.assertNotIn("corregí el objetivo", r.stdout,
+                         f"corrigió sin que nadie lo prendiera:\n{r.stdout}")
+        self.assertIn("no va a tener efecto", r.stdout,
+                      f"y tiene que seguir rechazándolo:\n{r.stdout}")
+        self.assertGreaterEqual(len(texto.strip().split("\n")), 2,
+                                f"no hubo reintento, así que el agente no tuvo su chance:\n"
+                                f"{texto}")
+        self.assertIn("patch('src.servicios.s1.leer1')", texto,
+                      f"el reintento tiene que llevarle el reemplazo:\n{texto}")
 
     def test_el_primer_intento_no_lleva_reproche(self):
         """El par: sin intento anterior no hay nada que contarle, y un reproche inventado en el
@@ -15230,11 +15259,83 @@ class TestElMetodoCorrigeLaRutaDelPatchYLoDeclara(unittest.TestCase):
         self.assertFalse((d / ".metricas" / "correcciones.csv").exists(),
                          "registró una corrección que no hizo")
 
-    def test_la_puerta_pasa_la_bandera(self):
+    def test_la_puerta_puede_corregir_pero_no_corrige_por_omision(self):
+        """Medido el 2026-10-28 en un 2x2 con dos corridas por celda: corregir sólo ayuda
+        cuando el contrato NO dice dónde parchear (7 → 14) y arruina el caso bueno (21 → 7,
+        replicado dos de dos). Así que la maquinaria queda —está toda medida— y la decisión
+        por omisión es no usarla. Un arreglo que mejora un caso y empeora otro se deja
+        prendible, no prendido."""
         codigo = (SCRIPTS / "escribir-tests.sh").read_text()
-        invoca = [l for l in codigo.split("\n") if "_mocks.py" in l and "python3" in l]
-        self.assertTrue(any("--corregir" in l for l in invoca),
-                        f"escribir-tests.sh no corrige: {invoca}")
+        self.assertIn("CORREGIR_PATCH", codigo,
+                      "no se puede prender la corrección")
+        self.assertIn('"${CORREGIR_PATCH:-0}" = "1"', codigo,
+                      "la omisión tiene que ser NO corregir: con el contrato bueno, "
+                      "corregir baja de 21 a 7")
         self.assertIn("lo hizo el método, no el agente", codigo,
                       "el titular no distingue una corrección del método de un acierto del "
                       "agente")
+
+
+class TestLoQueElEnsayoSabeLoSabeLaPlantilla(unittest.TestCase):
+    """El único arreglo de la sesión del 2026-10-27/28 con señal REPLICADA no es un chequeo:
+    es una línea del contrato. Un contrato que, además de fijar `from X import n`, dice dónde
+    parchear ese nombre si el test necesita controlarlo, cierra un plan de 21 tareas con
+    modelos chicos **21 de 21, dos veces de dos**, sin intervención humana. Sin esa línea: 7.
+
+    Y durante unas horas vivió sólo en `_ensayo_generar.py` —el generador del proyecto de
+    juguete—, o sea en el andamio de las mediciones y no donde una persona escribe un contrato
+    de verdad. Es el patrón que este repo repitió DIEZ veces en esa sesión: el arreglo en un
+    lado y no en el otro. El test cruza las dos listas, igual que el de `.gitignore` contra el
+    filtro del gate."""
+
+    def test_si_el_ensayo_declara_donde_parchear_la_plantilla_tambien(self):
+        ensayo = (SCRIPTS / "_ensayo_generar.py").read_text()
+        plantilla = (PLANTILLAS / "TAREA.md").read_text()
+        # El ensayo lo trae sólo si alguien lo puso: es la condición del cruce, no un supuesto.
+        if "el módulo donde se USA" not in ensayo:
+            self.skipTest("el generador del ensayo no declara dónde parchear: nada que cruzar")
+        self.assertIn("el módulo donde se USA", plantilla,
+                      "el generador del ensayo le dice al contrato dónde parchear y la "
+                      "plantilla que usa una persona no: es el arreglo que vive en un lado "
+                      "y no en el otro, y acá cuesta 21 tareas contra 7")
+
+    def test_el_generador_corre_y_lo_escribe_en_la_tarea(self):
+        """El cruce de arriba lee CADENAS, y eso no alcanza: al poner esta línea rompí la
+        indentación de `_ensayo_generar.py` —`IndentationError` en la línea 153— y los tests
+        del cruce siguieron en verde, porque ninguno ejecutaba el generador. Un invariante que
+        compara textos no sabe si el productor todavía arranca.
+
+        Esto lo corre y mira el archivo de tarea que sale."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-gen-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        r = correr(f'python3 "{SCRIPTS}/_ensayo_generar.py" 1 "{d}/p" "{d}/k"', RAIZ)
+        self.assertEqual(r.returncode, 0,
+                         f"el generador no corre:\n{r.stdout}{r.stderr}")
+        tarea = d / "p" / "tareas" / "T01b-cosa.md"
+        self.assertTrue(tarea.is_file(), f"no generó la tarea:\n{r.stdout}{r.stderr}")
+        texto = tarea.read_text()
+        self.assertIn("Usa `from src.datos.d1 import leer1`", texto,
+                      "el contrato perdió el import que fija")
+        self.assertIn("el módulo donde se USA", texto,
+                      "el contrato generado no declara dónde parchear: es la línea que "
+                      "separa 21 de 21 de 7 de 21")
+
+    def test_la_plantilla_lo_dice_donde_se_escribe_el_contrato(self):
+        """No alcanza con que la cadena aparezca: tiene que estar en la sección donde quien
+        planifica escribe el contrato, o nadie la lee cuando corresponde."""
+        plantilla = (PLANTILLAS / "TAREA.md").read_text()
+        i = plantilla.index("## Contrato")
+        j = plantilla.index("\n## ", i + 1)
+        self.assertIn("el módulo donde se USA", plantilla[i:j],
+                      "está en el archivo pero fuera de la sección Contrato")
+
+    def test_el_dato_viene_con_su_numero(self):
+        """Una recomendación sin número envejece y nadie sabe si todavía vale. La plantilla
+        tiene que decir contra qué se midió."""
+        plantilla = (PLANTILLAS / "TAREA.md").read_text()
+        i = plantilla.index("## Contrato"); j = plantilla.index("\n## ", i + 1)
+        seccion = plantilla[i:j]
+        self.assertIn("MEDICION.md", seccion,
+                      "sin la referencia a la medición, esto es una opinión")
+        self.assertRegex(seccion, r"21 tareas|21 de 21",
+                         "y tiene que traer el número que lo respalda")

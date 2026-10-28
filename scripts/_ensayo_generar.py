@@ -139,7 +139,17 @@ for g in range(1, grupos + 1):
         elif sufijo == "b":
             contrato = (f"    def calcular{g}() -> int:\n"
                         f"        \"\"\"Devuelve `leer{g}() * 10`.\"\"\"\n")
-            usa = f"\nUsa `from src.datos.d{g} import leer{g}`.\n"
+            # El contrato declara la CONSECUENCIA del import que él mismo manda, y es lo
+            # único con señal replicada de la sesión: 21 de 21 tareas cerradas con modelos
+            # chicos, dos veces de dos, contra 7 sin esta línea (MEDICION.md §13). Cambia
+            # el sujeto de las mediciones anteriores —§5: instrumento distinto, no se
+            # comparan— y se cambia a propósito: el ensayo tiene que generar planes como
+            # los que el método recomienda escribir, no como los que ya sabemos que fallan.
+            usa = (f"\nUsa `from src.datos.d{g} import leer{g}`.\n"
+                   f"\nSi el test necesita controlar lo que devuelve `leer{g}()`, parcheá\n"
+                   f"`src.servicios.s{g}.leer{g}` —el módulo donde se USA—, no\n"
+                   f"`src.datos.d{g}.leer{g}`: con ese import el nombre ya quedó ligado\n"
+                   f"cuando el patch corre, y parchear donde se define no tiene efecto.\n")
         else:
             contrato = (f"    def responder{g}() -> dict:\n"
                         f"        \"\"\"Devuelve `{{\"valor\": calcular{g}()}}`.\"\"\"\n")

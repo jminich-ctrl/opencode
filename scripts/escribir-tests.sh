@@ -486,7 +486,29 @@ for id in "$@"; do
       # `--registro` apunta al TRONCO del proyecto y no al worktree: el worktree de un test
       # aceptado se borra, y con él se iba la constancia de las correcciones exitosas — 27
       # corregidas, 4 sobrevivientes en la corrida del 2026-10-28.
-      SAL_K="$("${PY_PROYECTO:-python3}" "$AQUI/_mocks.py" --segun-enunciado --corregir \
+      # `CORREGIR_PATCH=1` lo prende; por omisión está APAGADO, y el motivo es medido, no
+      # de gusto. Diseño 2x2 con dos corridas por celda, 21 tareas cada una, modelos de
+      # verdad (MEDICION.md §13):
+      #
+      #                        contrato mudo   contrato que dice dónde parchear
+      #   sin corregir              7                21  ·  21   (replicado)
+      #   corrigiendo              14                 7
+      #
+      # Corregir sólo ayuda cuando el contrato es MALO (7 → 14) y arruina el caso bueno
+      # (21 → 7). Con el contrato que declara la consecuencia de su propio import, el agente
+      # acierta el patch casi siempre y, cuando no, lo arregla él en el reintento; si el
+      # método se lo corrige antes, aparece el conflicto entre la ruta corregida —que sigue
+      # al contrato— y el BORRADOR del agente, que puede traer el nombre de otra forma: 24
+      # rechazos de «no pasa ni con la implementación del propio agente» en el brazo E.
+      #
+      # El arreglo de ese defecto es del PLANIFICADOR y está medido: que el contrato diga la
+      # consecuencia del import que él mismo manda. Esto queda prendible porque su maquinaria
+      # —la corrección, su constancia en tres lugares, el límite de tocar sólo la ruta— está
+      # toda medida y con brazo nulo, y porque en proyectos cuyo contrato NO lo declare el
+      # 7 → 14 es real.
+      BANDERA_CORREGIR=""
+      [ "${CORREGIR_PATCH:-0}" = "1" ] && BANDERA_CORREGIR="--corregir"
+      SAL_K="$("${PY_PROYECTO:-python3}" "$AQUI/_mocks.py" --segun-enunciado $BANDERA_CORREGIR \
                --registro "$BASE/.metricas" "$ruta" "$archivo" . 2>&1)"; RC_K=$?
       if [ "$RC_K" = "1" ]; then
         malo "el test parchea un lugar donde el patch no va a tener efecto" "$SAL_K"
