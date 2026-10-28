@@ -15097,9 +15097,10 @@ class TestElMetodoCorrigeLaRutaDelPatchYLoDeclara(unittest.TestCase):
         (d / "tests/test_s1.py").write_text(self.AGENTE)
         return d
 
-    def corregir(self, d):
+    def corregir(self, d, registro=None):
+        reg = registro or (d / ".metricas")
         return correr(f'python3 "{SCRIPTS}/_mocks.py" --segun-enunciado --corregir '
-                      f'tests/test_s1.py tareas/T01b.md .', d)
+                      f'--registro "{reg}" tests/test_s1.py tareas/T01b.md .', d)
 
     def test_el_test_corregido_distingue_la_implementacion_del_contrato(self):
         """La mitad que justifica corregir: el test del agente FALLA contra la implementación
@@ -15152,6 +15153,59 @@ class TestElMetodoCorrigeLaRutaDelPatchYLoDeclara(unittest.TestCase):
         self.assertTrue(original.is_file(), "no guardó el test del agente")
         self.assertEqual(self.AGENTE, original.read_text(),
                          "el original guardado no es el que escribió el agente")
+
+    def test_la_constancia_sobrevive_al_borrado_del_worktree(self):
+        """El defecto que la corrida destapó, y es el que vuelve inútil toda la constancia.
+
+        Medido el 2026-10-28: en 21 tareas el método corrigió **27** rutas y sobrevivieron
+        **4** — las de las tareas que FALLARON. `_mocks.py` escribía en `./.metricas`, el CWD
+        durante la fase de tests es el worktree de la tarea, y el worktree de un test ACEPTADO
+        se borra al aceptarlo. O sea que la evidencia se destruía justo en los casos exitosos,
+        que son los que más le interesan al dataset. El arreglo que existía para no perder la
+        señal la perdía, y mi primer test no lo vio porque corría en un directorio fijo.
+
+        Acá el registro apunta a un directorio FUERA del árbol que se borra, y el test borra
+        el árbol para comprobarlo."""
+        d = self.proyecto()
+        # El registro va a un tempdir PROPIO, no a `d.parent`: `d` sale de `mkdtemp`, así que
+        # su padre es el directorio temporal del SISTEMA y lo que se escriba ahí sobrevive a
+        # la corrida. Mi primera versión lo usaba y el test pasaba con el defecto
+        # reintroducido, porque encontraba el CSV que había dejado la corrida ANTERIOR: el
+        # caso de prueba pasaba por el andamio, y el brazo nulo decía «verde» sobre un
+        # registro que nadie había escrito esta vez.
+        afuera = pathlib.Path(tempfile.mkdtemp(prefix="prueba-registro-")).resolve()
+        self.addCleanup(tirar_dir, afuera)
+        self.corregir(d, registro=afuera)
+        self.assertTrue((afuera / "correcciones.csv").is_file(),
+                        "no registró donde se le pidió")
+        self.assertTrue((afuera / "del-agente" / "test_s1.py").is_file(),
+                        "no guardó el test del agente donde se le pidió")
+        # Y ahora lo que pasa de verdad: el worktree desaparece.
+        tirar_dir(d)
+        self.assertTrue((afuera / "correcciones.csv").is_file(),
+                        "la constancia se fue con el worktree: es el defecto medido")
+        self.assertIn("src.datos.d1.leer1,src.servicios.s1.leer1",
+                      (afuera / "correcciones.csv").read_text())
+
+    def test_sin_registro_no_corrige(self):
+        """Corregir sin saber dónde dejar constancia es corregir en silencio, y eso es lo
+        único que esta función no puede hacer."""
+        d = self.proyecto()
+        r = correr(f'python3 "{SCRIPTS}/_mocks.py" --segun-enunciado --corregir '
+                   f'tests/test_s1.py tareas/T01b.md .', d)
+        self.assertNotEqual(r.returncode, 0, f"corrigió sin registro:\n{r.stdout}")
+        self.assertIn("no corrijo en silencio", r.stdout, f"\n{r.stdout}")
+        self.assertEqual(self.AGENTE, (d / "tests/test_s1.py").read_text(),
+                         "tocó el test sin poder registrarlo")
+
+    def test_la_puerta_pasa_el_registro_del_tronco_y_no_el_del_worktree(self):
+        codigo = (SCRIPTS / "escribir-tests.sh").read_text()
+        invoca = [l for l in codigo.split("\n") if "_mocks.py" in l or "--registro" in l]
+        junto = "\n".join(invoca)
+        self.assertIn("--registro", junto, "la puerta no pasa dónde registrar")
+        self.assertIn('$BASE/.metricas', junto,
+                      "el registro tiene que ir al TRONCO del proyecto: el worktree de un "
+                      "test aceptado se borra y se lleva la constancia")
 
     def test_el_original_va_a_metricas_y_no_al_lado_del_test(self):
         """`.metricas/` ya está en el `.gitignore` del método y en el filtro de infraestructura

@@ -483,8 +483,11 @@ for id in "$@"; do
       # Lo que se toca es una ruta de import, no un test: ninguna aserción, ningún valor
       # esperado, ningún nombre de caso. Los cinco pasos que preguntan si el test DISTINGUE
       # corren después, sobre el test corregido, y siguen pudiendo reprobarlo.
+      # `--registro` apunta al TRONCO del proyecto y no al worktree: el worktree de un test
+      # aceptado se borra, y con él se iba la constancia de las correcciones exitosas — 27
+      # corregidas, 4 sobrevivientes en la corrida del 2026-10-28.
       SAL_K="$("${PY_PROYECTO:-python3}" "$AQUI/_mocks.py" --segun-enunciado --corregir \
-               "$ruta" "$archivo" . 2>&1)"; RC_K=$?
+               --registro "$BASE/.metricas" "$ruta" "$archivo" . 2>&1)"; RC_K=$?
       if [ "$RC_K" = "1" ]; then
         malo "el test parchea un lugar donde el patch no va a tener efecto" "$SAL_K"
         printf '%s\n' "$SAL_K" | sed 's/^  /     /'

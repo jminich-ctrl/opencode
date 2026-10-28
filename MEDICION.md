@@ -994,3 +994,56 @@ Lo que quedó, que es la forma de no perder ninguna de las dos:
 - y el comportamiento nuevo se fija aparte: con el patch corregido **no se gasta un
   reintento**, el test se acepta en el primer intento, y eso es exactamente lo que en tres
   brazos de 21 tareas costó que ninguno pasara de 7 cerradas.
+
+### Medición 12 — corregir la ruta no movió el resultado, y movió la causa (2026-10-27/28)
+
+Cuarto brazo, un solo factor distinto: el método **corrige** el objetivo del patch.
+
+| | B | A | C | D |
+|---|---|---|---|---|
+| reintentos de tests | 2 | 3 | 3 | 3 |
+| contrato dice dónde parchear | no | no | **sí** | no |
+| el método corrige la ruta | no | no | no | **sí** |
+| **cerradas / 21** | **7** | **7** | **7** | **7** |
+| rechazos por patch inefectivo | 8 | 11 | 9 | **0** |
+| rechazos «no pasa ni con la implementación del propio agente» | — | — | — | **8** |
+| llamadas en fase de tests | 22 | 27 | 26 | 21 |
+
+El defecto que el chequeo rechazaba desapareció —**0** rechazos por patch, contra 8, 11 y 9— y
+el total de tareas cerradas **no se movió**. Lo que cambió es la causa del freno, y la nueva
+es una interacción que no estaba prevista:
+
+> el método corrige la ruta **según el contrato** —`from X import n` a nivel de módulo, así
+> que hay que parchear el módulo bajo prueba— y después el paso «pasa con la implementación»
+> valida contra el **borrador del agente**, que puede traer el nombre de otra forma. Con eso
+> el patch corregido no pega contra ese borrador y el test se rechaza.
+
+Es la quinta pregunta del método otra vez —¿contra qué material se compara, y es el mismo que
+el veredicto va a usar?— apareciendo **dentro del arreglo nuevo**: corrige mirando un sujeto y
+valida mirando otro. El mismo defecto que la medición 6 encontró en la versión anterior de
+este chequeo, en el otro sentido.
+
+**Lo que queda por decidir, con el dato en la mano**: si el método ajusta también el borrador
+—que se descarta de todos modos— para que la validación mida el escenario del contrato, o si
+esto dice que el paso «pasa con la implementación» no puede usar el borrador para nada. Lo
+primero es barato y lo segundo es más honesto; las dos cambian qué mide el validador de tests,
+así que no se eligen de apuro. El brazo E repite la corrida para confirmar que el 8 no fue
+casualidad antes de tocar nada.
+
+### Y el arreglo de hoy perdía la evidencia justo donde servía
+
+En esa misma corrida el método corrigió **27** rutas y sobrevivieron **4**: las de las tareas
+que FALLARON. `_mocks.py` escribía la constancia en `./.metricas`, el CWD durante la fase de
+tests es el worktree de la tarea, y el worktree de un test **aceptado se borra al aceptarlo**.
+La evidencia se destruía en los casos exitosos, que son los que más le interesan al dataset
+—es el defecto que este método persigue, dentro del arreglo que existía para no cometerlo—.
+
+Ahora `--registro` lo pasa quien llama, apuntando al tronco del proyecto, y **sin registro no
+corrige**: corregir en silencio es lo único que esa función no puede hacer.
+
+Mi primer brazo nulo de eso dio verde tres veces seguidas por tres razones distintas, y cada
+una vale anotarse: un `grep -c | tail` que devolvió un 0 plausible (quinta vez en el día con
+el código de salida de un pipe); una mutación que no verifiqué que se aplicara —«0 mutantes
+probados informado como ✓»—; y, cuando ya se aplicaba, un test que encontraba el registro que
+había dejado **su propia corrida anterior**, porque lo escribía en `d.parent` y `d` sale de
+`mkdtemp`, o sea el directorio temporal del sistema. El caso de prueba pasaba por el andamio.

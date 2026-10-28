@@ -188,7 +188,7 @@ def el_enunciado_declara_el_from(texto, modulo, simbolo):
     return False
 
 
-def corregir_en_archivo(test, inefectivos, tarea):
+def corregir_en_archivo(test, inefectivos, tarea, registro):
     """Reescribe el objetivo de cada patch inefectivo, y sólo eso.
 
     Línea por línea y no sobre el archivo entero: la posición sale del árbol sintáctico, así
@@ -209,7 +209,7 @@ def corregir_en_archivo(test, inefectivos, tarea):
         hechas.append((nro, viejo, nuevo))
     if not hechas:
         return []
-    reg = pathlib.Path(".metricas")
+    reg = pathlib.Path(registro)
     original = reg / "del-agente" / test.name
     try:
         original.parent.mkdir(parents=True, exist_ok=True)
@@ -241,6 +241,17 @@ def corregir_en_archivo(test, inefectivos, tarea):
 def main(argv):
     segun_enunciado = "--segun-enunciado" in argv
     corregir = "--corregir" in argv
+    # `--registro <dir>`: dónde dejar la constancia. Sin esto caía en `./.metricas`, que
+    # durante la fase de tests es el worktree que después se borra.
+    registro = None
+    if "--registro" in argv:
+        i = argv.index("--registro")
+        if i + 1 < len(argv):
+            registro = argv[i + 1]
+            del argv[i:i + 2]
+        else:
+            print("  --registro necesita un directorio")
+            return 2
     argv = [a for a in argv if a not in ("--segun-enunciado", "--corregir")]
     if not argv:
         print("uso: _mocks.py <archivo_de_test> [<archivo_de_tarea>] [<raiz>]", file=sys.stderr)
@@ -304,14 +315,19 @@ def main(argv):
               % (test, linea, modulo, simbolo, destino, por_que))
 
     if inefectivos and corregir:
-        hechas = corregir_en_archivo(test, inefectivos, tarea)
+        if registro is None:
+            # Corregir sin saber dónde dejar constancia es corregir en silencio, y eso es
+            # exactamente lo que no se puede hacer: el sesgo del modelo es parte del dataset.
+            print("  ✗ --corregir necesita --registro <dir>: no corrijo en silencio")
+            return 1
+        hechas = corregir_en_archivo(test, inefectivos, tarea, registro)
         if hechas:
             for nro, viejo, nuevo in hechas:
                 print("  ✎ %s:%d  corregí el objetivo del patch: %s → %s"
                       % (test, nro, viejo, nuevo))
             print("     Lo corrigió el MÉTODO, no el agente. Queda en "
-                  ".metricas/correcciones.csv y el original en "
-                  ".metricas/del-agente/%s" % test.name)
+                  "%s/correcciones.csv y el original en %s/del-agente/%s"
+                  % (registro, registro, test.name))
             print("     Sólo la ruta del patch: ninguna aserción ni valor esperado se tocó.")
             inefectivos = []
 
