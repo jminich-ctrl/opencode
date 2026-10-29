@@ -569,6 +569,7 @@ def main():
         todos = todos[:LIMITE]
 
     sobrevivientes = []
+    sin_efecto = 0
     for archivo, linea, nodo, que in todos:
         original = archivo.read_text()
         try:
@@ -580,6 +581,23 @@ def main():
             if objetivo is None:
                 continue
             mutado = ast.fix_missing_locations(Mutador(objetivo).visit(arbol))
+            # Un mutante que no cambia NADA no es un mutante, y si se corre igual la suite
+            # pasa —porque no hay nada que notar— y se informa como «sobrevivió»: un rojo que
+            # le cobra al test una diferencia que no existe.
+            #
+            # Reproducido el 2026-10-29 en quince líneas, sobre
+            # `return {"valor": calcular1() + 1}` con un test que afirma `{"valor": 11}`:
+            # el mutador eligió la constante de la línea, le tocó la CADENA `"valor"` —y para
+            # las cadenas el reemplazo devuelve el nodo intacto—, así que el archivo quedó con
+            # el único cambio de reescribir `"valor"` como `'valor'`. La suite, con razón, no
+            # notó nada. El test SÍ distinguía: mutado a mano a `+ 2`, falla.
+            #
+            # La comparación es por ÁRBOL y no por texto, porque `ast.unparse` normaliza
+            # comillas, paréntesis y espacios: comparando texto, todo mutante parecería
+            # distinto. Y se compara contra el original REPARSEADO por lo mismo.
+            if ast.dump(mutado) == ast.dump(ast.parse(original)):
+                sin_efecto += 1
+                continue
             archivo.write_text(ast.unparse(mutado))
             invalidar_bytecode(archivo)
             if correr():          # la suite pasó CON el código mutado: nadie lo verifica
@@ -591,7 +609,15 @@ def main():
             archivo.write_text(original)
             invalidar_bytecode(archivo)
 
-    print(f"  {len(todos)} mutante(s) probados sobre el diff, uno por línea")
+    probados = len(todos) - sin_efecto
+    if sin_efecto:
+        print(f"  ⊘ {sin_efecto} mutación/es no cambiaban nada (el operador no aplica a ese")
+        print(f"     nodo) y no se cuentan: un mutante que no muta no dice nada del test.")
+    print(f"  {probados} mutante(s) probados sobre el diff, uno por línea")
+    if probados == 0:
+        print("  ⊘ no quedó ningún mutante con efecto: el tercer paso (¿distingue?) no pudo")
+        print("     verificarse. No es un pase.")
+        return 2
     if sobrevivientes:
         # El centinela corre SÓLO sobre los que sobrevivieron: si todos murieron no hay nada
         # que diagnosticar, y son pocos cuando hay.

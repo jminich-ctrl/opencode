@@ -15691,3 +15691,177 @@ class TestSinMutantesUnaAsercionDeExistenciaNoAlcanza(unittest.TestCase):
         # Y que el rojo sea del método: `malo` es lo que cuenta el fallo y manda al reintento.
         i = s.index("exigir_valor_sin_mutantes() {")
         self.assertIn("malo ", s[i:i + 700], "el chequeo informa y no reprueba: sería decoración")
+
+
+class TestUnMutanteQueNoMutaNoDiceNadaDelTest(unittest.TestCase):
+    """El espejo del hallazgo de la FPR, y es peor en un sentido: le cobra al test correcto.
+
+    Reproducido el 2026-10-29 en quince líneas, buscando por qué el ensayo con semilla
+    rechazaba tests de referencia. Implementación `return {"valor": calcular1() + 1}` y test
+    `assertEqual(responder1(), {"valor": 11})` —que distingue: mutado a mano a `+ 2`, falla—.
+    `mutar.py` informaba:
+
+        ✗ 1 sobrevivieron: la suite no nota estos cambios
+           → src/rutas/r1.py:5  [cambiar el valor de la constante]
+
+    Lo que la suite vio en cada pasada, capturado metiendo un `grep` adentro del comando de
+    suite:
+
+        return {"valor": calcular1() + 1}      ← sin mutar
+        return {'valor': calcular1() + 1}      ← «mutado»
+
+    La única diferencia son las comillas. El mutador eligió la constante de la línea y le tocó
+    la CADENA `"valor"`; para las cadenas el reemplazo devuelve el nodo intacto, así que el
+    archivo quedó con el único cambio de reescribir `"valor"` como `'valor'` al pasar por
+    `ast.unparse`. La suite, con razón, no notó nada — y eso se informó como «el test cubre las
+    líneas y no verifica su comportamiento».
+
+    O sea: **un mutante que no muta se contaba como mutante sobreviviente.** Un rojo que manda
+    a arreglar un test que está bien, y que ya vimos en corridas reales con modelos.
+
+    La comparación del arreglo es por ÁRBOL y no por texto, porque `ast.unparse` normaliza
+    comillas y paréntesis: comparando texto, todos los mutantes parecerían distintos."""
+
+    def proyecto(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-metodo-"))
+        self.addCleanup(tirar_dir, d)
+        for sub in ("src/rutas", "src/servicios", "tests", "scripts"):
+            (d / sub).mkdir(parents=True)
+        for ini in ("src/__init__.py", "src/rutas/__init__.py",
+                    "src/servicios/__init__.py", "tests/__init__.py"):
+            (d / ini).touch()
+        (d / "src/servicios/s1.py").write_text("def calcular1():\n    return 10\n")
+        shutil.copy(PLANTILLAS / "correr-suite.sh", d / "scripts" / "correr-suite.sh")
+        correr("git init -q", d)
+        correr("git add -A", d)
+        correr('git -c user.email=a@b -c user.name=c commit -qm base', d)
+        # La línea bajo prueba entra en el SEGUNDO commit: `mutar.py` muta el diff.
+        (d / "src/rutas/r1.py").write_text(
+            "from src.servicios.s1 import calcular1\n\n\n"
+            "def responder1():\n    return {\"valor\": calcular1() + 1}\n")
+        (d / "tests/test_r1.py").write_text(
+            "import unittest\nfrom src.rutas.r1 import responder1\n\n\n"
+            "class TestR1(unittest.TestCase):\n"
+            "    def test_suma(self):\n"
+            "        self.assertEqual(responder1(), {\"valor\": 11})\n")
+        correr("git add -A", d)
+        correr('git -c user.email=a@b -c user.name=c commit -qm r1', d)
+        return d
+
+    def mutar(self, d):
+        return correr(f'BASE=HEAD~1 CODIGO=src/rutas '
+                      f'SUITE="bash scripts/correr-suite.sh tests/test_r1.py::TestR1" '
+                      f'python3 "{SCRIPTS}/mutar.py"', d)
+
+    def test_el_test_correcto_no_queda_acusado(self):
+        d = self.proyecto()
+        # Antes que nada: que el test DISTINGA de verdad, mutado a mano. Sin esto el caso no
+        # mide nada —podría estar acusando a un test flojo— y sería el error de medir contra
+        # el sujeto equivocado, que este repo ya cometió cuatro veces.
+        impl = d / "src/rutas/r1.py"
+        guardado = impl.read_text()
+        impl.write_text(guardado.replace("+ 1", "+ 2"))
+        rojo = correr("bash scripts/correr-suite.sh tests/test_r1.py::TestR1", d)
+        impl.write_text(guardado)
+        # Y borrar el bytecode: `+ 1` y `+ 2` ocupan lo mismo y se escriben en el mismo
+        # segundo, así que al restaurar queda el `.pyc` del mutante y la suite base da ROJO
+        # —`mutar.py` entonces sale 1 diciendo «la suite no está verde» y este test medía eso—.
+        # Es el mismo fenómeno que el método ya tenía documentado en `invalidar_bytecode`, y mi
+        # propio test cayó en él mientras investigaba un defecto de la misma familia.
+        # Con `tirar_dir`, que es el helper de este archivo y NO se traga la falla. Mi
+        # primera versión usaba `rmtree(..., ignore_errors=True)` y la suite la rechazó con su
+        # propia regla —«ninguna limpieza borra en silencio»—: un `rm` que falla callado es la
+        # misma clase de problema que un chequeo que no pudo correr y dice que pasó.
+        for cache in d.rglob("__pycache__"):
+            tirar_dir(cache)
+        self.assertNotEqual(rojo.returncode, 0,
+                            "el test no distingue el cambio: este caso no mide lo que dice")
+
+        r = self.mutar(d)
+        salida = r.stdout + r.stderr
+        self.assertNotIn("sobrevivieron", salida,
+                         f"acusó al test por una mutación sin efecto:\n{salida}")
+        self.assertEqual(2, r.returncode,
+                         f"sin mutantes con efecto el veredicto es «no pude verificar» (2), "
+                         f"no un pase ni una falla del test:\n{salida}")
+        self.assertIn("no cambiaban nada", salida,
+                      f"y tiene que decir POR QUÉ no pudo:\n{salida}")
+
+    def test_lo_que_el_veredicto_dice_cuando_no_pudo_no_es_un_pase(self):
+        """La regla de todo chequeo del repo, acá otra vez: el 2 no se lee como verde. Lo
+        consume `escribir-tests.sh`, que en esa rama exige que alguna aserción fije un valor."""
+        s = (SCRIPTS / "escribir-tests.sh").read_text()
+        i = s.index('RC_MUT=$?')
+        tramo = s[i:i + 1200]
+        self.assertIn('"$RC_MUT" = "2"', tramo, "escribir-tests.sh no ramifica en el 2")
+        self.assertIn("exigir_valor_sin_mutantes", tramo,
+                      "en la rama del 2 nadie juzga la fuerza de la aserción")
+
+
+class TestElGeneradorDaVariedadSinPerderLaReproducibilidad(unittest.TestCase):
+    """El dataset de veredictos vale por su variedad, no por su volumen: está medido afuera
+    —la diversidad de repos paga de forma logarítmica y las plantillas homogéneas colapsan la
+    diversidad de acciones un 31%— y adentro, porque setenta y cinco corridas del mismo
+    proyecto no son 2.600 ejemplos: son 21 ejemplos repetidos setenta y cinco veces.
+
+    Y hay una razón del método, no del dataset: el 2026-10-29 medimos que el 33,3% de los
+    tests que el gate aceptó tenía su paso de mutación en ⊘, porque la capa `c` devolvía un
+    dict literal y `mutar.py` no tiene operadores para eso. Variar el cálculo hace que ese
+    paso corra, y es la única defensa del gate contra una aserción floja.
+
+    Las dos propiedades que este test custodia son las que hacen que un dataset sirva:
+
+    1. **Misma semilla, mismo proyecto.** Sin eso una corrida no se puede citar ni auditar.
+    2. **Sin semilla, el proyecto de siempre.** El ensayo determinista mide la orquestación y
+       la suite tiene tests que comparan su salida: un generador que cambia sin que nadie lo
+       pida convierte en ruido todas las mediciones anteriores."""
+
+    def generar(self, grupos, semilla=None):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-metodo-"))
+        self.addCleanup(tirar_dir, d)
+        env = f"SEMILLA={semilla} " if semilla is not None else ""
+        r = correr(f'{env}python3 "{SCRIPTS}/_ensayo_generar.py" {grupos} "{d}/p" "{d}/k"', RAIZ)
+        self.assertEqual(0, r.returncode, f"el generador falló:\n{r.stdout}{r.stderr}")
+        return d / "p", d / "k"
+
+    def cuerpos(self, claves, grupos):
+        return [p.read_text() for g in range(1, grupos + 1)
+                for p in sorted((claves / f"T{g:02d}c" / "src").rglob("*.py"))]
+
+    def test_la_misma_semilla_da_el_mismo_proyecto(self):
+        _, k1 = self.generar(3, "una-semilla")
+        _, k2 = self.generar(3, "una-semilla")
+        self.assertEqual(self.cuerpos(k1, 3), self.cuerpos(k2, 3),
+                         "la misma semilla dio proyectos distintos: la corrida no se puede citar")
+
+    def test_semillas_distintas_dan_proyectos_distintos(self):
+        vistos = {tuple(self.cuerpos(self.generar(4, s)[1], 4))
+                  for s in ("a", "b", "c", "d", "e")}
+        self.assertGreater(len(vistos), 1,
+                           "cinco semillas dieron el mismo proyecto: no hay variedad")
+
+    def test_sin_semilla_es_exactamente_el_proyecto_de_siempre(self):
+        """La forma vieja —`return {"valor": calcularN()}`— es la que no tiene nada que mutar,
+        y por eso NO puede ser la única: pero tampoco puede dejar de ser la de por omisión,
+        porque el ensayo determinista y las mediciones viejas la suponen."""
+        _, k = self.generar(2)
+        for g in (1, 2):
+            cuerpo = (k / f"T{g:02d}c" / "src" / "rutas" / f"r{g}.py").read_text()
+            self.assertIn(f'return {{"valor": calcular{g}()}}', cuerpo,
+                          "sin semilla el generador cambió: las mediciones viejas quedan en el aire")
+
+    def test_el_contrato_declara_la_forma_que_la_referencia_implementa(self):
+        """Lo que me falló al parametrizar: varié el cálculo y dejé el contrato viejo, y el
+        validador rechazó el test de REFERENCIA con «el test obliga un contrato que el
+        enunciado no declara». El gate tenía razón; el enunciado era mío y estaba mal. La FNR
+        del brazo bueno subió a 33% y así se vio."""
+        for semilla in ("x", "y", "z"):
+            p, k = self.generar(3, semilla)
+            for g in (1, 2, 3):
+                cuerpo = (k / f"T{g:02d}c" / "src" / "rutas" / f"r{g}.py").read_text()
+                calculo = cuerpo.split("return ", 1)[1].strip()
+                tarea = (p / "tareas" / f"T{g:02d}c-cosa.md").read_text()
+                with self.subTest(semilla=semilla, grupo=g):
+                    self.assertIn(calculo, tarea,
+                                  f"el contrato de T{g:02d}c no declara lo que la referencia "
+                                  f"implementa ({calculo})")

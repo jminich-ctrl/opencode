@@ -19,7 +19,9 @@ el paralelismo —7 worktrees y 7 merges por etapa—, que es donde el método h
 
   python3 scripts/_ensayo_generar.py <grupos> <destino> <claves>
 """
+import os
 import pathlib
+import random
 import subprocess
 import sys
 
@@ -30,6 +32,36 @@ claves = pathlib.Path(sys.argv[3]).resolve()
 
 CAPAS = [("a", "datos", "d", "leer"), ("b", "servicios", "s", "calcular"),
          ("c", "rutas", "r", "responder")]
+
+# ── Variedad, con semilla ────────────────────────────────────────────────────────────────
+#
+# Por qué: el dataset de veredictos que este ensayo produce vale por su variedad, no por su
+# volumen. Está medido afuera —la diversidad de repos paga de forma logarítmica (+4,8 puntos de
+# 4 a 100 repos) y las plantillas homogéneas colapsan la diversidad de acciones un 31%— y
+# adentro: setenta y cinco corridas del mismo proyecto no son 2.600 ejemplos, son 21 ejemplos
+# repetidos setenta y cinco veces.
+#
+# Y hay una razón del método, no del dataset: el 2026-10-29 medimos que el 33,3% de los tests
+# aceptados tenía su paso de mutación en ⊘, porque la capa `c` devolvía un dict literal y
+# `mutar.py` no tiene operadores para eso. Variar el cálculo hace que ese paso corra en más
+# tareas, que es la única defensa del gate contra una aserción floja.
+#
+# `SEMILLA` fija la variedad: la misma semilla da el mismo proyecto, y eso es lo que permite
+# citar una corrida. Sin semilla, el dataset no es reproducible y los veredictos no se pueden
+# auditar.
+SEMILLA = os.environ.get("SEMILLA", "")
+_rnd = random.Random(SEMILLA) if SEMILLA else None
+
+
+def elegir(opciones, g):
+    """Con semilla, al azar reproducible; sin semilla, la primera — el comportamiento viejo.
+
+    Que sin `SEMILLA` el proyecto sea EXACTAMENTE el de antes no es prolijidad: la suite de
+    este repo tiene tests que corren el ensayo y comparan su salida, y el ensayo determinista
+    es lo que mide la orquestación. Un generador que cambia sin que nadie lo pida convierte en
+    ruido todas las mediciones anteriores.
+    """
+    return _rnd.choice(opciones) if _rnd else opciones[0]
 
 
 def sh(cmd, cwd=dest):
@@ -84,12 +116,32 @@ for g in range(1, grupos + 1):
                     f"    def test_calcular_multiplica_por_diez(self):\n"
                     f"        self.assertEqual(calcular{g}(), {g * 10})\n")
         else:
+            # La forma del cálculo se elige: con `return {"valor": calcular()}` —lo único que
+            # este generador producía— `mutar.py` no tiene NADA que mutar, y medimos el
+            # 2026-10-29 que eso deja al 33,3% de los tests aceptados sin el único paso que
+            # juzga la fuerza de la aserción. Las otras dos formas traen un operador, así que
+            # el paso corre. Cada una con su expectativa, calculada acá: un test que no
+            # coincide con su implementación mide el andamio.
+            forma = elegir(["envuelve", "suma", "compara"], g)
+            base = g * 10
+            if forma == "envuelve":
+                calculo = f'{{"valor": calcular{g}()}}'
+                esperado = f'{{"valor": {base}}}'
+                frase = "envuelve el valor"
+            elif forma == "suma":
+                calculo = f'{{"valor": calcular{g}() + {g}}}'
+                esperado = f'{{"valor": {base + g}}}'
+                frase = "suma el grupo al valor"
+            else:
+                calculo = f'{{"valor": calcular{g}(), "alto": calcular{g}() > {base - 1}}}'
+                esperado = f'{{"valor": {base}, "alto": True}}'
+                frase = "marca si el valor es alto"
             cuerpo = (f"from src.servicios.s{g} import calcular{g}\n\n\n"
-                      f"def responder{g}():\n    return {{\"valor\": calcular{g}()}}\n")
+                      f"def responder{g}():\n    return {calculo}\n")
             test = (f"import unittest\nfrom src.rutas.r{g} import responder{g}\n\n\n"
                     f"class TestR{g}(unittest.TestCase):\n"
-                    f"    def test_responder_envuelve_el_valor(self):\n"
-                    f"        self.assertEqual(responder{g}(), {{\"valor\": {g * 10}}})\n")
+                    f"    def test_responder_{forma}(self):\n"
+                    f"        self.assertEqual(responder{g}(), {esperado})\n")
         (k / mod.replace("src/", "src/")).write_text(cuerpo)
         (k / ruta_test).write_text(test)
 
@@ -151,8 +203,13 @@ for g in range(1, grupos + 1):
                    f"`src.datos.d{g}.leer{g}`: con ese import el nombre ya quedó ligado\n"
                    f"cuando el patch corre, y parchear donde se define no tiene efecto.\n")
         else:
+            # El contrato tiene que declarar la MISMA forma que la implementación de
+            # referencia, o el validador rechaza el test de referencia —y con razón— con «el
+            # test obliga un contrato que el enunciado no declara». Lo descubrí midiendo: al
+            # parametrizar el cálculo y dejar el contrato viejo, la FNR del brazo bueno subió
+            # a 33%. El gate funcionaba; el enunciado era mío y estaba mal.
             contrato = (f"    def responder{g}() -> dict:\n"
-                        f"        \"\"\"Devuelve `{{\"valor\": calcular{g}()}}`.\"\"\"\n")
+                        f"        \"\"\"Devuelve `{calculo}`.\"\"\"\n")
             usa = f"\nUsa `from src.servicios.s{g} import calcular{g}`.\n"
 
         (dest / "tareas" / f"{tid}-cosa.md").write_text(
