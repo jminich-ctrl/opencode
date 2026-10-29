@@ -150,6 +150,99 @@ def vacuas_en(funcion, propios):
     return hallazgos
 
 
+# ── ¿Alguna aserción FIJA UN VALOR? ──────────────────────────────────────────────────────
+#
+# Segundo modo, `--exige-valor`, y existe por una medición: el 2026-10-29, midiendo la FPR del
+# validador con verdad de terreno, el test degradado «flojo» —`assertIsNotNone(responder1())`,
+# una sola aserción de existencia— FUE ACEPTADO en T01c. Los cinco pasos lo dejaron pasar así:
+#
+#     ✓ falla sin la implementación      (el import revienta)
+#     ✓ pasa con la implementación
+#     ⊘ no hubo nada que mutar bajo «src/rutas»
+#     ✓ el brazo nulo falla              (cuerpo vacío devuelve None, y None ES None)
+#
+# O sea: cuando `mutar.py` no tiene operadores que mutar —`return {"valor": calcular1()}` no
+# tiene aritmética ni comparaciones— el gate pierde su ÚNICA defensa contra una aserción floja,
+# y el brazo nulo no lo cubre porque la no-nulidad distingue «algo» de «nada» de verdad.
+#
+# La regla es exacta y no hace falta correr nada: una aserción fija un valor si compara contra
+# algo —la familia `assertEqual`, un `assert` con un `Compare`, un `assertRaises` con su
+# excepción—. Si TODAS las aserciones del test son de existencia —`assertIsNotNone`,
+# `assertTrue(f())`, `assertIsInstance`— el test no dice qué tiene que devolver el producto.
+#
+# No se usa por omisión: muerde sólo donde el paso que discrimina no pudo correr. Un test
+# legítimo puede tener una aserción de existencia entre varias, y rechazarlo ahí sería el
+# chequeo que muerde al honesto y se apaga a la semana.
+EXISTENCIA = {"assertIsNotNone", "assertIsNone", "assertTrue", "assertFalse",
+              "assertIsInstance", "assertNotIsInstance"}
+
+
+def fija_valor(funcion):
+    """¿Hay al menos una aserción que compare contra algo?"""
+    for x in ast.walk(funcion):
+        if isinstance(x, ast.Assert):
+            if any(isinstance(y, ast.Compare) for y in ast.walk(x.test)):
+                return True
+        if isinstance(x, ast.Call):
+            nombre = getattr(x.func, "attr", "")
+            if nombre in DE_DOS:
+                return True
+            if nombre in ("assertRaises", "assertRaisesRegex", "assertWarns") and x.args:
+                return True
+            # `assertTrue(f() == 5)` sí fija un valor: lo que no fija es `assertTrue(f())`.
+            if nombre in EXISTENCIA and any(
+                    isinstance(y, ast.Compare) for a in x.args for y in ast.walk(a)):
+                return True
+    return False
+
+
+def sin_valor_en(arbol):
+    """Los tests del archivo cuyas aserciones son todas de existencia."""
+    flojos = []
+    for n in ast.walk(arbol):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name.startswith("test"):
+            tiene = any(isinstance(x, ast.Assert)
+                        or (isinstance(x, ast.Call) and getattr(x.func, "attr", "").startswith("assert"))
+                        for x in ast.walk(n))
+            if tiene and not fija_valor(n):
+                flojos.append((n.lineno, n.name))
+    return flojos
+
+
+def exigir_valor(archivos):
+    """Códigos: 0 alguna aserción fija un valor, 1 todas son de existencia, 2 no pude mirar."""
+    if not archivos:
+        print("  ⊘ no me pasaron ningún archivo: no inspeccioné nada.")
+        print("     No es un pase: nadie verificó si alguna aserción fija un valor.")
+        return 2
+    flojos, mirados = [], 0
+    for a in archivos:
+        p = pathlib.Path(a)
+        if not p.exists() or p.suffix != ".py":
+            print(f"  ⊘ {a}: no existe o no es un .py — no pudo verificarse")
+            continue
+        try:
+            arbol = ast.parse(p.read_text())
+        except SyntaxError as e:
+            print(f"  ⊘ {a}: no pude leer el árbol sintáctico ({e.msg} en la línea {e.lineno})")
+            continue
+        mirados += 1
+        flojos += [(p, linea, fn) for linea, fn in sin_valor_en(arbol)]
+    if mirados == 0:
+        print("     No es un pase: «no pude leer el test» y «el test está bien» no son lo mismo.")
+        return 2
+    if not flojos:
+        print("  ✓ alguna aserción fija un valor, no sólo la existencia del resultado")
+        return 0
+    print("  ✗ el test sólo afirma que el resultado EXISTE, y el paso que discrimina no pudo correr:")
+    for p, linea, fn in flojos[:6]:
+        print(f"     → {p}:{linea}  en {fn}()")
+    print("     Sin mutantes que matar, una aserción de existencia da verde contra cualquier")
+    print("     implementación que devuelva algo. Afirmá QUÉ tiene que devolver:")
+    print("     `assertEqual(responder1(), {\"valor\": 50})` en vez de `assertIsNotNone(...)`.")
+    return 1
+
+
 def main(archivos):
     """Códigos: 0 limpio, 1 hay aserciones vacuas, 2 NO PUDE MIRAR.
 
@@ -210,4 +303,6 @@ def main(archivos):
 
 
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["--exige-valor"]:
+        sys.exit(exigir_valor(sys.argv[2:]))
     sys.exit(main(sys.argv[1:]))

@@ -557,6 +557,33 @@ for id in "$@"; do
   # implementación: se revierten para comprobar que el test falla, se restauran para
   # comprobar que pasa, y se mutan para comprobar que el test distingue. La implementación
   # no se queda: el entregable es el test.
+  # Cuando el paso que DISCRIMINA no pudo correr, el validador se queda con «falla sin la
+  # implementación» y «pasa con ella», y los dos los satisface un test que sólo afirma que el
+  # resultado existe. Medido el 2026-10-29 con verdad de terreno: el test degradado «flojo»
+  # —`assertIsNotNone(responder1())`— FUE ACEPTADO en T01c, porque `return {"valor": ...}` no
+  # tiene nada que mutar y el brazo nulo no lo cubre (un cuerpo vacío devuelve None, y la
+  # no-nulidad distingue «algo» de «nada» de verdad). FPR 1 de 3 en ese grupo.
+  #
+  # Entonces acá, y SÓLO acá, se exige que alguna aserción fije un valor. No por omisión: un
+  # test legítimo puede tener una aserción de existencia entre varias, y morder ahí es el
+  # chequeo que castiga al honesto y se apaga a la semana.
+  exigir_valor_sin_mutantes() {
+    local sal rc
+    sal="$(python3 "$AQUI/_aserciones.py" --exige-valor "$ruta" 2>&1)"; rc=$?
+    printf '%s\n' "$sal"
+    if [ "$rc" = "1" ]; then
+      malo "sin mutantes que matar, el test sólo afirma que el resultado existe"
+    elif [ "$rc" = "2" ]; then
+      # El 2 es «no pude mirar», y acá no se puede leer como pase: estamos en la rama en que
+      # el paso que discrimina YA no corrió, así que si este tampoco corre no queda nada
+      # juzgando la fuerza de la aserción. Lo pidió la suite de este repo —«el que ramifica
+      # en la falla también ramifica en el no pude»— y tenía razón: mi primera versión leía
+      # el 1 y trataba el 2 como verde.
+      malo "no pude verificar si alguna aserción fija un valor, y el paso de mutación tampoco corrió"
+    fi
+    return 0
+  }
+
   if [ "$fallos" -eq 0 ]; then
     # La implementación es lo que la tarea declara, no lo que matchea $CODIGO. T03
     # entrega dos `.sql` en `backend/migraciones/`, que no está en CODIGO: el validador
@@ -607,6 +634,7 @@ for id in "$@"; do
         if [ "$MUTABLE" != "1" ]; then
           echo "  ⊘ no hay mutador para «${ruta}»: el test pasa los dos primeros pasos y el"
           echo "     tercero (¿distingue?) no pudo verificarse. No es un pase."
+          exigir_valor_sin_mutantes
         else
         # El CODIGO sale de lo que ESTA tarea declara, no de un default. Valía `src` y nadie
         # lo seteaba nunca: en un proyecto cuyo código vive en `backend/app` y `frontend/src`
@@ -631,6 +659,7 @@ for id in "$@"; do
           echo "  ⊘ no hubo nada que mutar bajo «${CODIGO_TAREA:-$CODIGO}»: el test pasa los dos"
           echo "     primeros pasos y el tercero (¿distingue?) no pudo verificarse. No es un pase."
           printf '%s\n' "$SALIDA_MUT" | sed 's/^/     /'
+          exigir_valor_sin_mutantes
         else
           # El detalle sale de la MISMA corrida, así que no puede desaparecer ni contradecirla.
           SOBREVIVEN="$(printf '%s\n' "$SALIDA_MUT" | grep '→' | head -3 | tr '\n' ' ' | cut -c1-400)"

@@ -15594,3 +15594,100 @@ class TestUnPlanTerminadoNoEsUnPlanIlegible(unittest.TestCase):
         # cuando la puerta frenaba por falta de encargo, dos pasos antes de mirar las etapas.
         self.assertRegex(salida, r"orden|ciclo|dependencia",
                          f"tiene que frenar por el orden de las tareas:\n{salida[-800:]}")
+
+
+class TestSinMutantesUnaAsercionDeExistenciaNoAlcanza(unittest.TestCase):
+    """Medido el 2026-10-29 con VERDAD DE TERRENO, que es lo que lo hace distinto de los otros
+    hallazgos de este archivo: el ensayo genera, por tarea, el test de referencia y cuatro
+    variantes degradadas, así que la FPR del validador se puede medir sin que nadie juzgue.
+
+    El resultado del primer grupo: 3 de 3 tests buenos aceptados (FNR 0%) y **el degradado
+    «flojo» ACEPTADO en 1 de 3** (FPR 33%). El flojo es una sola aserción de existencia:
+    `assertIsNotNone(responder1())`. Pasó así, y el log lo dice entero:
+
+        ✓ falla sin la implementación      (lo que revienta es el import)
+        ✓ pasa con la implementación
+        ⊘ no hubo nada que mutar bajo «src/rutas»
+        ✓ el brazo nulo falla: el test distingue algo de nada
+
+    Las dos cosas que lo dejaron entrar: `return {"valor": calcular1()}` no tiene operadores
+    que mutar —ni aritmética ni comparaciones— así que el único paso que juzga la FUERZA de la
+    aserción no corrió; y el brazo nulo no lo cubre, porque un cuerpo vacío devuelve `None` y
+    la no-nulidad distingue «algo» de «nada» de verdad. El ⊘ se informa como «no es un pase» y
+    la aceptación seguía igual.
+
+    O sea: **el gate tenía una sola defensa contra la aserción floja y, cuando no podía correr,
+    aceptaba.** Eso es la FPR que la literatura señala como el techo de todo lo demás —y la
+    ventaja que este método se atribuye—. Con el arreglo, el mismo grupo da FPR 0% y la FNR
+    sigue en 0%: el chequeo no muerde al test honesto, que es la condición para que no se
+    apague a la semana."""
+
+    def test_el_chequeo_distingue_la_asercion_floja_de_la_que_fija_un_valor(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-metodo-"))
+        self.addCleanup(tirar_dir, d)
+        flojo = d / "test_flojo.py"
+        flojo.write_text("import unittest\n"
+                         "from src.rutas.r1 import responder1\n\n\n"
+                         "class TestR1(unittest.TestCase):\n"
+                         "    def test_la_cosa_funciona(self):\n"
+                         "        self.assertIsNotNone(responder1())\n")
+        firme = d / "test_firme.py"
+        firme.write_text("import unittest\n"
+                         "from src.rutas.r1 import responder1\n\n\n"
+                         "class TestR1(unittest.TestCase):\n"
+                         "    def test_devuelve_el_valor(self):\n"
+                         "        self.assertEqual(responder1(), {'valor': 50})\n")
+        # Y uno que mezcla: existencia Y valor. Tiene que PASAR, porque el test honesto suele
+        # tener las dos y un chequeo que lo rechaza es un chequeo que alguien apaga.
+        mixto = d / "test_mixto.py"
+        mixto.write_text("import unittest\n"
+                         "from src.rutas.r1 import responder1\n\n\n"
+                         "class TestR1(unittest.TestCase):\n"
+                         "    def test_devuelve_el_valor(self):\n"
+                         "        r = responder1()\n"
+                         "        self.assertIsNotNone(r)\n"
+                         "        self.assertEqual(r['valor'], 50)\n")
+        # `assertTrue(f() == 5)` fija un valor aunque el nombre sea de existencia.
+        envuelto = d / "test_envuelto.py"
+        envuelto.write_text("import unittest\n"
+                            "from src.rutas.r1 import responder1\n\n\n"
+                            "class TestR1(unittest.TestCase):\n"
+                            "    def test_devuelve_el_valor(self):\n"
+                            "        self.assertTrue(responder1()['valor'] == 50)\n")
+        for archivo, esperado, por_que in (
+                (flojo, 1, "una sola aserción de existencia no dice qué devuelve el producto"),
+                (firme, 0, "assertEqual fija el valor"),
+                (mixto, 0, "tiene existencia y además valor: es el test honesto"),
+                (envuelto, 0, "assertTrue con una comparación adentro fija el valor")):
+            with self.subTest(archivo=archivo.name):
+                r = correr(f'python3 "{SCRIPTS}/_aserciones.py" --exige-valor "{archivo}"', d)
+                self.assertEqual(r.returncode, esperado,
+                                 f"{por_que}:\n{r.stdout}{r.stderr}")
+
+    def test_sin_archivos_no_dice_que_esta_limpio(self):
+        """La regla del repo para todo chequeo: «no pude mirar» y «está bien» no son lo mismo.
+        Su hermano `main()` ya salía 2 ahí desde el 2026-10-26; este modo nace con eso puesto."""
+        r = correr(f'python3 "{SCRIPTS}/_aserciones.py" --exige-valor', RAIZ)
+        self.assertEqual(r.returncode, 2, f"tiene que salir 2:\n{r.stdout}{r.stderr}")
+        self.assertIn("No es un pase", r.stdout + r.stderr)
+
+    def test_el_validador_lo_corre_justo_donde_el_paso_que_discrimina_no_pudo(self):
+        """Por estructura, no por longitud: el chequeo tiene que invocarse en las DOS ramas en
+        que el tercer paso no corre —sin mutador para el lenguaje, y sin nada que mutar— y en
+        ninguna otra. Si se corriera siempre, mordería al test honesto que tiene una aserción
+        de existencia entre varias, que es justo lo que el otro test de esta clase protege."""
+        s = (SCRIPTS / "escribir-tests.sh").read_text()
+        self.assertIn("exigir_valor_sin_mutantes()", s, "falta la función")
+        llamadas = [l for l in s.split("\n")
+                    if "exigir_valor_sin_mutantes" in l and "()" not in l]
+        self.assertEqual(2, len(llamadas),
+                         f"tiene que invocarse en las dos ramas de ⊘ y en ninguna otra:\n"
+                         + "\n".join(llamadas))
+        for llamada in llamadas:
+            i = s.index(llamada)
+            contexto = s[max(0, i - 700):i]
+            self.assertIn("⊘", contexto,
+                          "la invocación no está en una rama de ⊘: ahí mordería al test honesto")
+        # Y que el rojo sea del método: `malo` es lo que cuenta el fallo y manda al reintento.
+        i = s.index("exigir_valor_sin_mutantes() {")
+        self.assertIn("malo ", s[i:i + 700], "el chequeo informa y no reprueba: sería decoración")
