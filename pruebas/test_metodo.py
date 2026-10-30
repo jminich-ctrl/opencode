@@ -15935,3 +15935,74 @@ class TestElGeneradorDaVariedadSinPerderLaReproducibilidad(unittest.TestCase):
                     self.assertIn(calculo, tarea,
                                   f"el contrato de T{g:02d}c no declara lo que la referencia "
                                   f"implementa ({calculo})")
+
+
+class TestElMonitoreoVivoEnElRepoYNoEnTmp(unittest.TestCase):
+    """El 2026-10-30 el monitoreo de una corrida larga dejó de funcionar porque su script había
+    DESAPARECIDO de `/private/tmp`: quedó el log y nada más. La lección estaba escrita dos días
+    antes, en la investigación de infraestructura —lo que vive en tmp no es durable— y yo la
+    había aplicado al dataset y no a mis propias herramientas. Es el mismo movimiento que ya
+    hizo el vigilante: lo que vale se muda al repo y la suite lo cuida.
+
+    Lo que este test custodia es lo que hace útil a un monitoreo y no a un adorno:
+
+    · **Sin credenciales no dice que está todo bien.** Un monitoreo que informa verde cuando no
+      pudo consultar es peor que no tenerlo: es la misma familia que un chequeo que no corrió y
+      se lee como pase.
+    · **El mapa de papeles no se copia.** Lo lee de `colabhive/scripts/_status.py`. Esa regla ya
+      divergió una vez: la config nombra los modelos por uuid y la API por nombre, así que el
+      cruce por id no encontraba ninguno y el monitoreo listaba los 31 modelos no fríos del
+      catálogo en lugar de los cinco del equipo.
+    · **Distingue «no pude leer» de «leí y hay réplicas frías».** Mi primera versión devolvía 1
+      en los dos casos y el shell imprimía «no se pudo leer el estado» sobre una lectura
+      correcta: el décimo caso del mismo error en este repo."""
+
+    def test_sin_credenciales_informa_que_no_verifico(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-metodo-"))
+        self.addCleanup(tirar_dir, d)
+        r = correr(f'COLABHIVE_API_KEY= COLABHIVE_BASE_URL= HOME="{d}" '
+                   f'bash "{SCRIPTS}/monitorear.sh"', RAIZ)
+        salida = r.stdout + r.stderr
+        self.assertIn("⊘", salida,
+                      f"sin credenciales tiene que decir que NO verificó:\n{salida[:800]}")
+        self.assertNotIn("✓ contesta", salida,
+                         f"afirmó que la plataforma contesta sin haberla consultado:\n{salida[:800]}")
+
+    def test_el_mapa_de_papeles_se_lee_de_status_py_y_no_se_copia(self):
+        s = (SCRIPTS / "_monitor_replicas.py").read_text()
+        self.assertIn("_status.py", s, "no lee el mapa de su fuente")
+        # Y no tiene los papeles escritos: eso sería la copia que divergiría. Se pregunta
+        # por los NOMBRES de papel y no por la forma `ROLES = {`, porque el lector contiene
+        # esa forma como literal de búsqueda y mi primera versión del test se encontró a sí
+        # misma — el error de extractor que este repo ya nombra: «un grep se encontraría a sí
+        # mismo».
+        papeles = [p for p in ("arquitecto", "orquestador", "tester", "worker")
+                   if f'"{p}"' in s]
+        self.assertEqual([], papeles,
+                         f"tiene papeles escritos a mano: {papeles}")
+        st = (RAIZ / "colabhive" / "scripts" / "_status.py").read_text()
+        self.assertIn("ROLES = {", st, "cambió la fuente del mapa: hay que actualizar el lector")
+
+    def test_no_pude_leer_y_hay_replicas_frias_son_codigos_distintos(self):
+        """Con un JSON que no es JSON, el código es 2. Con uno válido y réplicas frías, 1."""
+        r = correr(f'printf \'no es json\' | python3 "{SCRIPTS}/_monitor_replicas.py" "{RAIZ}"',
+                   RAIZ)
+        self.assertEqual(2, r.returncode, f"«no pude leer» tiene que ser 2:\n{r.stdout}")
+        self.assertIn("⊘", r.stdout)
+        falso = json.dumps({"models": [
+            {"model_name": "gpt-oss-20b", "readiness": "cached", "warm_nodes": 0}]})
+        r2 = correr(f'printf %s {shlex.quote(falso)} | '
+                    f'python3 "{SCRIPTS}/_monitor_replicas.py" "{RAIZ}"', RAIZ)
+        self.assertEqual(1, r2.returncode,
+                         f"«leí y hay frías» tiene que ser 1, no 2:\n{r2.stdout}")
+        self.assertIn("warm=0", r2.stdout)
+
+    def test_el_shell_solo_se_queja_cuando_de_verdad_no_pudo(self):
+        """Estructural: el mensaje de «no se pudo verificar» tiene que estar condicionado al 2.
+        Si estuviera colgado de cualquier código distinto de cero, aparecería cada vez que hay
+        una réplica fría — que es la mitad de las mañanas."""
+        s = (SCRIPTS / "monitorear.sh").read_text()
+        i = s.index("_monitor_replicas.py")
+        tramo = s[i:i + 600]
+        self.assertIn('= "2"', tramo,
+                      f"el aviso no distingue el 2 del 1:\n{tramo[:300]}")
