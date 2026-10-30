@@ -73,6 +73,28 @@ CORTES_TOTAL_MAX="${CORTES_TOTAL_MAX:-2}"
 # muerto; el reemplazo exacto llegó al transcript del agente CERO veces. Un rojo que el
 # acusado no puede leer no es accionable, aunque sea correcto.
 malo() { echo "  ✗ $1"; MOTIVO_TESTS="$1"; [ -n "${2:-}" ] && DETALLE_TESTS="$2"; fallos=1; }
+
+# ── El veredicto, escrito como DATO y no sólo como prosa ───────────────────────────────
+#
+# `colab-verdicts-v1` es el activo raro de este método: no trayectorias de código —eso
+# abunda— sino el juicio de un gate que corre los tests, dimensión por dimensión, con el
+# motivo del rechazo. El 2026-10-29 lo exporté parseando los logs: salió bien para los
+# aceptados y 30 registros quedaron con la dimensión de mutación en «sin dato», porque el
+# bloque del intento se partía. Un dataset que infiere campos de prosa hereda los huecos del
+# parser, así que el registro se escribe acá, donde el dato existe.
+#
+# Va a `.metricas/`, que está en el .gitignore: es dato de medición, no del proyecto.
+dim() { DIMS="${DIMS:-}$1=$2"$'\n'; }
+
+emitir_veredicto() {
+  printf '%s' "${DIMS:-}" | python3 "$AQUI/_veredicto.py" \
+    --destino "$BASE/.metricas/veredictos.jsonl" \
+    --tarea "$id" --test "$ruta" --clase "${clase:-}" \
+    --veredicto "$1" --motivo "${2:-}" --raiz "$BASE" \
+    --desde "${wt:-}${wt:+/}${PROYECTO:-.}" 2>/dev/null || true
+}
+
+
 # Uno o varios directorios de código, separados por coma. El Pacman tiene uno (`src`); un
 # proyecto con back y front tiene dos. Asumir uno era un supuesto que se colaba de calibrar
 # contra un solo proyecto.
@@ -308,6 +330,7 @@ for id in "$@"; do
 
   cd "$wt/$PROYECTO" || break
   fallos=0
+  DIMS=""
   # 142 = SIGALRM: el agente no respondió en el límite. Es un intento fallido con motivo
   # propio y reintentable, no un test malo: pasó que `opencode run` se quedó 31 minutos con
   # el log en 0 bytes mientras la API del modelo respondía en 3 segundos.
@@ -360,6 +383,7 @@ for id in "$@"; do
     echo "     Puede tocar los archivos de la tarea y su archivo de test. Nada más."
   else
     echo "  ✓ sólo tocó el test y los archivos de la tarea"
+    dim alcance ✓
   fi
 
   # Cómo se declara "la clase" depende del lenguaje. Esto exigía `class X` siempre, así que
@@ -538,8 +562,12 @@ for id in "$@"; do
         # decir ✓ a secas sería atribuirle al agente un test que escribió mal.
         case "$SAL_K" in
           *"corregí el objetivo del patch"*)
-            echo "  ✎ corregí el objetivo de algún patch — lo hizo el método, no el agente" ;;
-          *) echo "  ✓ los patch del test apuntan donde el patch pega" ;;
+            echo "  ✎ corregí el objetivo de algún patch — lo hizo el método, no el agente"
+            # ✎ y no ✓: el dataset tiene que distinguir «el agente lo escribió bien» de «el
+            # método lo arregló». Si las dos salieran ✓, un juez entrenado con esto aprendería
+            # a aprobar tests que alguien tuvo que corregir.
+            dim objetivo_del_patch ✎ ;;
+          *) echo "  ✓ los patch del test apuntan donde el patch pega"; dim objetivo_del_patch ✓ ;;
         esac
         printf '%s\n' "$SAL_K" | sed 's/^  /     · /'
       fi
@@ -571,6 +599,7 @@ for id in "$@"; do
     local sal rc
     sal="$(python3 "$AQUI/_aserciones.py" --exige-valor "$ruta" 2>&1)"; rc=$?
     printf '%s\n' "$sal"
+    dim aserciones_fijan_valor "$([ "$rc" = "0" ] && echo ✓ || echo ✗)"
     if [ "$rc" = "1" ]; then
       malo "sin mutantes que matar, el test sólo afirma que el resultado existe"
     elif [ "$rc" = "2" ]; then
@@ -620,6 +649,7 @@ for id in "$@"; do
         malo "el test PASA con el código de antes: no prueba nada"
       else
         echo "  ✓ falla sin la implementación"
+        dim falla_sin_implementacion ✓
       fi
       for f in $impl; do cp "$tmp/$(echo "$f" | tr / _)" "$f"; done
       rm -rf "$tmp"
@@ -629,11 +659,13 @@ for id in "$@"; do
       limpiar_base_del_arbol "$wt" && BASE_VACIA_AL_EMPEZAR=1 || BASE_VACIA_AL_EMPEZAR=0
       if eval "$prueba" >/dev/null 2>&1; then
         echo "  ✓ pasa con la implementación"
+        dim pasa_con_implementacion ✓
         git add -A >/dev/null 2>&1
         git commit -q -m "impl+tests $id (worktree desechable)" >/dev/null 2>&1
         if [ "$MUTABLE" != "1" ]; then
           echo "  ⊘ no hay mutador para «${ruta}»: el test pasa los dos primeros pasos y el"
           echo "     tercero (¿distingue?) no pudo verificarse. No es un pase."
+          dim mutantes ⊘
           exigir_valor_sin_mutantes
         else
         # El CODIGO sale de lo que ESTA tarea declara, no de un default. Valía `src` y nadie
@@ -655,10 +687,12 @@ for id in "$@"; do
         RC_MUT=$?
         if [ "$RC_MUT" = "0" ]; then
           echo "  ✓ los mutantes mueren: el test distingue"
+          dim mutantes ✓
         elif [ "$RC_MUT" = "2" ]; then
           echo "  ⊘ no hubo nada que mutar bajo «${CODIGO_TAREA:-$CODIGO}»: el test pasa los dos"
           echo "     primeros pasos y el tercero (¿distingue?) no pudo verificarse. No es un pase."
           printf '%s\n' "$SALIDA_MUT" | sed 's/^/     /'
+          dim mutantes ⊘
           exigir_valor_sin_mutantes
         else
           # El detalle sale de la MISMA corrida, así que no puede desaparecer ni contradecirla.
@@ -744,6 +778,7 @@ for id in "$@"; do
           if [ "$fallos" = "0" ]; then
             if [ "$PREGUNTADOS" -gt 0 ]; then
               echo "  ✓ el brazo nulo falla en los $PREGUNTADOS archivo(s): el test distingue algo de nada"
+              dim brazo_nulo ✓
             else
               echo "  ⊘ no pude armar el brazo nulo: no había funciones que vaciar"
             fi
@@ -898,6 +933,7 @@ for id in "$@"; do
     done
     echo "  · borrador conservado en .metricas/borrador-aceptado/$id: $(echo "$impl" | grep -c .) archivo/s"
     echo "  ✓ $id: $ruta aceptado y copiado al tronco (la implementación se descarta)"
+    emitir_veredicto aceptado ""
     cd "$RAIZ" || true
     # El worktree de validación ya no hace falta: el test está en el tronco y la
     # implementación de referencia se descarta a propósito. Se queda sólo cuando FALLA, que
@@ -918,6 +954,7 @@ for id in "$@"; do
   fi
 
   [ -n "$MOTIVO_TESTS" ] || MOTIVO_TESTS="la validación del test no pasó"
+  emitir_veredicto rechazado "$MOTIVO_TESTS"
   cd "$RAIZ" || true
 
   # Misma regla de corte que correr-plan.sh: reintentar a ciegas gasta tiempo en la falla

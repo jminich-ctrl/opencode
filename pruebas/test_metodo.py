@@ -14891,6 +14891,76 @@ class TestElRojoQueElAcusadoNoPodiaLeer(unittest.TestCase):
         self.assertIn("aceptado y copiado al tronco", r.stdout,
                       f"corregido, el test tiene que aceptarse:\n{r.stdout}")
 
+    def test_cada_intento_deja_su_veredicto_como_dato(self):
+        """`colab-verdicts-v1` es el activo raro de este método: no trayectorias de código
+        —eso abunda— sino el juicio de un gate que corre los tests, dimensión por dimensión y
+        con el motivo del rechazo. No existe ningún dataset público de software con eso.
+
+        Exportarlo parseando los logs funciona para los aceptados y deja huecos: el 2026-10-29,
+        30 de 499 registros quedaron con la dimensión de mutación en «sin dato» porque el
+        bloque del intento se partía en el log. El dato existe en el momento en que cada paso
+        decide, así que el registro se escribe ahí.
+
+        Las dos cosas que este test custodia, y las dos me fallaron al escribirlo:
+
+        1. **Las dimensiones que el intento alcanzó, todas.** `dim` estaba definida DENTRO del
+           bucle, o sea después de su primer uso, y en bash eso es «command not found»: el
+           registro del aceptado salía con cuatro dimensiones de seis, sin `alcance` ni
+           `objetivo_del_patch`, que son las dos primeras.
+        2. **El texto del test, también cuando lo RECHAZA.** Al tronco llegan sólo los
+           aceptados; el rechazado vive en el worktree que se tira. Un registro que dice
+           «rechazado porque el patch apunta al módulo equivocado» sin el test no entrena
+           nada, y los rechazos son la mitad que más vale."""
+        d = self.proyecto()
+        bin_ = self.agente_que_insiste(d)
+        prompts = d.parent / "prompts.txt"
+        r = self.correr_puerta(d, bin_, prompts, CORREGIR_PATCH=1)
+        self.assertIn("aceptado y copiado al tronco", r.stdout,
+                      f"sin aceptación este test no mide lo que dice:\n{r.stdout[-500:]}")
+        registro = d / ".metricas" / "veredictos.jsonl"
+        self.assertTrue(registro.is_file(),
+                        f"no se escribió el veredicto:\n{r.stdout[-600:]}")
+        filas = [json.loads(l) for l in registro.read_text().splitlines() if l.strip()]
+        self.assertTrue(filas, "el archivo quedó vacío")
+        ac = [f for f in filas if f["veredicto"] == "aceptado"]
+        self.assertTrue(ac, f"ningún registro de aceptado: {[f['veredicto'] for f in filas]}")
+        reg = ac[-1]
+        self.assertEqual("T01b", reg["tarea"])
+        self.assertTrue(reg["test"], "el registro no trae el texto del test")
+        self.assertIn("class TestS1", reg["test"], "el texto guardado no es el test")
+        for dimension in ("alcance", "objetivo_del_patch", "falla_sin_implementacion",
+                          "pasa_con_implementacion", "brazo_nulo"):
+            with self.subTest(dimension=dimension):
+                self.assertIn(dimension, reg["dimensiones"],
+                              f"falta la dimensión {dimension}: {reg['dimensiones']}")
+        self.assertTrue(reg["enunciado"], "el registro no trae el enunciado de la tarea")
+
+    def test_el_veredicto_del_rechazo_trae_el_test_y_el_motivo(self):
+        """El rechazo sin su test es una etiqueta sin su entrada."""
+        d = self.proyecto()
+        bin_ = self.agente_que_insiste(d)
+        prompts = d.parent / "prompts.txt"
+        self.correr_puerta(d, bin_, prompts)      # sin CORREGIR_PATCH: lo rechaza
+        registro = d / ".metricas" / "veredictos.jsonl"
+        self.assertTrue(registro.is_file(), "no se escribió el veredicto del rechazo")
+        filas = [json.loads(l) for l in registro.read_text().splitlines() if l.strip()]
+        re_ = [f for f in filas if f["veredicto"] == "rechazado"]
+        self.assertTrue(re_, f"ningún rechazo registrado: {[f['veredicto'] for f in filas]}")
+        self.assertTrue(re_[0]["motivo"], "el rechazo no dice por qué")
+        self.assertTrue(re_[0]["test"],
+                        "el rechazo no trae el texto del test: el worktree se tiró antes")
+
+    def test_el_veredicto_nunca_tira_la_corrida(self):
+        """Un registro perdido es un dato menos; una corrida caída por el registro es una
+        medición perdida. Por eso el emisor va con `|| true` y el escritor se traga su propio
+        error de E/S — es la única excepción a la regla de «ninguna limpieza borra en
+        silencio», y está acá para que se vea."""
+        s = (SCRIPTS / "escribir-tests.sh").read_text()
+        i = s.index("emitir_veredicto() {")
+        self.assertIn("|| true", s[i:i + 400],
+                      "el emisor puede tirar la corrida si el escritor falla")
+        self.assertIn("2>/dev/null", s[i:i + 400])
+
     def test_el_borrador_contra_el_que_se_valido_queda_guardado(self):
         """Dos de los cinco pasos del validador —«pasa con la implementación» y «los mutantes
         mueren»— juzgan el test contra una implementación que el método DESCARTA: la escribió
