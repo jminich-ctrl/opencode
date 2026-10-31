@@ -91,3 +91,22 @@ que los tests son el entregable y tienen que ser buenos.
 
 **Nunca digas que corriste algo que no corriste.** Es la única falta que invalida
 todo el trabajo: si no podemos confiar en lo que reportás, hay que revisar todo a mano.
+
+## Lo que NO se instala en este repo, y por qué
+
+Relevado el 2026-10-31. Las cuatro primeras convierten rojos en verdes por diseño, o sea que son
+exactamente lo que el gate de este método existe para atrapar:
+
+- **`pytest-testmon`** — su propósito es NO correr tests. «La suite pasó» se volvería «el
+  subconjunto que testmon creyó afectado pasó», choca de frente con la mutación, y en el brazo
+  nulo puede seleccionar ~0 tests y dar VERDE.
+- **`pytest-rerunfailures`** — por omisión guarda sólo el traceback del último intento: convierte
+  rojos intermitentes en verdes, que es la patología que el brazo nulo existe para cazar.
+- **`flaky`** — oculta inestabilidad por diseño, y su último commit es de 2024.
+- **`deepeval`** — se lleva `pytest`, `pytest-xdist`, `pytest-repeat`, `pytest-rerunfailures` y
+  `pytest-asyncio` como dependencias de RUNTIME: una librería de juez pineando nuestro pytest.
+- **`diff-cover` como chequeo de alcance** — no tiene noción de conjunto permitido, y su
+  `--fail-under` lo gana un agente que agrega un test que pega en sus propias líneas.
+
+Y `pytest-randomly` sí, pero sabiendo dos cosas: va a poner rojo un rato por acoplamiento que ya
+existe, y la semilla pasa a ser campo obligatorio del veredicto.

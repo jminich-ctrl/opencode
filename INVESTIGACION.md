@@ -931,3 +931,106 @@ Orden por «cuánto cambia una decisión del método dividido lo que cuesta»:
 
 **Y saco H2-3 de la cola.** Un cuarto dato de un brazo nulo por invalidez no agrega nada: el
 canal no se leyó, y eso ya está medido siete veces.
+
+---
+
+# Quinta vuelta (2026-10-31): buscando refutarnos, y qué conviene importar
+
+Esta vuelta no salió de leer: salió de **mandar a buscar lo que nos contradiga**. Tres frentes, con
+la instrucción explícita de refutar nuestras propias afirmaciones — dos de ellas ya escritas en un
+informe que va a un sponsor.
+
+## 1. Lo que cambió el diseño del juez: el formato, no el modelo
+
+**CodeJudgeBench** mide tres cosas que nos aplican de frente:
+
+- **Juzgar generación de tests es la tarea más difícil** para un juez LLM, por encima de generar
+  y de reparar, «porque TestGen sólo provee el enunciado».
+- **Pointwise es mucho peor que pareado**: cerca de la mitad de los juicios terminan en empate.
+- **Invertir el orden A/B mueve la exactitud hasta 14 puntos.**
+
+Y en el subconjunto difícil, **la mitad de la tabla está por debajo del azar**: Skywork-Critic-70B
+45,95 · Prometheus-14B 45,04 · Qwen3-8B 41,50, con el azar en 50. A 70B.
+
+**Nosotros lo medimos en nuestro propio material, el mismo día, y confirma:**
+
+| Mismo modelo, mismo reservado | Resultado |
+|---|---|
+| pointwise («¿acepta o rechaza?») | **50% de acuerdo** — lo que acierta contestar siempre lo mismo; rechazaba todo |
+| **pareado, preguntado en los dos órdenes** | **3 de 3 correctos, 0 inconsistentes** |
+
+n=3, así que la magnitud no se afirma; la dirección sí, y la predicción era ajena y previa. Mi
+primera medición usó el formato peor medido del campo y casi concluí que el modelo no sabe juzgar.
+**El juez pregunta pareado, y cada par en los dos órdenes; la categoría «cambió con el orden» no
+cuenta como acierto** — un juez que depende del orden no juzga el contenido, y en un gate eso es un
+veredicto que cambia según cómo se pregunte.
+
+## 2. Qué compra el entrenamiento de un juez: no exactitud, sino dejar de aprobar basura
+
+Dos trabajos independientes, dos dominios, la misma forma:
+
+| Trabajo | Exactitud | Falsos positivos / TNR |
+|---|---|---|
+| Jueces chicos afinados (ICSE 2026) | sube poco; κ 0,35 → 0,57 en un 3B | **FP 48% → 8%** y **78% → 15%** |
+| CriticLeanGPT (Lean 4) | **79,8 → 79,8**: no se movió | **TNR 65,2 → 72,0** |
+
+**La métrica de éxito del entrenamiento es la tasa de falsos positivos a TPR fijo, no la
+exactitud.** Un plan que prometa «exactitud del juez» está mal planteado — el nuestro lo prometía.
+
+Y el techo honesto, del propio paper de ICSE: *«ninguno pasa de un acuerdo moderado con la
+ejecución de tests (todos con κ ≤ 0,60)»*. Más: **un juez de 0,5B es viable** (κ 0,00 → 0,45), lo
+que derrumba el presupuesto. Líneas base servibles hoy, sin entrenar: **Qwen3-14B** (Apache-2.0) y
+**AceReason-Nemotron-14B**. Descartados por medición: Prometheus, Skywork-Critic y Self-Taught de
+70B están en el azar juzgando tests.
+
+## 3. Nuestra afirmación del dataset: sobrevivió, y ahora es más filosa
+
+La versión defendible, que salió de buscar para refutarla:
+
+> Todo dataset público de etiquetas por paso a escala es de matemática o de web; los únicos de
+> ingeniería de software son esfuerzos chicos de anotación humana (102 instancias; 1.000-3.300
+> trayectorias), y **ningún dataset de ningún dominio deriva su etiqueta por paso de ejecutar
+> tests.**
+
+Esa última cláusula es la que nadie puede tumbar con un link. Dos hallazgos que la refuerzan: una
+card de HF que **admite** que su etiqueta final «no puede tratarse como etiqueta por turno» —el
+problema que este método resuelve, reconocido por otros—, y **SWE-Flow** (ICML 2025), la idea
+publicada más parecida a la nuestra, que es **sólo positivos, sin veredictos, sin negativos y sin
+razones**, y cuyo dataset prometido no está linkeado.
+
+## 4. Lo que conviene importar, y lo que nos rompería el gate
+
+**Adoptar:**
+
+| Pieza | Qué nos ahorra | El precio |
+|---|---|---|
+| **Imágenes oficiales de SWE-bench** (Docker Hub, 4.503 repos, ~1,1 GB cada una) | la infraestructura de contenedores entera. **Verified Mini son 50 instancias y ~5 GB** | **sólo amd64**: la Mac queda afuera, el issue de arm64 se cerró «not planned» |
+| **cosmic-ray** como segundo motor de mutación | el único con filtrado **por diff** nativo y operadores pluggables: excepciones, decoradores, `AddNot`, borrado de unarios | su distribuidor local es serial; hay que pasarle el SHA del merge-base, no la rama |
+| **`--cov-context=test` de coverage.py** | cero dependencias nuevas: el chequeo de alcance pasa de «¿tocó archivos de más?» a **test-impact real**, y el brazo nulo gana un tripwire mejor: *bajo el control, el conjunto de contextos sobre las líneas cambiadas debe ser VACÍO* | usar la API y no el SQL: el esquema puede cambiar sin cambiar la versión mayor |
+| **`grading.py` de SWT-bench, vendorizado** | la definición correcta de éxito ya resuelta: el F2P del candidato tiene que ser superconjunto del base, agregar ≥1 F2P nuevo y **no agregar ningún P2F ni F2F** | 20 repos hardcodeados en su despachador de parsers |
+
+**No instalar, con motivo:** `pytest-testmon` (su propósito es NO correr tests: en el brazo nulo
+puede seleccionar ~0 tests y dar verde), `pytest-rerunfailures` y `flaky` (convierten rojos
+intermitentes en verdes, que es la patología que el brazo nulo existe para cazar), `deepeval` (se
+lleva pytest y sus plugins como dependencias de runtime). **Son exactamente lo que este gate existe
+para atrapar.**
+
+**Y la descontaminación: no adoptar nada.** El pipeline de SWE-rebench no publica código —es una
+comparación de fechas—, el de `lm-evaluation-harness` es código muerto detrás de docs vivas, dos
+detectores no tienen licencia, y Min-K%++ pide logits que vLLM no expone. **Para tareas sintéticas
+con semilla no hay nada que detectar**: si la semilla, las plantillas y el código no existían antes
+de generarse, ningún corpus los contiene — y eso es una prueba constructiva, más fuerte que correr
+un ataque de inferencia de membresía que anda cerca del azar. Lo que falta es **metadatos de
+procedencia**, y eso ya lo escribimos (semilla + commit del método por corrida).
+
+## 5. Dónde este método ya está adelante
+
+**El brazo nulo no tiene equivalente publicado** fuera del `NopAgent` de Harbor: ninguna de las
+herramientas revisadas implementa una condición de control — todas suponen que la tarea es real y
+que el parche debe pasar. Y la necesidad está medida afuera: **SWE-bench+ encontró 32,67% de fuga
+de solución** en los parches «exitosos» de un agente conocido, bajando su tasa de 12,47% a 3,97%.
+
+Lo que nos falta es periferia: contenedores (resuelto por las imágenes oficiales), mutación por
+diff (cosmic-ray) y **rigor estadístico sobre el control** — y ahí hay un detalle que vale: Intel
+publicó `dokimi` (Apache-2.0, octubre 2026), que hace comparaciones pareadas on/off **con p-valores
+por modelo**. Es la capa que a nuestro brazo nulo le falta. Leerlo, no depender de él.
