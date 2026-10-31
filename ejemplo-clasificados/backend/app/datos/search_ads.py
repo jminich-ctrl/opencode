@@ -21,11 +21,11 @@ def search_ads(titulo: str | None = None, categoria: str | None = None) -> list[
         parametros.append(f"%{titulo}%")
     
     if categoria is not None:
-        condiciones.append("categoria = %s")
+        condiciones.append("categoria_id = %s")
         parametros.append(categoria)
     
     # Construimos la consulta SQL
-    consulta = "SELECT id, usuario_id, titulo, categoria FROM anuncios WHERE 1=1"
+    consulta = "SELECT id, usuario_id, titulo, categoria_id FROM anuncios WHERE 1=1"
     
     if condiciones:
         consulta += " AND " + " AND ".join(condiciones)
