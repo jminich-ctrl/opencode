@@ -15920,6 +15920,64 @@ class TestElGeneradorDaVariedadSinPerderLaReproducibilidad(unittest.TestCase):
             self.assertIn(f'return {{"valor": calcular{g}()}}', cuerpo,
                           "sin semilla el generador cambió: las mediciones viejas quedan en el aire")
 
+    def test_las_tres_capas_varian_y_no_solo_la_ultima(self):
+        """Medido el 2026-10-31 sobre 998 veredictos: **sólo el 40% de los tests eran
+        distintos**. La causa: cuando parametricé el generador toqué sólo la capa `c`, así que
+        catorce de las veintiuna tareas de cada proyecto eran clones de la corrida anterior y
+        el agente escribía el mismo test veinte veces. Un dataset que crece en filas y no en
+        información es el mismo problema que un chequeo que no puede fallar."""
+        formas = {"a": set(), "b": set()}
+        for semilla in ("s1", "s2", "s3", "s4", "s5"):
+            _, k = self.generar(4, semilla)
+            for g in range(1, 5):
+                formas["a"].add((k / f"T{g:02d}a" / "src" / "datos" / f"d{g}.py").read_text())
+                formas["b"].add((k / f"T{g:02d}b" / "src" / "servicios" / f"s{g}.py").read_text())
+        self.assertGreater(len(formas["a"]), 4,
+                           f"la capa `a` casi no varía: {len(formas['a'])} formas distintas")
+        self.assertGreater(len(formas["b"]), 4,
+                           f"la capa `b` casi no varía: {len(formas['b'])} formas distintas")
+
+    def test_la_forma_del_import_varia_porque_cambia_el_objetivo_del_patch(self):
+        """Es la variación que más información agrega, y por eso tiene su propio test: es la
+        que decide CUÁL es el objetivo correcto del `patch()`.
+
+        Con `from X import n` el nombre queda ligado en el módulo que lo usa, así que hay que
+        parchear donde se usa. Con `import X` la búsqueda pasa en el momento de la llamada, así
+        que parchear el módulo de origen SÍ tiene efecto. Con una sola forma, la respuesta
+        correcta era siempre la misma: 248 de los ~400 rechazos del dataset son esa única
+        clase, y un juez entrenado con eso aprendería una regla fija en vez del razonamiento."""
+        vistas = set()
+        for semilla in ("i1", "i2", "i3", "i4"):
+            _, k = self.generar(4, semilla)
+            for g in range(1, 5):
+                cuerpo = (k / f"T{g:02d}b" / "src" / "servicios" / f"s{g}.py").read_text()
+                vistas.add("desde" if cuerpo.startswith("from src.datos") else "modulo")
+        self.assertEqual({"desde", "modulo"}, vistas,
+                         f"el generador no produce las dos formas de import: {vistas}")
+
+    def test_el_enunciado_de_b_declara_el_import_y_el_objetivo_que_ese_import_hace_efectivo(self):
+        """El error que ya cometí una vez y que la FNR destapó: varié la implementación y dejé
+        el enunciado viejo, y el validador rechazó el test de REFERENCIA —con razón— con «el
+        test obliga un contrato que el enunciado no declara».
+
+        Acá es peor que un desajuste de texto: si el enunciado manda parchear donde se usa y la
+        implementación trae el nombre con `import X`, el consejo apunta al lado contrario y el
+        agente no tiene cómo darse cuenta."""
+        for semilla in ("j1", "j2", "j3"):
+            p_, k = self.generar(3, semilla)
+            for g in range(1, 4):
+                cuerpo = (k / f"T{g:02d}b" / "src" / "servicios" / f"s{g}.py").read_text()
+                tarea = (p_ / "tareas" / f"T{g:02d}b-cosa.md").read_text()
+                importa = cuerpo.split("\n")[0].strip()
+                with self.subTest(semilla=semilla, grupo=g):
+                    self.assertIn(f"`{importa}`", tarea,
+                                  f"el enunciado no declara el import que la referencia usa "
+                                  f"({importa})")
+                    if importa.startswith("from"):
+                        self.assertIn(f"src.servicios.s{g}.leer{g}", tarea)
+                    else:
+                        self.assertIn(f"src.datos.d{g}.leer{g}` —donde se DEFINE", tarea)
+
     def test_el_contrato_declara_la_forma_que_la_referencia_implementa(self):
         """Lo que me falló al parametrizar: varié el cálculo y dejé el contrato viejo, y el
         validador rechazó el test de REFERENCIA con «el test obliga un contrato que el

@@ -87,6 +87,13 @@ for f in ("gate.sh", "correr-suite.sh", "_arquitectura.py", "pre-deploy.sh", "sm
 
 # Las capas del ensayo son las de la plantilla, así que `_arquitectura.py` queda como viene.
 
+# La forma elegida por grupo, para que las tres capas del grupo se cuenten la misma historia:
+# el contrato de `b` tiene que declarar el import que su implementación usa, y el ejemplo del
+# patch tiene que apuntar al objetivo que ESA forma hace efectivo. Cuando varié sólo la capa
+# `c` y dejé el contrato viejo, el validador rechazó el test de referencia —con razón— y la
+# FNR del brazo bueno subió a 33%.
+forma_a_de, objetivo_de, importa_de = {}, {}, {}
+esperado_a_de, expr_de = {}, {}
 filas, filas_tests, requisitos = [], [], []
 for g in range(1, grupos + 1):
     for sufijo, capa, pre, verbo in CAPAS:
@@ -103,18 +110,65 @@ for g in range(1, grupos + 1):
         (k / "src" / capa).mkdir(parents=True, exist_ok=True)
         (k / "tests").mkdir(parents=True, exist_ok=True)
         if sufijo == "a":
-            cuerpo = f"def leer{g}():\n    return {g}\n"
+            # La FORMA DEL RETORNO se elige. Medido el 2026-10-31 sobre 998 veredictos: sólo
+            # el 40% de los tests eran distintos, porque las capas `a` y `b` tenían la misma
+            # forma en todas las corridas y el agente escribía el mismo test veinte veces. Un
+            # dataset que crece en filas y no en información es el mismo problema que un
+            # chequeo que no puede fallar.
+            forma_a = elegir(["numero", "lista", "mapa"], g)
+            if forma_a == "numero":
+                valor, esperado_a = f"{g}", f"{g}"
+            elif forma_a == "lista":
+                valor, esperado_a = f"[{g}, {g * 2}]", f"[{g}, {g * 2}]"
+            else:
+                valor, esperado_a = f'{{"n": {g}}}', f'{{"n": {g}}}'
+            forma_a_de[g] = forma_a
+            esperado_a_de[g] = esperado_a
+            cuerpo = f"def leer{g}():\n    return {valor}\n"
             test = (f"import unittest\nfrom src.datos.d{g} import leer{g}\n\n\n"
                     f"class TestD{g}(unittest.TestCase):\n"
-                    f"    def test_leer_devuelve_el_numero_del_grupo(self):\n"
-                    f"        self.assertEqual(leer{g}(), {g})\n")
+                    f"    def test_leer_devuelve_lo_del_grupo(self):\n"
+                    f"        self.assertEqual(leer{g}(), {esperado_a})\n")
         elif sufijo == "b":
-            cuerpo = (f"from src.datos.d{g} import leer{g}\n\n\n"
-                      f"def calcular{g}():\n    return leer{g}() * 10\n")
+            # Y acá la FORMA DEL IMPORT, que es la que más información agrega de todas: es la
+            # que decide CUÁL es el objetivo correcto del `patch()`.
+            #
+            #   desde  → `from src.datos.dN import leerN`: el nombre queda ligado en el módulo
+            #            que lo usa, así que hay que parchear `src.servicios.sN.leerN`.
+            #   modulo → `import src.datos.dN`: la búsqueda es en tiempo de llamada, así que
+            #            parchear `src.datos.dN.leerN` SÍ tiene efecto.
+            #
+            # Con una sola forma, la respuesta correcta era siempre la misma y un juez
+            # entrenado con este dataset aprendería una regla fija en vez del razonamiento. De
+            # hecho 248 de los ~400 rechazos del dataset son esa única clase.
+            forma_i = elegir(["desde", "modulo"], g)
+            if forma_i == "desde":
+                importa_b = f"from src.datos.d{g} import leer{g}"
+                llama_b = f"leer{g}()"
+                objetivo = f"src.servicios.s{g}.leer{g}"
+            else:
+                importa_b = f"import src.datos.d{g}"
+                llama_b = f"src.datos.d{g}.leer{g}()"
+                objetivo = f"src.datos.d{g}.leer{g}"
+            # El dato que `leerN` devuelve depende de la forma de la capa `a` de ESTE grupo:
+            # con lista o mapa hay que sacar el número antes de multiplicar, y el test tiene
+            # que esperar lo mismo que la implementación calcula.
+            fa = forma_a_de.get(g, "numero")
+            if fa == "numero":
+                expr = f"{llama_b} * 10"
+            elif fa == "lista":
+                expr = f"{llama_b}[0] * 10"
+            else:
+                expr = f'{llama_b}["n"] * 10'
+            cuerpo = (f"{importa_b}\n\n\n"
+                      f"def calcular{g}():\n    return {expr}\n")
             test = (f"import unittest\nfrom src.servicios.s{g} import calcular{g}\n\n\n"
                     f"class TestS{g}(unittest.TestCase):\n"
                     f"    def test_calcular_multiplica_por_diez(self):\n"
                     f"        self.assertEqual(calcular{g}(), {g * 10})\n")
+            objetivo_de[g] = objetivo
+            importa_de[g] = importa_b
+            expr_de[g] = expr
         else:
             # La forma del cálculo se elige: con `return {"valor": calcular()}` —lo único que
             # este generador producía— `mutar.py` no tiene NADA que mutar, y medimos el
@@ -186,22 +240,35 @@ for g in range(1, grupos + 1):
         # imports del validador no tiene nada que leer y avisa —con razón— que no pudo
         # verificar ninguna. Un ensayo que deja chequeos sin material no ensaya el pipeline.
         if sufijo == "a":
-            contrato = f"    def leer{g}() -> int:\n        \"\"\"Devuelve {g}.\"\"\"\n"
+            tipo_a = {"numero": "int", "lista": "list", "mapa": "dict"}[forma_a_de.get(g, "numero")]
+            contrato = (f"    def leer{g}() -> {tipo_a}:\n"
+                        f"        \"\"\"Devuelve `{esperado_a_de[g]}`.\"\"\"\n")
             usa = ""
         elif sufijo == "b":
             contrato = (f"    def calcular{g}() -> int:\n"
-                        f"        \"\"\"Devuelve `leer{g}() * 10`.\"\"\"\n")
+                        f"        \"\"\"Devuelve `{expr_de[g]}`.\"\"\"\n")
             # El contrato declara la CONSECUENCIA del import que él mismo manda, y es lo
             # único con señal replicada de la sesión: 21 de 21 tareas cerradas con modelos
             # chicos, dos veces de dos, contra 7 sin esta línea (MEDICION.md §13). Cambia
             # el sujeto de las mediciones anteriores —§5: instrumento distinto, no se
             # comparan— y se cambia a propósito: el ensayo tiene que generar planes como
             # los que el método recomienda escribir, no como los que ya sabemos que fallan.
-            usa = (f"\nUsa `from src.datos.d{g} import leer{g}`.\n"
+            # El objetivo correcto DEPENDE de la forma del import, y el enunciado tiene que
+            # decir cuál es: con `from X import n` el nombre queda ligado en el módulo que lo
+            # usa; con `import X` la búsqueda es en tiempo de llamada y parchear `X.n` sí
+            # tiene efecto. Antes había una sola forma y el enunciado podía decir una regla
+            # fija; con las dos, decirla fija sería mentir en la mitad de las tareas.
+            if importa_de[g].startswith("from"):
+                porque = (f"`src.servicios.s{g}.leer{g}` —el módulo donde se USA—, no\n"
+                          f"`src.datos.d{g}.leer{g}`: con ese import el nombre ya quedó ligado\n"
+                          f"cuando el patch corre, y parchear donde se define no tiene efecto.\n")
+            else:
+                porque = (f"`src.datos.d{g}.leer{g}` —donde se DEFINE—: con este import la\n"
+                          f"búsqueda del nombre pasa en el momento de la llamada, así que\n"
+                          f"parchear el módulo de origen sí tiene efecto.\n")
+            usa = (f"\nUsa `{importa_de[g]}`.\n"
                    f"\nSi el test necesita controlar lo que devuelve `leer{g}()`, parcheá\n"
-                   f"`src.servicios.s{g}.leer{g}` —el módulo donde se USA—, no\n"
-                   f"`src.datos.d{g}.leer{g}`: con ese import el nombre ya quedó ligado\n"
-                   f"cuando el patch corre, y parchear donde se define no tiene efecto.\n")
+                   + porque)
         else:
             # El contrato tiene que declarar la MISMA forma que la implementación de
             # referencia, o el validador rechaza el test de referencia —y con razón— con «el
