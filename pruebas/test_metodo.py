@@ -16064,3 +16064,84 @@ class TestElMonitoreoVivoEnElRepoYNoEnTmp(unittest.TestCase):
         tramo = s[i:i + 600]
         self.assertIn('= "2"', tramo,
                       f"el aviso no distingue el 2 del 1:\n{tramo[:300]}")
+
+
+class TestLaParticionNoDejaElMismoTestEnLosDosLados(unittest.TestCase):
+    """La guarda número uno contra el sobreajuste, y la primera que la literatura señala: se
+    reserva por PROYECTO —acá, por semilla del generador— y no por tarea, porque dos variantes
+    del mismo test en lados opuestos hacen que la evaluación mida memoria y no juicio.
+
+    Y lo que la vuelve verificable en vez de declarativa: el script CUENTA la fuga. Medido el
+    2026-10-31 sobre las 31 familias que teníamos, **19 huellas de test aparecían en los dos
+    lados** — no porque la partición estuviera mal, sino porque las familias viejas son clones:
+    el generador variaba una sola de sus tres capas, así que el mismo test aparece literalmente
+    en varias semillas. Partir por familia es necesario y no suficiente; con `--dedup` el
+    dataset cae de 998 registros a 433 con huella única, y esa caída ES el dato."""
+
+    def jsonl(self, registros):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-metodo-"))
+        self.addCleanup(tirar_dir, d)
+        f = d / "v.jsonl"
+        f.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in registros))
+        return d, f
+
+    def registro(self, corrida, test, veredicto="aceptado"):
+        return {"corrida": corrida, "brazo": "x", "tarea": "T01b", "veredicto": veredicto,
+                "motivo": None, "dimensiones": {}, "enunciado": "e", "test": test,
+                "borrador_descartado": None}
+
+    def correr_particion(self, f, *extra):
+        return correr(f'python3 "{SCRIPTS}/particionar_veredictos.py" "{f}" '
+                      f'{" ".join(extra)}', RAIZ)
+
+    def test_delata_la_fuga_cuando_el_mismo_test_esta_en_dos_familias(self):
+        # El mismo texto en dos corridas: es lo que pasa de verdad cuando el generador no varía.
+        mismo = "import unittest\nclass TestS1:\n    def test_a(self):\n        assert 1 == 1\n"
+        # El reservado son las ÚLTIMAS familias por nombre, así que el clon tiene que caer
+        # uno en entrenamiento (c1) y otro en el reservado (c3). Mi primera versión los puso
+        # los dos en entrenamiento y el test reprobó midiendo una configuración sin fuga.
+        _, f = self.jsonl([self.registro("c1", mismo),
+                           self.registro("c2", "otro test distinto\nassert 2 == 2\n"),
+                           self.registro("c3", mismo)])
+        r = self.correr_particion(f, "--reservadas 1")
+        self.assertEqual(1, r.returncode,
+                         f"con fuga tiene que salir 1:\n{r.stdout}{r.stderr}")
+        self.assertIn("FUGA", r.stdout, f"no la nombra:\n{r.stdout}")
+
+    def test_con_dedup_no_queda_fuga(self):
+        mismo = "import unittest\nclass TestS1:\n    def test_a(self):\n        assert 1 == 1\n"
+        _, f = self.jsonl([self.registro("c1", mismo), self.registro("c2", mismo),
+                           self.registro("c3", "otro\nassert 2 == 2\n"),
+                           self.registro("c4", "y otro\nassert 3 == 3\n")])
+        r = self.correr_particion(f, "--reservadas 1 --dedup")
+        self.assertEqual(0, r.returncode, f"debería quedar limpia:\n{r.stdout}{r.stderr}")
+        self.assertIn("sin fuga", r.stdout)
+        self.assertIn("dedup", r.stdout, "no informa cuánto cayó el dataset al deduplicar")
+
+    def test_la_numeracion_del_grupo_no_cuenta_como_variedad(self):
+        """`test_s1` y `test_s7` son el mismo test con otro número. Contarlos como distintos es
+        la forma más fácil de creerse una variedad que no existe, y es justo lo que el 40% de
+        tests únicos destapó."""
+        a = "from src.servicios.s1 import calcular1\nassert calcular1() == 10\n"
+        b = "from src.servicios.s7 import calcular7\nassert calcular7() == 70\n"
+        _, f = self.jsonl([self.registro("c1", a),
+                           self.registro("c2", "distinto de verdad\nassert x is None\n"),
+                           self.registro("c3", b)])
+        r = self.correr_particion(f, "--reservadas 1")
+        self.assertEqual(1, r.returncode,
+                         f"normalizando los números, c1 y c2 son el mismo test:\n{r.stdout}")
+
+    def test_es_determinista(self):
+        """La partición de hoy tiene que ser la misma la semana que viene, o el número deja de
+        ser comparable con el de la corrida anterior."""
+        rs = [self.registro(f"c{i}", f"test numero {i}\nassert {i} == {i}\n") for i in range(6)]
+        _, f = self.jsonl(rs)
+        salidas = {self.correr_particion(f, "--reservadas 2").stdout for _ in range(3)}
+        self.assertEqual(1, len(salidas), "dos corridas dieron particiones distintas")
+
+    def test_si_no_queda_nada_para_entrenar_lo_dice_y_no_parte(self):
+        rs = [self.registro(f"c{i}", f"t{i}\nassert {i} == {i}\n") for i in range(2)]
+        _, f = self.jsonl(rs)
+        r = self.correr_particion(f, "--reservadas 2")
+        self.assertEqual(2, r.returncode, f"tiene que salir 2:\n{r.stdout}{r.stderr}")
+        self.assertIn("no quedaría nada", r.stdout)
