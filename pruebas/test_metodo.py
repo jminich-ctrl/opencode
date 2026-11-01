@@ -16145,3 +16145,148 @@ class TestLaParticionNoDejaElMismoTestEnLosDosLados(unittest.TestCase):
         r = self.correr_particion(f, "--reservadas 2")
         self.assertEqual(2, r.returncode, f"tiene que salir 2:\n{r.stdout}{r.stderr}")
         self.assertIn("no quedaría nada", r.stdout)
+
+
+class TestElJuezPareadoNoSePuedeGanarPorElCaminoEquivocado(unittest.TestCase):
+    """El número del juez —«eligió el test que el gate aceptó»— se puede ganar por tres razones
+    y sólo una es juicio: juzgando calidad, prefiriendo una posición, o puntuando el test por su
+    forma sin mirar el enunciado. Medido el 2026-10-31 sobre 28 pares del reservado: 41% bien en
+    los dos órdenes (azar 25%), 37% cambió con el orden, control de posición 14 A / 14 B (sin
+    sesgo) y control de enunciado ajeno 25% con 50% de inconsistencia, o sea el azar exacto en
+    las dos. El juez SÍ usa el enunciado y no tiene sesgo posicional; igual no sirve para un
+    gate, porque más de un tercio de sus veredictos cambia según cómo se pregunte.
+
+    Lo que estos tests fijan son dos defectos que tuve en el instrumento y que no fallaban:
+    devolvían un número MEJOR, que es la clase de error que nadie ve.
+
+    1. Apareaba dentro de la CORRIDA y no de la TAREA. Con eso el rechazado podía ser de otra
+       tarea, y entonces se delata solo contra el enunciado —otra clase, otro archivo— y el juez
+       acierta sin juzgar nada.
+    2. Imprimía «el azar acierta 50%» sobre una métrica de DOS preguntas, donde el azar reparte
+       25% bien / 25% mal / 50% inconsistente. Con esa referencia, un 41% se leía como «está en
+       el azar» cuando estaba arriba."""
+
+    def jsonl(self, registros):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-metodo-"))
+        self.addCleanup(tirar_dir, d)
+        f = d / "v.jsonl"
+        f.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in registros))
+        return d, f
+
+    def registro(self, tarea, veredicto, test, corrida="c1"):
+        return {"corrida": corrida, "brazo": "x", "tarea": tarea, "veredicto": veredicto,
+                "motivo": None, "dimensiones": {}, "enunciado": f"enunciado de {tarea}",
+                "test": test, "borrador_descartado": None}
+
+    def guion(self, d, *respuestas):
+        g = d / f"guion-{len(list(d.glob('guion-*')))}"
+        g.write_text("".join(f"{r}\n" for r in respuestas))
+        return g
+
+    def juez(self, f, *extra):
+        return correr(f'python3 "{SCRIPTS}/juez_pareado.py" "{f}" {" ".join(extra)}', RAIZ)
+
+    def control(self, f, *extra):
+        return correr(f'python3 "{SCRIPTS}/juez_controles.py" "{f}" {" ".join(extra)}', RAIZ)
+
+    def dos_tareas_completas(self):
+        return [self.registro("T01", "aceptado", "bueno uno"),
+                self.registro("T01", "rechazado", "malo uno"),
+                self.registro("T02", "aceptado", "bueno dos"),
+                self.registro("T02", "rechazado", "malo dos")]
+
+    def test_no_aparea_el_aceptado_de_una_tarea_con_el_rechazado_de_otra(self):
+        """El defecto que tuve. Misma corrida, tareas distintas: no hay par, y tiene que decirlo
+        en vez de dar un número que se gana notando que el test no habla del enunciado."""
+        d, f = self.jsonl([self.registro("T01", "aceptado", "bueno"),
+                           self.registro("T03", "rechazado", "malo")])
+        r = self.juez(f, f'--guion "{self.guion(d, "A", "B")}"')
+        self.assertEqual(2, r.returncode,
+                         f"sin pares legítimos tiene que salir 2:\n{r.stdout}{r.stderr}")
+        self.assertIn("TAREA", r.stdout, f"no dice que el apareo es por tarea:\n{r.stdout}")
+
+    def test_declara_cuantos_registros_quedaron_afuera(self):
+        """Un reservado donde la mayoría de las tareas tiene una sola clase da pocos pares, y eso
+        hay que verlo: si no, un n chico se confunde con un reservado chico."""
+        d, f = self.jsonl(self.dos_tareas_completas() + [
+            self.registro("T04", "aceptado", "solo aceptado"),
+            self.registro("T05", "rechazado", "solo rechazado")])
+        r = self.juez(f, f'--guion "{self.guion(d, "A", "B", "A", "B")}"')
+        self.assertEqual(0, r.returncode, f"{r.stdout}{r.stderr}")
+        self.assertIn("2 registro(s) quedaron afuera", r.stdout,
+                      f"no declara los que no se pudieron aparear:\n{r.stdout}")
+
+    def test_acertar_en_los_dos_ordenes_cuenta_como_acierto(self):
+        d, f = self.jsonl(self.dos_tareas_completas())
+        # En "ab" el aceptado va primero (A); en "ba" va segundo (B). Elegirlo las dos veces
+        # es A, B por par.
+        r = self.juez(f, f'--guion "{self.guion(d, "A", "B", "A", "B")}"')
+        self.assertIn("eligió bien en los DOS órdenes:  2/2", r.stdout,
+                      f"la contabilidad de los dos órdenes está mal:\n{r.stdout}")
+        self.assertIn("inconsistente): 0/2", r.stdout, r.stdout)
+
+    def test_contestar_siempre_la_misma_letra_es_inconsistente_no_acierto(self):
+        """Lo que separa a este instrumento de uno que se engaña: contestar siempre «A» acierta
+        la mitad de las preguntas sueltas, y acá no acierta ningún par."""
+        d, f = self.jsonl(self.dos_tareas_completas())
+        r = self.juez(f, f'--guion "{self.guion(d, "A", "A", "A", "A")}"')
+        self.assertIn("eligió bien en los DOS órdenes:  0/2", r.stdout, r.stdout)
+        self.assertIn("inconsistente): 2/2", r.stdout,
+                      f"siempre la misma letra tiene que caer en inconsistente:\n{r.stdout}")
+
+    def test_las_lineas_del_azar_son_las_de_dos_preguntas(self):
+        d, f = self.jsonl(self.dos_tareas_completas())
+        r = self.juez(f, f'--guion "{self.guion(d, "A", "B", "A", "B")}"')
+        self.assertIn("bien 25%", r.stdout,
+                      f"el azar de esta métrica es 25%, no 50%:\n{r.stdout}")
+        self.assertIn("inconsistente 50%", r.stdout, r.stdout)
+        self.assertNotIn("el azar acierta 50% en pares", r.stdout,
+                         "quedó la referencia vieja, que hace leer un 41% como azar")
+
+    def test_con_guion_avisa_que_el_numero_no_es_de_un_modelo(self):
+        """Un número de fixture que se pueda confundir con una medición es peor que no tenerlo."""
+        d, f = self.jsonl(self.dos_tareas_completas())
+        r = self.juez(f, f'--guion "{self.guion(d, "A", "B", "A", "B")}"')
+        self.assertIn("GUION", r.stdout, f"no avisa que corrió con guion:\n{r.stdout}")
+        self.assertIn("no de un modelo", r.stdout, r.stdout)
+
+    def test_el_control_de_posicion_delata_contestar_siempre_la_misma_letra(self):
+        d, f = self.jsonl(self.dos_tareas_completas())
+        r = self.control(f, f'--guion "{self.guion(d, "A", "A")}" --posicion')
+        self.assertEqual(0, r.returncode, f"{r.stdout}{r.stderr}")
+        self.assertIn("desbalance: 100%", r.stdout,
+                      f"con el mismo test en las dos posiciones y siempre «A», el control"
+                      f" tiene que marcar sesgo total:\n{r.stdout}")
+        self.assertIn("contaminado", r.stdout,
+                      f"no dice qué hacer con la medición principal:\n{r.stdout}")
+
+    def test_el_control_de_posicion_aprueba_cuando_reparte(self):
+        """Un control que nunca se vio salir bien tampoco sirve: hay que poder distinguir."""
+        d, f = self.jsonl(self.dos_tareas_completas())
+        r = self.control(f, f'--guion "{self.guion(d, "A", "B")}" --posicion')
+        self.assertIn("desbalance: 0%", r.stdout, r.stdout)
+        self.assertIn("se puede leer", r.stdout,
+                      f"reparte y aun así no habilita la lectura:\n{r.stdout}")
+
+    def test_el_control_de_enunciado_ajeno_no_usa_el_enunciado_propio(self):
+        """Si el «ajeno» fuera el mismo enunciado, el control no apagaría nada y saldría igual
+        que la medición: parecería que el juez usa el enunciado cuando no se probó."""
+        d, f = self.jsonl(self.dos_tareas_completas())
+        r = self.control(f, f'--guion "{self.guion(d, "A", "B", "A", "B")}" --enunciado-ajeno')
+        self.assertEqual(0, r.returncode, f"{r.stdout}{r.stderr}")
+        self.assertIn("2", r.stdout)
+        self.assertIn("enunciado de otra tarea", r.stdout, r.stdout)
+        # Con una sola tarea no hay enunciado ajeno posible, y tiene que declararlo en vez de
+        # caer en el propio.
+        d2, f2 = self.jsonl([self.registro("T01", "aceptado", "b"),
+                             self.registro("T01", "rechazado", "m")])
+        r2 = self.control(f2, f'--guion "{self.guion(d2, "A", "B")}" --enunciado-ajeno')
+        self.assertIn("ilegible/sin par: 1", r2.stdout,
+                      f"con una sola tarea no hay ajeno: tiene que contarlo afuera,"
+                      f" no usar el propio:\n{r2.stdout}")
+
+    def test_sin_control_elegido_no_mide_nada(self):
+        d, f = self.jsonl(self.dos_tareas_completas())
+        r = self.control(f, f'--guion "{self.guion(d, "A")}"')
+        self.assertEqual(2, r.returncode, f"{r.stdout}{r.stderr}")
+        self.assertIn("NO se midió nada", r.stdout, r.stdout)

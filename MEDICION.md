@@ -1334,3 +1334,85 @@ en este sustrato.**
    están en tareas que habían fallado.** O sea que el método conserva la evidencia de lo que
    falla y tira la de lo que pasa, que es justo al revés de lo que este experimento necesita.
    Necesita un cambio chico en `escribir-tests.sh` y una corrida.
+
+---
+
+### §17 — El juez: medido con sus controles, y por qué el número anterior no valía (2026-10-31)
+
+Acá se cierra el hilo del juez, y se corrige una medición mía que había salido al revés.
+
+#### Lo que estaba mal medido
+
+| cuándo | formato | apareo | n | resultado | qué pasaba |
+|---|---|---|---|---|---|
+| primera | pointwise («¿acepta o rechaza?») | — | — | **50% de acuerdo** | rechazaba todo: 50% es lo que acierta contestar siempre lo mismo |
+| segunda | pareado, dos órdenes | **por corrida** | 3 | 3/3, 0 inconsistentes | n=3, y el apareo se podía ganar sin juzgar |
+| **ésta** | pareado, dos órdenes | **por tarea** | **28** | **41% bien, 37% cambió con el orden** | con sus dos controles |
+
+La segunda me hizo escribir que «el formato era el problema, no el modelo». **Con n=28 y apareo
+honesto eso no se sostiene.** El formato pareado sí es mejor que pointwise —pointwise estaba en
+la clase mayoritaria— pero el reviewer sin afinar no es un juez usable.
+
+Los dos defectos del instrumento, los dos del tipo que **no falla, sólo devuelve un número
+mejor**:
+
+1. **Apareaba dentro de la corrida, no de la tarea.** Así el test rechazado podía pertenecer a
+   otra tarea, y entonces se delata solo contra el enunciado que se le muestra —otra clase, otro
+   archivo— y el juez acierta notando el desajuste. Reproduje el defecto a propósito sobre el
+   caso de prueba: con el apareo viejo fabrica 3 pares de 4 registros de tareas distintas y
+   reporta **100% bien**. Esa es la magnitud de la inflación.
+2. **Imprimía «el azar acierta 50%»** sobre una métrica de **dos** preguntas, donde el azar
+   reparte 25% bien / 25% mal / 50% inconsistente. Con esa referencia un 41% se leía como «está
+   en el azar» cuando está arriba.
+
+#### La medición, con el reservado que recién alcanzó
+
+Reservado: 12 de 39 familias (~30%, fracción declarada antes de mirar), `--dedup`, **sin fuga**.
+163 registros reservados, de los que salen **28 pares intra-tarea**; 95 registros quedan afuera
+porque su tarea no tiene las dos clases, y eso se declara en vez de rellenarse apareando contra
+otra tarea.
+
+| | resultado | azar |
+|---|---|---|
+| eligió bien en los **dos** órdenes | **11/27 = 41%** | 25% |
+| eligió mal en los dos | 6/27 = 22% | 25% |
+| **cambió con el orden** | **10/27 = 37%** | 50% |
+| sólo entre los 17 consistentes | 11/17 = 65% | 50% |
+
+#### Los dos controles, que son lo que hace legible ese 41%
+
+El número «eligió el que el gate aceptó» se puede ganar por tres vías y sólo una es juicio:
+juzgando calidad, prefiriendo una posición, o puntuando la forma del test sin mirar el enunciado.
+Cada control apaga una y deja las otras.
+
+| control | qué apaga | resultado |
+|---|---|---|
+| **posición** — el mismo test en A y en B | no queda nada que juzgar | **14 A / 14 B, desbalance 0%** |
+| **enunciado ajeno** — el par verdadero con el enunciado de otra tarea | el enunciado | **25% bien, 50% inconsistente** |
+
+El de posición descarta que el 41% sea suerte de colocación. El de enunciado ajeno es el que
+vale: quitándole el enunciado, el juez cae a **exactamente** el azar en las dos cifras (25% y
+50%). O sea que **sí usa el enunciado**: hay señal real, y es señal de contrato, no de forma.
+
+#### El veredicto, y qué se hace con él
+
+Hay señal y es del tipo correcto, pero **no alcanza para un gate**, y el motivo no es el 41%
+sino el 37%: más de un tercio de los veredictos cambia según en qué orden se pregunte. En un
+gate eso es un dictamen que depende de cómo se formuló, no de lo que se juzgó. **Para un gate,
+«cambió con el orden» cuenta como no sirve, no como empate.**
+
+Y con n=28 el 41% contra 25% está en el borde de lo afirmable (≈1,9 desvíos). La dirección se
+afirma; la magnitud, no. Lo que hay que hacer crecer es el reservado, no la conclusión.
+
+Coherente con lo que está medido afuera (§ quinta vuelta de INVESTIGACION.md): el techo de un
+juez aprendido es acuerdo moderado con correr los tests (κ ≤ 0,60), y lo que compra entrenarlo
+son **menos falsos positivos a TPR fijo**, no exactitud. Entonces la métrica de la próxima vuelta
+es FPR, y la línea base contra la que se compara es **correr los tests**, que es gratis y no se
+equivoca.
+
+#### Lo que queda en el repo
+
+`scripts/juez_pareado.py` y `scripts/juez_controles.py`, con modo `--guion`: un juez de fixture
+que no llama a ningún modelo, igual que `_ensayo_agente.sh` para el ejecutor. Los dos defectos de
+arriba están fijados por tests que **se vieron reprobar** la versión con el defecto, no sólo
+aprobar la buena.
