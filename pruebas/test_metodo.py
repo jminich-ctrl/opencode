@@ -28,9 +28,11 @@ aparezca.
 import ast
 import atexit
 import http.server
+import hashlib
 import json
 import os
 import pathlib
+import random
 import re
 import shlex
 import shutil
@@ -5700,6 +5702,12 @@ class TestElGateNoCastigaNadaQueElAgenteNoHayaLeido(unittest.TestCase):
         # no lo clasifiqué. Es del método —el agente no puede mover la carpeta de reservados,
         # ni sabe que existe— y por eso no va en AGENTS.md.
         "la suite reservada está DENTRO del repo",
+        # Cuarta vez, y la más clara de las cuatro: este rojo dice EXPLÍCITAMENTE que no es de
+        # esta tarea. El agente no puede evitarlo —el defecto está en el contrato de un test
+        # que aprobó OTRA tarea, tres tareas antes— y no hay nada que pueda escribir distinto,
+        # así que no va en AGENTS.md. Es la contracara exacta de «rompiste tests que andaban»,
+        # que sí es del agente y sí está escrito donde lo lee.
+        "el rojo es de un ⊘ anotado antes",
     )
 
     # Rojos que SÍ le cobran algo al agente → tiene que estar escrito donde el agente lee.
@@ -16290,3 +16298,488 @@ class TestElJuezPareadoNoSePuedeGanarPorElCaminoEquivocado(unittest.TestCase):
         r = self.control(f, f'--guion "{self.guion(d, "A")}"')
         self.assertEqual(2, r.returncode, f"{r.stdout}{r.stderr}")
         self.assertIn("NO se midió nada", r.stdout, r.stdout)
+
+
+class TestLaDeudaDelMockSeLeCobraAQuienLaDebe(unittest.TestCase):
+    """El ⊘ de `_mocks.py` no es neutral: es una DEUDA, y detona en OTRA tarea.
+
+    Medido el 2026-11-01 en la corrida `f1793535892`, 21 tareas, modelos de verdad:
+
+      · T03b escribió `tests/test_s3.py` con `patch('src.datos.d3.leer3')` y el import
+        diferido adentro del test. El enunciado no declaraba con qué import `s3` iba a traer
+        el nombre, así que el chequeo salió 2 —«no pude determinar»— y el gate lo informó
+        como ⊘. El test pasó los cinco pasos que preguntan si DISTINGUE (falla sin la
+        implementación, pasa con ella, los mutantes mueren, el brazo nulo falla) y se copió
+        al tronco.
+      · Pasó porque corrió SOLO. Con `sys.modules` vacío el import diferido se resuelve
+        después del patch, y el patch pega.
+      · Tres tareas después T03c escribió `src/rutas/r3.py`, cuyo test importa a nivel de
+        módulo y por lo tanto precarga `src.servicios.s3` en la COLECCIÓN. Ahí el import
+        diferido de `test_s3.py` encuentra el módulo en caché con el `leer3` de verdad
+        ligado: el patch no pega y `calcular3()` devuelve 30 en vez de 50.
+      · El gate reprobó a T03c con «rompiste tests que andaban antes de esta tarea». Es
+        verdad y es el sujeto equivocado: T03c no toca ni `s3` ni `d3`. La etapa se detuvo
+        pidiendo que decidiera una persona, sobre la tarea inocente.
+
+    De siete servicios, uno traía la bomba: tres parcheaban donde el nombre se usa y tres
+    hacían `import src.datos.dN` adentro de la función, que también deja el patch efectivo.
+
+    Lo que el método NO hace acá es elegir la forma del import —eso lo fija el contrato y lo
+    escribe el planificador—. Lo que hace es anotar quién quedó debiendo, para poder nombrar
+    al deudor en vez de al vecino. Es la misma regla que ENTORNO_MOVIDO: no ablanda nada,
+    detiene igual; lo único que cambia es a QUIÉN se le cobra.
+    """
+
+    OBJETIVO_MALO = "src.datos.d3.leer3"
+    OBJETIVO_BUENO = "src.servicios.s3.leer3"
+
+    def proyecto(self, objetivo=OBJETIVO_MALO, con_r3=True):
+        """El esqueleto exacto del cadáver: d3 → s3 → r3, y el test de s3 con import diferido."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-deuda-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        (d / "scripts").mkdir()
+        for n in ("gate.sh", "correr-suite.sh"):
+            shutil.copy(PLANTILLAS / n, d / "scripts" / n)
+        for paq in ("src", "src/servicios", "src/datos", "src/rutas", "tests"):
+            (d / paq).mkdir(parents=True, exist_ok=True)
+            (d / paq / "__init__.py").write_text("")
+        (d / "src" / "datos" / "d3.py").write_text("def leer3() -> int:\n    return 3\n")
+        # La forma de import que vuelve inefectivo un patch al módulo de origen.
+        (d / "src" / "servicios" / "s3.py").write_text(
+            "from src.datos.d3 import leer3\n\n\n"
+            "def calcular3() -> int:\n    return leer3() * 10\n")
+        (d / "tests" / "test_s3.py").write_text(
+            "import unittest\nfrom unittest.mock import patch\n\n\n"
+            "class TestS3(unittest.TestCase):\n"
+            f"    @patch('{objetivo}')\n"
+            "    def test_calcular3(self, m):\n"
+            "        m.return_value = 5\n"
+            "        from src.servicios.s3 import calcular3\n"
+            "        self.assertEqual(calcular3(), 50)\n")
+        (d / "tests" / "test_r3.py").write_text(
+            "import unittest\nfrom unittest.mock import patch\n"
+            "from src.rutas.r3 import responder3\n\n\n"
+            "class TestR3(unittest.TestCase):\n"
+            "    @patch('src.rutas.r3.calcular3')\n"
+            "    def test_responder3(self, m):\n"
+            "        m.return_value = 30\n"
+            '        self.assertEqual(responder3(), {"valor": 33})\n')
+        (d / "tareas").mkdir()
+        (d / "tareas" / "T03c-cosa.md").write_text(
+            "# T03c — la ruta\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** src/rutas/r3.py\n\n"
+            "## Objetivo\n\nEscribí `responder3()`.\n\n"
+            "**Test:** `tests/test_r3.py` clase `TestR3`\n")
+        # El enunciado del test de s3: NO declara con qué import se trae el nombre. Es
+        # exactamente la condición del ⊘.
+        (d / "tareas" / "T03b-cosa.md").write_text(
+            "# T03b — el servicio\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** tests/test_s3.py\n\n"
+            "## Objetivo\n\nEscribí el test de `calcular3()`, que devuelve "
+            "`src.datos.d3.leer3() * 10`.\n")
+        correr("git init -q . && git add -A && git commit -qm base", d)
+        # La línea base que vio el runner: sin `r3.py`, `test_r3` ni colecta.
+        (d / ".tests-base").write_text(
+            "ERROR: tests.test_r3 (unittest.loader._FailedTest.tests.test_r3)\n")
+        (d / ".base-ref").write_text(
+            correr("git rev-parse HEAD", d).stdout.strip() + "\n")
+        if con_r3:
+            # Lo que hace T03c, y nada más: un archivo nuevo en su alcance declarado.
+            (d / "src" / "rutas" / "r3.py").write_text(
+                "from src.servicios.s3 import calcular3\n\n\n"
+                'def responder3() -> dict:\n    return {"valor": calcular3() + 3}\n')
+        return d
+
+    def anotar(self, d, objetivo=OBJETIVO_MALO, test="tests/test_s3.py", tarea="T03b-cosa"):
+        """La constancia que `_mocks.py` deja al aceptar un test con ⊘."""
+        (d / ".metricas").mkdir(exist_ok=True)
+        (d / ".metricas" / "deuda-mocks.csv").write_text(
+            "fecha,tarea,test,objetivo,destino,linea\n"
+            f"2026-11-01T16:00:00Z,{tarea},{test},{objetivo},src.servicios.s3,6\n")
+
+    def gate(self, d, tarea="T03c"):
+        return correr(f'TAREA={tarea} AGENTES="{RAIZ}" bash scripts/gate.sh', d)
+
+    # ── el cadáver, reproducido sin modelos ───────────────────────────────────────────────
+
+    def test_el_patch_diferido_depende_del_orden_de_coleccion(self):
+        """Lo primero es que el escenario sea real y no una maqueta: el mismo test pasa solo
+        y falla acompañado. Si esto dejara de reproducirse, todo lo de abajo mide otra cosa."""
+        d = self.proyecto()
+        solo = correr("python3 -m unittest tests.test_s3 -q", d)
+        self.assertEqual(0, solo.returncode,
+                         f"corrido solo el patch pega y el test pasa:\n{solo.stdout}{solo.stderr}")
+        juntos = correr("python3 -m unittest discover -s tests -t . -q", d)
+        self.assertNotEqual(0, juntos.returncode,
+                            f"con test_r3 colectado antes, el patch no pega:\n{juntos.stderr}")
+        self.assertIn("30 != 50", juntos.stdout + juntos.stderr,
+                      f"y falla por el valor real, no por otra cosa:\n{juntos.stderr}")
+
+    def test_el_patch_al_nombre_donde_se_usa_no_depende_del_orden(self):
+        """La otra mitad: el arreglo es el objetivo del patch, y pasa de las dos formas. Sin
+        esto, «depende del orden» podría ser una propiedad de todo test con mock."""
+        d = self.proyecto(objetivo=self.OBJETIVO_BUENO)
+        for cmd in ("python3 -m unittest tests.test_s3 -q",
+                    "python3 -m unittest discover -s tests -t . -q"):
+            r = correr(cmd, d)
+            self.assertEqual(0, r.returncode,
+                             f"con el patch donde el nombre se USA tiene que pasar igual"
+                             f" ({cmd}):\n{r.stdout}{r.stderr}")
+
+    # ── la constancia ─────────────────────────────────────────────────────────────────────
+
+    def test_el_circulo_que_no_se_pudo_determinar_queda_anotado(self):
+        """El ⊘ sin constancia es el defecto: el rojo que produce tres tareas después no se
+        le puede cobrar a nadie. `_mocks.py` tiene que dejarlo escrito en el TRONCO, que es
+        lo que sobrevive al worktree del test aceptado."""
+        d = self.proyecto(con_r3=False)
+        (d / "src" / "servicios" / "s3.py").unlink()   # en la etapa de tests todavía no existe
+        (d / ".metricas").mkdir(exist_ok=True)
+        r = correr(f'python3 "{SCRIPTS}/_mocks.py" --segun-enunciado --registro .metricas '
+                   f'tests/test_s3.py tareas/T03b-cosa.md .', d)
+        self.assertEqual(2, r.returncode,
+                         f"sin la implementación y sin contrato que declare el import, es ⊘:"
+                         f"\n{r.stdout}{r.stderr}")
+        csv = d / ".metricas" / "deuda-mocks.csv"
+        self.assertTrue(csv.is_file(), f"el ⊘ no dejó constancia:\n{r.stdout}")
+        texto = csv.read_text()
+        self.assertIn("T03b-cosa", texto, f"sin el deudor la constancia no sirve:\n{texto}")
+        self.assertIn("tests/test_s3.py", texto, texto)
+        self.assertIn(self.OBJETIVO_MALO, texto,
+                      f"y el objetivo del patch, que es lo que hay que arreglar:\n{texto}")
+        self.assertIn("src.servicios.s3", texto,
+                      f"y el módulo que lo usa, que es dónde va el patch bueno:\n{texto}")
+
+    def test_un_patch_que_apunta_bien_no_deja_deuda(self):
+        """El guardia: si cualquier test dejara constancia, la tabla no distinguiría nada y
+        la rama del gate se volvería un perdón automático."""
+        d = self.proyecto(objetivo=self.OBJETIVO_BUENO, con_r3=False)
+        (d / ".metricas").mkdir(exist_ok=True)
+        r = correr(f'python3 "{SCRIPTS}/_mocks.py" --segun-enunciado --registro .metricas '
+                   f'tests/test_s3.py tareas/T03b-cosa.md .', d)
+        self.assertEqual(0, r.returncode, f"{r.stdout}{r.stderr}")
+        self.assertFalse((d / ".metricas" / "deuda-mocks.csv").exists(),
+                         "un patch que apunta donde el nombre se usa no debe nada")
+
+    def test_sin_registro_lo_dice_en_vez_de_callarse(self):
+        """Un ⊘ que no se pudo anotar es atribución perdida. No bendice nada —sigue sin ser
+        verde— pero tiene que decirse, porque es la razón por la que el rojo futuro va a
+        quedar a nombre de otra tarea."""
+        d = self.proyecto(con_r3=False)
+        (d / "src" / "servicios" / "s3.py").unlink()
+        r = correr(f'python3 "{SCRIPTS}/_mocks.py" --segun-enunciado '
+                   f'tests/test_s3.py tareas/T03b-cosa.md .', d)
+        self.assertEqual(2, r.returncode, f"{r.stdout}{r.stderr}")
+        self.assertIn("no puedo anotar la deuda", r.stdout,
+                      f"callarse acá es perder la atribución en silencio:\n{r.stdout}")
+
+    # ── a quién se le cobra ───────────────────────────────────────────────────────────────
+
+    def test_el_rojo_de_una_deuda_ajena_no_se_le_cobra_a_la_tarea(self):
+        d = self.proyecto()
+        self.anotar(d)
+        r = self.gate(d)
+        salida = r.stdout + r.stderr
+        self.assertIn("DEUDA_DE_MOCK", salida,
+                      f"el runner necesita el marcador para no reintentar:\n{salida}")
+        self.assertIn("T03b-cosa", salida,
+                      f"y hay que nombrar al deudor, no sólo decir que hay uno:\n{salida}")
+        self.assertIn(self.OBJETIVO_MALO, salida,
+                      f"y qué patch es, que es lo único que hay que arreglar:\n{salida}")
+        self.assertNotIn("rompiste tests", salida,
+                         f"T03c no toca ni s3 ni d3: acusarla es el defecto:\n{salida}")
+        # Y NO es verde: detener sigue siendo lo correcto.
+        self.assertNotEqual(0, r.returncode,
+                            f"no se ablanda el veredicto, se corrige el sujeto:\n{salida}")
+
+    def test_una_regresion_honesta_del_mismo_test_sigue_siendo_de_la_tarea(self):
+        """El guardia del arreglo de arriba, y el que lo hace un instrumento y no un perdón:
+        el test está anotado igual, pero ahora falla TAMBIÉN corrido solo. Eso no es una
+        deuda que detonó, es una rotura, y se le cobra."""
+        d = self.proyecto()
+        self.anotar(d)
+        (d / "src" / "servicios" / "s3.py").write_text(
+            "from src.datos.d3 import leer3\n\n\n"
+            "def calcular3() -> int:\n    return leer3() * 11\n")
+        solo = correr("python3 -m unittest tests.test_s3 -q", d)
+        self.assertNotEqual(0, solo.returncode, "el fixture tiene que fallar también solo")
+        r = self.gate(d)
+        salida = r.stdout + r.stderr
+        self.assertIn("rompiste tests", salida,
+                      f"una rotura que no depende del orden es de la tarea:\n{salida}")
+        self.assertNotIn("DEUDA_DE_MOCK", salida,
+                         f"perdonar esto apagaría el chequeo que protege al tronco:\n{salida}")
+
+    def test_sin_constancia_el_gate_acusa_a_la_tarea_inocente(self):
+        """Lo que costaba el ⊘ antes de anotarse, fijado para que no vuelva a parecer gratis:
+        exactamente el mismo escenario, sin la tabla, acusa a T03c."""
+        d = self.proyecto()
+        r = self.gate(d)
+        salida = r.stdout + r.stderr
+        self.assertIn("rompiste tests", salida,
+                      f"sin constancia el gate no tiene con qué atribuir:\n{salida}")
+        self.assertNotIn("DEUDA_DE_MOCK", salida, salida)
+
+    def test_la_deuda_de_otro_test_no_perdona_esta_falla(self):
+        """La tabla se consulta POR TEST. Una deuda anotada sobre otro archivo no puede
+        excusar la falla de éste: eso volvería global un perdón que es puntual."""
+        d = self.proyecto()
+        self.anotar(d, test="tests/test_otro.py", tarea="T09b-cosa")
+        r = self.gate(d)
+        salida = r.stdout + r.stderr
+        self.assertIn("rompiste tests", salida,
+                      f"la deuda era de otro test:\n{salida}")
+        self.assertNotIn("DEUDA_DE_MOCK", salida, salida)
+
+    def test_la_constancia_se_encuentra_con_el_proyecto_adentro_del_repo(self):
+        """La relación metamórfica de siempre, aplicada a la atribución: mover el proyecto no
+        puede cambiar el veredicto. `--git-common-dir` da la raíz del REPO, y cuando el
+        proyecto vive adentro —la disposición de los dos ejemplos— `.metricas` está un nivel
+        más abajo. Sin `--show-prefix` la constancia no se encuentra y la atribución se pierde
+        en SILENCIO: el gate sigue dando rojo, pero con el sujeto equivocado, que es justo lo
+        que este arreglo vino a cerrar. Verificado contra las cuatro disposiciones: la primera
+        versión falla en las dos que tienen el proyecto adentro."""
+        padre = pathlib.Path(tempfile.mkdtemp(prefix="prueba-deuda-repo-")).resolve()
+        self.addCleanup(tirar_dir, padre)
+        correr("git init -q .", padre)
+        d = self.proyecto()
+        destino = padre / "proyecto"
+        shutil.copytree(d, destino)
+        tirar_dir(destino / ".git")
+        correr("git add -A && git commit -qm base", padre)
+        (destino / ".base-ref").write_text(
+            correr("git rev-parse HEAD", padre).stdout.strip() + "\n")
+        self.anotar(destino)
+        r = correr(f'TAREA=T03c AGENTES="{RAIZ}" bash scripts/gate.sh', destino)
+        salida = r.stdout + r.stderr
+        self.assertIn("DEUDA_DE_MOCK", salida,
+                      f"con el proyecto adentro del repo la constancia no se encontró, y la"
+                      f" atribución se perdió en silencio:\n{salida}")
+        self.assertIn("T03b-cosa", salida, salida)
+
+    def test_el_runner_busca_el_mismo_marcador_que_el_gate_emite(self):
+        """El contrato entre los dos archivos es una cadena literal, y una cadena literal
+        copiada en dos lugares es la clase de defecto que esta suite ya encontró dos veces.
+        Acá se afirma que el gate emite exactamente lo que `correr-plan.sh` busca."""
+        plan = (SCRIPTS / "correr-plan.sh").read_text()
+        marcadores = re.findall(r"grep -q '([A-Z_]+)' \"\$log\"", plan)
+        self.assertIn("DEUDA_DE_MOCK", marcadores,
+                      f"el runner no reconoce el veredicto: {marcadores}")
+        d = self.proyecto()
+        self.anotar(d)
+        salida = self.gate(d).stdout
+        self.assertIn("DEUDA_DE_MOCK", salida, salida)
+        # Y no lo reintenta contra la tarea: la rama tiene que cortar, como ENTORNO_MOVIDO.
+        rama = plan.split("DEUDA_DE_MOCK", 1)[1].split("huella_de_falla", 1)[0]
+        self.assertIn("continue", rama,
+                      "sin `continue` la tarea entra al juego de huellas y queda en punto muerto")
+        self.assertIn("DEUDA+=", rama, "y tiene que quedar en la lista para el resumen final")
+
+
+class TestJuntarVeredictosPrefiereLaFuenteNativa(unittest.TestCase):
+    """Hay dos fuentes para el mismo hecho y no son equivalentes.
+
+    · NATIVA — `scripts/_veredicto.py` escribe el registro en el momento en que el gate
+      decide. Es el hecho.
+    · PARSEADA — `exportar_veredictos.py` lo reconstruye del log y del worktree cuando la
+      corrida ya terminó. Su propio docstring dice que es «un puente, no la vía definitiva».
+
+    Auditadas una contra otra antes de confiar (2026-10-31, 23 corridas con las dos fuentes):
+    814 registros contra 814, las 634 celdas `(corrida, tarea, veredicto)` iguales, **cero
+    discrepancias**. El puente no inventa veredictos. Donde pierde es en la ENTRADA:
+
+      1. Filtra el resultado al enunciado: lo lee del worktree FINAL, así que 1138 de 1335
+         enunciados parseados dicen `**Estado:** ✅ hecha`. Los nativos dicen `pendiente`,
+         que es el estado cuando se juzgó. Para entrenar o evaluar un juez, eso es
+         contaminación en la entrada.
+      2. Colapsa textos de test: recupera el test del archivo final, así que todos los
+         intentos de una tarea quedan con el mismo texto. 360 huellas únicas contra 511
+         nativas en las mismas corridas, y las 360 son subconjunto. Prefiriendo nativo, el
+         dataset pasa de 534 a **680** tests únicos sin agregar una sola corrida.
+
+    Lo que el puente sí aporta: las 17 corridas de antes de que el emisor existiera. Por eso
+    esto es una fusión y no un reemplazo.
+    """
+
+    def escribir(self, d, nombre, registros):
+        (d / nombre).write_text(
+            "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in registros))
+
+    def escenario(self, nativos=None, parseado=None):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-juntar-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        (d / "nativos").mkdir()
+        for corrida, regs in (nativos or {}).items():
+            self.escribir(d / "nativos", f"{corrida}.jsonl", regs)
+        if parseado is not None:
+            self.escribir(d, "parseado.jsonl", parseado)
+        return d
+
+    def juntar(self, d, con_parseado=True):
+        extra = f' --parseado "{d}/parseado.jsonl"' if con_parseado else ""
+        return correr(f'python3 "{SCRIPTS}/juntar_veredictos.py" --nativos "{d}/nativos"'
+                      f'{extra} --salida "{d}/fusion.jsonl"', d)
+
+    def leer(self, d):
+        return [json.loads(l) for l in (d / "fusion.jsonl").read_text().splitlines() if l.strip()]
+
+    NATIVO = {"tarea": "T01a", "veredicto": "aceptado", "enunciado": "**Estado:** pendiente",
+              "test": "def test_a(): assert 1"}
+    PARSEADO_MISMA = {"corrida": "c1", "tarea": "T01a", "veredicto": "aceptado",
+                      "enunciado": "**Estado:** ✅ hecha", "test": "def test_final(): pass"}
+    PARSEADO_VIEJA = {"corrida": "vieja", "tarea": "T09b", "veredicto": "rechazado",
+                      "enunciado": "**Estado:** ✅ hecha", "test": "def test_v(): pass"}
+
+    def test_el_nativo_le_gana_al_parseado_de_la_misma_corrida(self):
+        d = self.escenario(nativos={"c1": [self.NATIVO]},
+                           parseado=[self.PARSEADO_MISMA, self.PARSEADO_VIEJA])
+        r = self.juntar(d)
+        self.assertEqual(0, r.returncode, f"{r.stdout}{r.stderr}")
+        fusion = self.leer(d)
+        de_c1 = [x for x in fusion if x["corrida"] == "c1"]
+        self.assertEqual(1, len(de_c1),
+                         f"la corrida con nativo no puede quedar duplicada:\n{de_c1}")
+        self.assertEqual("nativo", de_c1[0]["fuente"], de_c1[0])
+        self.assertEqual("def test_a(): assert 1", de_c1[0]["test"],
+                         "el texto del test tiene que ser el que el gate juzgó, no el final")
+
+    def test_las_corridas_sin_nativo_se_conservan(self):
+        """Es una fusión y no un reemplazo: el puente es la única fuente de las corridas de
+        antes de que el emisor existiera. Tirarlas sería perder 17 corridas por prolijidad."""
+        d = self.escenario(nativos={"c1": [self.NATIVO]},
+                           parseado=[self.PARSEADO_MISMA, self.PARSEADO_VIEJA])
+        self.juntar(d)
+        viejas = [x for x in self.leer(d) if x["corrida"] == "vieja"]
+        self.assertEqual(1, len(viejas), f"se perdió la corrida sin nativo:\n{self.leer(d)}")
+        self.assertEqual("parseado", viejas[0]["fuente"], viejas[0])
+
+    def test_la_corrida_sale_del_nombre_del_archivo(self):
+        """El emisor no escribe su propio nombre adentro —no lo sabe—, así que la corrida la
+        pone este script. Si la dejara vacía, la partición por familias no podría agrupar."""
+        d = self.escenario(nativos={"f1793535892": [self.NATIVO]}, parseado=[])
+        self.juntar(d)
+        self.assertEqual("f1793535892", self.leer(d)[0]["corrida"],
+                         "sin corrida el registro no se puede particionar sin fuga")
+
+    def test_dos_intentos_de_la_misma_tarea_no_se_colapsan(self):
+        """La razón por la que preferir nativo sube de 534 a 680 tests únicos: cada intento es
+        un registro con SU texto. Deduplicar acá borraría justo la variación que el juez
+        tiene que aprender a distinguir."""
+        a = dict(self.NATIVO, test="def test_1(): assert 1", veredicto="rechazado")
+        b = dict(self.NATIVO, test="def test_2(): assert 2", veredicto="aceptado")
+        d = self.escenario(nativos={"c1": [a, b]}, parseado=[])
+        self.juntar(d)
+        textos = {x["test"] for x in self.leer(d)}
+        self.assertEqual(2, len(textos), f"se colapsaron los dos intentos:\n{textos}")
+
+    def test_cuenta_la_contaminacion_en_vez_de_corregirla(self):
+        """Un enunciado reescrito ya no es el que el agente vio: se CUENTA, no se corrige.
+        Y se cuenta sobre lo que se está escribiendo, que es lo único que importa."""
+        d = self.escenario(nativos={"c1": [self.NATIVO]}, parseado=[self.PARSEADO_VIEJA])
+        r = self.juntar(d)
+        self.assertIn("contaminación en la entrada", r.stdout,
+                      f"la fuga tiene que quedar dicha:\n{r.stdout}")
+        viejas = [x for x in self.leer(d) if x["corrida"] == "vieja"]
+        self.assertIn("✅", viejas[0]["enunciado"],
+                      "corregir el enunciado sería inventar lo que el agente vio")
+        # Y el nativo no aporta contaminación: ésa es la razón de preferirlo.
+        self.assertRegex(r.stdout, r"enunciados con el resultado ya adentro · nativo: 0/1",
+                         f"el nativo no puede traer el resultado adentro:\n{r.stdout}")
+
+    def test_sin_ninguna_fuente_no_escribe_nada(self):
+        """«No pude juntar» no puede parecerse a «junté y salió vacío»: un archivo vacío
+        aguas abajo pasa por un dataset limpio."""
+        d = self.escenario(nativos={}, parseado=[])
+        r = self.juntar(d)
+        self.assertEqual(2, r.returncode, f"{r.stdout}{r.stderr}")
+        self.assertFalse((d / "fusion.jsonl").exists(),
+                         "un dataset vacío escrito es peor que no escribir")
+
+
+class TestLaMuestraDelJuezEsMuestraYNoPrefijo(unittest.TestCase):
+    """`--tope` cortaba los primeros N pares, y los pares salen ordenados por
+    `(corrida, tarea)`. O sea que una medición con tope no medía al juez: medía **con qué
+    campañas se armó el dataset**, y lo informaba como habilidad. Con 41 corridas y 274 pares
+    disponibles, los primeros 120 son casi todos de las corridas viejas —las del exportador
+    parseado, que además traen el enunciado contaminado—.
+
+    El arreglo es una muestra al azar con semilla declarada, y la semilla no alcanza sola: hace
+    falta poder verificar QUÉ pares entraron. Por eso la salida lleva una huella del conjunto:
+    dos corridas con la misma semilla sobre datasets distintos informaban lo mismo y no había
+    cómo notarlo."""
+
+    def jsonl(self, n_tareas=40):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-muestra-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        f = d / "v.jsonl"
+        regs = []
+        # Dos corridas, para que un prefijo sea distinguible de una muestra: ordenadas por
+        # (corrida, tarea), los primeros pares son todos de `aaa`.
+        for corrida in ("aaa", "zzz"):
+            for i in range(n_tareas):
+                for veredicto, marca in (("aceptado", "bien"), ("rechazado", "mal")):
+                    regs.append({"corrida": corrida, "tarea": f"T{i:02d}",
+                                 "veredicto": veredicto,
+                                 "enunciado": f"enunciado {corrida} {i}",
+                                 "test": f"def test_{corrida}_{i}_{marca}(): pass"})
+        f.write_text("".join(json.dumps(r) + "\n" for r in regs))
+        return d, f
+
+    def correr_juez(self, f, extra):
+        guion = f.parent / "guion.txt"
+        guion.write_text("A\n" * 2000)
+        return correr(f'python3 "{SCRIPTS}/juez_pareado.py" --guion "{guion}" {extra} "{f}"',
+                      f.parent)
+
+    def huella(self, salida):
+        m = re.search(r"huella de la muestra ([0-9a-f]{8})", salida)
+        self.assertIsNotNone(m, f"la salida no trae huella de la muestra:\n{salida}")
+        return m.group(1)
+
+    def test_la_misma_semilla_da_la_misma_muestra(self):
+        d, f = self.jsonl()
+        a = self.correr_juez(f, "--tope 20 --semilla 7")
+        b = self.correr_juez(f, "--tope 20 --semilla 7")
+        self.assertEqual(self.huella(a.stdout), self.huella(b.stdout),
+                         "una muestra que no se puede repetir no es reproducible")
+
+    def test_otra_semilla_da_otra_muestra(self):
+        """El guardia de arriba: si la huella fuera constante, «misma semilla, misma muestra»
+        pasaría con un prefijo fijo y no probaría nada."""
+        d, f = self.jsonl()
+        a = self.correr_juez(f, "--tope 20 --semilla 7")
+        b = self.correr_juez(f, "--tope 20 --semilla 99")
+        self.assertNotEqual(self.huella(a.stdout), self.huella(b.stdout),
+                            "la semilla no mueve la muestra: sigue siendo un corte fijo")
+
+    def test_la_muestra_no_es_el_prefijo(self):
+        """Lo concreto: con dos corridas y los pares ordenados, un prefijo de 20 sale todo de
+        `aaa`. Una muestra al azar tiene que traer de las dos."""
+        d, f = self.jsonl()
+        r = self.correr_juez(f, "--tope 20 --semilla 1")
+        self.assertIn("muestra AL AZAR de 20 de 80 pares", r.stdout, r.stdout)
+        # La huella se calcula sobre los nombres `corrida/tarea`, así que reproducirla acá con
+        # el mismo algoritmo prueba de qué corridas salieron los pares.
+        nombres = [f"{c}/T{i:02d}" for c in ("aaa", "zzz") for i in range(40)]
+        pares = list(nombres)
+        random.Random(1).shuffle(pares)
+        esperada = hashlib.sha256("\n".join(pares[:20]).encode()).hexdigest()[:8]
+        self.assertEqual(esperada, self.huella(r.stdout),
+                         "la muestra no es la que la semilla define")
+        self.assertTrue(any(x.startswith("zzz/") for x in pares[:20]),
+                        "con esta semilla la muestra tiene que cruzar las dos corridas")
+
+    def test_sin_tope_no_declara_muestra(self):
+        """Si usa todos los pares no hay muestra que declarar, y decir «muestra» igual sería
+        afirmar una limitación que no existe."""
+        d, f = self.jsonl()
+        r = self.correr_juez(f, "")
+        self.assertIn("80 par(es)", r.stdout, r.stdout)
+        self.assertNotIn("muestra AL AZAR", r.stdout,
+                         f"no hay muestra: usó todo\n{r.stdout}")
+
+    def test_un_tope_mayor_que_los_pares_no_es_muestra(self):
+        d, f = self.jsonl()
+        r = self.correr_juez(f, "--tope 500 --semilla 1")
+        self.assertNotIn("muestra AL AZAR", r.stdout,
+                         f"pidió más de los que hay: usó todos\n{r.stdout}")

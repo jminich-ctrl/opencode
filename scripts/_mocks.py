@@ -238,6 +238,64 @@ def corregir_en_archivo(test, inefectivos, tarea, registro):
     return hechas
 
 
+def anotar_deuda(test, sin_verificar, tarea, registro):
+    """Deja constancia del ⊘ para que el rojo que venga después se le cobre a quien lo debe.
+
+    El ⊘ de este chequeo no es neutral: es una DEUDA, y detona en otra tarea. Medida
+    completa el 2026-11-01 en la corrida `f1793535892`, con modelos de verdad:
+
+      · T03b escribió `tests/test_s3.py` con `patch('src.datos.d3.leer3')` y el import
+        diferido adentro del test. El enunciado no declaraba con qué import `s3` iba a
+        traer el nombre, así que este chequeo salió 2: «no pude determinar». El test pasó
+        los cinco pasos que preguntan si DISTINGUE —falla sin la implementación, pasa con
+        ella, los mutantes mueren, el brazo nulo falla— y se copió al tronco.
+      · Pasó porque corrió SOLO: con `sys.modules` vacío, el import diferido se resuelve
+        después del patch y el patch pega.
+      · Tres tareas después, T03c escribió `src/rutas/r3.py`, cuyo test importa a nivel de
+        módulo y por lo tanto precarga `src.servicios.s3` en el momento de la COLECCIÓN.
+        Ahí el import diferido de `test_s3.py` encuentra el módulo en caché con el `leer3`
+        de verdad ligado, el patch no pega, y `calcular3()` devuelve 30 en vez de 50.
+      · El gate reprobó a T03c con «rompiste tests que andaban antes de esta tarea», que es
+        verdad y es el sujeto equivocado: T03c no toca ni `s3` ni `d3`. La etapa se detuvo
+        pidiendo que decidiera una persona, sobre la tarea inocente.
+
+    Reproducido a mano, sin modelos: `test_s3.py` sola pasa; `test_r3.py test_s3.py`
+    juntas dan `AssertionError: 30 != 50`; con el patch en `src.servicios.s3.leer3` pasa de
+    las dos formas. De siete servicios, uno traía la bomba: tres parcheaban donde el nombre
+    se usa y tres hacían `import src.datos.dN` adentro de la función, que también deja el
+    patch efectivo.
+
+    Lo que esto NO hace es decidir la forma del import: eso lo fija el contrato y lo escribe
+    el planificador. Acá sólo se anota quién quedó debiendo, para que el gate pueda nombrar
+    al deudor en vez de al vecino.
+    """
+    reg = pathlib.Path(registro)
+    filas = []
+    for modulo, simbolo, linea, destino, _por_que in sin_verificar:
+        filas.append((tarea.stem if tarea is not None else "?", str(test),
+                      "%s.%s" % (modulo, simbolo), destino, linea))
+    if not filas:
+        return False
+    try:
+        reg.mkdir(parents=True, exist_ok=True)
+        with (reg / "deuda-mocks.csv").open("a", encoding="utf-8") as f:
+            if f.tell() == 0:
+                f.write("fecha,tarea,test,objetivo,destino,linea\n")
+            for tarea_id, ruta, objetivo, destino, linea in filas:
+                f.write("%s,%s,%s,%s,%s,%d\n" % (
+                    datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    tarea_id, ruta, objetivo, destino, linea))
+    except OSError as e:
+        # A diferencia de una corrección sin constancia, esto no bendice nada: el ⊘ se
+        # informa igual y sigue sin ser verde. Lo que se pierde es la atribución del rojo
+        # futuro, así que se dice en voz alta y no se calla.
+        print("  ✗ no pude anotar la deuda del ⊘ (%s): si esto rompe una tarea" % e)
+        print("     después, el gate no va a poder nombrar a %s"
+              % (tarea.stem if tarea is not None else "quien lo debe"))
+        return False
+    return True
+
+
 def main(argv):
     segun_enunciado = "--segun-enunciado" in argv
     corregir = "--corregir" in argv
@@ -313,6 +371,15 @@ def main(argv):
     for modulo, simbolo, linea, destino, por_que in sin_verificar:
         print("  %s:%d  no pude determinar si patch('%s.%s') tiene efecto sobre %s: %s"
               % (test, linea, modulo, simbolo, destino, por_que))
+
+    # El ⊘ queda anotado, y eso es la mitad del chequeo: sin constancia, el rojo que este
+    # ⊘ produce dentro de tres tareas se le cobra al vecino. Ver `anotar_deuda`.
+    if sin_verificar:
+        if registro is not None:
+            anotar_deuda(test, sin_verificar, tarea, registro)
+        else:
+            print("  ⊘ sin --registro no puedo anotar la deuda de este ⊘: el rojo que")
+            print("     produzca después va a quedar a nombre de otra tarea")
 
     if inefectivos and corregir:
         if registro is None:

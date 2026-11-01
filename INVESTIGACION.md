@@ -857,10 +857,35 @@ Tres hallazgos que nos pegan de lleno:
    directa: cada andamio que agregamos hay que medirlo *con nuestros modelos*, porque el signo
    del efecto depende del tamaño del modelo.
 
-**El experimento, sin cambios respecto de §8.7 pero ahora con contexto:** conservar el borrador
-descartado junto al test aceptado y medir en cuántas tareas difiere de la implementación final
-*de un modo que invierte el veredicto*. Dato que ya tenemos: 2026-10-27, los siete tests de una
-etapa pasaron los cinco pasos y tres fallaron después con la implementación real. 3 de 7.
+**El experimento de §8.7, CORRIDO (2026-11-01, corrida `f1793535892`, n=14).** Era: conservar el
+borrador descartado junto al test aceptado y medir en cuántas tareas difiere de la
+implementación final *de un modo que invierte el veredicto*. El método ya guardaba el material
+—`.metricas/borrador-aceptado/<T>/`— así que no hizo falta cambiar nada, sólo mirarlo. De 21
+borradores conservados, 14 tienen implementación final (los 7 de la capa `c` no, porque la
+etapa se detuvo):
+
+| borrador vs implementación final | tareas |
+|---|---|
+| idénticos byte a byte | **11 de 14** |
+| difieren sólo en una línea en blanco | 2 |
+| **difieren de verdad** | **1** |
+
+Y la única diferencia de fondo es justo la que invierte el veredicto: el borrador traía
+`import src.datos.d3` adentro de la función —forma que deja el patch del test efectivo en
+cualquier orden— y la implementación final usó `from src.datos.d3 import leer3` a nivel de
+módulo, que lo deja inefectivo en cuanto otro test precarga el módulo. Medido en las cuatro
+celdas: con el borrador el test pasa sola y acompañada; con la final pasa sola y **falla**
+acompañada.
+
+**El número que §8.7 pedía: 13 de 14 veces el borrador es buen proxy de la implementación final;
+1 de 14 no lo es, y esa vez detuvo la etapa y le cobró el rojo a otra tarea.** Con n=14 es un
+orden de magnitud y no una tasa: no es «casi nunca» ni «la mitad». Detalle, la cadena completa y
+el arreglo —contabilidad del ⊘, no criterio— en MEDICION.md §18.
+
+El dato anterior que teníamos (2026-10-27: los siete tests de una etapa pasaron los cinco pasos
+y tres fallaron después con la implementación real, 3 de 7) medía otra cosa: ahí el contrato
+mandaba el `from` explícitamente. Con el contrato mudo el borrador acierta mucho más seguido, y
+lo que queda es ese 1 de 14.
 
 ## 3. Mutación: la usamos como aceptación y nunca como feedback
 

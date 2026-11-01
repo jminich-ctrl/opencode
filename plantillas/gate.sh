@@ -200,6 +200,75 @@ test_de_la_tarea() {
     "tareas/${TAREA:-}"-*.md 2>/dev/null | head -1
 }
 
+# El tronco del proyecto desde cualquier worktree. El `.metricas/` del proyecto vive en el
+# tronco y está gitignorado, así que en un worktree no existe: sin esto el gate no puede
+# leer la constancia que el método dejó al aceptar un test.
+tronco_del_proyecto() {
+  local c raiz dentro
+  c="$(git rev-parse --git-common-dir 2>/dev/null)" || return 1
+  [ -n "$c" ] || return 1
+  case "$c" in /*) ;; *) c="$(pwd)/$c" ;; esac
+  raiz="$(dirname "$c")"
+  # Y el PROYECTO dentro de ese tronco, que no siempre es la raíz: cuando el proyecto vive
+  # adentro del repo del método —los dos ejemplos— `.metricas` está un nivel más abajo.
+  # `--show-prefix` da la ruta del cwd respecto del toplevel del worktree, que es la misma
+  # ruta que el proyecto ocupa en el tronco. Sin esto la constancia no se encuentra y la
+  # atribución se pierde en silencio, justo en la disposición de los ejemplos.
+  dentro="$(git rev-parse --show-prefix 2>/dev/null)"
+  printf '%s\n' "${raiz%/}${dentro:+/${dentro%/}}"
+}
+
+# De `tests.test_s3.TestS3.test_calcular3` al archivo. Se prueban prefijos contra el árbol y
+# gana el más largo que exista: un test puede vivir a cualquier profundidad
+# (`backend.tests.unit.test_s3`) y partir por el primer punto da la carpeta, no el archivo.
+archivo_del_test() {
+  local dotted="$1" acum="" parte mejor="" IFS=.
+  for parte in $dotted; do
+    acum="${acum:+$acum/}$parte"
+    [ -f "$acum.py" ] && mejor="$acum.py"
+  done
+  printf '%s\n' "$mejor"
+}
+
+# ¿Estas fallas nuevas son de un test que el método aceptó con ⊘ sobre el objetivo de su
+# patch, y que corrido SOLO sigue pasando?
+#
+# Las dos condiciones juntas, y ninguna alcanza sola:
+#   · la constancia del ⊘ (`.metricas/deuda-mocks.csv`, que escribe `_mocks.py`) dice quién
+#     quedó debiendo la forma del import;
+#   · «pasa corrido solo y falla con la suite» es la observación que distingue una deuda que
+#     detonó de una regresión honesta. Sin ella esta rama sería un perdón automático para
+#     cualquier test anotado, y un instrumento que perdona todo es peor que ninguno.
+#
+# No enumera causas: no hay lista de errores: se vuelve a correr y se mira. La lista de
+# síntomas es la trampa que este archivo ya documenta dos veces más arriba.
+deuda_de_mock() {
+  local nuevas="$1" tronco csv linea tok ruta vistos=""
+  tronco="$(tronco_del_proyecto)" || return 0
+  csv="$tronco/.metricas/deuda-mocks.csv"
+  [ -f "$csv" ] || return 0
+  while IFS= read -r linea; do
+    [ -n "$linea" ] || continue
+    for tok in $(printf '%s\n' "$linea" \
+                 | grep -oE '[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+'); do
+      ruta="$(archivo_del_test "$tok")"
+      [ -n "$ruta" ] || continue
+      case " $vistos " in *" $ruta "*) continue ;; esac
+      vistos="$vistos $ruta"
+      awk -F, -v r="$ruta" 'NR>1 && $3==r {print $2"\t"$3"\t"$4"\t"$5}' "$csv" | sort -u \
+      | while IFS=$'\t' read -r t_deudor t_test t_obj t_dest; do
+          # Corrido solo: si también falla, la regresión es de ESTA tarea y no se perdona.
+          bash scripts/correr-suite.sh "$t_test" >/dev/null 2>&1 || continue
+          printf '%s aceptó %s con ⊘ sobre patch(%s)\n' "$t_deudor" "$t_test" "$t_obj"
+          printf '  corrido solo pasa; con la suite falla: %s ya está importado cuando el patch corre\n' "$t_dest"
+          printf '  el arreglo es del contrato: patch(%s.<nombre>), donde el nombre SE USA\n' "$t_dest"
+        done
+    done
+  done <<FIN
+$nuevas
+FIN
+}
+
 veredicto_con_linea_base() {
   local base_f ahora mios nuevas esperado ruta_t
   ahora="$(bash scripts/correr-suite.sh --fallas 2>/dev/null | sort -u)"
@@ -328,6 +397,24 @@ veredicto_con_linea_base() {
       echo "     línea base vio. Todos los worktrees comparten el MySQL de 127.0.0.1:33306:"
       echo "     lo que una etapa deja, la siguiente lo encuentra. Es del entorno y no del"
       echo "     código, así que no se le cobra a la tarea ni se reintenta contra ella."
+      return
+    fi
+    # ¿O es una DEUDA que el método ya había anotado? Medido el 2026-11-01 en
+    # `f1793535892`: T03b aceptó `tests/test_s3.py` con un ⊘ sobre el objetivo de su patch,
+    # y tres tareas después T03c —que no toca ni `s3` ni `d3`— se comió el rojo porque su
+    # test precarga `src.servicios.s3` en la colección. La etapa se detuvo pidiendo que
+    # decidiera una persona, sobre la tarea inocente. Es la misma regla que ENTORNO_MOVIDO
+    # dos ramas más arriba: no ablanda nada, detiene igual; lo único que cambia es a QUIÉN
+    # se le cobra. Ver `anotar_deuda` en scripts/_mocks.py.
+    DEUDA="$(deuda_de_mock "$nuevas")"
+    if [ -n "$DEUDA" ]; then
+      rojo "el rojo es de un ⊘ anotado antes, no de ${TAREA:-esta tarea}:"
+      printf '%s\n' "$nuevas" | head -5 | sed 's/^/     /'
+      printf '%s\n' "$DEUDA" | sed 's/^/     /'
+      echo "     DEUDA_DE_MOCK — el test se aceptó sin saber con qué import la"
+      echo "     implementación iba a traer el nombre parcheado, y pasó porque corrió solo."
+      echo "     Lo decide quien planifica: el contrato tiene que declarar la forma del"
+      echo "     import. No se le cobra a ${TAREA:-esta tarea} ni se reintenta contra ella."
       return
     fi
     rojo "rompiste tests que andaban antes de esta tarea:"

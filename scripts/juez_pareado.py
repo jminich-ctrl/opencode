@@ -30,9 +30,11 @@ instrumento con el número de un modelo.
 """
 import argparse
 import collections
+import hashlib
 import json
 import os
 import pathlib
+import random
 import re
 import sys
 import urllib.error
@@ -79,7 +81,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("jsonl")
     ap.add_argument("--modelo", default=os.environ.get("MODELO_JUEZ", ""))
-    ap.add_argument("--tope", type=int, default=0)
+    ap.add_argument("--tope", type=int, default=0,
+                    help="muestra aleatoria de N pares, con --semilla. NO es un prefijo: "
+                         "los pares están ordenados por corrida, así que cortar los "
+                         "primeros mide qué campañas entraron, no qué juez es")
+    ap.add_argument("--semilla", type=int, default=0,
+                    help="la semilla de la muestra, para que el subconjunto se pueda repetir")
     ap.add_argument("--guion", default=None,
                     help="archivo con una respuesta cruda por línea: juez de fixture, sin modelo")
     args = ap.parse_args()
@@ -108,7 +115,13 @@ def main():
                 pares.append((f"{fam}/{tarea}", bueno, malo))
         else:
             sueltos += len(d["aceptado"]) + len(d["rechazado"])
-    if args.tope:
+    total_pares = len(pares)
+    if args.tope and args.tope < total_pares:
+        # Al azar y no los primeros. Los pares salen ordenados por `(corrida, tarea)`, así que
+        # un prefijo es una muestra de las corridas más viejas: mediría con qué campañas se
+        # armó el dataset y lo reportaría como habilidad del juez. La semilla queda en la
+        # salida para que el subconjunto se pueda repetir.
+        random.Random(args.semilla).shuffle(pares)
         pares = pares[:args.tope]
     if not pares:
         print("⊘ no se pudo armar ningún par aceptado/rechazado dentro de una misma TAREA.")
@@ -116,6 +129,13 @@ def main():
         print("   contra otra tarea daría número, pero mediría desajuste de enunciado.")
         return 2
     print(f"  {len(pares)} par(es) dentro de la MISMA TAREA, de {len(por_tarea)} tarea(s)")
+    if len(pares) < total_pares:
+        # La huella de QUÉ pares entraron, no sólo cuántos: sin esto, dos corridas con la
+        # misma semilla y distinto dataset informan lo mismo y no hay cómo notarlo. Es lo
+        # que hace reproducible una muestra.
+        huella = hashlib.sha256("\n".join(f for f, _, _ in pares).encode()).hexdigest()[:8]
+        print(f"  · muestra AL AZAR de {len(pares)} de {total_pares} pares disponibles, "
+              f"semilla {args.semilla} · huella de la muestra {huella}")
     print(f"  ⊘ {sueltos} registro(s) quedaron afuera: su tarea no tiene las dos clases.\n     No se aparean contra otra tarea: eso mediría desajuste de enunciado, no juicio.")
 
     bien = mal = inconsistente = ilegible = 0

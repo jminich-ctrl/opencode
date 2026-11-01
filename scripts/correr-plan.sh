@@ -188,6 +188,7 @@ for etapa in "${ETAPAS[@]}"; do
   MUERTAS=()                # las que fallaron dos veces por lo mismo
   IMPOSIBLES=()             # las que el agente declaró imposibles
   ENTORNO=()                # las que fallaron por el entorno: no son de la tarea
+  DEUDA=()                  # las que se comieron el rojo de un ⊘ ajeno: tampoco son de la tarea
   while [ "${#pendientes[@]}" -gt 0 ] && [ "$intento" -le "$REINTENTOS" ]; do
     [ "$intento" -gt 1 ] && echo "── reintento $intento de: ${pendientes[*]}"
     # El reintento lleva una DESCRIPCIÓN de lo que falló, no la salida cruda. Medido: tener
@@ -242,6 +243,20 @@ for etapa in "${ETAPAS[@]}"; do
         continue
       fi
 
+      # Lo mismo para el rojo que viene de un ⊘ que el método anotó al aceptar un test de
+      # OTRA tarea: reintentar no lo arregla —el test ajeno va a seguir ahí— y declararla en
+      # punto muerto le cobra a la tarea un defecto del contrato. Medido el 2026-11-01 en
+      # `f1793535892`: T03c, que escribe `src/rutas/r3.py` y no toca ni `s3` ni `d3`, quedó
+      # como la tarea a decidir por el ⊘ que T03b había dejado tres tareas antes.
+      if grep -q 'DEUDA_DE_MOCK' "$log" 2>/dev/null; then
+        echo "  ⊘ $t: el rojo es de un ⊘ anotado antes, no de esta tarea. No se reintenta."
+        grep -m3 ' aceptó .* con ⊘ sobre patch' "$log" 2>/dev/null | sed 's/^ */      /'
+        echo "      El contrato de ESE test no declara con qué import se trae el nombre"
+        echo "      parcheado. Lo decide quien planifica. Log: $log"
+        DEUDA+=("$t")
+        continue
+      fi
+
       h="$(huella_de_falla "$log")"
       anterior="$(cat "$HUELLAS/$t" 2>/dev/null || true)"
       if [ -n "$h" ] && [ "$h" = "$anterior" ]; then
@@ -261,13 +276,19 @@ for etapa in "${ETAPAS[@]}"; do
   done
   rm -rf "$HUELLAS"
 
+  if [ "${#DEUDA[@]}" -gt 0 ]; then
+    echo "  ⊘ pagaron el ⊘ de otra tarea: ${DEUDA[*]}"
+    echo "     No es la tarea ni el modelo: un test que el método aceptó sin saber con qué"
+    echo "     import la implementación trae el nombre que parchea. El arreglo es del"
+    echo "     contrato de ESE test, y está nombrado arriba. Relanzar sin tocarlo repite."
+  fi
   if [ "${#ENTORNO[@]}" -gt 0 ]; then
     echo "  ⊘ el entorno se movió en: ${ENTORNO[*]}"
     echo "     No es la tarea ni el modelo. La base de datos del proyecto no estaba en el"
     echo "     estado que la línea base vio. Arreglá el entorno y relanzá: no hay nada que"
     echo "     cambiarle al plan ni al enunciado."
   fi
-  if [ "${#pendientes[@]}" -gt 0 ] || [ "${#MUERTAS[@]}" -gt 0 ] || [ "${#IMPOSIBLES[@]}" -gt 0 ] || [ "${#ENTORNO[@]}" -gt 0 ]; then
+  if [ "${#pendientes[@]}" -gt 0 ] || [ "${#MUERTAS[@]}" -gt 0 ] || [ "${#IMPOSIBLES[@]}" -gt 0 ] || [ "${#ENTORNO[@]}" -gt 0 ] || [ "${#DEUDA[@]}" -gt 0 ]; then
     echo
     echo "✗ La etapa $n se detuvo: ${pendientes[*]+${pendientes[*]}} ${MUERTAS[*]+${MUERTAS[*]}} ${IMPOSIBLES[*]+${IMPOSIBLES[*]}}"
     [ "${#MUERTAS[@]}" -gt 0 ] && echo "  En punto muerto (misma falla dos veces): ${MUERTAS[*]}"

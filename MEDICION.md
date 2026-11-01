@@ -1416,3 +1416,157 @@ equivoca.
 que no llama a ningún modelo, igual que `_ensayo_agente.sh` para el ejecutor. Los dos defectos de
 arriba están fijados por tests que **se vieron reprobar** la versión con el defecto, no sólo
 aprobar la buena.
+
+### §18 — El ⊘ no es neutral: es una deuda, y una de cada cinco detona en otra tarea (2026-11-01)
+
+Corrida `f1793535892`, 21 tareas, modelos de verdad, ejecutor Qwen3-Coder-30B-A3B con el
+contexto ya sincronizado (32.000 → 153.000). **21 de 21 tests pasaron el gate.** La etapa de
+implementación se detuvo en **T03c**, y durante media hora creí que era el cuarto caso de
+instrumento que reprueba al brazo bueno. No lo era: el gate tenía razón, y la causa estaba
+**tres tareas más atrás**.
+
+#### La cadena, entera
+
+| cuándo | qué pasó |
+|---|---|
+| T03b | escribe `tests/test_s3.py` con `patch('src.datos.d3.leer3')` y el import diferido adentro del test |
+| T03b · gate | `⊘ no pude determinar si patch('src.datos.d3.leer3') tiene efecto sobre src.servicios.s3: todavía no existe, y el enunciado no declara con qué import lo va a traer` |
+| T03b · gate | y aun así: **✓ falla sin la implementación · ✓ pasa con la implementación · ✓ los mutantes mueren · ✓ el brazo nulo falla**. Aceptado y copiado al tronco. |
+| T03c | escribe `src/rutas/r3.py`. No toca `s3` ni `d3`. |
+| T03c · gate | `✗ rompiste tests que andaban antes de esta tarea: FAIL: tests.test_s3.TestS3.test_calcular3` |
+| runner | dos intentos, etapa detenida, «decide un humano» — **sobre la tarea inocente** |
+
+Por qué el test de T03b pasaba: corría **solo**. Con `sys.modules` vacío, el import diferido
+se resuelve después del patch y el patch pega. El test de T03c, en cambio, importa a nivel de
+módulo, así que **en el momento de la colección** precarga `src.servicios.s3` con el `leer3`
+de verdad ligado. A partir de ahí el import diferido encuentra el módulo en caché, el patch no
+toca nada y `calcular3()` devuelve 30 donde el test espera 50.
+
+Reproducido a mano, sin modelos, en tres líneas:
+
+```
+tests/test_s3.py                      → OK
+tests/test_r3.py tests/test_s3.py     → AssertionError: 30 != 50
+patch('src.servicios.s3.leer3')       → OK de las dos formas
+```
+
+#### El alcance, contado
+
+De los siete servicios de la corrida, **uno** traía la bomba:
+
+| forma | servicios | el patch pega |
+|---|---|---|
+| `patch` donde el nombre **se usa** | s1, s4, s5 | siempre |
+| `import src.datos.dN` adentro de la función | s2, s6, s7 | siempre |
+| `from src.datos.dN import leerN` a nivel de módulo + `patch` al módulo de origen | **s3** | **sólo si corre solo** |
+
+O sea: 1 de 7 tareas de la capa que mockea cargaba un rojo diferido, y el ⊘ del gate lo había
+nombrado con precisión cuatro horas antes de que explotara.
+
+#### Qué estaba mal, y qué no
+
+Lo que **no** estaba mal: el chequeo. `_mocks.py --segun-enunciado` mira el contrato y no el
+borrador del propio agente, y eso está medido (§ Medición 6: mirarle el borrador es
+preguntarle al acusado). Tampoco estaba mal el 2x2 de §13, que dice que corregir la ruta sólo
+paga cuando el contrato es mudo. Y no corresponde que el método **infiera** la forma del
+import: eso lo fija el contrato y lo escribe el planificador.
+
+Lo que estaba mal es que el ⊘ **no costaba nada y no dejaba rastro**. Un ⊘ es una deuda: el
+método declara que no puede saber si el test es válido, lo acepta igual, y cuando la deuda
+vence el rojo se lo cobra al vecino. Es el defecto de siempre de este método —el veredicto
+nombra al sujeto equivocado— ahora con tres tareas de distancia entre la causa y la factura.
+
+#### El arreglo: contabilidad, no criterio
+
+1. **`scripts/_mocks.py`** — el ⊘ deja constancia en el TRONCO del proyecto
+   (`.metricas/deuda-mocks.csv`: fecha, tarea, test, objetivo, destino, línea). El tronco y no
+   el worktree, por lo mismo que `--registro` ya existía: el worktree de un test aceptado se
+   borra. Si no puede anotar, lo dice en voz alta en vez de perder la atribución en silencio.
+2. **`plantillas/gate.sh`** — antes de acusar a la tarea, pregunta si la falla nueva es de un
+   test anotado **y** si ese test **pasa corrido solo**. Las dos condiciones, y ninguna
+   alcanza sola: la constancia dice quién debe, y «pasa solo, falla con la suite» es la
+   observación que distingue una deuda que detonó de una regresión honesta. Emite
+   `DEUDA_DE_MOCK`.
+3. **`scripts/correr-plan.sh`** — reconoce el marcador y no reintenta contra la tarea, igual
+   que `ENTORNO_MOVIDO`.
+
+No ablanda nada: **sigue siendo rojo y la etapa sigue deteniéndose.** Lo único que cambia es a
+quién se le cobra, que es exactamente lo que estuvo mal en nueve de los doce defectos de la
+semana del 21 de octubre y vuelve a estar mal acá.
+
+La rama que distingue la deuda de la regresión no enumera causas de falla: **vuelve a correr el
+test solo y mira**. Enumerar síntomas es la trampa que este archivo ya documenta dos veces
+(la lista de siete `*Error`, la lista de firmas de MySQL), y acá no hacía falta: la propiedad
+que define el caso —depender del orden de colección— es directamente observable.
+
+#### Lo que queda fijado
+
+`pruebas/test_metodo.py::TestLaDeudaDelMockSeLeCobraAQuienLaDebe`, 10 tests. Cuatro **se vieron
+reprobar** la versión sin el arreglo; los otros seis son el cadáver reproducido y los guardias,
+y pasan en las dos versiones a propósito:
+
+- el escenario es real: el mismo test pasa solo y falla acompañado, por `30 != 50`;
+- el arreglo del contrato funciona: con el patch donde el nombre se usa, pasa de las dos formas;
+- una **regresión honesta** del mismo test anotado sigue siendo de la tarea (si no, la rama
+  sería un perdón automático, y un instrumento que perdona todo es peor que ninguno);
+- una deuda anotada sobre **otro** test no excusa esta falla;
+- un patch que apunta bien **no deja deuda** (si cualquier test dejara constancia, la tabla no
+  distinguiría nada);
+- el marcador que el gate emite es el mismo literal que el runner busca — una cadena copiada en
+  dos archivos es la clase de defecto que esta suite ya cazó dos veces.
+
+#### Cuántas veces avisa el ⊘ y cuántas tenía razón
+
+El titular de esta sección —«el ⊘ es una deuda»— hay que leerlo con su tasa, porque **avisa
+más de lo que acierta**. En esta corrida el ⊘ se disparó sobre **cinco** objetivos distintos
+(`d2→s2`, `d3→s3`, `d6→s6`, `d7→s7`, `r6→s6`; 14 líneas contando reintentos) y **uno** terminó
+en rojo. Los otros cuatro quedaron sanos porque la implementación final trajo el nombre con
+`import src.datos.dN` adentro de la función, que deja el patch efectivo.
+
+O sea: el ⊘ es **condición necesaria y no suficiente**. Por eso la rama del gate exige las
+**dos** cosas —estar anotado Y pasar corrido solo—: con la constancia sola, cuatro de cinco
+veces estaría perdonando una tarea que sí rompió algo. Y por eso tampoco corresponde convertir
+el ⊘ en rojo: 1 de 5 no alcanza para detener cuatro tareas buenas.
+
+De paso, el reparto completo del chequeo en la corrida: **71** rechazos («el patch no va a
+tener efecto»), **17** verdes, **14** ⊘. El trabajo principal del chequeo sigue siendo rechazar,
+no dudar.
+
+#### §8.7 contestado: ¿contra qué implementación se valida un test? (n=14)
+
+La pregunta de §8.7 de INVESTIGACION.md —conservar el borrador descartado y medir en cuántas
+tareas difiere de la implementación final *de un modo que invierte el veredicto*— tiene
+respuesta con el material de esta corrida: 21 borradores conservados, 14 con implementación
+final (los 7 de la capa `c` no la tienen porque la etapa se detuvo).
+
+| borrador vs implementación final | tareas |
+|---|---|
+| idénticos byte a byte | **11 de 14** |
+| difieren sólo en una línea en blanco | 2 (T01b, T05b) |
+| **difieren de verdad** | **1 (T03b)** |
+
+Y la única diferencia de fondo es **exactamente** la que invierte el veredicto:
+
+| implementación de `s3` | `test_s3` sola | `test_s3` con `test_r3` colectado antes |
+|---|---|---|
+| **el borrador** con que el gate validó (`import src.datos.d3` adentro de la función) | OK | **OK** |
+| **la final** de la etapa 1 (`from src.datos.d3 import leer3` a nivel de módulo) | OK | **FALLA** |
+
+El borrador era **robusto** y la implementación final **frágil**. El gate validó el test contra
+una implementación que lo hacía válido, y la de verdad lo hizo inválido. Es §6 otra vez —mirarle
+el borrador es preguntarle al acusado— pero con el signo invertido respecto de la primera vez:
+ahí el borrador era cómplice del test, acá era mejor que el final.
+
+**Lo que queda medido, y es el número que §8.7 pedía: 13 de 14 veces el borrador es un buen
+proxy de la implementación final; 1 de 14 no lo es, y esa vez costó la corrida.** Un 7% de
+tareas en las que validar contra el borrador da un veredicto que la implementación real no
+sostiene. Con n=14 eso no es una tasa publicable, es un orden de magnitud: no es «casi nunca»
+ni «la mitad de las veces».
+
+#### Y lo que esto dice del dataset
+
+Los 40 veredictos de la corrida (21 aceptados / 19 rechazados) entran al dataset con una
+etiqueta que antes no existía: **cuál de ellos venía con deuda**. Un juez entrenado con el
+«aceptado» de T03b estaría aprendiendo a aprobar un test que tres tareas después detiene el
+plan. El ⊘ anotado es, además de atribución, la columna que separa «aceptado» de «aceptado sin
+poder verificarlo».
