@@ -857,18 +857,28 @@ Tres hallazgos que nos pegan de lleno:
    directa: cada andamio que agregamos hay que medirlo *con nuestros modelos*, porque el signo
    del efecto depende del tamaño del modelo.
 
-**El experimento de §8.7, CORRIDO (2026-11-01, corrida `f1793535892`, n=14).** Era: conservar el
+**El experimento de §8.7, CORRIDO (2026-11-01, corridas `f1793535892` y `f1793561182`, n=21).** Era: conservar el
 borrador descartado junto al test aceptado y medir en cuántas tareas difiere de la
 implementación final *de un modo que invierte el veredicto*. El método ya guardaba el material
-—`.metricas/borrador-aceptado/<T>/`— así que no hizo falta cambiar nada, sólo mirarlo. De 21
-borradores conservados, 14 tienen implementación final (los 7 de la capa `c` no, porque la
-etapa se detuvo):
+—`.metricas/borrador-aceptado/<T>/`— así que no hizo falta cambiar nada, sólo mirarlo. En
+`f1793535892`, de 21 borradores conservados 14 tienen implementación final (los 7 de la capa
+`c` no, porque la etapa se detuvo); en `f1793561182`, de 14 conservados 7 la tienen (la capa
+`b` no integró). El par existe sólo donde la tarea cerró, así que el n lo pone la integración y
+no la cantidad de borradores:
 
-| borrador vs implementación final | tareas |
-|---|---|
-| idénticos byte a byte | **11 de 14** |
-| difieren sólo en una línea en blanco | 2 |
-| **difieren de verdad** | **1** |
+| borrador vs implementación final | acumulado | capa `a` (sin mock) | capa `b` (mockea) |
+|---|---|---|---|
+| pares | 21 | 14 | 7 |
+| idénticos byte a byte | **18** | **14 de 14** | 4 de 7 |
+| difieren sólo en una línea en blanco | 2 | 0 | 2 |
+| **difieren de verdad** | **1** | **0** | **1 de 7** |
+
+Y acá hay que ser honesto con de dónde vino el n: la segunda corrida aportó 7 pares y **los
+siete son de la capa `a`**, que no mockea nada —su `dN.py` es una función pura y el test no
+lleva `patch`—. O sea que el n creció **justo donde el riesgo no existe**. El 18 de 21 es cierto
+y es la cifra equivocada para decidir: la tasa que importa es la de la capa que mockea, y ahí
+seguimos en **1 de 7**, con el mismo único caso. La capa `c` sigue en cero pares: nunca integró
+en ninguna de las dos corridas.
 
 Y la única diferencia de fondo es justo la que invierte el veredicto: el borrador traía
 `import src.datos.d3` adentro de la función —forma que deja el patch del test efectivo en
@@ -877,9 +887,13 @@ módulo, que lo deja inefectivo en cuanto otro test precarga el módulo. Medido 
 celdas: con el borrador el test pasa sola y acompañada; con la final pasa sola y **falla**
 acompañada.
 
-**El número que §8.7 pedía: 13 de 14 veces el borrador es buen proxy de la implementación final;
-1 de 14 no lo es, y esa vez detuvo la etapa y le cobró el rojo a otra tarea.** Con n=14 es un
-orden de magnitud y no una tasa: no es «casi nunca» ni «la mitad». Detalle, la cadena completa y
+**El número que §8.7 pedía, dicho donde se decide: en la capa que mockea, 6 de 7 veces el
+borrador es buen proxy de la implementación final y 1 de 7 no lo es, y esa vez detuvo la etapa y
+le cobró el rojo a otra tarea.** Sobre los 21 pares es 20 de 21, pero esa cifra promedia 14
+casos sin mock que no podían fallar. Con n=7 en la capa de riesgo es un orden de magnitud y no
+una tasa: no es «casi nunca» ni «la mitad». Y la conclusión
+operativa no se mueve con el n: el borrador sirve para armar dataset, y no sirve para dar por
+buena la implementación —porque el caso que falla es justo el que invierte el veredicto—. Detalle, la cadena completa y
 el arreglo —contabilidad del ⊘, no criterio— en MEDICION.md §18.
 
 El dato anterior que teníamos (2026-10-27: los siete tests de una etapa pasaron los cinco pasos

@@ -1639,3 +1639,144 @@ primeros 120 son casi todos de las campañas viejas —las del exportador parsea
 traen el enunciado contaminado—. O sea que una medición con tope no medía al juez: medía **con
 qué campañas se armó el dataset**, y lo informaba como habilidad. Ahora es muestra al azar con
 semilla y huella del conjunto, y las dos cosas salen impresas al lado del número.
+
+---
+
+## §20 — La prueba de campo de la deuda del mock: no se disparó, y eso es el dato
+
+Corrida `f1793561182` (semilla 1793561182, método en `d888c67`, árbol limpio, 4 vueltas,
+**7/21 cerradas**, se detuvo en la etapa 2). Lo que iba a probar: la rama `DEUDA_DE_MOCK` de
+§18, con modelos de verdad y sin ayuda mía.
+
+#### El anotador anda; la rama no se ejecutó
+
+`proy/.metricas/deuda-mocks.csv` quedó escrito: **17 líneas, 5 objetivos distintos**
+(`d1→s1`, `d2→s2`, `d3→s3`, `d4→s4`, `d7→s7`) en 5 tareas (T01b, T02b, T03b, T04b, T07b). El
+lado que registra funciona en producción.
+
+La rama que **cobra** el rojo al deudor no se disparó **ni una vez**. Ninguno de los cuatro
+rojos de la corrida fue «rompiste tests que andaban antes»:
+
+| tarea | por qué quedó en rojo | de quién es |
+|---|---|---|
+| T01b | `archivos fuera del alcance: src/datos/d1.py` | agente |
+| T02b | `no hay ningún cambio: la tarea no se hizo` | agente |
+| T05b | `no hay ningún cambio: la tarea no se hizo` | agente |
+| T07b | los tests de la tarea siguen fallando (×2 → punto muerto) | agente |
+
+Por qué no se disparó: la detonación de §18 necesita que **otro** test precargue `sys.modules`
+con un import a nivel de módulo, y ese import lo trae la capa `c`. Esta corrida se detuvo en la
+capa `b`. **La rama sigue sin prueba de campo** —tiene los 13 tests de la suite, incluido el que
+la corre una vez por cada una de las tres copias del gate, pero no tiene un caso real—. Dicho
+sin adorno: lo que se verificó hoy es que el anotador escribe y que la rama **no produce falsos
+positivos** en una corrida de 25 veredictos; que atribuya bien cuando toque, sigue apoyado sólo
+en la reproducción de laboratorio.
+
+#### Lo que sí pasó: la misma bomba se cobró en su propia tarea, por dos chequeos distintos
+
+- **T03b** escribió `patch('src.datos.d3.leer3')` y una implementación con `from … import` a
+  nivel de módulo. El paso **«pasa con la implementación del propio agente»** falló con el
+  **mismo `AssertionError: 30 != 50`** de §18 —el mismo cadáver, tres etapas antes—. Dos
+  intentos iguales → punto muerto, la tarea vuelve a una persona. El ⊘ se había emitido en los
+  dos intentos y el test igual no pasó: acá el ⊘ y el rojo cayeron en la misma tarea.
+- **T06b** cayó por el chequeo **definido**, no por el ⊘: «el test parchea un lugar donde el
+  patch no va a tener efecto». Lo definido se puede afirmar porque la implementación ya existía
+  cuando se validó el test. Punto muerto también.
+
+Tasa del ⊘, actualizada y con la cuenta separada: esta corrida marcó **5 objetivos** con ⊘ y
+**1 se cobró en el acto (T03b), 0 quedaron diferidos**; T06b no cuenta acá, porque cayó por el
+chequeo *definido* y no por el ⊘. La corrida anterior marcó 5 y **1 detonó tres tareas después**.
+Entre las dos: **10 objetivos marcados con ⊘, 2 se cobraron —uno en su propia tarea, uno tres
+tareas más allá— y 8 no rompieron nada.** El ⊘ sigue siendo **condición necesaria y no
+suficiente**, y ahora con el doble de n: las 14 líneas que marcó sobre T04b no rompieron nada y
+la tarea pasó el gate en verde.
+
+#### Cuántos de los ⊘ estaban de verdad armados
+
+«8 de 10 ⊘ no rompieron nada» es verdad y no dice nada: la mitad de esos ⊘ estaban sobre
+implementaciones donde el patch **no podía** fallar. El ⊘ se emite por lo que el enunciado no
+declara, no por lo que la implementación hace; una vez que la implementación existe se puede
+mirar, y ahí la pregunta tiene respuesta. Lo que decide no es la forma del import sola: es el
+**par** (a dónde apunta el `patch`, cómo trae el nombre la implementación). Con el ⊘ ya emitido
+—o sea, con el test apuntando a `src.datos.dN.leerN`—:
+
+- `import src.datos.dN` **adentro de la función** → el patch pega siempre, en cualquier orden de
+  colección. **No hay bomba.**
+- `from src.datos.dN import leerN` **a nivel de módulo** → `sN` se queda con su propia
+  referencia; el patch sólo pega si `sN` todavía no estaba importado. **Bomba armada**, y detona
+  cuando otro test lo precarga en la colección.
+
+Y el mismo `from` a nivel de módulo es inofensivo si el test apunta a `src.servicios.sN.leerN`,
+que es donde el nombre se usa: en `f1793535892`, `s1`, `s4` y `s5` terminaron con el `from` de
+módulo y **nunca** emitieron ⊘ ni rompieron nada, porque sus tests parcheaban ahí. La forma
+frágil del import no es el defecto; el desajuste entre las dos cosas lo es.
+
+Clasificando los diez ⊘ de las dos corridas por la forma que terminó teniendo la
+implementación:
+
+| corrida | ⊘ sobre | forma del import | ¿armada? | qué pasó |
+|---|---|---|---|---|
+| `f1793535892` | `s2` | dentro de la función | no | nada |
+| `f1793535892` | `s3` | **módulo** (el final; el borrador era de los de adentro) | **sí** | **detonó en T03c** |
+| `f1793535892` | `s6` | dentro de la función | no | nada |
+| `f1793535892` | `s7` | dentro de la función | no | nada |
+| `f1793535892` | `s6` (desde `r6`) | dentro de la función | no | nada |
+| `f1793561182` | `s1` | **módulo** | **sí** | no detonó: la capa `c` no corrió |
+| `f1793561182` | `s2` | dentro de la función | no | nada |
+| `f1793561182` | `s3` | dentro de la función | no | nada |
+| `f1793561182` | `s4` | dentro de la función | no | nada |
+| `f1793561182` | `s7` | dentro de la función | no | nada |
+
+**2 de 10 ⊘ estaban armados; 8 estaban sobre código donde el patch pegaba en cualquier orden.**
+De los dos armados, uno detonó y el otro no —y no por mérito del método, sino porque la etapa
+que lo habría detonado nunca corrió—. Caveat del instrumento: `s1` se clasifica por el
+**borrador aceptado**, porque la capa `b` de esa corrida no integró y no hay implementación
+final; y §8.7 acaba de mostrar que en la capa que mockea el borrador difiere del final 1 de 7
+veces, justo en esta característica. O sea que ese «sí» es el dato que tengo, no una
+certificación.
+
+Lo que esto cambia en la lectura del ⊘: no es «el gate grita cinco veces por corrida y acierta
+una». Es **el gate grita cinco veces porque el enunciado no le dice, y una de esas cinco veces
+hay una bomba real**. Bajar los gritos no se hace calibrando el gate: se hace arreglando el
+enunciado, que es lo único que convierte el ⊘ en un chequeo definido.
+
+Y queda una lectura que no esperaba: el caso malo de §18 —el rojo que viaja y le cae a un
+inocente— **necesita que la tarea deudora pase**. Las dos veces que la bomba se cobró en su
+propia tarea fue porque el gate la paró ahí. O sea que el arreglo de §18 no es un reemplazo del
+chequeo de paso 2: es la red para cuando el paso 2 **no puede** ver la bomba, que es exactamente
+cuando la tarea corre sola.
+
+#### §8.7 con la corrida nueva: n=21, y de dónde vino ese n
+
+Esta corrida aporta **7 pares** —la capa `a`, la única que integró; la capa `b` no tiene
+implementación final porque la etapa nunca cerró—:
+
+| borrador vs final | acumulado | capa `a` (sin mock) | capa `b` (mockea) |
+|---|---|---|---|
+| pares | 21 | 14 | 7 |
+| idénticos byte a byte | 18 | **14 de 14** | 4 de 7 |
+| difieren sólo en una línea en blanco | 2 | 0 | 2 |
+| **difieren de verdad** | **1** | **0** | **1 de 7** |
+
+Y acá me tengo que atajar a mí mismo: **los siete pares nuevos son todos de la capa `a`**, que
+no mockea nada —`dN.py` es una función pura, el test no lleva `patch`—. El n creció justo donde
+el riesgo no existe. Escribir «20 de 21» sería cierto y sería la cifra equivocada: promedia 14
+casos que no podían fallar. **La tasa que decide es la de la capa que mockea, y sigue en 1 de
+7**, con el mismo único caso (T03b de `f1793535892`). La capa `c` sigue en **cero pares**: no
+integró en ninguna de las dos corridas, así que de la capa donde la bomba detona no tenemos ni
+un par.
+
+La conclusión operativa no se mueve: el borrador sirve para armar dataset, y no sirve para dar
+por buena la implementación.
+
+Dataset tras cosechar: **1400 registros** (817 aceptados / 583 rechazados), **42 corridas**,
+25 nativos nuevos. Evidencia en `pares-8.7/f1793561182/` (14 borradores, 13 parches, 5 tareas
+con los dos lados, y el `deuda-mocks.csv` de la corrida).
+
+Y una comprobación que hay que hacer cada vez que el dataset crece: la partición
+`--dedup --reservadas 12` sobre los 1400 da **41 familias → 29 entrenamiento / 12 reservado**,
+638 registros de entrenamiento y 137 reservados, sin fuga. Las doce familias reservadas son
+**exactamente las mismas** que con 1375 registros (`diff` de las dos listas: vacío): la corrida
+nueva cayó del lado de entrenamiento. O sea que el reservado sigue sellado **y** sigue siendo
+comparable con lo que se mida después; si hubiera cambiado, cualquier número contra él dejaría
+de ser comparable con el anterior y habría que decirlo.
