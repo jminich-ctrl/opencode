@@ -16333,13 +16333,14 @@ class TestLaDeudaDelMockSeLeCobraAQuienLaDebe(unittest.TestCase):
     OBJETIVO_MALO = "src.datos.d3.leer3"
     OBJETIVO_BUENO = "src.servicios.s3.leer3"
 
-    def proyecto(self, objetivo=OBJETIVO_MALO, con_r3=True):
+    def proyecto(self, objetivo=OBJETIVO_MALO, con_r3=True, desde=None):
         """El esqueleto exacto del cadáver: d3 → s3 → r3, y el test de s3 con import diferido."""
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-deuda-")).resolve()
         self.addCleanup(tirar_dir, d)
         (d / "scripts").mkdir()
         for n in ("gate.sh", "correr-suite.sh"):
-            shutil.copy(PLANTILLAS / n, d / "scripts" / n)
+            shutil.copy((desde or PLANTILLAS) / n if n == "gate.sh"
+                        else PLANTILLAS / n, d / "scripts" / n)
         for paq in ("src", "src/servicios", "src/datos", "src/rutas", "tests"):
             (d / paq).mkdir(parents=True, exist_ok=True)
             (d / paq / "__init__.py").write_text("")
@@ -16556,6 +16557,50 @@ class TestLaDeudaDelMockSeLeCobraAQuienLaDebe(unittest.TestCase):
                       f"con el proyecto adentro del repo la constancia no se encontró, y la"
                       f" atribución se perdió en silencio:\n{salida}")
         self.assertIn("T03b-cosa", salida, salida)
+
+    def test_la_atribucion_anda_en_las_tres_copias_del_gate(self):
+        """Que el texto esté no es que funcione: la copia se pega en un archivo que divergió
+        —los ejemplos adaptaron tres cosas— y un helper pegado en el lugar equivocado deja
+        sintaxis válida que no hace nada. Así que se CORRE, una vez por copia.
+
+        Y de paso cubre la disposición que el arreglo del tronco vino a cerrar: los dos
+        ejemplos viven ADENTRO del repo del método."""
+        copias = [PLANTILLAS] + [g.parent for g in sorted(RAIZ.glob("ejemplo-*/scripts/gate.sh"))]
+        for desde in copias:
+            with self.subTest(gate=str(desde.relative_to(RAIZ))):
+                d = self.proyecto(desde=desde)
+                self.anotar(d)
+                r = self.gate(d)
+                salida = r.stdout + r.stderr
+                self.assertIn("DEUDA_DE_MOCK", salida,
+                              f"la copia de {desde.relative_to(RAIZ)} no atribuye:\n{salida}")
+                self.assertIn("T03b-cosa", salida, salida)
+                self.assertNotIn("rompiste tests", salida, salida)
+
+    def test_toda_copia_del_gate_que_acusa_tambien_atribuye(self):
+        """El gate vive en tres copias —la plantilla y los dos ejemplos— y la auditoría del
+        2026-10-19 encontró dos que habían quedado atrás: cada arreglo hay que escribirlo tres
+        veces. Acá no se exige que las copias sean iguales —los ejemplos ADAPTAN a propósito:
+        Tailwind, package.json, compilación— sino un invariante: **la copia que sabe acusar
+        tiene que saber atribuir.** Un gate con «rompiste tests que andaban» y sin
+        `DEUDA_DE_MOCK` es el defecto de T03c esperando en un proyecto de verdad, y en
+        `ejemplo-clasificados` la condición existe: siete tareas cuyo test mockea y ninguna
+        declara con qué import se trae el nombre."""
+        copias = [RAIZ / "plantillas" / "gate.sh"]
+        copias += sorted(RAIZ.glob("ejemplo-*/scripts/gate.sh"))
+        self.assertGreaterEqual(len(copias), 2, f"no encontré las copias del gate: {copias}")
+        faltan = []
+        for g in copias:
+            t = g.read_text(encoding="utf-8")
+            if "rompiste tests que andaban" not in t:
+                continue
+            for pieza in ("DEUDA_DE_MOCK", "tronco_del_proyecto()", "archivo_del_test()",
+                          "deuda_de_mock()"):
+                if pieza not in t:
+                    faltan.append(f"{g.relative_to(RAIZ)}: falta {pieza}")
+        self.assertEqual([], faltan,
+                         "una copia acusa a la tarea sin poder atribuirle el rojo a quien lo "
+                         f"debe:\n  " + "\n  ".join(faltan))
 
     def test_el_runner_busca_el_mismo_marcador_que_el_gate_emite(self):
         """El contrato entre los dos archivos es una cadena literal, y una cadena literal

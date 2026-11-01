@@ -1404,6 +1404,11 @@ gate eso es un dictamen que depende de cómo se formuló, no de lo que se juzgó
 Y con n=28 el 41% contra 25% está en el borde de lo afirmable (≈1,9 desvíos). La dirección se
 afirma; la magnitud, no. Lo que hay que hacer crecer es el reservado, no la conclusión.
 
+> **Creció, y estos números quedaron viejos el mismo día siguiente: ver §19.** Con n=120 el 41%
+> baja a 35% (la dirección pasa a p=0,0093) y el 65% entre consistentes baja a 58% con un IC que
+> contiene al 50%. El 41% de acá tenía IC [24,5% · 59,3%]: contenía al 35%, así que no hay
+> contradicción, había una estimación imprecisa reportada como número.
+
 Coherente con lo que está medido afuera (§ quinta vuelta de INVESTIGACION.md): el techo de un
 juez aprendido es acuerdo moderado con correr los tests (κ ≤ 0,60), y lo que compra entrenarlo
 son **menos falsos positivos a TPR fijo**, no exactitud. Entonces la métrica de la próxima vuelta
@@ -1570,3 +1575,67 @@ etiqueta que antes no existía: **cuál de ellos venía con deuda**. Un juez ent
 «aceptado» de T03b estaría aprendiendo a aprobar un test que tres tareas después detiene el
 plan. El ⊘ anotado es, además de atribución, la columna que separa «aceptado» de «aceptado sin
 poder verificarlo».
+
+### §19 — El juez con 4x el n: la dirección se afirma, la magnitud baja, y lo que serviría sigue sin afirmarse (2026-11-01)
+
+§17 midió con **n=28** y dijo «la dirección se afirma; la magnitud, no. Lo que hay que hacer
+crecer es el reservado, no la conclusión». Creció. Y la conclusión cambió para peor.
+
+El reservado del 30% de la partición nativa da sólo **15** pares intra-tarea, pero el dataset
+entero da **274**, y para un juez **SIN AFINAR no hay fuga posible**: ningún parámetro vio
+nada. Así que se midió ahí, con muestra **al azar de 120 de 274, semilla 1 declarada antes de
+mirar**, huella del conjunto `8f3e2497`. Mismo juez (`1af07b1f`, Qwen3.8-27B FP8), mismo
+formato pareado con orden invertido.
+
+| | n=28 (§17) | **n=120 (hoy)** | azar |
+|---|---|---|---|
+| eligió bien en los DOS órdenes | 41% | **35%** | 25% |
+| eligió mal en los dos | 22% | 25% | 25% |
+| cambió con el orden | 37% | **40%** | 50% |
+| entre los consistentes | 65% | **58%** | 50% |
+
+Con las cifras que hacen falta para leerlo:
+
+| medición | p exacto contra el azar | IC 95% |
+|---|---|---|
+| 42/120 bien en los dos órdenes | **0,0093** | [27,1% · 43,9%] |
+| 42/72 entre los consistentes | 0,097 | **[46,8% · 69,0%]** |
+| 48/120 inconsistentes | — | [31,7% · 48,9%] |
+
+#### Qué cambió, exactamente
+
+**La dirección pasó de insinuada a afirmada.** A n=28 el 41% contra 25% daba p=0,053: el
+borde. A n=120 el 35% contra 25% da **p=0,0093**. Hay señal y ya no se discute.
+
+**La magnitud bajó, y el IC viejo lo había avisado.** El 41% de §17 tenía IC [24,5% · 59,3%]
+—contenía al 35% de hoy—, así que no hay contradicción: había una estimación imprecisa que yo
+reporté como un número. Es la cuarta vez que un n chico me da una magnitud que el n grande
+corrige hacia abajo.
+
+**Y lo que de verdad importaba sigue sin afirmarse.** El número que decidiría si esto sirve
+para un gate es el acierto **cuando el juez se compromete**: 58%, con IC **[46,8% · 69,0%]**,
+que **contiene al 50%**. O sea: podría estar tirando una moneda entre los pares en que no se
+contradice. A n=28 eso era 65% con p=0,17; a n=120 es 58% con p=0,097. Cuadruplicar el n no lo
+movió del lado de «no se puede afirmar».
+
+**La inconsistencia no bajó: subió.** 37% → 40%, con IC que llega a 48,9%, casi el 50% del
+azar. Cuatro de cada diez veredictos cambian según en qué orden se pregunte.
+
+#### El veredicto, que es el mismo de §17 y ahora con n
+
+**No sirve para un gate, y ya no es «falta medir»: está medido.** Un juez que acierta 35%
+donde el azar acierta 25% tiene señal, pero el 40% que cambia con el orden la vuelve
+inutilizable para decidir, y entre los que no cambian no se distingue de una moneda.
+
+Lo que esto cierra: **el camino de usar este reviewer sin afinar como juez de tarea está
+cerrado**, y no por falta de datos. Lo que queda abierto es si afinarlo lo mueve, y para eso el
+reservado de 15 pares sigue sellado —nunca se midió nada contra él— más las corridas que
+vengan. La métrica sigue siendo **FPR a TPR fijo contra correr los tests**, que es gratis y no
+se equivoca.
+
+Y una nota de instrumento, porque esta medición no se podía hacer antes de arreglarlo: `--tope`
+cortaba los **primeros** pares, y los pares salen ordenados por corrida. Con 41 corridas, los
+primeros 120 son casi todos de las campañas viejas —las del exportador parseado, que además
+traen el enunciado contaminado—. O sea que una medición con tope no medía al juez: medía **con
+qué campañas se armó el dataset**, y lo informaba como habilidad. Ahora es muestra al azar con
+semilla y huella del conjunto, y las dos cosas salen impresas al lado del número.
