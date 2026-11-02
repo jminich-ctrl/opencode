@@ -99,6 +99,27 @@ def main():
         print(f"  enunciados con el resultado ya adentro · {etiqueta}: {fuga}/{len(rs)}"
               f"{'  ← contaminación en la entrada' if fuga else ''}")
 
+    # ── fuera los rechazos que no son rechazos ──
+    #
+    # Un registro con motivo «la plataforma cortó el intento» NO es un juicio sobre el test:
+    # es la plataforma que se cayó a mitad del intento. Como ejemplo de «aceptar o rechazar
+    # un test» está mal etiquetado, y un dataset con rechazos que no son rechazos le enseña
+    # al juez justo lo contrario de lo que queremos.
+    #
+    # Medido el 2026-11-02: 5 de 891 registros nativos. Cuatro son de `f1793591536` y salen
+    # de un defecto mío —el detector del canal de opencode marcaba como corte un
+    # `File not found` que el agente sobrevivía—; el quinto, de `de24-1793464556`, es un
+    # corte de verdad. Son pocos y da igual: el que decide no puede estar preguntándose si el
+    # 0,6% está mal. Se saca acá, donde se arma el dataset, y se dice cuántos.
+    cortes = [r for r in fusion if "plataforma cortó" in (r.get("motivo") or "")]
+    if cortes:
+        fusion = [r for r in fusion if "plataforma cortó" not in (r.get("motivo") or "")]
+        por_corrida = collections.Counter(r.get("corrida") for r in cortes)
+        print(f"  ⊘ {len(cortes)} registro(s) FUERA: su motivo es un corte de plataforma, "
+              f"o sea que no son un juicio sobre el test")
+        for c, n_ in sorted(por_corrida.items(), key=lambda kv: -kv[1]):
+            print(f"       {c}: {n_}")
+
     salida = pathlib.Path(args.salida)
     salida.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in fusion))
     v = collections.Counter(r.get("veredicto") for r in fusion)

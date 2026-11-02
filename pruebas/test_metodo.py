@@ -8880,6 +8880,64 @@ class TestLaTerceraAuditoria(unittest.TestCase):
                 else:
                     self.assertEqual(r.stdout.strip(), "", porque)
 
+    def test_un_error_del_canal_que_el_agente_SOBREVIVE_no_es_un_corte(self):
+        """Cuarta vez que escribo un instrumento que reprueba al brazo bueno, y la segunda en
+        el mismo turno.
+
+        La primera versión del arreglo decía «si opencode pintó un error, es de la
+        plataforma». La corrida `f1793591536` la refutó cuatro veces el 2026-11-02: el agente
+        hace `Read src/datos/d4.py` sobre un archivo que todavía no existe —porque lo va a
+        escribir él—, opencode pinta `Error: File not found: …` por su canal, y el agente
+        SIGUE; dos líneas después hay un `Write src/datos/d4.py` y la tarea termina bien.
+        Esos cuatro intentos quedaron anotados como «la plataforma cortó el intento» y
+        entraron al dataset como rechazos que no eran rechazos: 4 de los 12 veredictos de esa
+        corrida.
+
+        El discriminante no es que haya un error del canal, es si el intento TERMINÓ ahí. El
+        fixture es el log real del caso recuperable, con el `Write` posterior incluido: si
+        alguien lo recorta antes de esa línea, el test deja de ejercitar el defecto."""
+        log = RAIZ / "pruebas" / "registros" / "opencode-error-recuperable.txt"
+        self.assertTrue(log.exists(), "el fixture del caso recuperable tiene que estar")
+        crudo = log.read_bytes()
+        self.assertIn(b"\x1b[91m\x1b[1mError: ", crudo,
+                      "el fixture tiene que traer el canal de error de opencode")
+        self.assertIn(b"Write src/datos/d4.py", crudo,
+                      "y la prueba de que el agente siguió trabajando DESPUÉS del error; "
+                      "sin esa línea el caso no es el caso")
+        r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; error_del_agente "{log}"', RAIZ)
+        self.assertEqual(r.stdout.strip(), "",
+                         f"un error que el agente sobrevive es ruido de herramienta, no un "
+                         f"corte de plataforma:\n{r.stdout}")
+
+    def test_el_corte_se_distingue_del_ruido_por_si_el_intento_siguio(self):
+        """Las dos mitades del discriminante, con el mismo texto de error en las dos, para
+        que no quede duda de que lo que decide es la posición y no el mensaje."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-fatal-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        err = b"\x1b[91m\x1b[1mError: \x1b[0mAlgo se rompio\n"
+        casos = (
+            (b"", True, "sin nada después, el intento murió ahí"),
+            (b"\xc2\xb7 entorno al dia\n", True,
+             "una línea del ARNÉS no es el agente actuando: sigue siendo un corte"),
+            (b"Ahora voy a escribir el archivo.\n", False,
+             "si el agente volvió a hablar, sobrevivió"),
+            (b"\x1b[0m\xe2\x86\x93 \x1b[0mWrite src/x.py\n", False,
+             "si el agente volvió a usar una herramienta, sobrevivió"),
+            (b"\n\x1b[0m\n", True,
+             "líneas vacías o de solo color no son actividad"),
+        )
+        for cola, espera_corte, porque in casos:
+            with self.subTest(cola=cola[:30]):
+                log = d / "t.log"
+                log.write_bytes(b"=== T01\n> ejecutor\n" + err + cola
+                                + b"=== gate ===\nx\n=== rc=1\n=== fin T01 \xc2\xb7 hoy\n")
+                r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                           f'error_del_agente "{log}"', RAIZ)
+                if espera_corte:
+                    self.assertIn("Algo se rompio", r.stdout, porque)
+                else:
+                    self.assertEqual(r.stdout.strip(), "", porque)
+
     def test_el_canal_de_error_solo_cuenta_antes_del_gate(self):
         """`error_del_agente` mira la parte del AGENTE, que es lo que termina en
         `=== gate ===`. Un error con el canal de opencode impreso después de ese corte no es
@@ -16793,6 +16851,39 @@ class TestJuntarVeredictosPrefiereLaFuenteNativa(unittest.TestCase):
         self.assertEqual("nativo", de_c1[0]["fuente"], de_c1[0])
         self.assertEqual("def test_a(): assert 1", de_c1[0]["test"],
                          "el texto del test tiene que ser el que el gate juzgó, no el final")
+
+    def test_un_rechazo_por_corte_de_plataforma_no_entra_al_dataset(self):
+        """Un rechazo cuyo motivo es «la plataforma cortó el intento» no es un juicio sobre el
+        test: es la plataforma que se cayó. Como ejemplo de «aceptar o rechazar un test» está
+        mal etiquetado, y un dataset con rechazos que no son rechazos le enseña al juez lo
+        contrario de lo que queremos.
+
+        Medido el 2026-11-02: 6 registros de 1412, en tres corridas. Cuatro de `f1793591536`
+        venían de un defecto mío en el detector del canal de opencode y los otros dos son
+        cortes de verdad. Pocos y da igual: el que decide no puede estar preguntándose si el
+        medio por ciento está mal.
+
+        Se saca de las dos fuentes, no sólo de la nativa, porque el puente arrastra lo mismo."""
+        corte_nat = {"tarea": "T04a", "veredicto": "rechazado",
+                     "motivo": "la plataforma cortó el intento: Cannot connect to API",
+                     "enunciado": "**Estado:** pendiente", "test": "def test_c(): pass"}
+        corte_par = {"corrida": "vieja", "tarea": "T05b", "veredicto": "rechazado",
+                     "motivo": "la plataforma cortó el intento: memory_session_expired",
+                     "enunciado": "**Estado:** ✅ hecha", "test": "def test_p(): pass"}
+        d = self.escenario(nativos={"c1": [self.NATIVO, corte_nat]},
+                           parseado=[self.PARSEADO_VIEJA, corte_par])
+        r = self.juntar(d)
+        self.assertEqual(0, r.returncode, f"{r.stdout}{r.stderr}")
+        fusion = self.leer(d)
+        motivos = [x.get("motivo") or "" for x in fusion]
+        self.assertFalse([m for m in motivos if "plataforma cortó" in m],
+                         f"ningún corte de plataforma puede quedar en el dataset:\n{motivos}")
+        # Y lo que SÍ es un juicio no se va con ellos.
+        self.assertEqual(2, len(fusion),
+                         f"se tenían que ir los dos cortes y quedar los dos juicios:\n{fusion}")
+        self.assertIn("corte de plataforma", r.stdout,
+                      "y hay que DECIR cuántos se fueron: un filtro callado es un dataset "
+                      f"que nadie puede auditar:\n{r.stdout}")
 
     def test_las_corridas_sin_nativo_se_conservan(self):
         """Es una fusión y no un reemplazo: el puente es la única fuente de las corridas de

@@ -205,13 +205,40 @@ error_del_agente() {
   # `test_el_corte_de_conexion_de_opencode_no_es_falla_de_la_tarea`, que corre sobre el log
   # REAL guardado como fixture. Un detector que se queda mudo tiene que romper un test, no
   # degradar en silencio.
-  local canal
-  canal="$(parte_del_agente "$1" \
-           | grep -a -m1 "$(printf '\033')\[91m$(printf '\033')\[1mError: " \
-           | sed "s/$(printf '\033')\[[0-9;]*m//g" | sed -n 's/^Error: *\(.*\)/\1/p')"
-  if [ -n "$canal" ]; then
-    printf '%s\n' "$canal" | cut -c1-200
-    return 0
+  # Y el canal solo no alcanza: tiene que haber TERMINADO el intento ahí.
+  #
+  # Primera versión de esto: «si opencode pintó un error, es de la plataforma». Falso, y lo
+  # mostró la corrida f1793591536 el 2026-11-02, cuatro veces. El agente hace
+  # `Read src/datos/d4.py` sobre un archivo que todavía no existe —porque lo va a escribir
+  # él—, opencode pinta `Error: File not found: …` por su canal de error, y el agente
+  # SIGUE: dos líneas después hay un `Write src/datos/d4.py` y la tarea termina bien. Con la
+  # versión de antes esos cuatro intentos quedaron anotados como «la plataforma cortó el
+  # intento» y entraron al dataset como rechazos que no eran rechazos.
+  #
+  # Un error del canal que el agente SOBREVIVE es ruido de herramienta, no un corte. El
+  # discriminante es si después del error el agente volvió a actuar: si no hay ni una línea
+  # suya después, el intento murió ahí y es de la plataforma; si hay, se sigue de largo y que
+  # decidan los otros chequeos. Se ignoran las líneas del ARNÉS —las que empiezan con `·` o
+  # con `===`— porque las imprime el método después de que el agente terminó, no el agente.
+  #
+  # Cuarta vez que escribo un instrumento que reprueba al brazo bueno, y la segunda hoy.
+  local agente_limpio canal nro_error cola
+  agente_limpio="$(parte_del_agente "$1")"
+  nro_error="$(printf '%s\n' "$agente_limpio" \
+               | grep -a -n -m1 "$(printf '\033')\[91m$(printf '\033')\[1mError: " \
+               | cut -d: -f1)"
+  if [ -n "$nro_error" ]; then
+    cola="$(printf '%s\n' "$agente_limpio" | tail -n "+$((nro_error + 1))" \
+            | sed "s/$(printf '\033')\[[0-9;]*m//g" \
+            | grep -v '^[[:space:]]*$' | grep -cv '^[[:space:]]*\(·\|===\)')"
+    if [ "${cola:-0}" -eq 0 ]; then
+      canal="$(printf '%s\n' "$agente_limpio" | sed -n "${nro_error}p" \
+               | sed "s/$(printf '\033')\[[0-9;]*m//g" | sed -n 's/^Error: *\(.*\)/\1/p')"
+      if [ -n "$canal" ]; then
+        printf '%s\n' "$canal" | cut -c1-200
+        return 0
+      fi
+    fi
   fi
 
   # Una llamada a herramienta emitida como TEXTO. El modelo escribe `<tool_call>` en el
