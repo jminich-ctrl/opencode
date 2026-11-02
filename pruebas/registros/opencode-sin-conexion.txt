@@ -1,0 +1,10 @@
+=== T03b
+[0m
+> ejecutor · f5d76140-5b4d-41c0-88da-dad6d11f341a
+[0m
+[91m[1mError: [0mCannot connect to API: Unable to connect. Is the computer able to access the url?
+· entorno al día
+=== gate ===
+sin gate: el intento murió antes
+=== rc=1
+=== fin T03b · 2026-11-02

@@ -186,6 +186,34 @@ error_del_agente() {
     return 0
   fi
 
+  # El CANAL de opencode, que no es el texto ni el sobre. `Cannot connect to API: Unable to
+  # connect` lo emite opencode cuando no llega a haber respuesta que envolver: no trae JSON
+  # y la enumeración de abajo no lo tenía. El 2026-11-01, en la corrida `f1793574932`, 8 de
+  # 21 intentos murieron así y T03b..T06b quedaron en «punto muerto: no escribió
+  # tests/test_sN.py declarando TestSN» — cierto en la letra y falso en el sujeto, que es el
+  # modo de falla que el comentario de arriba dice que envejece y CALLA. Van dos veces.
+  #
+  # Lo que se ancla es el prefijo con el que opencode pinta SUS errores,
+  # `\e[91m\e[1mError: \e[0m`, sobre el log SIN limpiar. Y se ancla ahí y no en `^Error: `
+  # porque lo segundo lo falsifica cualquier comando que el agente corra: T06, T07 y T27
+  # cerraron en verde con un `Error: Cannot find native binding` de npm en el log, y
+  # `test_un_error_que_imprimio_un_comando_no_es_falla_de_la_herramienta` existe justo para
+  # que eso no vuelva a contarse como falla de la herramienta. Primero escribí la versión con
+  # `^Error: ` y ese test la reprobó antes de que la commiteara.
+  #
+  # Si opencode cambia su paleta, el que se entera es
+  # `test_el_corte_de_conexion_de_opencode_no_es_falla_de_la_tarea`, que corre sobre el log
+  # REAL guardado como fixture. Un detector que se queda mudo tiene que romper un test, no
+  # degradar en silencio.
+  local canal
+  canal="$(parte_del_agente "$1" \
+           | grep -a -m1 "$(printf '\033')\[91m$(printf '\033')\[1mError: " \
+           | sed "s/$(printf '\033')\[[0-9;]*m//g" | sed -n 's/^Error: *\(.*\)/\1/p')"
+  if [ -n "$canal" ]; then
+    printf '%s\n' "$canal" | cut -c1-200
+    return 0
+  fi
+
   # Una llamada a herramienta emitida como TEXTO. El modelo escribe `<tool_call>` en el
   # contenido en vez de pedirla por el canal de herramientas: nadie la ejecuta, el modelo no
   # recibe resultado y la corrida muere sin tocar un archivo. El gate entonces dice «no hay

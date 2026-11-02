@@ -8812,6 +8812,112 @@ class TestLaTerceraAuditoria(unittest.TestCase):
                               f"el sobre api_error es lo que identifica a la plataforma, no "
                               f"una lista de mensajes conocidos:\n{r.stdout}")
 
+    def test_el_corte_de_conexion_de_opencode_no_es_falla_de_la_tarea(self):
+        """Segunda vez que la enumeración de mensajes se queda corta, y la primera en que el
+        error no trae sobre.
+
+        El 2026-11-01, corrida `f1793574932`: la plataforma empezó a rechazar conexiones a
+        mitad de la etapa 2 y opencode imprimió `Error: Cannot connect to API: Unable to
+        connect`. No es un `api_error` —nunca hubo respuesta que envolver— y no estaba en la
+        enumeración, así que `error_del_agente` devolvía vacío y T03b, T04b, T05b y T06b
+        quedaron en «punto muerto: no escribió tests/test_sN.py declarando TestSN». Ocho de
+        veintiún intentos de esa corrida murieron así. Cuatro tareas anotadas contra el
+        modelo por una falla de red.
+
+        El fixture es el log REAL, con los escapes ANSI tal como los escribió opencode,
+        porque lo que se ancla es su canal de error y no el texto. Si opencode cambia la
+        paleta, este test es el que se tiene que enterar: un detector que se queda mudo
+        tiene que romper algo, no degradar en silencio."""
+        # `.txt` y no `.log` a propósito: `.gitignore` tiene `*.log`, así que como `.log` el
+        # fixture se quedaba fuera del commit y el test pasaba sólo en mi máquina. Un test
+        # que depende de un archivo no versionado es verde local y rojo en todos lados.
+        log = RAIZ / "pruebas" / "registros" / "opencode-sin-conexion.txt"
+        self.assertTrue(log.exists(), "el fixture del log real tiene que estar en el repo")
+        import subprocess as _sp
+        seguido = _sp.run(["git", "ls-files", "--error-unmatch", str(log)],
+                          cwd=RAIZ, capture_output=True)
+        self.assertEqual(seguido.returncode, 0,
+                         "y tiene que estar VERSIONADO, no sólo existir en mi disco")
+        crudo = log.read_bytes()
+        self.assertIn(b"\x1b[91m\x1b[1mError: ", crudo,
+                      "el fixture tiene que conservar el canal de error de opencode sin "
+                      "limpiar; si alguien lo normaliza, el test deja de ejercitar el defecto")
+        r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; error_del_agente "{log}"', RAIZ)
+        self.assertIn("connect", r.stdout.lower(),
+                      f"un corte de conexión es de la plataforma, no de la tarea:\n{r.stdout}")
+
+    def test_el_canal_de_error_no_se_ancla_en_un_Error_suelto(self):
+        """La primera versión de este arreglo anclaba en `^Error: ` y la suite la reprobó
+        antes de que la commiteara, con el test de npm de `TestElGateManda`: T06, T07 y T27
+        cerraron en verde con un `Error: Cannot find native binding` de npm en el log, y
+        contar eso como falla de la herramienta es el defecto que ese test cuida.
+
+        O sea que `^Error: ` lo falsifica cualquier comando que el agente corra, y el
+        discriminante tiene que ser el canal —el prefijo con el que opencode pinta sus
+        propios errores— y no el principio de la línea. Este test fija las dos mitades."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-canal-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        casos = (
+            ("Error: Cannot find native binding. npm has a bug...", False,
+             "la salida de un comando no es el canal de opencode"),
+            ("Error: Cannot connect to API: Unable to connect.", False,
+             "el mismo texto SIN el canal tampoco alcanza: si alcanzara, el caso de npm "
+             "volvería a contarse contra la tarea"),
+            ("\x1b[91m\x1b[1mError: \x1b[0mCannot connect to API: Unable to connect.", True,
+             "con el canal de opencode sí es de la plataforma"),
+        )
+        for linea, espera, porque in casos:
+            with self.subTest(linea=linea[:40]):
+                log = d / "t.log"
+                log.write_bytes(
+                    b"=== T03b\n> ejecutor\n"
+                    + linea.encode().decode("unicode_escape").encode()
+                    + b"\n=== gate ===\nx\n=== rc=1\n=== fin T03b \xc2\xb7 hoy\n")
+                r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                           f'error_del_agente "{log}"', RAIZ)
+                if espera:
+                    self.assertNotEqual(r.stdout.strip(), "", porque)
+                else:
+                    self.assertEqual(r.stdout.strip(), "", porque)
+
+    def test_el_canal_de_error_solo_cuenta_antes_del_gate(self):
+        """`error_del_agente` mira la parte del AGENTE, que es lo que termina en
+        `=== gate ===`. Un error con el canal de opencode impreso después de ese corte no es
+        del agente: es del gate, y el gate ya tiene su propio veredicto. La primera versión
+        del arreglo hacía `grep` sobre el archivo entero y se lo habría comido."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-canal-gate-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        log = d / "t.log"
+        log.write_bytes(b"=== T03b\nhice cosas\n=== gate ===\n"
+                        b"\x1b[91m\x1b[1mError: \x1b[0mCannot connect to API\n"
+                        b"=== rc=1\n=== fin T03b \xc2\xb7 hoy\n")
+        r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; error_del_agente "{log}"', RAIZ)
+        self.assertEqual(r.stdout.strip(), "",
+                         "lo que pasa después del corte no es del agente")
+
+    def test_el_detector_no_perdio_lo_que_ya_reconocia(self):
+        """El guardia de la regresión honesta: el arreglo agrega una rama y no puede haberse
+        comido ninguna de las tres que ya estaban. Si una se apaga, el detector se queda mudo
+        justo donde más lo necesitamos, y mudo se parece a «el modelo no pudo»."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-no-regresion-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        casos = (
+            ('Error: {"message":"memory_session_expired","type":"api_error"}',
+             "memory_session_expired", "el sobre api_error"),
+            ("inference timed out after 600s", "inference timed out", "la enumeración"),
+            ("<tool_call>{\"name\":\"write\"}", "tool_call",
+             "la llamada a herramienta emitida como texto"),
+        )
+        for linea, esperado, rama in casos:
+            with self.subTest(rama=rama):
+                log = d / "t.log"
+                log.write_text("=== T01\n> ejecutor\n%s\n=== gate ===\nx\n=== rc=1\n"
+                               "=== fin T01 · hoy\n" % linea)
+                r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                           f'error_del_agente "{log}"', RAIZ)
+                self.assertIn(esperado, r.stdout,
+                              f"{rama} tiene que seguir andando:\n{r.stdout}")
+
     # ── El guardia del instrumento miraba cuando ya era tarde ──────────────────────────
 
     def test_el_instrumento_se_verifica_antes_de_cada_intento(self):
