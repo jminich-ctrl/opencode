@@ -35,3 +35,28 @@ def fisher_exacto_2x2(a, b, c, d):
     # exacta pueden diferir en el último bit y entonces una entra y la otra no, que convierte
     # un p simétrico en uno que depende de cómo se ordenó la tabla.
     return min(1.0, sum(p(k) for k in range(lo, hi + 1) if p(k) <= observada + 1e-12))
+
+
+def wilson(k, n, z=1.96):
+    """Intervalo de Wilson al 95% para k de n. Devuelve (bajo, alto).
+
+    Por qué Wilson y no la normal de toda la vida: en los bordes —0 de 3, que es exactamente
+    el tamaño de los reservados chicos de acá— la normal da un intervalo de ancho CERO, o sea
+    afirma que el FPR es 0% sin margen. Wilson no se degenera ahí.
+
+    Y por qué no Clopper-Pearson, que sería el exacto: necesita la inversa de la beta, que no
+    está en la biblioteca estándar. Wilson es cerrado, está a un par de puntos del exacto en
+    estos tamaños, y se puede recalcular con lápiz.
+
+    Verificado contra tres casos que se recalculan a mano:
+      · 5/10  → (0,23659, 0,76341), el valor tabulado del intervalo de Wilson
+      · 0/10  → (0, 0,27754): centro y semiancho dan lo mismo, así que el bajo es 0 exacto
+      · 0/3   → (0, 0,56152): el techo queda ARRIBA del 50%, que es el punto de tenerlo
+    """
+    if n <= 0:
+        return (0.0, 1.0)
+    p = k / n
+    denom = 1 + z * z / n
+    centro = (p + z * z / (2 * n)) / denom
+    semi = (z / denom) * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))
+    return (max(0.0, centro - semi), min(1.0, centro + semi))

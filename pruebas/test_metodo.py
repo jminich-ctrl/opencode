@@ -16526,6 +16526,42 @@ class TestLaEstadisticaSeVerificaConLapiz(unittest.TestCase):
         """⊘ no es «no hay diferencia» ni una división por cero: sin datos, p=1."""
         self.assertEqual(1.0, self.fisher(0, 0, 0, 0))
 
+    def wilson(self, k, n):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_est", SCRIPTS / "_estadistica.py")
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m.wilson(k, n)
+
+    def test_el_intervalo_de_wilson_coincide_con_los_casos_de_lapiz(self):
+        # 5/10 con z=1,96: centro (0,5 + 1,96²/20)/(1 + 1,96²/10) = 0,5 por simetría, y
+        # semiancho (1,96/1,38416)·√(0,025 + 0,009604) = 0,26341. Es el valor tabulado.
+        lo, hi = self.wilson(5, 10)
+        self.assertAlmostEqual(0.23659, lo, places=4)
+        self.assertAlmostEqual(0.76341, hi, places=4)
+
+    def test_un_cero_de_n_no_tiene_intervalo_de_ancho_cero(self):
+        """El motivo de que exista. La normal de toda la vida da ancho CERO en 0 de n, o sea
+        afirma «el FPR es 0%» sin margen, y los reservados de acá tienen pocos negativos."""
+        lo, hi = self.wilson(0, 3)
+        self.assertEqual(0.0, lo, "con 0 éxitos el borde de abajo es 0 exacto")
+        self.assertGreater(hi, 0.5, "0 de 3 no acota nada por debajo del 50%")
+        lo10, hi10 = self.wilson(0, 10)
+        self.assertEqual(0.0, lo10)
+        self.assertAlmostEqual(0.27754, hi10, places=4)
+
+    def test_es_simetrico_al_dar_vuelta_exito_y_fracaso(self):
+        """Si no lo fuera, el IC del FPR y el de la especificidad dirían cosas distintas sobre
+        la misma medición según cuál de las dos se eligió informar."""
+        lo, hi = self.wilson(2, 7)
+        lo2, hi2 = self.wilson(5, 7)
+        self.assertAlmostEqual(lo, 1 - hi2, places=12)
+        self.assertAlmostEqual(hi, 1 - lo2, places=12)
+
+    def test_sin_observaciones_no_afirma_nada(self):
+        """⊘ otra vez: sin negativos, el intervalo del FPR es todo el rango, no (0, 0)."""
+        self.assertEqual((0.0, 1.0), self.wilson(0, 0))
+
 
 class TestLaParticionNoDejaElMismoTestEnLosDosLados(unittest.TestCase):
     """La guarda número uno contra el sobreajuste, y la primera que la literatura señala: se
@@ -16828,6 +16864,263 @@ class TestElJuezPareadoNoSePuedeGanarPorElCaminoEquivocado(unittest.TestCase):
         r = self.control(f, f'--guion "{self.guion(d, "A")}"')
         self.assertEqual(2, r.returncode, f"{r.stdout}{r.stderr}")
         self.assertIn("NO se midió nada", r.stdout, r.stdout)
+
+
+class TestElJuezPuntualSeLeeContraLaTasaBaseYNoContraLaMitad(unittest.TestCase):
+    """El juez PAREADO no se puede usar en un gate: en el gate hay UN test, no un par. Para
+    decidir con un test suelto hace falta un juez puntual, y la literatura dice que puntual
+    es bastante peor (CodeJudgeBench §5.1). Que sea peor no lo vuelve inútil: lo que decide si
+    sirve de pre-filtro no es su exactitud, es **cuánto basura deja pasar en un umbral donde
+    casi no pierde material bueno** — o sea el FPR a TPR fijo.
+
+    Lo que estos tests fijan son las cuatro formas que tiene este instrumento de devolver un
+    número MEJOR sin fallar, que es la clase de error que nadie ve:
+
+    1. Comparar contra 50%. El reservado tiene 46% de aceptados, así que la clase mayoritaria
+       —rechazar siempre— acierta 54%. Un juez con 52% de exactitud está DEBAJO de contestar
+       siempre lo mismo, y contra «el azar es 50%» se leería como que aprendió algo.
+    2. Contar una respuesta ilegible como rechazo. Con eso, un modelo que no contesta nada
+       sale con especificidad perfecta.
+    3. Dar un FPR a TPR fijo sin decir que aceptar TODO también llega a ese TPR con FPR 100%.
+       Sin esa referencia, un FPR de 98% se lee como un número y no como «no descarta nada».
+    4. Barrer umbrales sobre una confianza que el modelo contesta siempre igual. El barrido
+       devuelve una curva de dos puntos, y una AUC de dos puntos se informa igual que una de
+       veinte si nadie cuenta las puntuaciones distintas."""
+
+    def jsonl(self, registros):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-metodo-"))
+        self.addCleanup(tirar_dir, d)
+        f = d / "v.jsonl"
+        f.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in registros))
+        return d, f
+
+    def registro(self, tarea, veredicto, corrida="c1"):
+        return {"corrida": corrida, "brazo": "x", "tarea": tarea, "veredicto": veredicto,
+                "motivo": None, "dimensiones": {}, "enunciado": f"enunciado de {tarea}",
+                "test": f"cuerpo del test de {tarea} {veredicto}",
+                "borrador_descartado": None}
+
+    def guion(self, d, *respuestas):
+        g = d / f"guion-{len(list(d.glob('guion-*')))}"
+        g.write_text("".join(f"{r}\n" for r in respuestas))
+        return g
+
+    def juez(self, f, *extra):
+        return correr(f'python3 "{SCRIPTS}/juez_puntual.py" "{f}" {" ".join(extra)}', RAIZ)
+
+    def siete_y_tres(self):
+        """Siete aceptados y tres rechazados: tasa base 70%, mayoritaria 70% tambien.
+        Elegido asi a proposito para que un instrumento que imprima 50% se note."""
+        return ([self.registro(f"T{i:02d}", "aceptado") for i in range(7)]
+                + [self.registro(f"T{i:02d}", "rechazado") for i in range(7, 10)])
+
+    def test_el_azar_que_imprime_es_la_tasa_base_del_reservado_no_la_mitad(self):
+        d, f = self.jsonl(self.siete_y_tres())
+        r = self.juez(f, f'--guion "{self.guion(d, *["ACEPTAR CONFIANZA: 7"] * 10)}"')
+        self.assertEqual(0, r.returncode, f"{r.stdout}{r.stderr}")
+        self.assertIn("70%", r.stdout, f"no imprime la tasa base de este reservado:\n{r.stdout}")
+        self.assertNotIn("azar 50%", r.stdout,
+                         f"la referencia de un juez puntual es la tasa base, no la mitad:"
+                         f"\n{r.stdout}")
+
+    def test_contestar_siempre_aceptar_no_se_lee_como_juez(self):
+        """El caso degenerado que da TPR 100%: tiene que salir con FPR 100% y declarado."""
+        d, f = self.jsonl(self.siete_y_tres())
+        r = self.juez(f, f'--guion "{self.guion(d, *["ACEPTAR CONFIANZA: 7"] * 10)}"')
+        self.assertIn("TPR 100%", r.stdout, r.stdout)
+        self.assertIn("FPR 100%", r.stdout,
+                      f"aceptar todo deja pasar todos los rechazados:\n{r.stdout}")
+        self.assertIn("contesta siempre lo mismo", r.stdout,
+                      f"no delata que el veredicto es constante:\n{r.stdout}")
+
+    def test_contestar_siempre_rechazar_tiene_tpr_cero(self):
+        d, f = self.jsonl(self.siete_y_tres())
+        r = self.juez(f, f'--guion "{self.guion(d, *["RECHAZAR CONFIANZA: 7"] * 10)}"')
+        self.assertIn("TPR 0%", r.stdout, r.stdout)
+        self.assertIn("contesta siempre lo mismo", r.stdout, r.stdout)
+
+    def test_un_juez_perfecto_descarta_todo_lo_rechazado_sin_perder_nada(self):
+        """El brazo positivo: si no se puede distinguir un juez perfecto, el numero no sirve."""
+        d, f = self.jsonl(self.siete_y_tres())
+        respuestas = ["ACEPTAR CONFIANZA: 9"] * 7 + ["RECHAZAR CONFIANZA: 9"] * 3
+        r = self.juez(f, f'--guion "{self.guion(d, *respuestas)}"')
+        self.assertIn("TPR 100%", r.stdout, r.stdout)
+        self.assertIn("FPR 0%", r.stdout, r.stdout)
+        self.assertIn("AUC 1,00", r.stdout, f"separacion perfecta es AUC 1:\n{r.stdout}")
+        self.assertIn("FPR a TPR≥1,00: 0%", r.stdout,
+                      f"a TPR 100% un juez perfecto no deja pasar nada:\n{r.stdout}")
+
+    def test_el_barrido_usa_la_confianza_y_no_solo_el_veredicto_crudo(self):
+        """El corazon del instrumento. Este juez crudo acierta 6 de 10 —peor que la clase
+        mayoritaria— pero su CONFIANZA separa perfecto: los aceptados que llama «rechazar»
+        los llama con confianza 1 y los rechazados con confianza 9. Un instrumento que mire
+        solo el veredicto crudo informa «no sirve»; el barrido encuentra el umbral donde
+        sirve, y esa diferencia es el motivo de medir FPR a TPR fijo y no exactitud."""
+        d, f = self.jsonl(self.siete_y_tres())
+        respuestas = (["ACEPTAR CONFIANZA: 9"] * 4 + ["RECHAZAR CONFIANZA: 1"] * 3
+                      + ["RECHAZAR CONFIANZA: 9"] * 3)
+        r = self.juez(f, f'--guion "{self.guion(d, *respuestas)}"')
+        self.assertIn("AUC 1,00", r.stdout,
+                      f"la confianza separa perfecto: la AUC tiene que verlo aunque el"
+                      f" veredicto crudo se equivoque en 3 de 10:\n{r.stdout}")
+        self.assertIn("FPR a TPR≥1,00: 0%", r.stdout,
+                      f"hay un umbral que conserva los 7 aceptados y descarta los 3"
+                      f" rechazados: el barrido tiene que encontrarlo:\n{r.stdout}")
+        self.assertIn("exactitud 7/10", r.stdout,
+                      f"y el punto de operacion crudo sigue siendo el que es:\n{r.stdout}")
+
+    def test_una_respuesta_ilegible_no_cuenta_como_rechazo(self):
+        """Defecto numero dos. Si lo ilegible cae en «rechazado», un modelo que no contesta
+        sale con FPR 0% y especificidad perfecta."""
+        d, f = self.jsonl(self.siete_y_tres())
+        respuestas = ["ACEPTAR CONFIANZA: 9"] * 7 + ["no entendi la pregunta"] * 3
+        r = self.juez(f, f'--guion "{self.guion(d, *respuestas)}"')
+        self.assertIn("ilegibles 3", r.stdout,
+                      f"no cuenta las ilegibles aparte:\n{r.stdout}")
+        self.assertIn("no cuentan como rechazo", r.stdout, r.stdout)
+        self.assertIn("juzgados 7", r.stdout,
+                      f"las ilegibles no pueden entrar en el denominador:\n{r.stdout}")
+        self.assertNotIn("FPR 0%", r.stdout,
+                         f"sin ningun rechazado legible el FPR no existe, no es 0%:"
+                         f"\n{r.stdout}")
+
+    def test_declara_cuantas_puntuaciones_distintas_tuvo_el_barrido(self):
+        """Defecto numero cuatro: una AUC de una curva de dos puntos se informa igual que una
+        de veinte. Con el veredicto y la confianza constantes hay UNA puntuacion."""
+        d, f = self.jsonl(self.siete_y_tres())
+        r = self.juez(f, f'--guion "{self.guion(d, *["ACEPTAR CONFIANZA: 7"] * 10)}"')
+        self.assertIn("1 puntuación distinta", r.stdout,
+                      f"no cuenta las puntuaciones del barrido:\n{r.stdout}")
+        self.assertIn("no hay curva", r.stdout,
+                      f"con una sola puntuacion no hay ROC que leer y hay que decirlo:"
+                      f"\n{r.stdout}")
+
+    def test_el_fpr_a_tpr_fijo_dice_cuando_el_unico_umbral_es_aceptar_todo(self):
+        """Defecto numero tres. Juez al revés: llama «aceptar» con confianza 9 a los
+        rechazados. No hay umbral que conserve los aceptados sin conservar todo."""
+        d, f = self.jsonl(self.siete_y_tres())
+        respuestas = ["ACEPTAR CONFIANZA: 1"] * 7 + ["ACEPTAR CONFIANZA: 9"] * 3
+        r = self.juez(f, f'--guion "{self.guion(d, *respuestas)}"')
+        self.assertIn("FPR a TPR≥1,00: 100%", r.stdout, r.stdout)
+        self.assertIn("no descarta nada", r.stdout,
+                      f"un FPR de 100% hay que decir que es «no descarta nada», no dejarlo"
+                      f" como numero:\n{r.stdout}")
+
+    def test_cada_fpr_que_informa_viene_con_su_intervalo(self):
+        """Con 3 rechazados, un FPR de 0% tiene un intervalo que llega al 56%: informar el
+        punto sin el intervalo es afirmar una precision que el reservado no tiene.
+
+        El chequeo es sobre TODAS las lineas que informan un FPR y no sobre una: la primera
+        version de este test pedia «que aparezca IC95» y sobrevivia a sacarle el intervalo al
+        punto de operacion, porque el del barrido seguia ahi. Lo encontre mutando el script,
+        no leyendo el test."""
+        d, f = self.jsonl(self.siete_y_tres())
+        respuestas = ["ACEPTAR CONFIANZA: 9"] * 7 + ["RECHAZAR CONFIANZA: 9"] * 3
+        r = self.juez(f, f'--guion "{self.guion(d, *respuestas)}"')
+        # Una linea informa un FPR MEDIDO cuando trae su cuenta «(k/n)»: las dos lineas de
+        # referencia que explican que aceptar todo da FPR 100% no son mediciones y no la llevan.
+        lineas = [l for l in r.stdout.splitlines() if re.search(r"FPR[^\n]*\(\d+/\d+", l)]
+        self.assertGreaterEqual(len(lineas), 4,
+                                f"esperaba el punto de operacion y los tres TPR objetivo:"
+                                f"\n{r.stdout}")
+        sin_ic = [l for l in lineas if "IC95" not in l]
+        self.assertEqual([], sin_ic,
+                         f"hay lineas con un FPR y sin intervalo:\n{chr(10).join(sin_ic)}"
+                         f"\n--- salida completa ---\n{r.stdout}")
+        self.assertRegex(r.stdout, r"IC95 0%[–-]\d\d%",
+                         f"con 3 negativos el intervalo de un 0% no puede ser angosto:"
+                         f"\n{r.stdout}")
+
+    def test_los_registros_sin_test_o_sin_enunciado_quedan_afuera_y_se_declaran(self):
+        d, f = self.jsonl(self.siete_y_tres()
+                          + [dict(self.registro("T90", "aceptado"), test=""),
+                             dict(self.registro("T91", "rechazado"), enunciado="")])
+        r = self.juez(f, f'--guion "{self.guion(d, *["ACEPTAR CONFIANZA: 7"] * 10)}"')
+        self.assertIn("juzgados 10", r.stdout,
+                      f"los incompletos no se juzgan:\n{r.stdout}")
+        self.assertIn("2 registro(s) quedaron afuera", r.stdout,
+                      f"y hay que declararlos, si no un n chico parece reservado chico:"
+                      f"\n{r.stdout}")
+
+    def test_con_guion_avisa_que_el_numero_no_es_de_un_modelo(self):
+        d, f = self.jsonl(self.siete_y_tres())
+        r = self.juez(f, f'--guion "{self.guion(d, *["ACEPTAR CONFIANZA: 7"] * 10)}"')
+        self.assertIn("GUION", r.stdout, r.stdout)
+        self.assertIn("no de un modelo", r.stdout, r.stdout)
+
+    def test_sin_modelo_y_sin_guion_no_mide_nada(self):
+        _, f = self.jsonl(self.siete_y_tres())
+        r = correr(f'env -u COLABHIVE_API_KEY -u COLABHIVE_BASE_URL -u MODELO_JUEZ '
+                   f'python3 "{SCRIPTS}/juez_puntual.py" "{f}"', RAIZ)
+        self.assertEqual(2, r.returncode, f"{r.stdout}{r.stderr}")
+        self.assertIn("NO se midió nada", r.stdout, r.stdout)
+
+    def test_repasar_la_consigna_no_es_contestarla(self):
+        """El defecto que tuvo este script en su PRIMERA corrida de campo, el 2026-11-03, y
+        que no fallo: informo «el modelo contesta siempre rechazado» sobre seis registros
+        donde el modelo no habia contestado ninguno. Se corto por el tope de tokens mientras
+        razonaba, y lo que quedo fue su repaso de la consigna —«User asks: VEREDICTO: ACEPTAR
+        or RECHAZAR»—, cuya ultima palabra es RECHAZAR. Tomar la ultima palabra suelta, que es
+        lo que hace el juez PAREADO, no vale aca.
+
+        Una respuesta que solo repite las opciones es ⊘ y no un rechazo."""
+        d, f = self.jsonl(self.siete_y_tres())
+        repaso = ("We need answer exactly two lines: VEREDICTO: ACEPTAR or RECHAZAR, "
+                  "CONFIANZA: un entero de 0 a 10. Need analyze test.")
+        r = self.juez(f, f'--guion "{self.guion(d, *[repaso] * 10)}"')
+        self.assertIn("ilegibles 10", r.stdout,
+                      f"repasar la consigna no es contestarla:\n{r.stdout}")
+        self.assertIn("ninguna respuesta legible", r.stdout, r.stdout)
+        self.assertEqual(2, r.returncode,
+                         f"sin un solo veredicto legible no hay medicion:\n{r.stdout}")
+
+    def test_el_veredicto_sale_de_la_linea_etiquetada_aunque_el_razonamiento_nombre_las_dos(self):
+        """El brazo positivo del test de arriba: si la version estricta rechazara TODA respuesta
+        que nombre las dos palabras, el instrumento quedaria sin datos con cualquier modelo que
+        razone en voz alta, y eso tambien es un numero falso —uno de cero.
+
+        El fixture usa `\n` literal, que el script convierte en salto: una respuesta de verdad
+        tiene varias lineas y el veredicto esta en la ultima. Un guion de una sola linea no
+        podia representar la respuesta que causo la falla de campo."""
+        d, f = self.jsonl(self.siete_y_tres())
+        largo = "\\n".join(["Could it be RECHAZAR? ACEPTAR or RECHAZAR is the question.",
+                            "</think>", "VEREDICTO: ACEPTAR", "CONFIANZA: 9"])
+        r = self.juez(f, f'--guion "{self.guion(d, *[largo] * 10)}"')
+        self.assertIn("juzgados 10", r.stdout,
+                      f"la linea etiquetada esta y tiene que leerse:\n{r.stdout}")
+        self.assertIn("ilegibles 0", r.stdout, r.stdout)
+        self.assertIn("TPR 100%", r.stdout,
+                      f"leyo ACEPTAR, no RECHAZAR:\n{r.stdout}")
+
+    def test_una_cola_con_las_dos_palabras_y_sin_etiqueta_es_ilegible(self):
+        """Sin etiqueta se mira la cola, y con las dos palabras en la cola no se sabe cual es
+        la respuesta. No saber es ⊘, no un veredicto."""
+        d, f = self.jsonl(self.siete_y_tres())
+        ambigua = "me inclino por ACEPTAR, aunque tambien podria ser RECHAZAR"
+        r = self.juez(f, f'--guion "{self.guion(d, *[ambigua] * 10)}"')
+        self.assertIn("ilegibles 10", r.stdout, r.stdout)
+
+    def test_el_tope_de_tokens_alcanza_para_que_el_modelo_conteste(self):
+        """Lo que hace que el defecto de campo no vuelva por el otro lado. Medido contra
+        `1af07b1f`: con 600 se corta en `finish_reason=length`; cierra en 611 tokens. Un tope
+        apenas arriba del largo observado se come la cola de la distribucion y vuelve a
+        producir ilegibles que parecen juicios."""
+        texto = (SCRIPTS / "juez_puntual.py").read_text()
+        self.assertIn("TOPE_TOKENS = 4000", texto,
+                      "el tope bajo fue el defecto de campo: no puede volver sin su motivo")
+        self.assertIn('"max_tokens": TOPE_TOKENS', texto,
+                      "el tope tiene que salir de la constante, no de un literal al lado")
+        self.assertIn('corte == "length"', texto,
+                      "y la respuesta cortada se tiene que detectar por el motivo de corte"
+                      " que informa la plataforma, no sólo por el parser")
+
+    def test_una_confianza_que_falta_no_se_rellena_en_silencio(self):
+        """Rellenar con 5 y no decirlo mueve el barrido sin que nadie lo vea."""
+        d, f = self.jsonl(self.siete_y_tres())
+        respuestas = ["ACEPTAR CONFIANZA: 9"] * 7 + ["RECHAZAR"] * 3
+        r = self.juez(f, f'--guion "{self.guion(d, *respuestas)}"')
+        self.assertIn("sin confianza", r.stdout,
+                      f"no declara cuantas respuestas no trajeron confianza:\n{r.stdout}")
 
 
 class TestElVeredictoDiceQuePasoRechazoYNoSoloHastaDondeLlego(unittest.TestCase):
