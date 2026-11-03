@@ -15945,11 +15945,41 @@ class TestElVigilanteNoDiceQueNoHayTrabajoCuandoHay(unittest.TestCase):
         que si algún día deja de exigir `DONDE` este test arranca un proceso que no termina
         nunca y cuelga la suite entera. Lo destapó el brazo nulo de este mismo test —al
         reintroducir la ruta clavada, la corrida se colgó— y no leerlo. Un test que ejecuta un
-        demonio sin tope es una trampa puesta a la próxima corrida."""
-        r = subprocess.run(f'bash "{SCRIPTS}/vigilante.sh"', shell=True, capture_output=True,
-                           text=True, errors="replace", timeout=20)
+        demonio sin tope es una trampa puesta a la próxima corrida.
+
+        Y CON `env -u DONDE`, que es lo que faltaba. `pruebas/correr.sh` documenta
+        `DONDE=<dir> bash pruebas/correr.sh` como su forma de uso, y corrido así la variable
+        queda en el ambiente de toda la suite: el vigilante la encontraba puesta, arrancaba su
+        bucle y este test caía por TimeoutExpired a los 20 segundos. O sea que en esa
+        invocación el test no medía nada —ni verde falso ni rojo real, un rojo de andamio— y la
+        suite entera salía ROJA por el entorno del que la corrió. Un test que se llama «sin
+        DONDE» tiene que QUITAR la variable, no suponer que no está.
+
+        Medido el 2026-11-03: con `DONDE` puesto, error; con `env -u DONDE`, verde en 0,1s."""
+        r = subprocess.run(f'env -u DONDE bash "{SCRIPTS}/vigilante.sh"', shell=True,
+                           capture_output=True, text=True, errors="replace", timeout=20)
         self.assertNotEqual(r.returncode, 0, "arrancó sin saber dónde está la cola")
         self.assertIn("DONDE", r.stdout + r.stderr)
+
+    def test_este_test_no_depende_de_si_DONDE_estaba_en_el_ambiente(self):
+        """El brazo nulo del arreglo de arriba, y la razón por la que no alcanza con quitar la
+        variable y seguir: si mañana alguien saca el `env -u`, el defecto vuelve y se vuelve a
+        leer como «la suite está roja», que es el diagnóstico equivocado. Acá se fija que el
+        comando la quite, con el motivo al lado.
+
+        El chequeo mira el COMANDO y no el bloque entero, que es como lo escribi primero: el
+        docstring de arriba nombra `env -u DONDE` en su prosa, asi que buscandolo en el bloque
+        el test pasaba con el comando sin arreglar. Lo vi corriendolo contra el defecto, no
+        releyendolo. Es la misma forma que `assertRojo` existe para no tener: una asercion que
+        se satisface con el texto que habla de la cosa en vez de con la cosa."""
+        fuente = pathlib.Path(__file__).read_text()
+        bloque = fuente.split("def test_sin_DONDE_no_arranca", 1)[1].split("def test_", 1)[0]
+        comando = [l for l in bloque.splitlines() if "subprocess.run(" in l]
+        self.assertEqual(1, len(comando), f"esperaba un solo subprocess.run: {comando}")
+        self.assertIn("env -u DONDE", comando[0],
+                      f"el COMANDO tiene que quitar DONDE del ambiente —no basta nombrarlo en"
+                      f" el docstring—: corrido con la variable puesta arranca un demonio y"
+                      f" cae por timeout\n  {comando[0].strip()}")
 
     def test_no_quedo_ninguna_ruta_de_sesion(self):
         codigo = (SCRIPTS / "vigilante.sh").read_text()
