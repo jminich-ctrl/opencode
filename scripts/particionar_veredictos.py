@@ -19,6 +19,17 @@ import pathlib
 import re
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from _estadistica import fisher_exacto_2x2
+
+# `estado_del_enunciado` vive en `juntar_veredictos.py` y se importa en vez de copiarse: una
+# regla copiada en dos lados es una regla que va a divergir, y esta decide si una evaluación
+# vale. Si el import falla, el chequeo lo DICE en vez de callar el rasgo.
+try:
+    from juntar_veredictos import estado_del_enunciado
+except Exception:
+    estado_del_enunciado = None
+
 
 def familia(registro):
     """La familia es la CORRIDA: cada una nace de una semilla y produce sus propias tareas.
@@ -106,6 +117,56 @@ def main():
         print("     La evaluación mediría memoria y no juicio. Hay que rehacer la partición.")
     else:
         print("  ✓ sin fuga: ninguna huella de test está en los dos lados")
+
+    # ── Sin fuga NO es lo mismo que comparable ──
+    #
+    # «✓ sin fuga» era todo lo que este script decía, y lo leí como que el reservado servía
+    # para evaluar. No servía. Medido el 2026-11-03 sobre la partición de 1446 registros: el
+    # reservado tenía 133 de 137 enunciados con la tarea ya marcada `✅ hecha` y el
+    # entrenamiento 52 de 660 — p de Fisher 2e-12—, y la tasa base de aceptación era 69%
+    # contra 43%. Dos poblaciones distintas, y encima el «azar» de cualquier medición puntual
+    # contra ese reservado es 69% y no 50%.
+    #
+    # No es un defecto de la partición por familias, que es correcta: es que agrupar por
+    # familia agrupa también la procedencia —las corridas viejas parseadas traen el enunciado
+    # del final, con la tarea marcada— y las puso todas de un lado. Lo que estaba mal era
+    # callarlo. El número que decide una evaluación es la tasa base del conjunto contra el que
+    # se evalúa, y este script la tenía y no la decía.
+    #
+    # Se informa SIEMPRE y no sólo cuando hay un problema: un chequeo que habla sólo al fallar
+    # deja al lector sin saber si corrió.
+    print("  · ¿son comparables los dos lados? (sin fuga no implica comparable)")
+    ac_t = sum(1 for r in train if r["veredicto"] == "aceptado")
+    ac_h = sum(1 for r in heldout if r["veredicto"] == "aceptado")
+    if heldout:
+        print(f"      el AZAR de una medición puntual contra este reservado es "
+              f"{100 * ac_h / len(heldout):.0f}% (la clase mayoritaria), no 50%")
+    rasgos = [("tasa de aceptación", ac_t, len(train) - ac_t, ac_h, len(heldout) - ac_h)]
+    if estado_del_enunciado is not None:
+        he_t = sum(1 for r in train if estado_del_enunciado(r) == "hecha")
+        he_h = sum(1 for r in heldout if estado_del_enunciado(r) == "hecha")
+        rasgos.append(("enunciado con el resultado adentro",
+                       he_t, len(train) - he_t, he_h, len(heldout) - he_h))
+    else:
+        print("      ⊘ no pude importar estado_del_enunciado: NO chequeé la contaminación "
+              "del enunciado (⊘ no es «no hay»)")
+    distintas = []
+    for nombre, a, b, c, d in rasgos:
+        p = fisher_exacto_2x2(a, b, c, d)
+        pt = 100 * a / (a + b) if a + b else 0.0
+        ph = 100 * c / (c + d) if c + d else 0.0
+        marca = "✗" if p < 1e-3 else "·"
+        print(f"      {marca} {nombre}: entrenamiento {pt:.0f}% · reservado {ph:.0f}% "
+              f"· p={p:.2g}")
+        if p < 1e-3:
+            distintas.append(nombre)
+    if distintas:
+        print(f"     ✗ los dos lados NO son la misma población en: {', '.join(distintas)}.")
+        print("        Un número medido en el reservado no se puede comparar con uno medido")
+        print("        en entrenamiento, y el azar no es 50%. Umbral p<0,001: con este n una")
+        print("        diferencia así no la explica el muestreo.")
+    else:
+        print("      ✓ ningún rasgo chequeado difiere entre los dos lados (p≥0,001)")
 
     if args.salida:
         d = pathlib.Path(args.salida)

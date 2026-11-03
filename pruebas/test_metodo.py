@@ -16427,6 +16427,49 @@ class TestElMonitoreoVivoEnElRepoYNoEnTmp(unittest.TestCase):
                       f"el aviso no distingue el 2 del 1:\n{tramo[:300]}")
 
 
+class TestLaEstadisticaSeVerificaConLapiz(unittest.TestCase):
+    """Un p calculado por un script que nadie verificó es un número de adorno. §19 calculó su
+    p y su IC FUERA del repo, y un número que se saca a mano al costado no se puede volver a
+    sacar: por eso `_estadistica.py` existe y por eso se contrasta contra casos que se pueden
+    recalcular con lápiz, no contra otra biblioteca que tampoco está auditada.
+
+    Sin scipy a propósito: esta Mac tiene las CLT viejas y `brew` no compila, así que una
+    dependencia binaria sería un script que no corre el día que alguien clone el repo."""
+
+    def fisher(self, a, b, c, d):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_est", SCRIPTS / "_estadistica.py")
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m.fisher_exacto_2x2(a, b, c, d)
+
+    def test_coincide_con_los_dos_casos_que_se_recalculan_a_mano(self):
+        # [[2,0],[0,2]]: N=4, márgenes 2/2. P(X=0)=1/6, P(X=1)=4/6, P(X=2)=1/6. A dos colas
+        # entran las tablas con P ≤ P(observada)=1/6, o sea X=0 y X=2: 2/6.
+        self.assertAlmostEqual(2 / 6, self.fisher(2, 0, 0, 2), places=10)
+        # La tabla del té de Fisher. N=8, márgenes 4/4: P(X=4)=1/70, P(X=3)=16/70,
+        # P(X=2)=36/70. Observada X=3 → entran X=0,1,3,4: (1+16+16+1)/70 = 34/70.
+        self.assertAlmostEqual(34 / 70, self.fisher(3, 1, 1, 3), places=10)
+
+    def test_una_tabla_sin_diferencia_da_p_alto_y_una_separada_da_p_chico(self):
+        """Los dos extremos, que es lo que el chequeo de la partición usa para decidir."""
+        self.assertAlmostEqual(1.0, self.fisher(5, 5, 5, 5), places=10,
+                               msg="dos lados idénticos no pueden dar evidencia de diferencia")
+        self.assertLess(self.fisher(10, 0, 0, 10), 1e-4,
+                        "una separación perfecta con n=20 tiene que dar p chico")
+
+    def test_no_depende_de_como_se_escribio_la_tabla(self):
+        """Si el p cambia al transponer o al permutar filas, el «p<0,001» del chequeo de la
+        partición diría cosas distintas según en qué orden se armó la tabla."""
+        base = self.fisher(92, 41, 2, 2)
+        self.assertAlmostEqual(base, self.fisher(41, 92, 2, 2), places=12, msg="transpuesta")
+        self.assertAlmostEqual(base, self.fisher(2, 2, 92, 41), places=12, msg="filas al revés")
+
+    def test_una_tabla_vacia_no_afirma_nada(self):
+        """⊘ no es «no hay diferencia» ni una división por cero: sin datos, p=1."""
+        self.assertEqual(1.0, self.fisher(0, 0, 0, 0))
+
+
 class TestLaParticionNoDejaElMismoTestEnLosDosLados(unittest.TestCase):
     """La guarda número uno contra el sobreajuste, y la primera que la literatura señala: se
     reserva por PROYECTO —acá, por semilla del generador— y no por tarea, porque dos variantes
@@ -16506,6 +16549,83 @@ class TestLaParticionNoDejaElMismoTestEnLosDosLados(unittest.TestCase):
         r = self.correr_particion(f, "--reservadas 2")
         self.assertEqual(2, r.returncode, f"tiene que salir 2:\n{r.stdout}{r.stderr}")
         self.assertIn("no quedaría nada", r.stdout)
+
+    # ── «✓ sin fuga» no es «el reservado sirve» ──
+    #
+    # Medido el 2026-11-03 sobre la partición de 1446 registros: sin fuga, y con el reservado
+    # al 97% de enunciados con la tarea ya marcada contra el 8% de entrenamiento, y una tasa
+    # base de 69% contra 43%. El script decía «✓ sin fuga» y nada más, y yo lo leí como que el
+    # reservado servía para evaluar un juez. El azar de una medición puntual ahí es 69%.
+    #
+    # El fixture tiene que respetar dos cosas del script, y mi primera versión no respetaba
+    # ninguna: la familia es la CORRIDA (así que varios registros tienen que compartirla) y la
+    # huella del test NORMALIZA los dígitos (así que `t1` y `t2` son el mismo test y se van en
+    # la fuga). Los textos de abajo se distinguen por palabras.
+
+    PALABRAS = ("alfa", "bravo", "carlos", "delta", "eco", "foxtrot", "golf", "hotel",
+                "india", "julieta", "kilo", "lima", "mike", "noviembre", "oscar", "papa",
+                "quebec", "romeo", "sierra", "tango", "uniforme", "victor", "whisky",
+                "xray", "yanqui", "zulu", "cero", "uno", "dos", "tres", "cuatro", "cinco")
+
+    def registro_rico(self, corrida, palabra, veredicto="aceptado", hecha=False):
+        r = self.registro(corrida, f"def test_{palabra}():\n    assert {palabra}\n", veredicto)
+        r["enunciado"] = ("# T01 — Una cosa\n\n**Estado:** ✅ hecha\n"
+                          if hecha else "# T01 — Una cosa\n\n**Estado:** pendiente\n")
+        return r
+
+    def test_declara_el_azar_del_reservado_y_no_solo_que_no_hay_fuga(self):
+        """El número que decide una evaluación es la tasa base del conjunto contra el que se
+        evalúa. El script la tenía y no la decía, así que cualquiera —yo— podía comparar un
+        acierto contra el 50% que no era el azar de ese conjunto."""
+        p = iter(self.PALABRAS)
+        regs = []
+        for fam in ("c1", "c2"):                      # entrenamiento: mitad y mitad
+            for v in ("aceptado", "rechazado") * 3:
+                regs.append(self.registro_rico(fam, next(p), v))
+        for i in range(9):                            # reservado: 9 de 10 aceptados
+            regs.append(self.registro_rico("z9", next(p), "aceptado"))
+        regs.append(self.registro_rico("z9", next(p), "rechazado"))
+        _, f = self.jsonl(regs)
+        r = self.correr_particion(f, "--reservadas 1")
+        self.assertEqual(0, r.returncode, f"este fixture no tiene fuga:\n{r.stdout}{r.stderr}")
+        self.assertIn("el AZAR de una medición puntual contra este reservado es 90%", r.stdout,
+                      f"tiene que decir el azar del reservado, no el 50% supuesto:\n{r.stdout}")
+
+    def test_delata_que_los_dos_lados_no_son_la_misma_poblacion(self):
+        """Lo que pasó de verdad: la partición por familia agrupa también la PROCEDENCIA, y las
+        corridas viejas traen el enunciado del final con la tarea marcada. Todas cayeron de un
+        lado. La partición está bien; callarlo estaba mal."""
+        p = iter(self.PALABRAS)
+        regs = []
+        for fam in ("c1", "c2"):
+            for v in ("aceptado", "rechazado") * 3:
+                regs.append(self.registro_rico(fam, next(p), v, hecha=False))
+        for v in ("aceptado", "rechazado") * 5:
+            regs.append(self.registro_rico("z9", next(p), v, hecha=True))
+        _, f = self.jsonl(regs)
+        r = self.correr_particion(f, "--reservadas 1")
+        self.assertEqual(0, r.returncode, f"este fixture no tiene fuga:\n{r.stdout}{r.stderr}")
+        self.assertIn("NO son la misma población", r.stdout,
+                      f"con 0% contra 100% de enunciados marcados tiene que gritar:\n{r.stdout}")
+        self.assertIn("enunciado con el resultado adentro", r.stdout,
+                      f"y tiene que nombrar el rasgo:\n{r.stdout}")
+
+    def test_cuando_los_dos_lados_SI_son_comparables_no_grita(self):
+        """Brazo nulo, y es el que decide si el chequeo sirve: uno que grita siempre no
+        distingue nada y entrena a ignorarlo. Mismas proporciones en los dos lados → calla."""
+        p = iter(self.PALABRAS)
+        regs = []
+        for fam in ("c1", "c2", "c3", "z9"):
+            for k, v in enumerate(("aceptado", "rechazado") * 3):
+                regs.append(self.registro_rico(fam, next(p), v, hecha=(k < 2)))
+        _, f = self.jsonl(regs)
+        r = self.correr_particion(f, "--reservadas 1")
+        self.assertEqual(0, r.returncode, f"este fixture no tiene fuga:\n{r.stdout}{r.stderr}")
+        self.assertNotIn("NO son la misma población", r.stdout,
+                         f"con las mismas proporciones no puede gritar:\n{r.stdout}")
+        self.assertIn("ningún rasgo chequeado difiere", r.stdout,
+                      f"y tiene que decir que chequeó, no quedarse callado:\n{r.stdout}")
+
 
 
 class TestElJuezPareadoNoSePuedeGanarPorElCaminoEquivocado(unittest.TestCase):

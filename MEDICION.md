@@ -1875,3 +1875,83 @@ que el arreglo vivía en el hermano.
 El test que debería haberlo visto existía y miraba el lado equivocado: el e2e del pipeline
 verificaba que quedara `exito-*.log` y daba verde mientras el parche no existía. El transcript
 registra `Write src/cosa.py` sin el contenido, así que el relato estaba y el código no.
+
+### §22 — El reservado del juez no servía para evaluarlo, y «✓ sin fuga» lo tapaba (2026-11-03)
+
+Iba a medir lo único que falta del juez —el FPR a TPR fijo contra correr los tests— y antes
+chequeé que el sujeto fuera medible. No lo era.
+
+#### Los números
+
+Sobre la partición de los 1446 registros (`--dedup --reservadas 12`, 43 familias → 31/12):
+
+| | entrenamiento (660) | reservado (137) | p de Fisher |
+|---|---|---|---|
+| enunciados con la tarea ya marcada `✅ hecha` | 52 (8%) | **133 (97%)** | **1,9e-12** |
+| tasa de aceptación | 285 (43%) | 94 (**69%**) | **6,1e-08** |
+
+**El azar de cualquier medición puntual contra ese reservado es 69%, no 50%.** Y los dos lados
+no son la misma población: un número medido en uno no se compara con uno medido en el otro.
+
+#### No es un defecto de la partición por familias
+
+Partir por familia —la corrida— es correcto y es la guarda número uno contra el sobreajuste.
+Lo que pasa es que la familia **agrupa también la procedencia**: las corridas viejas vienen del
+parseo de logs y su enunciado es el del final, con la tarea ya marcada; las nuevas vienen del
+emisor nativo y traen el enunciado que el agente vio. Reservar familias enteras puso todas las
+viejas de un lado. `fuente` del reservado: 137 de 137 `parseado`.
+
+El defecto era del instrumento: `particionar_veredictos.py` decía «✓ sin fuga» y nada más, y yo
+leí eso como «el reservado sirve». **Sin fuga no es comparable.** El script tenía la tasa base
+del reservado —la calcula para imprimir los conteos— y no la decía, que es justo el número que
+decide contra qué se compara un acierto.
+
+#### Qué queda invalidado y qué no
+
+**§19 y §17 están a salvo, y por una razón de diseño, no por suerte.** Miden al juez en formato
+**pareado intra-tarea**: los dos lados de cada par son de la MISMA tarea, así que comparten el
+enunciado y la marca `✅ hecha` aparece idéntica en los dos. Una pista que está en los dos lados
+no es una pista. Además §19 no usó el reservado: midió sobre 274 pares del dataset entero, con
+el argumento —correcto— de que para un juez sin afinar no hay fuga posible porque ningún
+parámetro vio nada.
+
+**Lo que no se puede medir contra ese reservado es un juez PUNTUAL** —dado un test, ¿lo
+aceptarías?—, que es exactamente el que iba a construir. Ese ve el enunciado completo y con él
+la marca, y además se mediría contra una tasa base del 69%.
+
+#### El arreglo
+
+`particionar_veredictos.py` ahora informa **siempre** —no sólo al fallar, porque un chequeo que
+habla sólo cuando hay problema deja al lector sin saber si corrió—: el azar del reservado, y
+para cada rasgo la proporción de los dos lados con su p de Fisher. Grita cuando p<0,001, umbral
+declarado: con este n una diferencia así no la explica el muestreo. `estado_del_enunciado` se
+**importa** de `juntar_veredictos.py` en vez de copiarse, y si el import falla el chequeo lo
+dice en vez de callar el rasgo (⊘ no es «no hay»).
+
+Y nace `scripts/_estadistica.py` con `fisher_exacto_2x2`, sin scipy —esta Mac tiene las CLT
+viejas y `brew` no compila, así que una dependencia binaria es un script que no corre en un
+clon— y **verificado contra dos tablas que se recalculan con lápiz**: `[[2,0],[0,2]] = 2/6` y la
+tabla del té de Fisher `[[3,1],[1,3]] = 34/70`. Contrastarlo contra otra biblioteca sería
+auditar un número con otro que tampoco auditó nadie. §19 calculó su p fuera del repo; desde hoy
+el cálculo vive acá y se puede volver a sacar.
+
+Cuatro tests del helper (los dos casos de lápiz, los dos extremos, que no dependa de cómo se
+escribió la tabla, y que una tabla vacía dé p=1 en vez de dividir por cero) y tres del chequeo,
+con **brazo nulo**: cuando los dos lados tienen las mismas proporciones, no grita. Un chequeo
+que grita siempre no distingue nada y entrena a ignorarlo.
+
+#### Y mi propia medición, que dijo lo que yo quería oír
+
+Mi primer chequeo de contaminación fue un `grep` de siete palabras sobre el enunciado
+(`'no pasa'`, `'parchea un lugar'`, `'aceptado'`…) y dio **0 de 137**: limpio. El detector que
+el repo ya tenía —`estado_del_enunciado`, que busca `Estado:** ✅`— dio **133 de 137**. Décima
+vez en este repo que un extractor por patrón me devuelve el número cómodo, y la lección es la
+de siempre con una vuelta más: no sólo hay que cortar por estructura en vez de por patrón, hay
+que **buscar primero si el repo ya tiene el detector** antes de escribir uno. Acá lo tenía, a
+veinte líneas, en el script que yo mismo había corrido media hora antes.
+
+#### Lo que sigue
+
+El banco para el juez puntual hay que construirlo aparte y declarado: estratificado por
+procedencia y por veredicto, sin tocar el reservado actual —que queda sellado y comparable con
+§17 y §19—. Mientras no exista, el FPR a TPR fijo no se puede medir, y decirlo es el resultado.
