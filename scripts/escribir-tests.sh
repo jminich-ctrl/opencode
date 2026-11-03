@@ -72,7 +72,34 @@ CORTES_TOTAL_MAX="${CORTES_TOTAL_MAX:-2}"
 # 2026-10-27: de siete tareas, cuatro repitieron el mismo patch dos veces y quedaron en punto
 # muerto; el reemplazo exacto llegó al transcript del agente CERO veces. Un rojo que el
 # acusado no puede leer no es accionable, aunque sea correcto.
-malo() { echo "  ✗ $1"; MOTIVO_TESTS="$1"; [ -n "${2:-}" ] && DETALLE_TESTS="$2"; fallos=1; }
+dim() { DIMS="${DIMS:-}$1=$2"$'\n'; }
+#
+# Y `malo` registra la DIMENSIÓN del paso que rechazó. Medido el 2026-11-03 sobre los 414
+# rechazos nativos del dataset: **400 (97%) no traían una sola dimensión en `✗`**, con mediana
+# de 6 dimensiones en un aceptado y 1 en un rechazado. El motivo era de diseño y no un olvido:
+# `dim nombre ✓` se llamaba cuando un paso PASA, y los 26 puntos de rechazo guardaban el motivo
+# en prosa sin tocar la dimensión. El gate corta ahí, así que el campo decía hasta dónde llegó
+# y no qué falló — justo lo que el docstring de `_veredicto.py` vende como el activo raro de
+# este dataset.
+#
+# Deducirlo del último paso registrado NO se puede, y está probado: con `{"alcance": "✓"}`
+# aparecen dos motivos distintos. El dato tiene que escribirse donde la decisión se toma.
+#
+# `malo` es el embudo único de los 26 puntos, así que acá hay UN cambio y no 26. Cada bloque
+# declara su nombre con `paso`; `malo` lo consume y lo LIMPIA, para que un segundo rechazo sin
+# nombre propio no herede el del bloque anterior —una dimensión mal atribuida es peor que una
+# que falta—. Lo que quede sin declarar sale como `sin_paso_declarado`: visible en el dato y
+# auditable, en vez de adivinado.
+#
+# Un rechazo porque el chequeo FALTA —«falta _mocks.py»— también marca ✗ en su dimensión, y no
+# ⊘: el ⊘ del método significa «no se pudo determinar y no cuenta como pase», y acá el intento
+# quedó rechazado de verdad. El motivo en prosa dice cuál de las dos cosas fue.
+paso() { PASO="$1"; }
+malo() {
+  echo "  ✗ $1"; MOTIVO_TESTS="$1"; [ -n "${2:-}" ] && DETALLE_TESTS="$2"; fallos=1
+  dim "${PASO:-sin_paso_declarado}" ✗
+  PASO=""
+}
 
 # ── El veredicto, escrito como DATO y no sólo como prosa ───────────────────────────────
 #
@@ -84,8 +111,6 @@ malo() { echo "  ✗ $1"; MOTIVO_TESTS="$1"; [ -n "${2:-}" ] && DETALLE_TESTS="$
 # parser, así que el registro se escribe acá, donde el dato existe.
 #
 # Va a `.metricas/`, que está en el .gitignore: es dato de medición, no del proyecto.
-dim() { DIMS="${DIMS:-}$1=$2"$'\n'; }
-
 emitir_veredicto() {
   printf '%s' "${DIMS:-}" | python3 "$AQUI/_veredicto.py" \
     --destino "$BASE/.metricas/veredictos.jsonl" \
@@ -331,9 +356,11 @@ for id in "$@"; do
   cd "$wt/$PROYECTO" || break
   fallos=0
   DIMS=""
+  PASO=""
   # 142 = SIGALRM: el agente no respondió en el límite. Es un intento fallido con motivo
   # propio y reintentable, no un test malo: pasó que `opencode run` se quedó 31 minutos con
   # el log en 0 bytes mientras la API del modelo respondía en 3 segundos.
+  paso respuesta_del_agente
   if [ "${RC_AGENTE:-0}" = "142" ]; then
     malo "el agente no respondió: $(motivo_del_corte "$log")"
   fi
@@ -350,6 +377,7 @@ for id in "$@"; do
   # —no una lista de mensajes— justo por eso. Séptima vez en el día que el arreglo vive en
   # un hermano y no en el otro.
   ERROR_PLAT="$(error_del_agente "$log")"
+  paso plataforma
   if [ -n "$ERROR_PLAT" ] && [ "$fallos" = "0" ]; then
     malo "la plataforma cortó el intento: $ERROR_PLAT"
     PLATAFORMA_CORTO=1
@@ -378,6 +406,7 @@ for id in "$@"; do
   PATRON_OK="^($ruta|\.tests\.log|\.opencode-data/.*|([A-Za-z0-9_-]+/)?package-lock\.json)\$"
   [ -n "$PERMITIDOS" ] && PATRON_OK="$PATRON_OK|$PERMITIDOS"
   FUERA="$(echo "$TOCADOS" | grep -vE "$PATRON_OK" | grep . || true)"
+  paso alcance
   if [ -n "$FUERA" ]; then
     malo "tocó archivos que no le corresponden a esta etapa:$(echo " $FUERA" | tr '\n' ' ')"
     echo "     Puede tocar los archivos de la tarea y su archivo de test. Nada más."
@@ -399,6 +428,7 @@ for id in "$@"; do
   # diagnosticar como eso: el agente de T04 usó `passlib` donde el plan cerró `hashlib.scrypt`
   # y el método lo informó como «el test no pasa ni con la implementación del propio agente»,
   # que manda a mirar el test en vez del contrato.
+  paso imports
   if [ "$fallos" -eq 0 ] && [ -f "$AQUI/_imports.py" ]; then
     PY_TOCADOS="$(echo "$TOCADOS" | grep -E '\.py$' | tr '\n' ' ')"
     if [ -n "$PY_TOCADOS" ]; then
@@ -450,6 +480,7 @@ for id in "$@"; do
   # primera versión usó una variable `ARCHIVO_TAREA` que no existe, y con la guarda `-n` el
   # chequeo no habría corrido NUNCA: falla abierto, que es el defecto que este método viene
   # cerrando todo el día. Si falta el auxiliar es rojo, por el mismo motivo que `_imports.py`.
+  paso contrato
   if [ "$fallos" -eq 0 ] && [ -f "$ruta" ] && [ -f "$archivo" ]; then
     if [ ! -f "$AQUI/_contrato.py" ]; then
       malo "falta $AQUI/_contrato.py: no se puede cruzar el contrato del test con el enunciado"
@@ -466,6 +497,7 @@ for id in "$@"; do
     fi
   fi
 
+  paso aserciones_pueden_fallar
   if [ "$fallos" -eq 0 ] && [ -f "$ruta" ]; then
     if [ ! -f "$AQUI/_aserciones.py" ]; then
       malo "falta $AQUI/_aserciones.py: no se puede revisar si las aserciones pueden fallar"
@@ -489,6 +521,7 @@ for id in "$@"; do
   # palabra por palabra igual al contrato; las otras cuatro pasaron DESOBEDECIENDO el
   # contrato. El veredicto quedó correlacionado al revés de lo correcto. Detalle y los tres
   # casos en que el patch sí pega: scripts/_mocks.py.
+  paso objetivo_del_patch
   case "$ruta" in *.py) MIRA_MOCKS=1 ;; *) MIRA_MOCKS=0 ;; esac
   if [ "$fallos" -eq 0 ] && [ "$MIRA_MOCKS" = "1" ] && [ -f "$ruta" ]; then
     if [ ! -f "$AQUI/_mocks.py" ]; then
@@ -574,6 +607,7 @@ for id in "$@"; do
     fi
   fi
 
+  paso archivo_y_clase
   if [ "$fallos" -eq 0 ] && { [ ! -f "$ruta" ] \
        || ! grep -q "$DECLARA" "$ruta" 2>/dev/null \
        || ! grep -q "$clase" "$ruta" 2>/dev/null; }; then
@@ -600,6 +634,7 @@ for id in "$@"; do
     sal="$(python3 "$AQUI/_aserciones.py" --exige-valor "$ruta" 2>&1)"; rc=$?
     printf '%s\n' "$sal"
     dim aserciones_fijan_valor "$([ "$rc" = "0" ] && echo ✓ || echo ✗)"
+    paso aserciones_fijan_valor
     if [ "$rc" = "1" ]; then
       malo "sin mutantes que matar, el test sólo afirma que el resultado existe"
     elif [ "$rc" = "2" ]; then
@@ -633,6 +668,7 @@ for id in "$@"; do
     # como pase (METODO.md P3).
     case "$ruta" in *.py) MUTABLE=1 ;; *) MUTABLE=0 ;; esac
 
+    paso implementacion
     if [ "$fallos" -ne 0 ]; then :
     elif [ -z "$impl" ]; then
       malo "no escribió implementación: sin ella no se puede validar el test"
@@ -645,6 +681,7 @@ for id in "$@"; do
       # Cada pasada arranca con la base vacía. Sin esto, la segunda choca con lo que
       # insertó la primera y el veredicto se lo cobra al test: ver `limpiar_base_del_arbol`.
       limpiar_base_del_arbol "$wt"
+      paso falla_sin_implementacion
       if eval "$prueba" >/dev/null 2>&1; then
         malo "el test PASA con el código de antes: no prueba nada"
       else
@@ -705,6 +742,7 @@ for id in "$@"; do
           # la función que la tarea pide escribir, y quedó trabada dos corridas recibiendo
           # «cubre las líneas» sobre tres líneas que nunca corrieron. `mutar.py` lo distingue
           # con un centinela y lo dice con el código 3.
+          paso mutantes
           if [ "$RC_MUT" = "3" ]; then
             malo "el test NO EJECUTA las líneas de la implementación: no las está probando.${SOBREVIVEN:+ Sobrevivió: $SOBREVIVEN}"
             echo "     Si mockeás un símbolo que vive en un archivo de ESTA tarea, estás"
@@ -746,6 +784,7 @@ for id in "$@"; do
         # son las tres que fallaron. No es casualidad: es el molde ruta+servicio+datos, donde
         # el test mockea la capa de datos y el brazo nulo conjunto no lo nota.
         if [ "$fallos" = "0" ]; then
+          paso brazo_nulo
           PREGUNTADOS=0
           for f in $impl; do
             case "$f" in *.py) ;; *) continue ;; esac
@@ -833,6 +872,7 @@ for id in "$@"; do
             # existe —la limpieza dejó la base vacía— y recibió «inserta la misma fila dos
             # veces», que no describe nada de lo que pasó. Un veredicto que nombra la causa
             # equivocada cuesta más que uno que dice «no sé»: es la tercera vez hoy.
+            paso base_de_datos
             if printf '%s' "$DETALLE" | grep -qiE "\b1452,|foreign key|FOREIGN KEY"; then
               malo "el test referencia filas que no existen: la base arranca VACÍA cada pasada."
               echo "     $DETALLE"
@@ -865,6 +905,9 @@ for id in "$@"; do
             break
           fi
         fi
+        # Este `malo` corre DESPUÉS de la clasificación de base: en el caso de base quedan
+        # dos dimensiones en ✗ —`base_de_datos` y ésta—, que es lo que de verdad pasó.
+        paso pasa_con_implementacion
         malo "el test no pasa ni con la implementación del propio agente.${DETALLE:+ Falla así: $DETALLE}"
       fi
     fi
@@ -903,6 +946,7 @@ for id in "$@"; do
     # archivo: el test obliga la consulta, y la obliga para siempre.
     ESQ="$( (cd "$wt/$PROYECTO" && PROYECTO=. python3 "$AQUI/coherencia.py" 2>&1 \
              | grep -E '✗|⚠ esquema' | grep -F "$ruta") || true)"
+    paso esquema
     if [ -n "$ESQ" ]; then
       malo "el test clava una consulta que el esquema no acepta: $(printf '%s' "$ESQ" | head -2 | tr '\n' ' ' | cut -c1-320)"
     fi

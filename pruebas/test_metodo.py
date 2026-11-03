@@ -6240,13 +6240,19 @@ class TestElEnsayoDelPipelineCorreDePuntaAPunta(Veredictos, unittest.TestCase):
         self.addCleanup(srv.shutdown)
         return cfg, f"http://127.0.0.1:{srv.server_address[1]}/v1"
 
-    def ensayar(self, comportamiento):
+    def ensayar(self, comportamiento, tests="cumple"):
+        """`tests` es la fase de ESCRIBIR TESTS, que es otro sujeto: si el agente falla
+        escribiendo los tests, la etapa se detiene ahí y el gate de la implementación no llega
+        a juzgar nada. `_ensayo_agente.sh` lo separa desde el 2026-10-26 y este andamio no lo
+        pasaba, así que los cuatro comportamientos `tests_*` —los que ejercitan los rechazos
+        de `escribir-tests.sh`— no tenían un solo test que los corriera."""
         cfg, base = self.plataforma_falsa()
         donde = pathlib.Path(tempfile.mkdtemp(prefix="prueba-ensayo-corrida-")).resolve()
         self.addCleanup(tirar_dir, donde)
         self.donde = donde
         return correr(f"bash {SCRIPTS}/ensayo.sh {donde}", RAIZ,
-                      GRUPOS="1", COMPORTAMIENTO=comportamiento, ARRANQUE_FRIO="5",
+                      GRUPOS="1", COMPORTAMIENTO=comportamiento, COMPORTAMIENTO_TESTS=tests,
+                      ARRANQUE_FRIO="5",
                       COLABHIVE_BASE_URL=base, COLABHIVE_API_KEY="x", CONFIG_OC=str(cfg))
 
     def test_con_un_agente_que_cumple_el_pipeline_cierra_las_tres(self):
@@ -6317,6 +6323,57 @@ class TestElEnsayoDelPipelineCorreDePuntaAPunta(Veredictos, unittest.TestCase):
         self.assertIn("no pasó", r.stdout, f"{r.stdout[-800:]}")
         self.assertIn("0/3 tarea(s) cerradas", r.stdout,
                       f"una mentira no puede cerrar ninguna tarea:\n{r.stdout[-800:]}")
+
+    def test_el_registro_del_rechazo_dice_QUE_PASO_rechazo(self):
+        """De punta a punta, lo que `TestElVeredictoDiceQuePasoRechazoYNoSoloHastaDondeLlego`
+        prueba sobre las tres funciones sueltas: que el dato que QUEDA ESCRITO traiga la
+        dimensión del paso que rechazó, y la correcta.
+
+        Medido el 2026-11-03 antes del arreglo: de 414 rechazos nativos del dataset, 400 (97%)
+        no tenían una sola dimensión en ✗, con mediana de 6 dimensiones en un aceptado y 1 en
+        un rechazado. El contrato de las funciones se puede probar en un shell de juguete; que
+        el gate de verdad lo lleve hasta el jsonl, no.
+
+        Y de paso corre dos de los cuatro comportamientos `tests_*`, que existen desde el
+        2026-10-26 para ejercitar los rechazos de `escribir-tests.sh` y que NINGÚN test corría:
+        el andamio `ensayar` no pasaba la fase de tests. Los cuatro, medidos acá:
+
+          · tests_otraclase → archivo_y_clase ✗      (rechazo temprano)
+          · tests_imposible → pasa_con_implementacion ✗
+          · tests_flojo     → mutantes ✗             (el camino más profundo)
+          · tests_vacuo     → falla_sin_implementacion ✗ y mutantes ✗ — los DOS, y es correcto:
+                              un test vacuo pasa sin la implementación y además no distingue.
+
+        Van dos de los cuatro y no los cuatro porque cada corrida cuesta ~40s: uno que rechaza
+        temprano y uno que rechaza al final, que son los dos extremos del recorrido."""
+        for como, dim_esperada in (("tests_otraclase", "archivo_y_clase"),
+                                   ("tests_flojo", "mutantes")):
+            with self.subTest(comportamiento=como):
+                r = self.ensayar("cumple", tests=como)
+                jsonls = sorted(self.donde.rglob(".metricas/veredictos.jsonl"))
+                self.assertTrue(jsonls,
+                                f"no quedó un solo veredicto escrito\\nlo que hay: "
+                                f"{sorted(p.name for p in self.donde.iterdir())}"
+                                f"\\n{r.stdout[-600:]}")
+                regs = [json.loads(l) for f in jsonls
+                        for l in f.read_text().splitlines() if l.strip()]
+                rechazos = [x for x in regs if x.get("veredicto") == "rechazado"]
+                self.assertTrue(rechazos,
+                                f"«{como}» escribe un test degradado y no hubo un solo rechazo: "
+                                f"{[x.get('veredicto') for x in regs]}\\n{r.stdout[-600:]}")
+                for x in rechazos:
+                    dims = x.get("dimensiones") or {}
+                    self.assertIn("✗", dims.values(),
+                                  f"rechazo sin una sola dimensión en ✗: el campo dice hasta "
+                                  f"dónde llegó y no qué falló\\n{dims}\\n{x.get('motivo')}")
+                    self.assertNotIn("sin_paso_declarado", dims,
+                                     f"el bloque que rechazó no declaró su paso: {dims}")
+                    self.assertEqual("✗", dims.get(dim_esperada),
+                                     f"«{como}» tiene que quedar registrado en "
+                                     f"«{dim_esperada}»: {dims}\\n{x.get('motivo')}")
+                    self.assertGreater(len([v for v in dims.values() if v == "✓"]), 0,
+                                       f"el ✗ no puede borrar los ✓ de los pasos que SÍ "
+                                       f"pasaron, que es lo que hace útil al registro: {dims}")
 
 
 class TestEjemplosNoDerivan(Veredictos, unittest.TestCase):
@@ -16771,6 +16828,128 @@ class TestElJuezPareadoNoSePuedeGanarPorElCaminoEquivocado(unittest.TestCase):
         r = self.control(f, f'--guion "{self.guion(d, "A")}"')
         self.assertEqual(2, r.returncode, f"{r.stdout}{r.stderr}")
         self.assertIn("NO se midió nada", r.stdout, r.stdout)
+
+
+class TestElVeredictoDiceQuePasoRechazoYNoSoloHastaDondeLlego(unittest.TestCase):
+    """El docstring de `_veredicto.py` vende el juicio «dimensión por dimensión, con el motivo
+    del rechazo» como lo que no tiene ningún dataset público de software. Medido el 2026-11-03
+    sobre los 414 rechazos NATIVOS del dataset, no lo tenía: **400 (97%) no traían una sola
+    dimensión en `✗`**, con mediana de 6 dimensiones registradas en un aceptado y **1** en un
+    rechazado.
+
+    Era de diseño y no un olvido. `dim nombre ✓` se llamaba cuando un paso PASA; los 26 puntos
+    de rechazo llamaban a `malo "<texto>"`, que guarda el motivo en prosa y no toca la
+    dimensión. El gate corta en el primer rechazo, así que el campo decía hasta dónde llegó y
+    no qué falló.
+
+    Y no se puede reconstruir después: probé deducirlo del último paso registrado más el orden
+    del gate, y es **falso** —con `{"alcance": "✓"}` aparecen dos motivos distintos—. El dato
+    existe en el momento en que el paso decide, y ahí hay que escribirlo.
+
+    Lo que estos tests fijan es el contrato de las tres funciones, porque el riesgo del arreglo
+    no es que falle: es que ATRIBUYA MAL. Una dimensión equivocada es peor que una que falta,
+    así que `malo` consume el nombre y lo limpia, y lo que quede sin declarar sale como
+    `sin_paso_declarado` —visible en el dato— en vez de heredar el del bloque anterior."""
+
+    GATE = SCRIPTS / "escribir-tests.sh"
+
+    def contrato(self, cuerpo):
+        """Corre `cuerpo` con las tres funciones REALES del gate, extraídas del script.
+
+        Extraídas y no copiadas: una copia de `malo` en el test es un test que sigue en verde
+        el día que el gate cambia, que es el defecto que esta clase existe para no tener."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-metodo-"))
+        self.addCleanup(tirar_dir, d)
+        g = d / "g.sh"
+        g.write_text(
+            'set -eu\n'
+            "eval \"$(awk '/^dim\\(\\) /{print} /^paso\\(\\) /{print}"
+            " /^malo\\(\\) \\{$/,/^\\}$/{print}' " + f'"{self.GATE}")"\n'
+            'DIMS=""; PASO=""; fallos=0\n' + cuerpo)
+        return correr(f'bash "{g}"', RAIZ)
+
+    def dims_de(self, salida):
+        return dict(l.split("=", 1) for l in salida.strip().splitlines() if "=" in l)
+
+    def test_un_rechazo_deja_su_dimension_en_cruz(self):
+        r = self.contrato('paso contrato\nmalo "el test obliga un contrato" >/dev/null\n'
+                          'printf "%s" "$DIMS"\n')
+        self.assertEqual(0, r.returncode, f"{r.stdout}{r.stderr}")
+        self.assertEqual({"contrato": "✗"}, self.dims_de(r.stdout),
+                         f"el rechazo tiene que dejar su dimensión:\n{r.stdout}")
+
+    def test_un_segundo_rechazo_sin_declarar_no_hereda_el_paso_anterior(self):
+        """El riesgo del arreglo, de frente. Si `malo` no limpiara el nombre, el rechazo del
+        esquema se registraría como rechazo del contrato: una atribución falsa, que es
+        exactamente la clase de dato que este método no puede producir."""
+        r = self.contrato('paso contrato\nmalo "uno" >/dev/null\nmalo "dos" >/dev/null\n'
+                          'printf "%s" "$DIMS"\n')
+        dims = self.dims_de(r.stdout)
+        self.assertEqual({"contrato": "✗", "sin_paso_declarado": "✗"}, dims,
+                         f"el segundo rechazo no puede quedar como «contrato»:\n{r.stdout}")
+
+    def test_lo_que_no_declara_su_paso_sale_visible_y_no_adivinado(self):
+        r = self.contrato('malo "un rechazo de un bloque sin nombre" >/dev/null\n'
+                          'printf "%s" "$DIMS"\n')
+        self.assertEqual({"sin_paso_declarado": "✗"}, self.dims_de(r.stdout),
+                         f"sin paso declarado el dato tiene que DECIRLO:\n{r.stdout}")
+
+    def test_el_rechazo_no_borra_los_visto_bueno_de_los_pasos_anteriores(self):
+        """Lo que hace útil al registro: el rechazado tenía mediana 1 dimensión y el aceptado
+        6. Si el ✗ reemplazara en vez de sumarse, el rechazado seguiría teniendo una sola."""
+        r = self.contrato('dim alcance ✓\ndim falla_sin_implementacion ✓\n'
+                          'paso mutantes\nmalo "sobreviven mutantes" >/dev/null\n'
+                          'printf "%s" "$DIMS"\n')
+        self.assertEqual({"alcance": "✓", "falla_sin_implementacion": "✓", "mutantes": "✗"},
+                         self.dims_de(r.stdout), f"{r.stdout}")
+
+    def test_el_rechazo_sigue_fijando_el_motivo_y_el_fallo(self):
+        """El brazo nulo del arreglo: si `dim` adentro de `malo` rompiera lo que `malo` ya
+        hacía, el gate dejaría de marcar el fallo y aceptaría todo. Un `set -e` con un `dim`
+        que devuelve rc≠0 hace justo eso."""
+        r = self.contrato('paso alcance\nmalo "tocó lo que no debía" "el detalle" >/dev/null\n'
+                          'printf "%s|%s|%s" "$fallos" "$MOTIVO_TESTS" "$DETALLE_TESTS"\n')
+        self.assertEqual(0, r.returncode, f"{r.stdout}{r.stderr}")
+        self.assertEqual("1|tocó lo que no debía|el detalle", r.stdout.strip(),
+                         f"el arreglo no puede tocar lo que `malo` ya hacía:\n{r.stdout}")
+
+    def test_cada_punto_de_rechazo_tiene_un_paso_que_lo_gobierna(self):
+        """Los 26 `malo` del gate, uno por uno. El arreglo son 16 declaraciones y UN cambio en
+        el embudo, no 26 cambios; lo que hace que eso sea correcto es que cada punto quede
+        cubierto, y eso se verifica contando, no leyendo.
+
+        La distancia máxima medida entre un `malo` y su `paso` es de 63 líneas (los tres del
+        bloque de `_mocks.py`, que es largo). El tope de 90 es ése con margen: un punto de
+        rechazo más lejos que eso casi seguro está en un bloque nuevo que no declaró su paso,
+        y entonces su dimensión saldría atribuida al bloque de arriba."""
+        lineas = self.GATE.read_text().splitlines()
+        ultimo, malos, sin_paso, lejanos = None, 0, [], []
+        for i, l in enumerate(lineas, 1):
+            s = l.strip()
+            if s.startswith("paso ") and not s.startswith("paso()"):
+                ultimo = (i, s.split()[1])
+            if s.startswith("malo "):
+                malos += 1
+                if ultimo is None:
+                    sin_paso.append(i)
+                elif i - ultimo[0] > 90:
+                    lejanos.append((i, ultimo[1], i - ultimo[0]))
+        self.assertGreaterEqual(malos, 26,
+                                "el gate tenía 26 puntos de rechazo: si hay menos, cambió algo"
+                                " más grande que este arreglo")
+        self.assertEqual([], sin_paso,
+                         f"estos `malo` no tienen ningún `paso` antes, así que su dimensión"
+                         f" sale como sin_paso_declarado: líneas {sin_paso}")
+        self.assertEqual([], lejanos,
+                         f"estos `malo` están lejos de su `paso` —probablemente en un bloque"
+                         f" nuevo que no declaró el suyo—: {lejanos}")
+
+    def test_el_paso_se_limpia_al_empezar_cada_intento(self):
+        """Sin esto, el primer rechazo del intento 2 hereda el nombre del último bloque del
+        intento 1. `DIMS` ya se limpiaba ahí; `PASO` tiene que limpiarse en el mismo lugar."""
+        texto = self.GATE.read_text()
+        self.assertIn('  DIMS=""\n  PASO=""', texto,
+                      "PASO tiene que limpiarse junto con DIMS, no en otro lado")
 
 
 class TestLaDeudaDelMockSeLeCobraAQuienLaDebe(unittest.TestCase):

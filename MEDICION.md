@@ -2004,3 +2004,70 @@ solo lugar. Son ~10 asignaciones en vez de 26 cambios. No lo metí hoy: es cirug
 central del método, verificarla exige ejercitar los 26 caminos, y un gate roto a medias es peor
 que un campo incompleto. Queda anotado con su medición para que el próximo que lo lea sepa qué
 tan grande es y por dónde entrar.
+
+> **Hecho el mismo día, en §23.** Lo que esta sección declara como deuda está arreglado más
+> abajo, y midiéndolo apareció algo peor que «el campo está incompleto»: estaba **al revés**.
+> Las cifras de arriba —400 de 414, mediana 1— son del dataset de hoy y quedan como están: son
+> lo que el dataset tiene, y los registros viejos no se reescriben.
+
+### §23 — El campo estructurado no estaba incompleto: estaba al revés (2026-11-03)
+
+La deuda de §22, arreglada. Y lo que la medición mostró al ejercitarla de punta a punta no es lo
+que §22 suponía.
+
+**Lo que había.** Corrí el ensayo determinista con el comportamiento `tests_flojo` —un test que
+cubre las líneas y no verifica el comportamiento— contra el gate **sin** el arreglo. El registro
+del rechazo quedó así:
+
+```json
+{"veredicto": "rechazado",
+ "dimensiones": {"alcance": "✓", "objetivo_del_patch": "✓",
+                 "falla_sin_implementacion": "✓", "pasa_con_implementacion": "✓"},
+ "motivo": "sobreviven mutantes: el test cubre las líneas y no verifica su comportamiento…"}
+```
+
+Cuatro dimensiones, **las cuatro en ✓**, y el veredicto «rechazado». No es un campo con huecos:
+es un campo que afirma lo contrario de lo que pasó. Un juez entrenado sobre esto aprende que un
+registro con todo en verde es un rechazo, y el único lugar donde está la causa es la prosa — o
+sea exactamente lo que el docstring de `_veredicto.py` dice que este dataset tiene de más que
+los públicos, y no tenía.
+
+**El arreglo.** `dim()` pasa a definirse antes, `paso <nombre>` declara el bloque y `malo()`
+—el embudo único— hace `dim "${PASO:-sin_paso_declarado}" ✗` y **limpia** el nombre. Son 16
+declaraciones y un cambio en el embudo, no 26 cambios.
+
+Las dos decisiones que importan y por qué:
+
+- **`malo` limpia el nombre después de usarlo.** El riesgo de este arreglo no es que falle: es
+  que ATRIBUYA MAL, y una dimensión equivocada es peor que una que falta. Sin limpiar, un
+  segundo rechazo sin bloque propio heredaría el nombre del anterior y el dato diría que falló
+  un paso que pasó.
+- **Lo no declarado sale como `sin_paso_declarado`, no adivinado.** Un bloque nuevo que se
+  agregue sin declarar su paso se ve **en el dato**, y además lo caza el test que recorre los 26
+  puntos de rechazo y exige un `paso` que los gobierne.
+
+**Lo que ahora queda escrito**, medido con los cuatro comportamientos `tests_*` del ensayo
+determinista —cuatro caminos de rechazo distintos, con modelos de nadie y repetible—:
+
+| comportamiento | dimensión en ✗ | ✓ que conserva |
+|---|---|---|
+| `tests_otraclase` | `archivo_y_clase` | 2 |
+| `tests_imposible` | `pasa_con_implementacion` | 3 |
+| `tests_flojo` | `mutantes` | 4 |
+| `tests_vacuo` | `falla_sin_implementacion` **y** `mutantes` | 3 |
+
+El último caso es el que confirma que el diseño es el correcto: un test vacuo falla **dos** pasos
+—pasa sin la implementación y además no distingue— y el registro ahora lo dice con dos ✗ en vez
+de elegir uno. Un campo con un solo casillero por registro no habría podido.
+
+**Y de paso, una cobertura que no existía.** Los cuatro comportamientos `tests_*` están en
+`_ensayo_agente.sh` desde el 2026-10-26 para ejercitar los rechazos de `escribir-tests.sh`, y
+**ningún test los corría**: el andamio `ensayar` del test de punta a punta no pasaba la fase de
+tests, así que siempre mandaba `cumple`. Dos de los cuatro quedan corriendo en la suite —uno que
+rechaza temprano y uno que rechaza al final—; los cuatro quedan medidos acá.
+
+**Lo que esto NO arregla.** Los 1.446 registros que ya están escritos no cambian: el campo nuevo
+empieza a valer desde la próxima corrida. Para un juez entrenado eso significa que el dataset
+tiene dos regímenes, y la partición por familia los separa sola —cada corrida es una familia—,
+así que es un rasgo más a chequear entre entrenamiento y reservado, no una contaminación.
+
