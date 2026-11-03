@@ -2071,3 +2071,159 @@ empieza a valer desde la próxima corrida. Para un juez entrenado eso significa 
 tiene dos regímenes, y la partición por familia los separa sola —cada corrida es una familia—,
 así que es un rasgo más a chequear entre entrenamiento y reservado, no una contaminación.
 
+
+---
+
+### §24 — El juez puntual contra el reservado sellado: sirve de pre-filtro, y el 27% que no contestó es el dato que hay que mirar primero (2026-11-03)
+
+§19 cerró un camino: el reviewer sin afinar **no sirve como juez de tarea**. 35% de acierto
+contra 25% del azar, 40% de los veredictos cambia según el orden de los dos candidatos, y entre
+los que no cambian el IC contiene al 50%. Está medido y no es falta de n.
+
+Esta medición es de **otra pregunta**, y conviene decirlo antes del número porque si no parece
+que el mismo juez pasó de inútil a bueno. No es el mismo juez: es la misma pieza contestando algo
+distinto. §19 le pedía decidir **qué implementación es mejor**. Acá se le pide predecir **si el
+gate aceptaría este test**, con el veredicto del gate como verdad. La segunda pregunta tiene una
+verdad gratis y no se equivoca; la primera no tiene verdad ninguna. Que la segunda salga mucho
+mejor no contradice a CodeJudgeBench §5.1 —puntual peor que pareado— porque no se está comparando
+puntual contra pareado: se está comparando **una pregunta con verdad contra una sin verdad**.
+
+Mismo modelo que §17 y §19: `1af07b1f-5832-4451-a61c-76d1fe43115a`. Reservado sellado de
+§22, huella `39457e81cb6aa895`, **que nunca se había medido contra nada**.
+
+#### Lo primero, porque cambia cómo se lee todo lo demás: 27% no contestó
+
+De los 147 registros del reservado con test, enunciado y veredicto, **39 (27%) se cortaron por el
+tope de 4000 tokens**: el modelo se quedó razonando y nunca llegó al veredicto. Los 39 son
+`finish_reason=length`, ninguno es otra cosa.
+
+Esas 39 **no cuentan como rechazo**. Es la trampa que el instrumento tiene prohibida por
+construcción: si una respuesta ilegible contara como «rechazar», un modelo que no contesta nada
+saldría con especificidad perfecta. Y es exactamente la falla que hubo que arreglar para poder
+hacer esta medición —el parser tomaba la última palabra de una respuesta cortada, y una respuesta
+cortada contiene las palabras de la consigna, así que devolvía «rechazado» en nombre de un modelo
+que no había dicho nada—.
+
+El corte **no cayó parejo entre las clases**:
+
+| | cortados | de | % | IC95 |
+|---|---|---|---|---|
+| aceptado | 24 | 72 | 33% | [24% · 45%] |
+| rechazado | 15 | 75 | 20% | [13% · 30%] |
+
+Fisher exacto bilateral **p = 0,092**. O sea: **no se puede afirmar que el corte esté sesgado, y
+tampoco que no lo esté.** La dirección —se come más aceptados— es la que haría que todo lo que
+sigue se leyera mejor de lo que es, porque dejaría afuera los casos que al modelo le cuestan. Lo
+que sí es un hecho es que **lo que sigue está medido sobre el 73% que contestó**, y ese 73% tiene
+44% de aceptados donde el reservado entero tiene 49%.
+
+#### El número, con sus cuatro referencias
+
+Sobre los **108 que contestaron** (48 aceptados / 60 rechazados, tasa base 44%):
+
+| | valor | IC95 |
+|---|---|---|
+| exactitud | 91/108 = **84%** | [76% · 90%] |
+| clase mayoritaria (rechazar siempre) | 60/108 = 56% | [46% · 65%] |
+| TPR en el punto de operación | 42/48 = **88%** | [75% · 94%] |
+| FPR en el punto de operación | 11/60 = **18%** | [11% · 30%] |
+| AUC | **0,88** | — |
+
+Las cuatro referencias que van siempre, porque sin ellas el número se lee mejor de lo que es:
+
+1. **La tasa base no es 50%.** La mayoritaria acierta 56%. El 84% está arriba, y los IC no se
+   tocan: [76% · 90%] contra [46% · 65%].
+2. **Las ilegibles van contadas aparte y nunca como rechazo.** 39, declaradas arriba.
+3. **Aceptar TODO da TPR 100% con FPR 100%**, sin juez ninguno. El juez aporta en la medida en que
+   su FPR baje de 100% al TPR que uno exija. Acá: a TPR 88%, FPR 18%.
+4. **El barrido tuvo 5 puntuaciones distintas.** No es una curva de dos puntos. Pero ver abajo:
+   casi toda la AUC viene del signo, no de la confianza.
+
+El barrido entero, que es lo que se puede desplegar:
+
+| umbral | TPR | FPR | IC95 del FPR | |
+|---|---|---|---|---|
+| 11 | 0% | 0% | [0% · 6%] | no acepta nada |
+| 10 | 69% | 12% | [6% · 22%] | |
+| **9** (= su veredicto crudo) | **88%** | **18%** | [11% · 30%] | punto de operación |
+| −9 | 92% | 18% | [11% · 30%] | ver la advertencia |
+| −10 | 96% | 38% | [27% · 51%] | |
+| −11 | 100% | 100% | [94% · 100%] | aceptar todo: no descarta nada |
+
+#### Tres controles, que es lo que distingue señal de forma
+
+**Cinco criterios tontos sobre los MISMOS 108 registros.** Si uno de ellos empatara 0,88, el juez
+no estaría leyendo el test: estaría leyendo su forma.
+
+| criterio | AUC |
+|---|---|
+| largo del test en caracteres | 0,42 |
+| largo del enunciado | 0,50 |
+| cantidad de `assert` | 0,44 |
+| cantidad de líneas | 0,47 |
+| cantidad de `def` | 0,46 |
+| **el juez** | **0,88** |
+
+Los cinco están en el azar. La señal es de contenido.
+
+**La identidad de la tarea no es el atajo.** Los 108 registros son de 15 tareas, y **13 de las 15
+tienen los dos veredictos**. Un predictor que memorizara «esta tarea sale aceptada» no llega a
+0,88 porque casi ninguna tarea es de una sola clase.
+
+**El juez no contesta siempre lo mismo.** 53 aceptar / 55 rechazar. Un constante habría salido
+con TPR 0% o FPR 100%, y el instrumento lo dice cuando pasa.
+
+#### Dos cosas que el número de arriba no dice y hay que decir
+
+**La confianza casi no aporta nada.** El modelo contesta 8, 9 o 10 y nunca menos. Tirando la
+confianza a la basura y quedándose sólo con el signo del veredicto, la AUC baja de **0,884 a
+0,846**: la confianza aporta **+0,038**. O sea: **esto no es un puntaje calibrado, es un veredicto**.
+El barrido de 5 umbrales existe y hay que informarlo, pero lo que se despliega es el sí/no más una
+política para las ilegibles, no un umbral afinado.
+
+**El umbral −9 NO es un resultado.** Da TPR 92% con el mismo FPR 18%, que se lee como cuatro
+puntos de TPR gratis. La razón es que ningún rechazado real cayó en esa canasta —«RECHAZAR con
+confianza 8»—, y la canasta tiene 2 registros aceptados y 0 rechazados. **Eso es un umbral elegido
+sobre el mismo reservado que se está informando**, con una diferencia de 2 registros sobre 60
+negativos: adentro del ruido. El umbral se elige sobre entrenamiento y se informa sobre reservado,
+o no se elige. Queda como hipótesis a confirmar contra los 439 de entrenamiento, no como número.
+
+#### El veredicto: sirve de pre-filtro, no de reemplazo del gate
+
+La diferencia no es de grado, es de qué cuesta equivocarse.
+
+**Como pre-filtro delante del gate**, el gate sigue siendo el árbitro: un falso positivo sólo
+cuesta cómputo, porque el gate lo rechaza igual. Y las 39 abstenciones van al gate como cualquier
+otra cosa. Lo único que se pierde de verdad es el falso negativo: material bueno que el gate
+nunca ve.
+
+| | valor | IC95 |
+|---|---|---|
+| el gate corre en | 92/147 = 63% | [55% · 70%] |
+| trabajo del gate evitado | 55/147 = 37% | [30% · 45%] |
+| de lo que tira, era basura | 49/55 = 89% | [78% · 95%] |
+| **material bueno perdido** | **6/72 = 8%** | [4% · 17%] |
+
+Un tercio menos de corridas del gate, y nueve de cada diez cosas que descarta eran basura, a
+cambio de perder el 8% del material bueno. Eso **sirve**, y es la primera pieza de este proyecto
+que se mide bien contra un reservado sellado.
+
+**Como reemplazo del gate** —etiquetar sin correr los tests— no sirve: **21% [12% · 33%] de lo que
+etiquetaría como aceptado es basura**, más 39 registros que sin gate no tendrían etiqueta ninguna.
+Un dataset con uno de cada cinco registros mal etiquetados no es un dataset.
+
+#### Y una nota de instrumento, que la pagué con tres horas a ciegas
+
+La corrida tardó **3h50 para 147 registros: 100 segundos por registro**, no los 110 minutos que
+estimé. La estimación salió del humo con `max_tokens: 600`, donde el modelo tardaba 27s. Con el
+tope en 4000 razona mucho más. El tope **no se baja** —es uno de los tres guardas contra la falla
+del parser— así que lo que se corrige es la estimación: **2,5 min por registro** para esta clase
+de medición, y un reservado de 147 son cuatro horas.
+
+Y el `--crudo` se volcaba **al final**. Durante 3h50 el log tuvo tres líneas y no hubo manera de
+saber por dónde iba; si el proceso hubiera muerto en el registro 140, habría dejado **cero**
+respuestas en disco y 140 llamadas al modelo pagadas y perdidas. Arreglado en el commit siguiente:
+se escribe a medida con vaciado inmediato, así `wc -l` del crudo es la señal de avance. El test de
+eso no puede ser «el archivo existe al final» —pasa igual con el volcado al final—: el guion pasa
+a poder ser una **tubería con nombre**, y el test marca el paso, le da dos respuestas, mira el
+crudo con el proceso todavía vivo, y recién entonces le da el resto.
