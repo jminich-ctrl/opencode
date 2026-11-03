@@ -74,9 +74,21 @@ CONFIANZA: un entero de 0 a 10"""
 TOPE_TOKENS = 4000
 
 
-def preguntar(url, clave, modelo, enunciado, test, tiempo=300):
-    """Devuelve (texto, motivo_de_corte). El motivo IMPORTA: `length` significa que el modelo
-    no llegó a contestar, y una respuesta cortada tiene adentro las palabras ACEPTAR y RECHAZAR
+def espera_para(tope):
+    """Segundos de espera para un tope de `tope` tokens. El tiempo de espera NO puede quedar
+    fijo cuando el tope se mueve: §24 midió ~40 tokens/s contra `1af07b1f` (147 respuestas de
+    hasta 4000 tokens en 100 s cada una), así que un tope de 16000 son 400 s de generación y
+    una espera de 300 convertiría el sondeo del presupuesto en un sondeo de timeouts —y una
+    falla de herramienta no se distingue de «el modelo no supo» en ningún número de abajo—.
+
+    `tope // 20` es el doble de lo medido, de margen; y nunca baja de 300, que es lo que ya
+    estaba y funcionaba."""
+    return max(300, tope // 20)
+
+
+def preguntar(url, clave, modelo, enunciado, test, tiempo=None, tope=None):
+    """Devuelve (texto, motivo_de_corte, tokens). El motivo IMPORTA: `length` significa que
+    el modelo no llegó a contestar, y una respuesta cortada tiene adentro las palabras ACEPTAR y RECHAZAR
     —las de la consigna— así que cualquier parser las encuentra y devuelve un veredicto que el
     modelo nunca dio. Es la falla que tuvo este script en su primera corrida de campo: informó
     «contesta siempre rechazado» sobre seis registros donde no había contestado ninguno."""
@@ -84,15 +96,22 @@ def preguntar(url, clave, modelo, enunciado, test, tiempo=300):
         "model": modelo,
         "messages": [{"role": "user", "content": PROMPT.format(
             enunciado=(enunciado or "")[:4000], test=(test or "")[:4000])}],
-        "max_tokens": TOPE_TOKENS, "temperature": 0,
+        "max_tokens": tope or TOPE_TOKENS, "temperature": 0,
     }).encode()
     pedido = urllib.request.Request(
         f"{url.rstrip('/')}/chat/completions", data=cuerpo,
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {clave}"})
-    with urllib.request.urlopen(pedido, timeout=tiempo) as r:
+    espera = tiempo or espera_para(tope or TOPE_TOKENS)
+    with urllib.request.urlopen(pedido, timeout=espera) as r:
         d = json.loads(r.read())
     eleccion = d["choices"][0]
-    return (eleccion["message"].get("content") or "").strip(), eleccion.get("finish_reason")
+    # Los tokens gastados se devuelven porque sin ellos no se puede saber si el tope está
+    # apretado. §24 midió con tope 4000 y 27% de las respuestas se cortaron SIN cerrar el
+    # razonamiento: ninguna de las 39 emitió `</think>`. Ese 27% no es una propiedad del
+    # juez, es el presupuesto, y para distinguir una cosa de la otra hay que contar.
+    return ((eleccion["message"].get("content") or "").strip(),
+            eleccion.get("finish_reason"),
+            (d.get("usage") or {}).get("completion_tokens"))
 
 
 OPCIONES = r"\s*(?:O|OR|/|\||,\s*O)\s*(?:ACEPTAR|RECHAZAR)"
@@ -194,6 +213,10 @@ def main():
                          "modelo. Un `\\n` literal en la línea se convierte en salto: una "
                          "respuesta de verdad tiene varias líneas, y un fixture que no pueda "
                          "representarla no puede reproducir la falla que importa")
+    ap.add_argument("--tokens", type=int, default=TOPE_TOKENS,
+                    help=f"tope de tokens por respuesta (por omisión {TOPE_TOKENS}). NO es "
+                         f"el tamaño de la muestra, eso es --tope. Subirlo es lo único que "
+                         f"puede bajar el porcentaje de respuestas que no llegan a contestar")
     ap.add_argument("--crudo", default=None,
                     help="archivo donde dejar una línea jsonl por registro juzgado, para poder "
                          "volver a calcular cualquier número de abajo sin volver a preguntar")
@@ -251,13 +274,15 @@ def main():
     puntos = []
     ilegibles = sin_confianza = cortadas = fallas = 0
     veredictos = []
+    gastados = []
     for r in rs:
-        corte = None
+        corte = tokens = None
         if guion is not None:
             cruda = next(guion, "")
         else:
             try:
-                cruda, corte = preguntar(url, clave, args.modelo, r["enunciado"], r["test"])
+                cruda, corte, tokens = preguntar(url, clave, args.modelo, r["enunciado"],
+                                                 r["test"], tope=args.tokens)
             except (urllib.error.URLError, OSError, KeyError, ValueError) as e:
                 cruda, corte = f"⊘ falla de herramienta: {type(e).__name__}", "error"
                 fallas += 1
@@ -271,7 +296,8 @@ def main():
         if dijo is None:
             ilegibles += 1
             anotar({"id": r.get("id"), "veredicto": r["veredicto"], "dijo": None,
-                    "confianza": None, "corte": corte, "cruda": cruda[-600:]})
+                    "confianza": None, "corte": corte, "tokens": tokens,
+                    "cruda": cruda[-600:]})
             continue
         if conf is None:
             sin_confianza += 1
@@ -279,8 +305,10 @@ def main():
         punt = (conf + 1) * (1 if dijo == "aceptado" else -1)
         puntos.append((punt, r["veredicto"] == "aceptado"))
         veredictos.append(dijo)
+        if tokens is not None:
+            gastados.append(tokens)
         anotar({"id": r.get("id"), "veredicto": r["veredicto"], "dijo": dijo,
-                "confianza": conf, "puntuacion": punt, "corte": corte,
+                "confianza": conf, "puntuacion": punt, "corte": corte, "tokens": tokens,
                 "cruda": cruda[-600:]})
     if salida is not None:
         salida.close()
@@ -293,9 +321,21 @@ def main():
     print(f"  juzgados {n} · ilegibles {ilegibles} (no cuentan como rechazo: si cayeran ahí,")
     print(f"     un modelo que no contesta nada saldría con especificidad perfecta)")
     if cortadas:
+        # args.tokens y NO TOPE_TOKENS: informar la constante en vez del tope que se usó
+        # haría que una corrida con --tokens mintiera sobre su propio presupuesto.
         print(f"  ⊘ {cortadas} de esas ilegibles se cortaron por el tope de"
-              f" {TOPE_TOKENS} tokens:\n     el modelo no llegó a contestar, y una respuesta"
+              f" {args.tokens} tokens:\n     el modelo no llegó a contestar, y una respuesta"
               f" cortada NO se parsea.")
+    if gastados:
+        # Sin esto no se puede distinguir «el juez no sabe» de «no le alcanzó el
+        # presupuesto». §24 informó 27% de cortadas sin poder decir cuánto faltaba.
+        techo, medio = max(gastados), sorted(gastados)[len(gastados) // 2]
+        print(f"  ⊘ presupuesto: tope {args.tokens} tokens. De las que CONTESTARON, la que"
+              f" más gastó\n     usó {techo} ({100 * techo // args.tokens}% del tope), mediana"
+              f" {medio}.")
+        if techo >= 0.9 * args.tokens:
+            print(f"     ⚠ el máximo ROZA el tope: el número de abajo está limitado por el"
+                  f"\n       presupuesto y no por el juez. Subir --tokens y volver a medir.")
     if fallas:
         print(f"  ⊘ {fallas} falla(s) de herramienta: tampoco cuentan como veredicto.")
     if sin_confianza:

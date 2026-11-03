@@ -16938,6 +16938,153 @@ class TestElJuezPuntualSeLeeContraLaTasaBaseYNoContraLaMitad(unittest.TestCase):
     def juez(self, f, *extra):
         return correr(f'python3 "{SCRIPTS}/juez_puntual.py" "{f}" {" ".join(extra)}', RAIZ)
 
+    def plataforma_falsa(self, respuestas):
+        """Plataforma de juguete que sirve `respuestas` —(texto, motivo, tokens)— en orden y
+        ANOTA los cuerpos que le llegaron, para poder afirmar qué se pidió y no sólo qué se
+        informó. Devuelve (url, pedidos), donde `pedidos` se llena a medida."""
+        import threading
+        pedidos = []
+        cola = list(respuestas)
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                pedidos.append(json.loads(self.rfile.read(n)))
+                texto, motivo, tokens = cola.pop(0) if cola else ("", "stop", 0)
+                cuerpo = json.dumps({
+                    "choices": [{"message": {"content": texto}, "finish_reason": motivo}],
+                    "usage": {"completion_tokens": tokens}}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(cuerpo)))
+                self.end_headers()
+                self.wfile.write(cuerpo)
+
+            def log_message(self, *a):
+                pass
+
+        srv = ServidorFalso(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return f"http://127.0.0.1:{srv.server_address[1]}/v1", pedidos
+
+    def juez_contra(self, f, url, *extra):
+        return correr(f'python3 "{SCRIPTS}/juez_puntual.py" "{f}" --modelo m '
+                      + " ".join(extra), RAIZ,
+                      COLABHIVE_BASE_URL=url, COLABHIVE_API_KEY="x")
+
+    def test_la_espera_sube_con_el_tope_y_nunca_baja_de_la_que_ya_habia(self):
+        """El tiempo de espera no puede quedar fijo cuando el tope se mueve: con tope 16000
+        son 400 s de generación a los ~40 tokens/s que midió §24, y una espera de 300
+        convertiría el sondeo del presupuesto en un sondeo de timeouts. Una falla de
+        herramienta no se distingue de «el modelo no supo» en ningún número del informe.
+
+        Y el piso importa igual: 300 es lo que ya estaba y funcionaba, así que un tope chico
+        NO puede bajar la espera y volver frágil lo que hoy anda."""
+        sys.path.insert(0, str(SCRIPTS))
+        try:
+            from juez_puntual import espera_para
+        finally:
+            sys.path.remove(str(SCRIPTS))
+        self.assertEqual(espera_para(4000), 300, "el tope de hoy no cambia la espera de hoy")
+        self.assertEqual(espera_para(1000), 300, "un tope chico no puede bajar el piso")
+        self.assertEqual(espera_para(16000), 800, "cuatro veces el tope pide más espera")
+        self.assertGreater(espera_para(40000), espera_para(16000))
+
+    def test_la_espera_calculada_es_la_que_llega_a_la_conexion(self):
+        """El brazo que faltaba, y lo encontré mutando: con `espera_para` probada aparte,
+        cambiar `preguntar` para que use un 300 fijo NO rompía ningún test. La función estaba
+        bien y no la usaba nadie — la misma decoración de siempre, un chequeo que existe y
+        no está cableado.
+
+        Un servidor falso no sirve acá: el piso de la espera es 300 s y un test no puede
+        esperar eso. Así que se mira el `timeout` que recibe la conexión."""
+        sys.path.insert(0, str(SCRIPTS))
+        try:
+            import juez_puntual
+        finally:
+            sys.path.remove(str(SCRIPTS))
+        vistos = []
+
+        class Respuesta:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self):
+                return json.dumps({"choices": [{"message": {"content": "VEREDICTO: ACEPTAR"},
+                                                "finish_reason": "stop"}],
+                                   "usage": {"completion_tokens": 7}}).encode()
+
+        original = juez_puntual.urllib.request.urlopen
+
+        def espia(pedido, timeout=None):
+            vistos.append(timeout)
+            return Respuesta()
+
+        juez_puntual.urllib.request.urlopen = espia
+        self.addCleanup(setattr, juez_puntual.urllib.request, "urlopen", original)
+        for tope in (4000, 16000, 40000):
+            juez_puntual.preguntar("http://x/v1", "k", "m", "e", "t", tope=tope)
+        self.assertEqual(vistos, [juez_puntual.espera_para(t)
+                                  for t in (4000, 16000, 40000)],
+                         "la espera que se calcula no es la que viaja a la conexión")
+
+    def test_el_tope_de_tokens_que_se_pide_es_el_que_viaja(self):
+        """`--tokens` tiene que llegar a la plataforma como `max_tokens`. Un tope que se
+        informa pero no viaja es la peor variante: la corrida dice que midió con 12000 y
+        midió con 4000."""
+        d, f = self.jsonl(self.siete_y_tres())
+        url, pedidos = self.plataforma_falsa(
+            [("VEREDICTO: ACEPTAR\nCONFIANZA: 8", "stop", 700)] * 10)
+        r = self.juez_contra(f, url, "--tokens", "1234")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(len(pedidos), 10)
+        self.assertEqual({q["max_tokens"] for q in pedidos}, {1234})
+        self.assertIn("tope 1234 tokens", r.stdout)
+
+    def test_la_linea_de_las_cortadas_informa_el_tope_que_se_uso(self):
+        """El defecto que me hice solo al agregar `--tokens`: la línea de las cortadas tenía
+        la constante 4000 escrita, así que una corrida con otro tope informaba un
+        presupuesto que no era el suyo. Un instrumento que miente sobre su propia
+        configuración es peor que uno que no la informa."""
+        d, f = self.jsonl(self.siete_y_tres())
+        url, _ = self.plataforma_falsa([("razonando sin parar", "length", 555)] * 10)
+        r = self.juez_contra(f, url, "--tokens", "555")
+        self.assertIn("tope de 555 tokens", r.stdout)
+        self.assertNotIn("4000", r.stdout)
+
+    def test_el_crudo_anota_los_tokens_que_gasto_cada_respuesta(self):
+        """Sin el gasto por respuesta no se puede saber, después, si el tope estaba apretado.
+        §24 informó 27% de cortadas sin poder decir cuánto les faltaba."""
+        d, f = self.jsonl(self.siete_y_tres())
+        crudo = d / "crudo.jsonl"
+        url, _ = self.plataforma_falsa(
+            [("VEREDICTO: ACEPTAR\nCONFIANZA: 8", "stop", 100 + i) for i in range(10)])
+        r = self.juez_contra(f, url, "--crudo", str(crudo))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        cs = [json.loads(l) for l in crudo.read_text().splitlines()]
+        self.assertEqual([c["tokens"] for c in cs], list(range(100, 110)))
+
+    def test_avisa_cuando_el_maximo_gastado_roza_el_tope(self):
+        """La distinción que §24 no pudo hacer: «el juez no sabe» contra «no le alcanzó el
+        presupuesto». Si la respuesta más larga que SÍ contestó llegó al borde del tope, el
+        número está limitado por el tope y no por el juez, y eso hay que decirlo arriba del
+        número y no deducirlo después."""
+        d, f = self.jsonl(self.siete_y_tres())
+        url, _ = self.plataforma_falsa(
+            [("VEREDICTO: ACEPTAR\nCONFIANZA: 8", "stop", 990)] * 10)
+        r = self.juez_contra(f, url, "--tokens", "1000")
+        self.assertIn("ROZA el tope", r.stdout)
+        self.assertIn("Subir --tokens", r.stdout)
+
+    def test_no_avisa_cuando_el_maximo_esta_lejos_del_tope(self):
+        """El brazo nulo del de arriba: un aviso que sale siempre no es un aviso."""
+        d, f = self.jsonl(self.siete_y_tres())
+        url, _ = self.plataforma_falsa(
+            [("VEREDICTO: ACEPTAR\nCONFIANZA: 8", "stop", 200)] * 10)
+        r = self.juez_contra(f, url, "--tokens", "4000")
+        self.assertNotIn("ROZA el tope", r.stdout)
+        self.assertIn("mediana 200", r.stdout)
+
     def esperar_lineas(self, archivo, n, tope=40.0):
         """Espera hasta que el crudo tenga n líneas. El tope existe para que un volcado al
         final falle por TIEMPO y no cuelgue la suite."""
@@ -17220,15 +17367,43 @@ class TestElJuezPuntualSeLeeContraLaTasaBaseYNoContraLaMitad(unittest.TestCase):
         """Lo que hace que el defecto de campo no vuelva por el otro lado. Medido contra
         `1af07b1f`: con 600 se corta en `finish_reason=length`; cierra en 611 tokens. Un tope
         apenas arriba del largo observado se come la cola de la distribucion y vuelve a
-        producir ilegibles que parecen juicios."""
-        texto = (SCRIPTS / "juez_puntual.py").read_text()
-        self.assertIn("TOPE_TOKENS = 4000", texto,
+        producir ilegibles que parecen juicios.
+
+        Antes esto grepeaba el fuente buscando `"max_tokens": TOPE_TOKENS`. Eso aguantaba
+        hasta que el tope se volvio configurable, y sobre todo no medía lo que importa: que
+        el numero LLEGUE a la plataforma. Ahora se mira el pedido."""
+        self.assertIn("TOPE_TOKENS = 4000", (SCRIPTS / "juez_puntual.py").read_text(),
                       "el tope bajo fue el defecto de campo: no puede volver sin su motivo")
-        self.assertIn('"max_tokens": TOPE_TOKENS', texto,
-                      "el tope tiene que salir de la constante, no de un literal al lado")
-        self.assertIn('corte == "length"', texto,
-                      "y la respuesta cortada se tiene que detectar por el motivo de corte"
-                      " que informa la plataforma, no sólo por el parser")
+        d, f = self.jsonl(self.siete_y_tres())
+        url, pedidos = self.plataforma_falsa(
+            [("VEREDICTO: ACEPTAR\nCONFIANZA: 8", "stop", 611)] * 10)
+        r = self.juez_contra(f, url)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual({q["max_tokens"] for q in pedidos}, {4000},
+                         "el tope por omision no es el que viaja")
+
+    def test_una_respuesta_cortada_por_la_plataforma_no_se_parsea(self):
+        """EL defecto de campo del 2026-11-03, ahora reproducido de punta a punta contra una
+        plataforma en vez de grepeando el fuente. El modelo se queda razonando, se corta por
+        `length`, y lo que queda es su propio repaso de la consigna —cuya ULTIMA palabra es
+        RECHAZAR—. El parser viejo tomaba la ultima palabra y devolvia diez rechazos sobre
+        diez respuestas donde nadie habia contestado.
+
+        Hay dos guardas y este test los cruza los dos: el motivo de corte que informa la
+        plataforma, y el parser que exige la linea etiquetada. La respuesta de abajo tiene
+        la etiqueta seguida de la ALTERNATIVA, que es la consigna repetida."""
+        d, f = self.jsonl(self.siete_y_tres())
+        repaso = ("User asks exactly two lines: VEREDICTO: ACEPTAR or RECHAZAR, CONFIANZA: "
+                  "integer 0-10. Need analyze test. Let me think about whether it fails "
+                  "without the implementation... the import is src.servicios and the patch "
+                  "target would be RECHAZAR")
+        url, _ = self.plataforma_falsa([(repaso, "length", 4000)] * 10)
+        r = self.juez_contra(f, url)
+        self.assertIn("ilegibles 10", r.stdout, r.stdout)
+        self.assertIn("se cortaron por el tope", r.stdout, r.stdout)
+        self.assertIn("NO se midió nada", r.stdout,
+                      "diez ilegibles no son diez rechazos: no hay nada que medir")
+        self.assertNotIn("TPR", r.stdout, "no puede informar un punto de operación")
 
     def test_una_confianza_que_falta_no_se_rellena_en_silencio(self):
         """Rellenar con 5 y no decirlo mueve el barrido sin que nadie lo vea."""
