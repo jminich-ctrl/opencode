@@ -83,4 +83,25 @@ LIBRE_G="$(df -g / | awk 'NR==2{print $4}')"
 case "$LIBRE_G" in ''|*[!0-9]*) : ;; *)
   [ "$LIBRE_G" -lt "$UMBRAL_DISCO" ] && echo "  ■ disco por debajo del acuerdo de ${UMBRAL_DISCO}Gi: parar corridas y avisar" ;;
 esac
+# ── y DE QUÉ se está llenando, porque «quedan 238 Mi» llega tarde ──
+#
+# El 2026-11-02 una campaña murió con ENOSPC y el monitoreo anterior había dicho «14Gi
+# libres» hacía dos horas. Lo que se lo comió: 1621 dylib anónimos de 4,8 MB en el temporal
+# del usuario, 7,28 GB, que deja el toolchain cada vez que corre la suite —ninguno abierto
+# por un proceso, todos regenerables—. Al ritmo medido (Oct 27 a Nov 2) son ~1,3 GB por día
+# de corridas, o sea que el disco se vuelve a llenar en menos de una semana.
+#
+# Un umbral solo avisa cuando ya no hay margen para decidir. Esto avisa mientras lo hay, y
+# dice qué borrar: es la diferencia entre «parar corridas» y «borrar basura del toolchain».
+TMPU="$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null)"
+if [ -n "$TMPU" ] && [ -d "$TMPU" ]; then
+  FUGA_N="$(find "$TMPU" -maxdepth 1 -type f -name '.*-00000000.dylib' 2>/dev/null | wc -l | tr -d ' ')"
+  if [ "${FUGA_N:-0}" -gt 0 ]; then
+    FUGA_M="$(find "$TMPU" -maxdepth 1 -type f -name '.*-00000000.dylib' -exec du -ck {} + 2>/dev/null \
+              | tail -1 | awk '{printf "%.1f", $1/1024}')"
+    echo "· fuga del toolchain: $FUGA_N dylib anónimo/s en el temporal = ${FUGA_M:-?} MB"
+    [ "${FUGA_N:-0}" -gt 300 ] && echo "  ■ ya son muchos; se borran sin riesgo (ninguno queda abierto):" \
+      && echo "     find \"$TMPU\" -maxdepth 1 -type f -name '.*-00000000.dylib' ! -newermt \"\$(date +%F)\" -delete"
+  fi
+fi
 echo "· NO FRENAR — el monitoreo no reemplaza el trabajo. Si hay algo trabado, se arregla."

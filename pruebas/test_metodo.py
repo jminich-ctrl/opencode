@@ -16227,6 +16227,53 @@ class TestElMonitoreoVivoEnElRepoYNoEnTmp(unittest.TestCase):
                          f"«leí y hay frías» tiene que ser 1, no 2:\n{r2.stdout}")
         self.assertIn("warm=0", r2.stdout)
 
+    def test_el_monitoreo_dice_DE_QUE_se_llena_el_disco_y_no_solo_cuanto_queda(self):
+        """«Quedan 238 Mi» llega tarde: cuando el umbral avisa, ya no hay margen para decidir.
+
+        El 2026-11-02 una campaña murió con ENOSPC dos horas después de un monitoreo que había
+        dicho «14Gi libres». Lo que se lo comió no era el proyecto —una corrida pesa 26 MB—:
+        eran 1621 dylib anónimos de 4,8 MB en el temporal del usuario, 7,28 GB que el
+        toolchain deja cada vez que corre la suite. Ninguno abierto por un proceso, todos
+        regenerables. Al ritmo medido entre el 27/10 y el 2/11 son ~1,3 GB por día.
+
+        La diferencia que esto hace es entre «parar corridas y avisar» —que era el acuerdo— y
+        «borrar basura del toolchain y seguir». Un monitoreo que sólo mira el umbral obliga a
+        lo primero cuando alcanzaba lo segundo."""
+        s = (SCRIPTS / "monitorear.sh").read_text()
+        self.assertIn("DARWIN_USER_TEMP_DIR", s,
+                      "el monitoreo tiene que mirar el temporal del usuario, que es donde "
+                      "crece la fuga; no alcanza con df")
+        self.assertIn("-00000000.dylib", s, "y saber qué patrón es la fuga")
+        i = s.index("DARWIN_USER_TEMP_DIR")
+        tramo = s[i:i + 1200]
+        self.assertIn("MB", tramo, f"el aviso tiene que traer el tamaño:\n{tramo[:300]}")
+        self.assertIn("-delete", tramo,
+                      "y decir cómo se borra, porque el que lee el monitoreo a las tres de "
+                      "la mañana no tiene que deducir el find")
+
+    def test_el_patron_de_la_fuga_matchea_un_archivo_de_la_fuga(self):
+        """El guardia del extractor, que en este repo ya falló seis veces: un patrón que no
+        matchea nada reporta «0 archivos» y se lee como «no hay fuga». Se prueba contra un
+        nombre REAL de los que borré el 2026-11-02."""
+        import fnmatch, re
+        s = (SCRIPTS / "monitorear.sh").read_text()
+        m = re.search(r"-name '([^']*dylib)'", s)
+        self.assertIsNotNone(m, "el monitoreo tiene que buscar la fuga con un -name")
+        patron = m.group(1)
+        reales = (".b9ff72fde6ff9f92-00000000.dylib",
+                  ".b9ffffb7fbbeef9a-00000000.dylib")
+        for nombre in reales:
+            with self.subTest(nombre=nombre):
+                self.assertTrue(fnmatch.fnmatch(nombre, patron),
+                                f"el patrón «{patron}» no matchea «{nombre}», que es un "
+                                f"nombre real de la fuga medida")
+        # Brazo nulo: no puede matchear cualquier cosa del temporal.
+        for inocente in ("tmp.OnTh6by3A5", "com.apple.fileproviderd", "libpython3.12.dylib"):
+            with self.subTest(inocente=inocente):
+                self.assertFalse(fnmatch.fnmatch(inocente, patron),
+                                 f"el patrón «{patron}» matchea «{inocente}», que no es la "
+                                 f"fuga: un borrado con esto se lleva lo que no debe")
+
     def test_el_shell_solo_se_queja_cuando_de_verdad_no_pudo(self):
         """Estructural: el mensaje de «no se pudo verificar» tiene que estar condicionado al 2.
         Si estuviera colgado de cualquier código distinto de cero, aparecería cada vez que hay
