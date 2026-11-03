@@ -204,8 +204,11 @@ def main():
         # El `\\n` literal pasa a salto de línea. Sin esto el fixture sólo puede escribir
         # respuestas de una línea, y la falla que hubo que arreglar acá —una respuesta de
         # varias líneas donde el veredicto está en la última— no se puede reproducir.
-        guion = iter(l.replace("\\n", "\n")
-                     for l in pathlib.Path(args.guion).read_text().splitlines())
+        # Se lee PEREZOSO, línea por línea y no de un saque. Que el guion pueda ser una
+        # tubería con nombre es lo que permite probar que el crudo se escribe A MEDIDA: el
+        # test le da dos respuestas, mira el crudo, y recién después le da el resto.
+        guion = iter(l.rstrip("\n").replace("\\n", "\n")
+                     for l in open(args.guion, encoding="utf-8"))
     elif not url or not clave or not args.modelo:
         print("⊘ falta COLABHIVE_BASE_URL, COLABHIVE_API_KEY o --modelo: NO se midió nada.")
         return 2
@@ -233,7 +236,19 @@ def main():
         print(f"  · muestra AL AZAR de {len(rs)} de {total}, semilla {args.semilla} · "
               f"huella {huella}")
 
-    puntos, crudos = [], []
+    # El crudo se escribe A MEDIDA, no al final. Antes se armaba una lista y se volcaba
+    # recién al terminar: una corrida de dos horas que muriera en el registro 140 dejaba
+    # CERO respuestas en disco —140 llamadas al modelo pagadas y perdidas— y mientras corría
+    # no había NINGUNA señal de avance. `wc -l` del crudo es esa señal.
+    salida = open(args.crudo, "w", encoding="utf-8") if args.crudo else None
+
+    def anotar(c):
+        if salida is None:
+            return
+        salida.write(json.dumps(c, ensure_ascii=False) + "\n")
+        salida.flush()
+
+    puntos = []
     ilegibles = sin_confianza = cortadas = fallas = 0
     veredictos = []
     for r in rs:
@@ -255,8 +270,8 @@ def main():
             dijo = None
         if dijo is None:
             ilegibles += 1
-            crudos.append({"id": r.get("id"), "veredicto": r["veredicto"], "dijo": None,
-                           "confianza": None, "corte": corte, "cruda": cruda[-600:]})
+            anotar({"id": r.get("id"), "veredicto": r["veredicto"], "dijo": None,
+                    "confianza": None, "corte": corte, "cruda": cruda[-600:]})
             continue
         if conf is None:
             sin_confianza += 1
@@ -264,12 +279,11 @@ def main():
         punt = (conf + 1) * (1 if dijo == "aceptado" else -1)
         puntos.append((punt, r["veredicto"] == "aceptado"))
         veredictos.append(dijo)
-        crudos.append({"id": r.get("id"), "veredicto": r["veredicto"], "dijo": dijo,
-                       "confianza": conf, "puntuacion": punt, "corte": corte,
-                       "cruda": cruda[-600:]})
-    if args.crudo:
-        pathlib.Path(args.crudo).write_text(
-            "".join(json.dumps(c, ensure_ascii=False) + "\n" for c in crudos))
+        anotar({"id": r.get("id"), "veredicto": r["veredicto"], "dijo": dijo,
+                "confianza": conf, "puntuacion": punt, "corte": corte,
+                "cruda": cruda[-600:]})
+    if salida is not None:
+        salida.close()
 
     n = len(puntos)
     print(f"\n── juez PUNTUAL, sin afinar: {args.modelo or '(guion)'}")

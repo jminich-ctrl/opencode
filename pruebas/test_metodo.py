@@ -16938,6 +16938,92 @@ class TestElJuezPuntualSeLeeContraLaTasaBaseYNoContraLaMitad(unittest.TestCase):
     def juez(self, f, *extra):
         return correr(f'python3 "{SCRIPTS}/juez_puntual.py" "{f}" {" ".join(extra)}', RAIZ)
 
+    def esperar_lineas(self, archivo, n, tope=40.0):
+        """Espera hasta que el crudo tenga n líneas. El tope existe para que un volcado al
+        final falle por TIEMPO y no cuelgue la suite."""
+        limite = time.time() + tope
+        while time.time() < limite:
+            if archivo.exists():
+                lineas = [l for l in archivo.read_text().splitlines() if l.strip()]
+                if len(lineas) >= n:
+                    return lineas
+            time.sleep(0.05)
+        hay = len(archivo.read_text().splitlines()) if archivo.exists() else "no existe"
+        self.fail(f"el crudo no llegó a {n} línea(s) en {tope}s (hay: {hay}): "
+                  f"se vuelca al final de la corrida, no a medida")
+
+    def test_el_crudo_se_escribe_a_medida_y_no_al_final(self):
+        """Una corrida contra la plataforma tarda HORAS. Con el volcado al final, la que
+        murió en el registro 140 dejó cero respuestas en disco: 140 llamadas al modelo
+        pagadas y perdidas. Y mientras corría no había manera de saber por dónde iba —pasé
+        una hora y tres cuartos a ciegas mirando un log de tres líneas.
+
+        El guion es una tubería con nombre, así que este test MARCA EL PASO: le da dos
+        respuestas, mira el crudo con el proceso todavía vivo, y recién después le da las
+        ocho que faltan. Si el volcado fuera al final, en ese momento no habría nada."""
+        d, f = self.jsonl(self.siete_y_tres())
+        tuberia = d / "tuberia"
+        os.mkfifo(tuberia)
+        crudo = d / "crudo.jsonl"
+        log = d / "salida.txt"
+        respuesta = "VEREDICTO: ACEPTAR\\nCONFIANZA: 8"
+        with open(log, "w") as sal:
+            p = subprocess.Popen(
+                ["python3", str(SCRIPTS / "juez_puntual.py"), str(f),
+                 "--guion", str(tuberia), "--crudo", str(crudo)],
+                cwd=str(RAIZ), stdout=sal, stderr=subprocess.STDOUT, text=True)
+        self.addCleanup(p.kill)
+        with open(tuberia, "w") as t:
+            t.write(respuesta + "\n" + respuesta + "\n")
+            t.flush()
+            parciales = self.esperar_lineas(crudo, 2)
+            self.assertIsNone(
+                p.poll(), "el juez terminó con 2 de 10 respuestas: la tubería no marca el paso "
+                          "y el test no probó nada")
+            for _ in range(8):
+                t.write(respuesta + "\n")
+        self.assertEqual(p.wait(timeout=60), 0, log.read_text())
+        self.assertEqual(len(parciales), 2, "el crudo tenía más de lo que se le había dado")
+        self.assertEqual(len(crudo.read_text().splitlines()), 10)
+
+    def test_lo_que_se_pago_sobrevive_a_una_muerte_a_mitad_de_corrida(self):
+        """La otra mitad del motivo, y la que de verdad cuesta plata: la corrida de 3h50
+        que midió §24 hizo 147 llamadas al modelo. Si moría en la 140, el volcado al final
+        dejaba CERO en disco y había que pagar las 140 de nuevo.
+
+        Este test la mata de verdad —SIGKILL, sin darle la oportunidad de vaciar nada— y
+        afirma que lo que ya se había juzgado está en disco y se puede leer. Escribir a
+        medida sin vaciar el buffer no alcanza: dos registros cortos se quedan adentro de
+        los 8 KB del buffer y un SIGKILL se los lleva.
+
+        La versión anterior de este test miraba el crudo DESPUÉS de una corrida que
+        terminaba bien, y eso lo cumple igual el volcado al final: pasaba con el defecto
+        puesto. Era decoración."""
+        d, f = self.jsonl(self.siete_y_tres())
+        tuberia = d / "tuberia"
+        os.mkfifo(tuberia)
+        crudo = d / "crudo.jsonl"
+        log = d / "salida.txt"
+        respuesta = "VEREDICTO: ACEPTAR\\nCONFIANZA: 8"
+        with open(log, "w") as sal:
+            p = subprocess.Popen(
+                ["python3", str(SCRIPTS / "juez_puntual.py"), str(f),
+                 "--guion", str(tuberia), "--crudo", str(crudo)],
+                cwd=str(RAIZ), stdout=sal, stderr=subprocess.STDOUT, text=True)
+        self.addCleanup(p.kill)
+        with open(tuberia, "w") as t:
+            t.write(respuesta + "\n" + respuesta + "\n" + respuesta + "\n")
+            t.flush()
+            self.esperar_lineas(crudo, 3)
+            p.kill()
+        p.wait(timeout=30)
+        lineas = [l for l in crudo.read_text().splitlines() if l.strip()]
+        self.assertEqual(len(lineas), 3, "lo ya juzgado no sobrevivió a la muerte")
+        for l in lineas:
+            c = json.loads(l)   # una línea cortada explota acá
+            self.assertEqual(c["dijo"], "aceptado")
+            self.assertEqual(c["confianza"], 8)
+
     def siete_y_tres(self):
         """Siete aceptados y tres rechazados: tasa base 70%, mayoritaria 70% tambien.
         Elegido asi a proposito para que un instrumento que imprima 50% se note."""
