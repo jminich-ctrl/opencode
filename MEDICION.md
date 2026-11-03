@@ -1955,3 +1955,52 @@ veinte líneas, en el script que yo mismo había corrido media hora antes.
 El banco para el juez puntual hay que construirlo aparte y declarado: estratificado por
 procedencia y por veredicto, sin tocar el reservado actual —que queda sellado y comparable con
 §17 y §19—. Mientras no exista, el FPR a TPR fijo no se puede medir, y decirlo es el resultado.
+
+#### El banco del juez puntual, construido y sellado
+
+Lo que faltaba para poder medir: un reservado comparable. Se armó con **sólo los registros
+nativos**, que son los limpios por construcción —el enunciado es el que el agente vio—: 926
+registros de 27 corridas, **0 contaminados**, 512 aceptados / 414 rechazados (55/45).
+
+Partido por familia con `--dedup --reservadas 8`, y el tamaño se eligió **antes de ver ningún
+resultado del juez**, por tres motivos declarados: replica el 30% de familias que usaron §17 y
+§19, da n=158 —el doble del reservado viejo— y deja 18 familias de entrenamiento. Se probaron 4,
+6, 8 y 10 familias y las cuatro pasan el chequeo nuevo; elegir mirando el resultado del juez
+sería elegir el banco por conveniencia.
+
+| | entrenamiento | reservado | p |
+|---|---|---|---|
+| registros | 439 | **158** | |
+| tasa de aceptación | 43% | 46% | 0,57 |
+| enunciados con el resultado adentro | 0% | 0% | 1 |
+| mezcla de motivos de rechazo | — | — | ≥0,057 en los seis |
+
+Sin fuga, y comparable en los tres rasgos. En
+`metodo-agentes-datos/banco-juez-puntual-20261103/`, con `HUELLA.txt` —sha256 de cada archivo—
+escrito antes de medir nada. El reservado viejo queda intacto y sigue siendo comparable con §17
+y §19.
+
+#### Deuda medida, no arreglada: el campo estructurado no dice qué paso rechazó
+
+Buscando un tercer rasgo que chequear encontré otra cosa, y es del activo principal. El
+docstring de `_veredicto.py` dice que el juicio dimensión por dimensión «es lo que no tiene
+ningún dataset público de software». Medido sobre los 414 rechazos nativos: **400 (97%) no
+tienen una sola dimensión marcada `✗`.** La mediana de dimensiones registradas es 6 en un
+aceptado y **1** en un rechazado.
+
+El motivo es de diseño: `dim nombre ✓` se llama cuando un paso PASA, y los 26 puntos de rechazo
+llaman a `malo "<texto>"`, que registra el motivo en prosa y no toca la dimensión. El gate corta
+ahí, así que `dimensiones` dice **hasta dónde llegó** y no **qué falló**.
+
+Y no se puede deducir: probé la hipótesis «el último paso registrado más el orden del gate da el
+paso que falló» y es falsa —con `{"alcance": "✓"}` aparecen al menos dos motivos distintos, «el
+test obliga un contrato que el enunciado no declara» y «el test parchea un lugar donde el patch
+no va a tener efecto»—. El texto del motivo sí lo dice unívocamente; el campo que un juez
+entrenaría, no.
+
+El arreglo tiene diseño y no está hecho: `malo()` es el embudo único de los 26 rechazos, así que
+si cada bloque de paso declara su nombre al entrar, `malo()` puede marcar `dim "$PASO" ✗` en un
+solo lugar. Son ~10 asignaciones en vez de 26 cambios. No lo metí hoy: es cirugía en el script
+central del método, verificarla exige ejercitar los 26 caminos, y un gate roto a medias es peor
+que un campo incompleto. Queda anotado con su medición para que el próximo que lo lea sepa qué
+tan grande es y por dónde entrar.
