@@ -6279,6 +6279,34 @@ class TestElEnsayoDelPipelineCorreDePuntaAPunta(Veredictos, unittest.TestCase):
         self.assertIn("[ensayo]", texto,
                       f"el transcript tiene que ser el del agente, no un archivo vacío:\n"
                       f"{texto[:300]}")
+        # Y el CÓDIGO, no sólo el transcript. Este test miraba el `exito-*.log` y daba verde
+        # mientras el parche del éxito no existía: `conservar_intento` lo armaba contra HEAD y
+        # `cerrar_con_gate` commitea cuando el gate da verde, así que los dos lados del diff
+        # quedaban vacíos. Medido el 2026-11-03 sobre las siete corridas de campaña en disco:
+        # 140 transcripts de éxito y CERO parches, contra 51 de 66 en los fracasos. El
+        # transcript registra `Write src/cosa.py` sin el contenido: sin el parche no hay nada
+        # ejecutable del intento que anduvo, que es justo la mitad que el párrafo de arriba
+        # dice que falta.
+        #
+        # Mirado por TAREA y sólo donde no hay con qué confundirse: un directorio que tiene
+        # un `exito-*.log` y ningún `intento-*.log` es una tarea que cerró al primer intento,
+        # así que el único parche que puede haber ahí es el del éxito. Contar parches sueltos
+        # sobre todos los directorios dejaría que un parche de fracaso —que siempre funcionó—
+        # satisficiera la aserción por el vecino.
+        solo_exito = [d for d in sorted(self.donde.glob("fallidos-*"))
+                      if list(d.glob("exito-*.log")) and not list(d.glob("intento-*.log"))]
+        self.assertTrue(solo_exito,
+                        "el ensayo «cumple» cierra al primer intento: tiene que haber al "
+                        "menos una tarea con éxito y sin fracasos")
+        for d in solo_exito:
+            parches = sorted(d.glob("parche-*.diff"))
+            self.assertTrue(parches,
+                            f"{d.name} cerró al primer intento y no dejó parche: queda el "
+                            f"relato y no el código\nlo que hay: "
+                            f"{sorted(p.name for p in d.iterdir())}")
+            cuerpo = parches[0].read_text()
+            self.assertIn("+++ ", cuerpo,
+                          f"el parche de {d.name} no tiene un solo archivo:\n{cuerpo[:300]}")
 
     def test_un_agente_que_afirma_gate_verde_no_cierra_nada(self):
         """El defecto que fundó el método, medido de frente: el agente no escribe nada y
@@ -7028,6 +7056,120 @@ class TestNoSeTiraElMaterialDeUnIntento(CasoBase):
         self.assertEqual(huerfanos, [],
                          "estos destruyen un worktree sin conservar el intento: "
                          + ", ".join(huerfanos))
+
+    # ── El conservador de evidencia guardaba sólo lo que FALLA
+    #
+    # Medido el 2026-11-03 sobre las siete corridas de campaña en disco: 140 transcripts de
+    # éxito y CERO parches; 66 de fracaso y 51 con parche. El comentario de `escribir-tests.sh`
+    # había visto el síntoma el 2026-10-28 («parche en 19 de 42 casos, todos en tareas que
+    # habían fallado») y lo atribuyó a que `conservar_intento` sólo se llamaba al reintentar.
+    # Se arregló la llamada —los dos sitios pasan `exito` desde entonces— y el síntoma siguió,
+    # porque la causa era otra: `cerrar_con_gate` commitea cuando el gate da VERDE y el diff
+    # se arma contra HEAD.
+
+    def conservar_tras_gate_verde(self, con_base_ref="valida"):
+        """El escenario real del éxito: el agente escribe, el gate pasa y `cerrar_con_gate`
+        commitea en la rama para que el merge traiga algo. Eso es lo que vaciaba el diff."""
+        p = self.p
+        if con_base_ref == "valida":
+            (p.repo / ".base-ref").write_text(
+                correr("git rev-parse HEAD", p.repo).stdout.strip() + "\n")
+        elif con_base_ref == "ilegible":
+            (p.repo / ".base-ref").write_text("deadbeef" * 5 + "\n")
+        p.implementar("def f():\n    return 42\n")
+        (p.dir / "src" / "nuevo.py").write_text("X = 1\n")
+        # Textual de `cerrar_con_gate`, que es quien lo hace en la realidad.
+        p.git("add -A")
+        p.git('-c user.name=agente -c user.email=agente@local commit -qm "T01: gate verde"')
+        return self.conservar(p.repo)
+
+    def test_el_codigo_del_intento_que_PASO_tambien_se_conserva(self):
+        """La mitad positiva del dataset. Con sólo fallas el dataset enseña a reconocer
+        errores y no a escribir la implementación que cierra, y eso ya está escrito en
+        `correr-tarea.sh` como motivo para pasar `exito`: el prefijo llegó y el código no."""
+        r = self.conservar_tras_gate_verde()
+        dest = self.p.repo.parent / "fallidos-PRUEBA"
+        self.addCleanup(tirar_dir, dest)
+        parches = sorted(dest.glob("parche-*.diff"))
+        self.assertTrue(parches,
+                        "un intento que PASÓ no dejó parche: `cerrar_con_gate` commitea con "
+                        f"rc 0 y el diff contra HEAD queda vacío\n{r.stdout}\n{r.stderr}")
+        cuerpo = parches[0].read_text()
+        self.assertIn("cosa.py", cuerpo, "falta el archivo que el agente modificó")
+        self.assertIn("nuevo.py", cuerpo, "falta el archivo que el agente creó")
+
+    def test_el_parche_del_exito_APLICA_sobre_la_base(self):
+        """Mismo criterio que para el fracaso: un parche que no aplica no es material, es un
+        archivo. Y acá es más estricto, porque el estado base hay que recuperarlo del commit
+        que el gate dejó."""
+        self.conservar_tras_gate_verde()
+        p = self.p
+        dest = p.repo.parent / "fallidos-PRUEBA"
+        self.addCleanup(tirar_dir, dest)
+        parches = sorted(dest.glob("parche-*.diff"))
+        self.assertTrue(parches, "no guardó parche")
+        base = (p.repo / ".base-ref").read_text().strip()
+        p.git(f"reset -q --hard {base}")
+        ap = correr(f"git apply --check {shlex.quote(str(parches[0]))}", p.repo)
+        self.assertEqual(ap.returncode, 0,
+                         f"el parche del éxito no aplica sobre su base:\n{ap.stderr}")
+
+    def test_la_base_del_parche_es_la_FIJADA_y_no_HEAD(self):
+        """El discriminante, dicho como tal: con el commit del gate puesto, el mismo escenario
+        da parche si se mira `.base-ref` y nada si se mira HEAD. Sin este test el arreglo
+        pasa por el vecino —`ls-files --others` salva al fracaso— y nadie se entera."""
+        p = self.p
+        (p.repo / ".base-ref").write_text(
+            correr("git rev-parse HEAD", p.repo).stdout.strip() + "\n")
+        p.implementar("def f():\n    return 42\n")
+        p.git("add -A")
+        p.git('-c user.name=agente -c user.email=agente@local commit -qm "T01: gate verde"')
+        # Lo que ve cada base. HEAD, después del commit, no ve nada: eso ERA el defecto.
+        contra_head = correr("git diff --name-only HEAD", p.repo).stdout.strip()
+        self.assertEqual(contra_head, "",
+                         "si HEAD todavía viera el cambio, este test no estaría midiendo "
+                         "el escenario que rompía")
+        base = (p.repo / ".base-ref").read_text().strip()
+        contra_base = correr(f"git diff --name-only {base}", p.repo).stdout.strip()
+        self.assertIn("cosa.py", contra_base,
+                      "la base fijada tiene que ver el trabajo del agente")
+
+    def test_un_intento_que_FALLO_sigue_conservando_su_parche(self):
+        """Brazo nulo del arreglo: el camino que ya funcionaba no se puede romper. Sin commit
+        el trabajo está sin trackear, y ahí lo que salva es `ls-files --others`."""
+        p = self.p
+        (p.repo / ".base-ref").write_text(
+            correr("git rev-parse HEAD", p.repo).stdout.strip() + "\n")
+        p.implementar("def f():\n    return 1 / 0\n")
+        (p.dir / "src" / "nuevo.py").write_text("X = 1\n")
+        self.conservar(p.repo)
+        dest = p.repo.parent / "fallidos-PRUEBA"
+        self.addCleanup(tirar_dir, dest)
+        parches = sorted(dest.glob("parche-*.diff"))
+        self.assertTrue(parches, "el camino del fracaso dejó de guardar parche")
+        cuerpo = parches[0].read_text()
+        self.assertIn("cosa.py", cuerpo)
+        self.assertIn("nuevo.py", cuerpo)
+
+    def test_una_base_fijada_que_no_se_puede_resolver_no_frena_la_conservacion(self):
+        """⊘ no es «no». `.base-ref` con un sha que no existe —o sin `.base-ref`— tiene que
+        degradar a HEAD, que es el comportamiento de hoy, y no tirar la evidencia ni abortar.
+        El test de la infraestructura ya escribe `deadbeef` ahí, así que este camino se
+        recorre en la suite quiera o no: mejor afirmarlo."""
+        for cual in ("ilegible", "ausente"):
+            with self.subTest(base_ref=cual):
+                self.rehacer_proyecto()   # setea self.p; no devuelve nada
+                p = self.p
+                if cual == "ilegible":
+                    (p.repo / ".base-ref").write_text("deadbeef" * 5 + "\n")
+                p.implementar("def f():\n    return 1\n")
+                r = self.conservar(p.repo, id=f"BASE-{cual}")
+                dest = p.repo.parent / f"fallidos-BASE-{cual}"
+                self.addCleanup(tirar_dir, dest)
+                self.assertEqual(r.returncode, 0,
+                                 f"conservar_intento no puede fallar por la base:\n{r.stderr}")
+                self.assertTrue(sorted(dest.glob("parche-*.diff")),
+                                "sin base resoluble tiene que degradar a HEAD y guardar igual")
 
 
 class TestNadieCruzabaLasTareasEntreSi(unittest.TestCase):

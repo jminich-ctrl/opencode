@@ -618,14 +618,33 @@ conservar_intento() {
   done
   # El parche: lo que el agente escribió, aplicable con `git apply`. Sin los archivos de
   # infraestructura que prepara el método, que no son trabajo del agente.
+  #
+  # Contra la base FIJADA, no contra HEAD. `cerrar_con_gate` commitea en la rama cuando el
+  # gate da VERDE —para que `git merge tarea/TNN` traiga algo—, así que en el camino del
+  # éxito HEAD ya incluye el trabajo del agente y los dos lados del diff quedan vacíos: de
+  # un intento que PASÓ no se guardaba nada ejecutable. Medido el 2026-11-03 sobre las siete
+  # corridas en disco: 140 transcripts de éxito y CERO parches; 66 de fracaso, 51 con parche.
+  # La asimetría no era de los éxitos, era del rc: sin rc 0 no hay commit y el diff ve todo.
+  #
+  # Es el defecto que este repo ya tenía documentado y arreglado del otro lado:
+  # `correr-tarea.sh` escribe `.base-ref` precisamente porque «cualquier chequeo de diff se
+  # vuelve ciego en cuanto el agente commitea: es el defecto más común de los gates
+  # publicados», y el gate la lee de ahí. El conservador de evidencia seguía en HEAD.
+  # Octava vez que el arreglo vivía en el hermano.
+  #
+  # Si no hay `.base-ref` o no se puede resolver, se degrada a HEAD —lo de hoy— y no se cae:
+  # un ⊘ no es un «no».
   local infra='\.opencode-data|\.tarea\.log|\.tests\.log|\.log|\.corte|\.base-ref|\.tests-base|\.venv|_env/|\.entorno|node_modules|package-lock\.json|__pycache__|\.oc/'
-  local sucios
-  sucios="$( { git -C "$wt" diff --name-only HEAD 2>/dev/null; \
+  local sucios base
+  base="$(cat "$wt/.base-ref" 2>/dev/null)"
+  git -C "$wt" rev-parse --verify "${base:-HEAD}" >/dev/null 2>&1 || base=""
+  base="${base:-HEAD}"
+  sucios="$( { git -C "$wt" diff --name-only "$base" 2>/dev/null; \
                git -C "$wt" ls-files --others --exclude-standard 2>/dev/null; } \
              | grep -vE "$infra" | sort -u | grep . || true)"
   if [ -n "$sucios" ]; then
     mkdir -p "$dest"
-    { git -C "$wt" diff HEAD -- $sucios 2>/dev/null
+    { git -C "$wt" diff "$base" -- $sucios 2>/dev/null
       # Los archivos nuevos no salen en `diff HEAD`: van con /dev/null como origen.
       for f in $sucios; do
         git -C "$wt" ls-files --error-unmatch "$f" >/dev/null 2>&1 && continue

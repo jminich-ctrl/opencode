@@ -260,7 +260,18 @@ lanzar() {
       conservar_intento "$wt" "$id" exito
       [ -n "$error" ] && echo "   (nota: la herramienta informó «${error}», y el gate pasó igual)"
     elif [ -n "$error" ]; then
-      echo "✗ $id gate ROJO, y la herramienta falló: $error"
+      # ⊘ y no ✗. `veredicto_registrado` devuelve ERROR en cuanto hay falla de herramienta, así
+      # que el registro ya dice ERROR mientras esta línea decía «gate ROJO»: dos nombres para la
+      # misma fila, y el que yo leo cuando monitoreo una campaña era el equivocado. La corrida
+      # f1793664018 informó «✗ T04c gate ROJO» por un permiso rechazado —83 segundos, el agente
+      # no llegó a trabajar— y T04c cerró VERDE en el intento siguiente. Un rojo que no es del
+      # agente, dicho con el símbolo del rojo del agente, es la clase de falso veredicto que
+      # este método existe para no cometer.
+      #
+      # `ensayo.sh` ya excluía esta línea de su resumen con el filtro `gate ROJO`, así que el
+      # lector no cambia de conducta; con ⊘ además deja de ser un `✗` y no vuelve a colarse si
+      # alguien toca ese filtro.
+      echo "⊘ $id: la herramienta falló y el gate no pudo juzgar: $error"
     else
       echo "✗ $id gate ROJO"
     fi
