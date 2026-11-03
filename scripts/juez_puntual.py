@@ -39,6 +39,7 @@ mismo recurso que en `juez_pareado.py` y por el mismo motivo: acá un error no f
 número mejor. Con guion la salida lo DICE.
 """
 import argparse
+import collections
 import hashlib
 import json
 import os
@@ -46,6 +47,7 @@ import pathlib
 import random
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -67,11 +69,24 @@ VEREDICTO: ACEPTAR o RECHAZAR
 CONFIANZA: un entero de 0 a 10"""
 
 
-# 4000 y no 600. Medido el 2026-11-03 contra `1af07b1f`: con 600 el modelo se corta en
-# `finish_reason=length` a los 600 tokens de razonamiento, SIN haber contestado, y la respuesta
-# que queda es su propio repaso de la consigna. Con 4000 cierra en 611 tokens y contesta.
-# El pareado, con el mismo modelo, cierra en 395 y por eso nunca lo tocó este techo.
-TOPE_TOKENS = 4000
+# 10000, y los tres números anteriores están acá porque cada uno fue un defecto.
+#
+# 600 fue el primero: el modelo se cortaba en `finish_reason=length` a los 600 tokens de
+# razonamiento SIN haber contestado, y lo que quedaba era su propio repaso de la consigna,
+# cuya última palabra es RECHAZAR. El pareado, con el mismo modelo, cierra en 395 y por eso
+# nunca tocó este techo.
+#
+# 4000 fue el segundo, y se eligió mirando UNA muestra de humo donde el modelo cerraba en
+# 611 tokens. Esa muestra eran los casos fáciles. En campo (§24) cortó el 27% del reservado,
+# y el diagnóstico sobre el crudo fue que NINGUNA de las 39 cortadas había cerrado el bloque
+# de razonamiento: no era el juez, era el tope.
+#
+# 10000 es el primero medido. Sondeo del 2026-11-03 contra entrenamiento, 40 registros al
+# azar con semilla 3 y tope 16000: mediana 1423, p90 5586, máximo 6726, cero cortadas. Con
+# 4000 se habrían cortado 6 de 37; con 8000, ninguna. 10000 deja 1,5x de margen sobre el
+# máximo observado y cuesta sólo espera (500 s, que sólo se paga si la plataforma se cuelga).
+# Y si quedara apretado, el informe AVISA: el máximo gastado sale impreso al lado del tope.
+TOPE_TOKENS = 10000
 
 
 def espera_para(tope):
@@ -112,6 +127,54 @@ def preguntar(url, clave, modelo, enunciado, test, tiempo=None, tope=None):
     return ((eleccion["message"].get("content") or "").strip(),
             eleccion.get("finish_reason"),
             (d.get("usage") or {}).get("completion_tokens"))
+
+
+# Códigos que valen un reintento, y los demás NO. Un 400 es un pedido mal armado: pedirlo
+# tres veces no lo arregla y gasta tres esperas. Un 429 o un 5xx es la plataforma ocupada o
+# una réplica arrancando en frío, y eso pasa solo.
+TRANSITORIOS = (408, 409, 425, 429, 500, 502, 503, 504)
+
+
+def detalle_de(e):
+    """Nombre del error con su código HTTP y lo que dijo el cuerpo. `HTTPError` a secas no
+    sirve: en el sondeo del 2026-11-03 tres de 40 registros se perdieron con «⊘ falla de
+    herramienta: HTTPError» y no había forma de saber si fue un 429 de plataforma ocupada
+    —que se reintenta— o un 400 de pedido mal armado —que no—. Un error sin nombre es
+    indistinguible de «el modelo no supo» en todos los números de abajo."""
+    nombre = type(e).__name__
+    codigo = getattr(e, "code", None)
+    cuerpo = ""
+    try:
+        cuerpo = (e.read() or b"").decode("utf-8", "replace")[:200].replace("\n", " ")
+    except Exception:
+        cuerpo = str(getattr(e, "reason", "") or "")[:200]
+    return f"{nombre}{f' {codigo}' if codigo else ''}{f': {cuerpo}' if cuerpo else ''}"
+
+
+def preguntar_insistiendo(url, clave, modelo, enunciado, test, tope, intentos=3, pausa=2):
+    """`preguntar` con reintento acotado ante códigos transitorios.
+
+    Devuelve (texto, motivo, tokens, reintentos, detalle). Sin esto, una plataforma ocupada
+    un segundo se cobra un registro del banco: el sondeo del presupuesto perdió 7,5% de la
+    muestra así. Los reintentos se CUENTAN y se declaran, porque reintentar en silencio
+    cambia el denominador de la medición sin que nadie lo vea."""
+    ultimo = None
+    for i in range(intentos):
+        try:
+            texto, motivo, tokens = preguntar(url, clave, modelo, enunciado, test, tope=tope)
+            return texto, motivo, tokens, i, None
+        except urllib.error.HTTPError as e:
+            ultimo = detalle_de(e)
+            if e.code not in TRANSITORIOS:
+                return None, "error", None, i, ultimo
+        except (urllib.error.URLError, OSError) as e:
+            ultimo = detalle_de(e)
+        except (KeyError, ValueError) as e:
+            # Respuesta que no tiene la forma esperada: insistir no la va a cambiar.
+            return None, "error", None, i, detalle_de(e)
+        if i + 1 < intentos:
+            time.sleep(pausa * (i + 1))
+    return None, "error", None, intentos - 1, ultimo
 
 
 OPCIONES = r"\s*(?:O|OR|/|\||,\s*O)\s*(?:ACEPTAR|RECHAZAR)"
@@ -272,20 +335,21 @@ def main():
         salida.flush()
 
     puntos = []
-    ilegibles = sin_confianza = cortadas = fallas = 0
+    ilegibles = sin_confianza = cortadas = fallas = reintentos = 0
     veredictos = []
-    gastados = []
+    gastados, detalles = [], []
     for r in rs:
-        corte = tokens = None
+        corte = tokens = detalle = None
         if guion is not None:
             cruda = next(guion, "")
         else:
-            try:
-                cruda, corte, tokens = preguntar(url, clave, args.modelo, r["enunciado"],
-                                                 r["test"], tope=args.tokens)
-            except (urllib.error.URLError, OSError, KeyError, ValueError) as e:
-                cruda, corte = f"⊘ falla de herramienta: {type(e).__name__}", "error"
+            cruda, corte, tokens, veces, detalle = preguntar_insistiendo(
+                url, clave, args.modelo, r["enunciado"], r["test"], args.tokens)
+            reintentos += veces
+            if corte == "error":
+                cruda = f"⊘ falla de herramienta: {detalle}"
                 fallas += 1
+                detalles.append(detalle)
         dijo, conf = leer(cruda)
         if corte == "length":
             # El modelo no llegó a contestar. No se parsea: adentro de una respuesta cortada
@@ -297,7 +361,7 @@ def main():
             ilegibles += 1
             anotar({"id": r.get("id"), "veredicto": r["veredicto"], "dijo": None,
                     "confianza": None, "corte": corte, "tokens": tokens,
-                    "cruda": cruda[-600:]})
+                    "detalle": detalle, "cruda": cruda[-600:]})
             continue
         if conf is None:
             sin_confianza += 1
@@ -309,7 +373,7 @@ def main():
             gastados.append(tokens)
         anotar({"id": r.get("id"), "veredicto": r["veredicto"], "dijo": dijo,
                 "confianza": conf, "puntuacion": punt, "corte": corte, "tokens": tokens,
-                "cruda": cruda[-600:]})
+                "detalle": detalle, "cruda": cruda[-600:]})
     if salida is not None:
         salida.close()
 
@@ -337,7 +401,14 @@ def main():
             print(f"     ⚠ el máximo ROZA el tope: el número de abajo está limitado por el"
                   f"\n       presupuesto y no por el juez. Subir --tokens y volver a medir.")
     if fallas:
-        print(f"  ⊘ {fallas} falla(s) de herramienta: tampoco cuentan como veredicto.")
+        resumen = ", ".join(f"{k} ×{v}" for k, v in
+                            collections.Counter(detalles).most_common(3))
+        print(f"  ⊘ {fallas} falla(s) de herramienta: tampoco cuentan como veredicto."
+              f"\n     {resumen}")
+    if reintentos:
+        # Declarado porque reintentar en silencio cambia el denominador sin que nadie lo vea.
+        print(f"  ⊘ {reintentos} reintento(s) por códigos transitorios: la plataforma falló"
+              f"\n     y se insistió. Lo que se informa abajo incluye esos registros.")
     if sin_confianza:
         print(f"  ⊘ {sin_confianza} respuesta(s) sin confianza legible: se les puso 5 por"
               f" omisión.\n     Se declara porque rellenar en silencio mueve el barrido.")

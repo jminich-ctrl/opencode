@@ -16950,7 +16950,17 @@ class TestElJuezPuntualSeLeeContraLaTasaBaseYNoContraLaMitad(unittest.TestCase):
             def do_POST(self):
                 n = int(self.headers.get("Content-Length") or 0)
                 pedidos.append(json.loads(self.rfile.read(n)))
-                texto, motivo, tokens = cola.pop(0) if cola else ("", "stop", 0)
+                siguiente = cola.pop(0) if cola else ("", "stop", 0)
+                if isinstance(siguiente, int):
+                    # Un entero en la cola es un ESTADO HTTP: así el andamio puede producir
+                    # la plataforma ocupada, que es lo que se cobró 7,5% del sondeo.
+                    cuerpo = b'{"error": {"message": "replica arrancando"}}'
+                    self.send_response(siguiente)
+                    self.send_header("Content-Length", str(len(cuerpo)))
+                    self.end_headers()
+                    self.wfile.write(cuerpo)
+                    return
+                texto, motivo, tokens = siguiente
                 cuerpo = json.dumps({
                     "choices": [{"message": {"content": texto}, "finish_reason": motivo}],
                     "usage": {"completion_tokens": tokens}}).encode()
@@ -17027,6 +17037,49 @@ class TestElJuezPuntualSeLeeContraLaTasaBaseYNoContraLaMitad(unittest.TestCase):
         self.assertEqual(vistos, [juez_puntual.espera_para(t)
                                   for t in (4000, 16000, 40000)],
                          "la espera que se calcula no es la que viaja a la conexión")
+
+    def uno(self, veredicto="aceptado"):
+        return self.jsonl([self.registro("T01", veredicto)])
+
+    def test_un_503_se_reintenta_y_el_registro_no_se_pierde(self):
+        """Lo que se cobró 7,5% del sondeo del presupuesto: tres de 40 registros se perdieron
+        con «⊘ falla de herramienta: HTTPError». Una réplica arrancando en frío devuelve 503
+        y eso pasa solo; perder el registro es tirar una llamada al modelo que se pagó."""
+        d, f = self.uno()
+        url, pedidos = self.plataforma_falsa(
+            [503, ("VEREDICTO: ACEPTAR\nCONFIANZA: 8", "stop", 700)])
+        r = self.juez_contra(f, url)
+        self.assertEqual(len(pedidos), 2, "no insistió")
+        self.assertIn("juzgados 1", r.stdout, r.stdout)
+        self.assertNotIn("falla de herramienta", r.stdout)
+        self.assertIn("1 reintento(s)", r.stdout,
+                      "reintentar en silencio cambia el denominador sin que nadie lo vea")
+
+    def test_un_400_no_se_reintenta_porque_insistir_no_lo_arregla(self):
+        """El brazo nulo del de arriba, y no es cosmético: un pedido mal armado reintentado
+        tres veces gasta tres esperas por registro y sigue fallando. Con un banco de 147 eso
+        es la diferencia entre enterarse en un minuto y enterarse en una hora."""
+        d, f = self.uno()
+        url, pedidos = self.plataforma_falsa([400, 400, 400])
+        r = self.juez_contra(f, url)
+        self.assertEqual(len(pedidos), 1, "insistió con un error que no se arregla insistiendo")
+        self.assertNotIn("reintento(s)", r.stdout)
+
+    def test_el_codigo_del_error_queda_en_el_informe_y_en_el_crudo(self):
+        """«HTTPError» a secas no se puede accionar: no distingue un 429 de plataforma
+        ocupada de un 400 de pedido mal armado. Y un error sin nombre es indistinguible de
+        «el modelo no supo» en todos los números del informe."""
+        d, f = self.uno()
+        crudo = d / "crudo.jsonl"
+        url, pedidos = self.plataforma_falsa([503, 503, 503])
+        r = self.juez_contra(f, url, "--crudo", str(crudo))
+        self.assertEqual(len(pedidos), 3, "tiene que agotar los intentos")
+        self.assertIn("HTTPError 503", r.stdout, r.stdout)
+        self.assertIn("replica arrancando", r.stdout,
+                      "lo que dijo el cuerpo es la mitad del diagnóstico")
+        c = json.loads(crudo.read_text().splitlines()[0])
+        self.assertEqual(c["corte"], "error")
+        self.assertIn("503", c["detalle"])
 
     def test_el_tope_de_tokens_que_se_pide_es_el_que_viaja(self):
         """`--tokens` tiene que llegar a la plataforma como `max_tokens`. Un tope que se
@@ -17372,14 +17425,19 @@ class TestElJuezPuntualSeLeeContraLaTasaBaseYNoContraLaMitad(unittest.TestCase):
         Antes esto grepeaba el fuente buscando `"max_tokens": TOPE_TOKENS`. Eso aguantaba
         hasta que el tope se volvio configurable, y sobre todo no medía lo que importa: que
         el numero LLEGUE a la plataforma. Ahora se mira el pedido."""
-        self.assertIn("TOPE_TOKENS = 4000", (SCRIPTS / "juez_puntual.py").read_text(),
+        texto = (SCRIPTS / "juez_puntual.py").read_text()
+        self.assertIn("TOPE_TOKENS = 10000", texto,
                       "el tope bajo fue el defecto de campo: no puede volver sin su motivo")
+        for viejo in ("600", "4000"):
+            self.assertIn(viejo, texto.split("TOPE_TOKENS")[0][-1600:],
+                          f"el tope {viejo} fue un defecto medido: su motivo se queda escrito"
+                          f" al lado de la constante, o el próximo lo vuelve a elegir")
         d, f = self.jsonl(self.siete_y_tres())
         url, pedidos = self.plataforma_falsa(
             [("VEREDICTO: ACEPTAR\nCONFIANZA: 8", "stop", 611)] * 10)
         r = self.juez_contra(f, url)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual({q["max_tokens"] for q in pedidos}, {4000},
+        self.assertEqual({q["max_tokens"] for q in pedidos}, {10000},
                          "el tope por omision no es el que viaja")
 
     def test_una_respuesta_cortada_por_la_plataforma_no_se_parsea(self):

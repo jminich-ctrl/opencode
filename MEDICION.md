@@ -2227,3 +2227,111 @@ se escribe a medida con vaciado inmediato, así `wc -l` del crudo es la señal d
 eso no puede ser «el archivo existe al final» —pasa igual con el volcado al final—: el guion pasa
 a poder ser una **tubería con nombre**, y el test marca el paso, le da dos respuestas, mira el
 crudo con el proceso todavía vivo, y recién entonces le da el resto.
+
+---
+
+### §25 — El 27% que no contestó era el tope, no el juez; y la magnitud se replica en otra partición (2026-11-03)
+
+§24 informó 84% de exactitud con un 27% de respuestas que nunca llegaron a contestar, y dejó dos
+cosas abiertas que no se podían cerrar con esos datos: **cuánto presupuesto hacía falta**, y si el
+número estaba inflado porque el corte se comía los casos difíciles.
+
+#### El diagnóstico, que estaba en el crudo y es gratis
+
+De las 39 respuestas cortadas, **ninguna —cero de 39— había cerrado el bloque de razonamiento**.
+No se quedaron cortas al contestar: se quedaron cortas razonando. Y 11 de 39 ya habían decidido
+ahí adentro («Thus ACEPTAR. ... I'd say 7») sin haber emitido nunca la línea etiquetada. Sacarle el
+veredicto a eso es exactamente la falla de campo que hubo que arreglar, así que no se parsean.
+
+O sea que ese 27% **no era una propiedad del juez: era el tope**. Y el tope de 4000 se había
+elegido mirando una muestra de humo donde el modelo cerraba en 611 tokens — los casos fáciles.
+
+#### El presupuesto, medido
+
+Sondeo contra **entrenamiento, no contra el reservado** —el reservado se informa, no se afina—:
+40 registros al azar de los 419 elegibles, **semilla 3 declarada antes de mirar**, huella
+`aae3567e`, tope 16000.
+
+Gasto de las 37 que contestaron: **mediana 1423, p90 5586, máximo 6726 (42% del tope)**. Cero
+cortadas por tope.
+
+| tope | cortadas | espera |
+|---|---|---|
+| 4000 (el de §24) | 6/37 = 16% | 300 s |
+| 6000 | 2/37 = 5% | 300 s |
+| **8000** | **0/37** | 400 s |
+| 10000 (el nuevo) | 0/37 | 500 s |
+| 16000 | 0/37 | 800 s |
+
+El tope por omisión pasa a **10000**: deja 1,5× de margen sobre el máximo observado y lo único que
+cuesta es espera, que sólo se paga si la plataforma se cuelga. No se elige 8000 porque el 16% que
+este sondeo predice para 4000 fue 27% en el reservado, así que la cola de allá puede ser más
+pesada que la de acá. Y si quedara apretado, el informe ahora **avisa**: el máximo gastado sale
+impreso al lado del tope.
+
+#### La replicación, que es el control que §24 no podía hacer
+
+La misma corrida juzgó 37 registros con **7,5% de pérdida en vez de 27%**, en una partición
+distinta. Si el 84% de §24 hubiera sido un artefacto del corte —los difíciles afuera— acá tendría
+que haber bajado.
+
+| | §24 (reservado, tope 4000) | §25 (entrenamiento, tope 16000) |
+|---|---|---|
+| pérdida | 27% (39/147) | 7,5% (3/40) |
+| n juzgado | 108 | 37 |
+| tasa base | 44% | 51% |
+| exactitud | 84% | **84%** |
+| TPR / FPR en el punto de operación | 88% / 18% | **84% / 17%** |
+| AUC | 0,88 | **0,92** |
+
+**No bajó.** Con n=37 los IC son anchos —el FPR 17% viene con [6% · 39%]— así que esto no es una
+medición de precisión: es un control de artefacto, y lo pasa. La magnitud de §24 no venía del
+corte.
+
+Los criterios tontos, sobre estos 37: largo del test 0,31, cantidad de `assert` 0,39, cantidad de
+líneas 0,32. Los tres en el azar o por debajo, igual que en §24.
+
+Y una diferencia que vale: acá la confianza aporta **+0,080** de AUC sobre el signo solo, contra
++0,038 en §24. Con más presupuesto el modelo usa un rango de confianza más ancho. Sigue siendo
+poco: esto es un veredicto, no un puntaje calibrado.
+
+#### El umbral, PRE-REGISTRADO
+
+§24 dijo que el umbral −9 no era un resultado porque estaba elegido sobre el mismo reservado que
+se informaba. Acá se elige donde corresponde. El barrido completo en entrenamiento:
+
+| umbral | TPR | FPR | IC95 del FPR |
+|---|---|---|---|
+| 11 | 11% | 0% | [0% · 18%] |
+| 10 | 58% | 6% | [1% · 26%] |
+| 9 (el veredicto crudo) | 84% | 17% | [6% · 39%] |
+| **−9** | **95%** | **22%** | [9% · 45%] |
+| −10 | 100% | 50% | [29% · 71%] |
+| −11 | 100% | 100% | [82% · 100%] |
+
+**Queda elegido −9**, o sea «aceptar salvo que haya dicho RECHAZAR con confianza ≥ 9». El motivo
+es el mismo que apareció en los dos lados: los rechazos de baja confianza del modelo son los que
+se equivocan. Escrito acá antes de volver a medir, la predicción es **TPR ≈ 95% con FPR ≈ 22%**
+sobre el reservado. Si sale muy distinto, el que estaba mal es el umbral y no el reservado.
+
+#### Y tres registros que se perdían sin nombre
+
+El sondeo tuvo 3 fallas de herramienta sobre 40, informadas como `⊘ falla de herramienta:
+HTTPError`. **Eso no se puede accionar**: no distingue un 429 de plataforma ocupada —que se
+reintenta solo— de un 400 de pedido mal armado —que no—. Y un error sin nombre es indistinguible
+de «el modelo no supo» en todos los números del informe.
+
+Arreglado: el detalle lleva el código HTTP y lo que dijo el cuerpo, y los códigos transitorios
+—408, 409, 425, 429, 5xx— se reintentan hasta tres veces con pausa creciente. Los que no son
+transitorios **no** se reintentan, porque insistir con un pedido mal armado gasta tres esperas por
+registro y sobre un banco de 147 es la diferencia entre enterarse en un minuto y en una hora. Y
+los reintentos se **cuentan y se declaran**: reintentar en silencio cambia el denominador de la
+medición sin que nadie lo vea.
+
+#### Lo que esto deja pendiente
+
+Volver a medir el reservado con el instrumento arreglado. §24 está limitado por el presupuesto y
+eso ahora está medido, no supuesto; es la misma situación de §19, donde la medición no se podía
+hacer antes de arreglar el `--tope`. El número de §24 **no se retira**: queda como lo que se
+midió con tope 4000, y al lado va el que salga con 10000. Lo que cambia es que esta vez el umbral
+está elegido de antemano.
