@@ -1568,6 +1568,12 @@ tareas en las que validar contra el borrador da un veredicto que la implementaci
 sostiene. Con n=14 eso no es una tasa publicable, es un orden de magnitud: no es «casi nunca»
 ni «la mitad de las veces».
 
+> **Cifra superada (2026-11-03, §21).** El n de este párrafo sale de buscar la implementación
+> final en el TRONCO, o sea sólo en las etapas que integraron enteras. Mirando también las
+> ramas `tarea/<id>` —que sobreviven cuando la etapa no integra— el acumulado es de 68 pares, y
+> en la capa que mockea son **2 inversiones de veredicto en 20 pares**, no 1 en 14. El párrafo
+> queda como lo que se midió ese día; la cifra vigente está en INVESTIGACION.md §8.7.
+
 #### Y lo que esto dice del dataset
 
 Los 40 veredictos de la corrida (21 aceptados / 19 rechazados) entran al dataset con una
@@ -1732,7 +1738,9 @@ De los dos armados, uno detonó y el otro no —y no por mérito del método, si
 que lo habría detonado nunca corrió—. Caveat del instrumento: `s1` se clasifica por el
 **borrador aceptado**, porque la capa `b` de esa corrida no integró y no hay implementación
 final; y §8.7 acaba de mostrar que en la capa que mockea el borrador difiere del final 1 de 7
-veces, justo en esta característica. O sea que ese «sí» es el dato que tengo, no una
+veces, justo en esta característica (recontado el 2026-11-03: **2 inversiones en 20 pares**, y
+las dos en direcciones opuestas — ver §21 y INVESTIGACION.md §8.7; el caveat se sostiene igual,
+porque lo que lo motiva es que el borrador pueda diferir, no cuánto). O sea que ese «sí» es el dato que tengo, no una
 certificación.
 
 Lo que esto cambia en la lectura del ⊘: no es «el gate grita cinco veces por corrida y acierta
@@ -1747,6 +1755,15 @@ chequeo de paso 2: es la red para cuando el paso 2 **no puede** ver la bomba, qu
 cuando la tarea corre sola.
 
 #### §8.7 con la corrida nueva: n=21, y de dónde vino ese n
+
+> **Recontado el 2026-11-03 (§21): este n estaba limitado por el instrumento, no por los
+> datos.** El par se buscaba en el tronco, así que sólo existía para las etapas que integraron
+> enteras — y la integración es todo-o-nada, de modo que las capas difíciles no podían producir
+> evidencia. Las ramas `tarea/<id>` sobreviven cuando la etapa no integra y tenían el código
+> adentro. Acumulado real: **68 pares (35 `a` / 20 `b` / 13 `c`) y 2 inversiones de veredicto,
+> las dos en la capa `b` y en direcciones opuestas.** La frase «la capa `c` sigue en cero
+> pares» de más abajo era cierta sobre el tronco y falsa sobre el disco: hoy son 13 pares con
+> cero diferencias. Lo que sigue queda como lo que se midió ese día.
 
 Esta corrida aporta **7 pares** —la capa `a`, la única que integró; la capa `b` no tiene
 implementación final porque la etapa nunca cerró—:
@@ -1780,3 +1797,81 @@ Y una comprobación que hay que hacer cada vez que el dataset crece: la partici�
 nueva cayó del lado de entrenamiento. O sea que el reservado sigue sellado **y** sigue siendo
 comparable con lo que se mida después; si hubiera cambiado, cualquier número contra él dejaría
 de ser comparable con el anterior y habría que decirlo.
+
+### §21 — La corrida que llegó hasta el fondo: 21/21, las tres capas, y cero detonaciones explicadas (2026-11-03)
+
+Corrida `f1793664018` (semilla 1793664018, método en `b482e76`, árbol limpio, `VUELTAS=8`,
+**21/21 cerradas en 4 vueltas**). Es la primera de la historia del método que cierra las tres
+capas e integra: `src/rutas/r1..r7` en el tronco, 21 borradores conservados, 21 pares completos,
+cero «sin par». Lo que §20 no pudo probar —la rama `DEUDA_DE_MOCK` con la capa `c` ejecutada—
+acá se pudo.
+
+#### Cero ⊘ y cero detonaciones, y esta vez con el motivo medido
+
+`DEUDA_DE_MOCK` no disparó, igual que en `f1793561182`. Pero el motivo es otro y es el que
+importa: **no hubo nada que cobrar.** En las siete tareas de la capa que mockea no hubo un solo
+desajuste entre dónde parchea el test y cómo la implementación trae el nombre.
+
+| servicio | implementación final | dónde parchea su test | desajuste |
+|---|---|---|---|
+| s1, s4, s5, s6 | `import src.datos.dN` (uso por atributo) | `src.datos.dN.leerN` | no |
+| s2 | `from src.datos.d2 import leer2` | `src.servicios.s2.leer2` | no |
+| s3, s7 | `from src.datos.dN import leerN` | (su test no parchea) | no aplica |
+
+Es la afirmación de §20 confirmada por el lado que faltaba: **el desajuste es el defecto, no la
+forma del import**. Tres de siete finales traen el nombre con la forma frágil y ninguno emite ⊘,
+porque sus tests parchean donde el nombre se usa o no parchean nada.
+
+Y la razón de que la capa `c` tampoco detone nada: **sus tests parchean `src.rutas.rN.calcularN`
+—su dependencia inmediata, la capa de servicios— y nunca importan ni parchean `src.datos.dN`.**
+La precarga de `sys.modules` que la bomba necesita no la hace la capa `c` sobre los módulos de
+datos. La topología que §18 arma no es la que el agente produce cuando le va bien; §20 suponía
+que faltaba ejecutar la capa `c` y lo que faltaba era otra cosa.
+
+#### Los 4 registros del anotador son deuda de verdad, no falsos positivos
+
+`deuda-mocks.csv` anotó 4 objetivos (`d1→s1`, `d4→s4`, `d5→s5`, `d6→s6`): exactamente los cuatro
+servicios que usan `import X` con uso por atributo y cuyo test parchea en la capa de datos.
+Funcionan hoy **y quedan ciegos el día que alguien pase esa implementación a `from X import n` a
+nivel de módulo**. Eso es deuda —funciona y es frágil ante un refactor— y el anotador la nombra
+bien. Lo anoto porque mi primera lectura fue la contraria: miré que los cuatro anotados eran los
+sanos y pensé que el anotador tenía el signo invertido. No lo tiene; mide otra cosa que la que
+yo esperaba, y la mide bien.
+
+#### Qué dice el dataset de esta corrida sobre dónde falla el modelo chico
+
+40 veredictos nativos: 21 aceptados, 19 rechazados. El motivo dominante de rechazo es, por
+lejos, **el chequeo de mocks: 9 de los 19** («el test parchea un lugar donde el patch no va a
+tener efecto»). Después: 5 por no escribir el archivo/clase pedidos, 2 por un test que no pasa
+ni con la implementación del propio agente, 1 por mutantes sobrevivientes, 1 por límite de
+tiempo. El paso que más trabaja del gate es el que §18 agregó.
+
+#### Un falso veredicto en el log, del lado del método
+
+El log informó `✗ T04c gate ROJO, y la herramienta falló: The user rejected permission to use
+this specific tool call.` — 83 segundos, el agente no llegó a trabajar, y T04c cerró VERDE en el
+intento siguiente. El **registro** estaba bien: `intentos.csv` lo anotó `ERROR`, no `ROJO`, y el
+veredicto nativo no entró al dataset como rechazo. Lo que estaba mal era el mensaje, que es lo
+que yo leo cuando monitoreo: un rojo que no es del agente, dicho con el símbolo del rojo del
+agente. Arreglado a `⊘ … la herramienta falló y el gate no pudo juzgar`, que es lo mismo que
+dice el registro. Dos nombres para la misma fila, y el equivocado era el visible.
+
+#### Y el que sí era grave: el método tiraba la evidencia de todo lo que sale bien
+
+Medido sobre las siete corridas de campaña en disco: **140 transcripts de éxito con cero
+parches; 66 de fracaso con 51 parches.** Del intento que PASÓ no quedaba nada ejecutable, que es
+justo la mitad que la fábrica de dataset necesita y que el propio código declara como motivo
+para conservar el éxito.
+
+La causa no era la asimetría que parecía: `cerrar_con_gate` hace `git add -A && git commit`
+**sólo cuando el gate da verde** —para que `git merge tarea/TNN` traiga algo— y
+`conservar_intento` armaba el parche contra `HEAD`, que ese commit acaba de absorber. Sin rc 0 no
+hay commit y el diff ve todo: por eso los fracasos se guardaban y los éxitos no. Es el defecto
+que este repo ya documentaba y había arreglado del otro lado —`correr-tarea.sh` escribe
+`.base-ref` precisamente porque «cualquier chequeo de diff se vuelve ciego en cuanto el agente
+commitea», y el gate la lee de ahí—; el conservador de evidencia seguía en `HEAD`. Octava vez
+que el arreglo vivía en el hermano.
+
+El test que debería haberlo visto existía y miraba el lado equivocado: el e2e del pipeline
+verificaba que quedara `exito-*.log` y daba verde mientras el parche no existía. El transcript
+registra `Write src/cosa.py` sin el contenido, así que el relato estaba y el código no.

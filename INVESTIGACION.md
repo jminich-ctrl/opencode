@@ -857,49 +857,77 @@ Tres hallazgos que nos pegan de lleno:
    directa: cada andamio que agregamos hay que medirlo *con nuestros modelos*, porque el signo
    del efecto depende del tamaño del modelo.
 
-**El experimento de §8.7, CORRIDO (2026-11-01, corridas `f1793535892` y `f1793561182`, n=21).** Era: conservar el
-borrador descartado junto al test aceptado y medir en cuántas tareas difiere de la
+**El experimento de §8.7, CORRIDO y RECONTADO (2026-11-03, siete corridas, n=68).** Era:
+conservar el borrador descartado junto al test aceptado y medir en cuántas tareas difiere de la
 implementación final *de un modo que invierte el veredicto*. El método ya guardaba el material
-—`.metricas/borrador-aceptado/<T>/`— así que no hizo falta cambiar nada, sólo mirarlo. En
-`f1793535892`, de 21 borradores conservados 14 tienen implementación final (los 7 de la capa
-`c` no, porque la etapa se detuvo); en `f1793561182`, de 14 conservados 7 la tienen (la capa
-`b` no integró). El par existe sólo donde la tarea cerró, así que el n lo pone la integración y
-no la cantidad de borradores:
+—`.metricas/borrador-aceptado/<T>/`— así que no hizo falta cambiar nada, sólo mirarlo.
 
-| borrador vs implementación final | acumulado | capa `a` (sin mock) | capa `b` (mockea) |
+La primera cuenta (n=21) tenía un defecto de instrumento, no de aritmética: buscaba la
+implementación final **en el tronco**, así que sólo veía las tareas cuya etapa ENTERA integró.
+Integrar es todo-o-nada —`correr-todo.sh` llama `parar` si una tarea queda en rojo—, de modo que
+el par era inobservable justo en las capas difíciles: **sesgo de supervivencia dentro del
+instrumento de medición**. Y el par no necesita que la etapa integre, necesita que la TAREA
+haya cerrado verde: cuando la etapa no integra, `integrar.sh` no corre y por lo tanto **nadie
+borra la rama `tarea/<id>`** —el `branch -D` vive en el camino de la integración y en el del
+reintento—. El código estaba en la rama todo el tiempo. De ahí salieron 14 pares más, y la
+campaña `f1793664018` —la primera que cerró 21/21 con las TRES capas integradas— aportó 21.
+
+| borrador vs implementación final | total | capa `a` (sin mock) | capa `b` (mockea) | capa `c` (precarga) |
+|---|---|---|---|---|
+| **pares** | **68** | 35 | **20** | **13** |
+| idénticos byte a byte | 58 | 35 | 13 | 10 |
+| difieren sólo en blancos | 6 | 0 | 3 | 3 |
+| difieren en el código | 4 | 0 | 4 | 0 |
+| **invierten el veredicto** | **2** | **0** | **2 de 20** | **0 de 13** |
+
+Las dos capas sin mock lo confirman por ausencia: 35 pares en `a` y 13 en `c`, cero diferencias
+de código. El n sigue creciendo donde no hay riesgo, y por eso la cifra que decide se dice sola:
+**en la capa que mockea, 18 de 20 veces el borrador y la implementación final son
+intercambiables para el veredicto.**
+
+**Los cuatro que difieren, medidos celda por celda y no clasificados por la forma del import.**
+El acompañamiento que importa es un tercero que deje `src.servicios.sN` en `sys.modules` con la
+función real antes de que corra `test_sN` —lo que hace un test de la capa `c` al importar `rN`—:
+
+| caso | borrador sola / precargado | final sola / precargado | invierte |
 |---|---|---|---|
-| pares | 21 | 14 | 7 |
-| idénticos byte a byte | **18** | **14 de 14** | 4 de 7 |
-| difieren sólo en una línea en blanco | 2 | 0 | 2 |
-| **difieren de verdad** | **1** | **0** | **1 de 7** |
+| `f1793535892` T03b | OK / OK | OK / **FALLA** `AssertionError: 30 != 50` | sí, **contra la final** |
+| `f1793561182` T01b | OK / **FALLA** | OK / OK | sí, **contra el borrador** |
+| `f1793561182` T03b | OK / OK | OK / OK | no |
+| `f1793664018` T05b | OK / OK | OK / OK | no |
 
-Y acá hay que ser honesto con de dónde vino el n: la segunda corrida aportó 7 pares y **los
-siete son de la capa `a`**, que no mockea nada —su `dN.py` es una función pura y el test no
-lleva `patch`—. O sea que el n creció **justo donde el riesgo no existe**. El 18 de 21 es cierto
-y es la cifra equivocada para decidir: la tasa que importa es la de la capa que mockea, y ahí
-seguimos en **1 de 7**, con el mismo único caso. La capa `c` sigue en cero pares: nunca integró
-en ninguna de las dos corridas.
+La afirmación de la primera vuelta se reproduce exactamente, con el mismo `30 != 50`: el
+borrador traía `import src.datos.d3` adentro de la función —forma que deja el patch efectivo en
+cualquier orden— y la final usó `from src.datos.d3 import leer3` a nivel de módulo. Lo que le
+faltaba es que **la inversión necesita ese tercero**: en `f1793535892` el único módulo que
+habría precargado `s3` era `r3`, y T03c nunca cerró. El defecto estaba puesto y la etapa murió
+antes de cobrarlo. Correr la suite de a+b, o las tres capas sin `r3`, da verde en las cuatro
+celdas: no es que el defecto no esté, es que no hay quien lo despierte.
 
-Y la única diferencia de fondo es justo la que invierte el veredicto: el borrador traía
-`import src.datos.d3` adentro de la función —forma que deja el patch del test efectivo en
-cualquier orden— y la implementación final usó `from src.datos.d3 import leer3` a nivel de
-módulo, que lo deja inefectivo en cuanto otro test precarga el módulo. Medido en las cuatro
-celdas: con el borrador el test pasa sola y acompañada; con la final pasa sola y **falla**
-acompañada.
+Y una corrección a la cuenta propia: clasifiqué `f1793561182` T03b como inversión porque su
+final usa `from … import leer3`. Medido, no invierte — ese `from` está **dentro de la función**,
+así que se resuelve en cada llamada y el patch pega. Lo frágil es el nivel de módulo, no la
+palabra `from`. Es la tesis de MEDICION.md §20 —«el desajuste es el defecto, no la forma del
+import»— aplicada esta vez a mi propia clasificación.
 
-**El número que §8.7 pedía, dicho donde se decide: en la capa que mockea, 6 de 7 veces el
-borrador es buen proxy de la implementación final y 1 de 7 no lo es, y esa vez detuvo la etapa y
-le cobró el rojo a otra tarea.** Sobre los 21 pares es 20 de 21, pero esa cifra promedia 14
-casos sin mock que no podían fallar. Con n=7 en la capa de riesgo es un orden de magnitud y no
-una tasa: no es «casi nunca» ni «la mitad». Y la conclusión
-operativa no se mueve con el n: el borrador sirve para armar dataset, y no sirve para dar por
-buena la implementación —porque el caso que falla es justo el que invierte el veredicto—. Detalle, la cadena completa y
-el arreglo —contabilidad del ⊘, no criterio— en MEDICION.md §18.
+**El número que §8.7 pedía: 2 de 20 en la capa que mockea, y las dos en direcciones
+opuestas.** Una vez el frágil es la implementación final; la otra, el borrador. Con n=7 y un
+solo caso esto era un orden de magnitud; con n=20 y los cuatro casos medidos es un hecho con
+forma: **el error del proxy no tiene signo.** Eso hace más fuerte la conclusión operativa y le
+cambia el motivo —el borrador sirve para armar dataset y no sirve para dar por buena una
+implementación, no porque sea sistemáticamente peor, sino porque cuando difiere no se puede
+saber de qué lado está el error—. Un proxy sesgado se corrige; uno con ruido simétrico, no.
+Detalle, la cadena completa y el arreglo —contabilidad del ⊘, no criterio— en MEDICION.md §18.
+
+Los 14 pares que no están en ningún tronco viven **sólo en ramas de repos de corrida**, que un
+`git gc` o un reintegro se lleva sin aviso: están congelados en
+`metodo-agentes-datos/pares-8.7-20261103/`, cada uno con el comando exacto del que salió.
 
 El dato anterior que teníamos (2026-10-27: los siete tests de una etapa pasaron los cinco pasos
 y tres fallaron después con la implementación real, 3 de 7) medía otra cosa: ahí el contrato
 mandaba el `from` explícitamente. Con el contrato mudo el borrador acierta mucho más seguido, y
-lo que queda es ese 1 de 14.
+contra ese 3 de 7 lo que queda es **2 de 20** —la comparación va contra la capa que mockea, que
+es la que ese dato medía, y no contra los 68 pares, que promedian 48 casos sin riesgo—.
 
 ## 3. Mutación: la usamos como aceptación y nunca como feedback
 
