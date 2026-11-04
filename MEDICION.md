@@ -2215,6 +2215,12 @@ Un tercio menos de corridas del gate, y nueve de cada diez cosas que descarta er
 cambio de perder el 8% del material bueno. Eso **sirve**, y es la primera pieza de este proyecto
 que se mide bien contra un reservado sellado.
 
+> **RETIRADO en §27, y los números corregidos en §26.** Dos cosas falsas en ese párrafo: los
+> números son los de la corrida limitada por el tope (el bueno es 44% / 84% / 14%), y «sirve» no
+> se sostiene —una corrida del gate cuesta ~20 s locales contra 118 s de plataforma del juez, y
+> saltear el gate no produce etiqueta—. Lo único que queda en pie, y es lo que vale, es «se mide
+> bien contra un reservado sellado».
+
 **Como reemplazo del gate** —etiquetar sin correr los tests— no sirve: **21% [12% · 33%] de lo que
 etiquetaría como aceptado es basura**, más 39 registros que sin gate no tendrían etiqueta ninguna.
 Un dataset con uno de cada cinco registros mal etiquetados no es un dataset.
@@ -2468,5 +2474,81 @@ se mueve mucho. Dos consecuencias:
 corridas del gate, 84% de lo que descarta era basura, y cuesta 14% del material bueno. Es peor
 que el 37% / 89% / 8% que publicó §24, y es el que vale.
 
+> **Este veredicto operativo está RETIRADO. Ver §27, del día siguiente.** Nunca medí qué cuesta
+> una corrida del gate: son ~20 s locales, contra 118 s de plataforma que cuesta el juez. El
+> pre-filtro es seis veces más caro que lo que ahorra, y además saltear el gate no produce
+> etiqueta, así que en una fábrica de dataset encoge su propio producto. Los NÚMEROS de esta
+> sección no se retiran: son la línea de base de un 27B sin afinar, que es para lo que sirven.
+
 **Como reemplazo del gate no sirve**, y con menos margen que antes: 25% de lo que etiquetaría como
 aceptado es basura. Uno de cada cuatro.
+
+---
+
+### §27 — Medí bien el FPR del pre-filtro y nunca medí qué cuesta lo que ahorra: no tiene caso de uso (2026-11-04)
+
+§24, §25 y §26 miden al juez puntual con la métrica correcta —FPR a TPR fijo— y cierran con un
+veredicto operativo: «como pre-filtro sirve: ahorra 44% de las corridas del gate». Las tres veces
+escribí eso sin medir **cuánto cuesta una corrida del gate**. La métrica estaba bien elegida; la
+cosa de la que era métrica nunca se chequeó.
+
+#### Lo que cuesta cada lado
+
+| | costo |
+|---|---|
+| fase de tests del gate, por intento (proyecto de juguete, dos comportamientos que rechazan) | **~20 s locales** |
+| una llamada al juez (§26: 147 registros en 4h50) | **118 s de plataforma** |
+
+**Seis veces más caro que lo que ahorra.** Y el gate es local: CPU de esta máquina, no GPU de la
+plataforma.
+
+Hay un detalle que lo decide y que está en el propio gate: **una sola llamada al agente escribe el
+test Y la implementación de referencia** —«Hacé la tarea completa: la implementación Y sus tests,
+las dos cosas con la herramienta write»—. O sea que cuando ya hay un test para juzgar, la parte
+cara está pagada. Lo que queda es correr la suite sin implementación, con implementación, con
+mutantes y el brazo nulo: todo local. Un pre-filtro acá cambia 118 s de plataforma por 20 s de CPU
+propia.
+
+Para que pagara, la verificación del gate tendría que costar más de **~118 s por intento**, o sea
+una suite de proyecto unas seis veces más lenta que la del juguete. Es posible y no es lo que
+tenemos.
+
+#### Y lo que sigue es peor que la aritmética
+
+**La salida del gate no es un booleano: es el motivo.** §23 lo midió y lo arregló —el campo
+`dimensiones` dice qué paso rechazó, y eso es justo lo que un juez entrenado necesita—. Un
+pre-filtro que saltea el gate no produce etiqueta, así que ese registro **no entra al dataset**.
+
+En una fábrica de dataset, un pre-filtro que descarta intentos antes del gate **encoge su propio
+producto**. Y descarta con un FPR de 28%: el 14% de material bueno que §26 contabiliza como «costo»
+no es sólo un test perdido, es un registro etiquetado que nunca existe.
+
+#### Entonces para qué sirvió medirlo
+
+Para lo que en realidad era, y no es poco: **una línea de base**. El proyecto es una fábrica de
+dataset para afinar un modelo chico. El número que hace falta no es «¿despliego este juez?», es
+«¿cuánto saca un 27B sin afinar, para saber qué tiene que superar el afinado?». Esa respuesta está
+medida contra un reservado sellado, con sus controles, y es:
+
+> **AUC 0,83 · exactitud 79% · TPR 86% con FPR 28% · y FPR 67% con AUC 0,59 en el 27% del banco
+> donde razona de más.**
+
+Una línea de base no necesita caso de uso ni justificación económica. Lo que necesita es estar
+medida sin trampa, y lo está: tasa base declarada, ilegibles aparte, aceptar-todo como referencia,
+criterios tontos en el azar, umbral pre-registrado, y el reservado sellado que nunca se usó para
+elegir nada.
+
+#### El defecto, nombrado
+
+Es de la misma familia que todo este documento, pero en un nivel donde no lo había buscado: no
+fue un chequeo que dejó de mirar, fue **una métrica correcta aplicada a una pregunta que nadie
+verificó que fuera la pregunta**. El FPR a TPR fijo es la métrica buena para un pre-filtro. Que
+acá hiciera falta un pre-filtro era una suposición, y la arrastré tres secciones porque cada
+sección heredó el encuadre de la anterior en vez de volver a preguntarlo.
+
+La regla que queda, al lado de la de §26 sobre el poder de los controles: **antes de medir qué
+tan bien funciona algo, medir qué cuesta el trabajo que ese algo evita.** Si no se midió, el
+veredicto operativo no es un veredicto: es una suposición con un intervalo de confianza al lado.
+
+Los veredictos operativos de §24 y §26 quedan retirados en esa parte. Los números de §26 no: son
+la línea de base, y no cambian.
