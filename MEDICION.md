@@ -2091,6 +2091,13 @@ puntual contra pareado: se está comparando **una pregunta con verdad contra una
 Mismo modelo que §17 y §19: `1af07b1f-5832-4451-a61c-76d1fe43115a`. Reservado sellado de
 §22, huella `39457e81cb6aa895`, **que nunca se había medido contra nada**.
 
+> **El número a citar es el de §26, no el de acá.** Esta corrida está limitada por el tope de
+> tokens: 27% de las respuestas no llegó a contestar, y §26 muestra que ese 27% era justo la
+> parte del banco donde el juez no tiene señal. Con el instrumento arreglado el reservado
+> entero da exactitud 79%, TPR 86% y **FPR 28%**, no 18%. Lo de acá sigue escrito porque la
+> diferencia entre las tres corridas es el instrumento, y eso es la mitad de lo que hay que
+> saber para leer cualquiera de los números.
+
 #### Lo primero, porque cambia cómo se lee todo lo demás: 27% no contestó
 
 De los 147 registros del reservado con test, enunciado y veredicto, **39 (27%) se cortaron por el
@@ -2288,6 +2295,13 @@ que haber bajado.
 medición de precisión: es un control de artefacto, y lo pasa. La magnitud de §24 no venía del
 corte.
 
+> **ESTO ESTÁ MAL, y el error es de método. Corregido en §26, el mismo día.** Bajó: FPR 18% →
+> 28% sobre el reservado entero, y los 39 registros que el tope se comía tienen FPR 67% con AUC
+> 0,59. El IC de este control —[6% · 39%]— contiene al 18% y al 28% a la vez, así que **no podía
+> distinguirlos**: declaré «no bajó» con un control que no tenía poder para decirme que sí. Un
+> control de artefacto necesita su poder declarado; si su IC contiene la magnitud buscada, no se
+> pasó, no se corrió.
+
 Los criterios tontos, sobre estos 37: largo del test 0,31, cantidad de `assert` 0,39, cantidad de
 líneas 0,32. Los tres en el azar o por debajo, igual que en §24.
 
@@ -2335,3 +2349,124 @@ eso ahora está medido, no supuesto; es la misma situación de §19, donde la me
 hacer antes de arreglar el `--tope`. El número de §24 **no se retira**: queda como lo que se
 midió con tope 4000, y al lado va el que salga con 10000. Lo que cambia es que esta vez el umbral
 está elegido de antemano.
+
+---
+
+### §26 — El reservado completo: el número baja, §25 se equivocó al declararlo robusto, y la plataforma no es determinista (2026-11-03)
+
+Con el instrumento arreglado —tope 10000 medido en §25, reintento de códigos transitorios— el
+reservado entero se midió sin perder un registro: **147 de 147, cero ilegibles**. Siete
+reintentos por códigos transitorios, o sea siete registros (5%) que con el instrumento de §24 se
+habrían perdido sin nombre.
+
+Esta es la corrida que hay que citar. §24 y §25 quedan porque la diferencia entre las tres es el
+instrumento, y eso es la mitad de lo que hay que saber para leer el número.
+
+#### El número definitivo
+
+| | §24 (tope 4000, n=108) | **§26 (tope 10000, n=147)** |
+|---|---|---|
+| ilegibles | 27% | **0%** |
+| exactitud | 84% [76% · 90%] | **79% [72% · 85%]** |
+| clase mayoritaria | 56% | 51% [43% · 59%] |
+| TPR | 88% [75% · 94%] | **86% [76% · 92%]** |
+| FPR | 18% [11% · 30%] | **28% [19% · 39%]** |
+| AUC | 0,88 | **0,83** |
+
+#### Por qué bajó, y es el resultado más importante de la sección
+
+Los 39 registros que el tope se comía **eran exactamente los que el juez no sabe juzgar.** Medidos
+ahora, con todos contestando:
+
+| | n | exactitud | TPR | FPR | AUC |
+|---|---|---|---|---|---|
+| los 39 que antes se cortaban | 39 | 62% [46% · 75%] | 79% [60% · 91%] | **67% [42% · 85%]** | **0,59** |
+| los otros 108 | 108 | 85% [77% · 91%] | 90% [78% · 95%] | 18% [11% · 30%] | 0,87 |
+
+Fisher exacto bilateral sobre acertar × grupo: **p = 0,005**.
+
+Un FPR de 67% con AUC 0,59 es, en ese subgrupo, casi no descartar nada. O sea que el corte de §24
+no era ruido: era **censura informativa**, y de la peor clase —se comía justo la subpoblación sin
+señal—. §24 lo marcó como riesgo y dijo que la dirección «no se puede afirmar» con p=0,092 sobre
+la asimetría de clases. Era el riesgo correcto y la conclusión prudente.
+
+#### Lo que §25 concluyó mal, y el error es mío y es de método
+
+§25 corrió el control del artefacto contra entrenamiento y concluyó: «**No bajó.** La magnitud de
+§24 no venía del corte». Bajó. FPR 18% → 28%.
+
+El error no fue medir en entrenamiento: eso estaba bien y sigue estándolo. El error fue **leer un
+control sin poder como si fuera evidencia de ausencia**. El FPR de entrenamiento venía con IC
+[6% · 39%] sobre 18 negativos. Un intervalo que contiene al 18% y al 28% a la vez **no puede
+distinguirlos**, y yo escribí «no bajó» de un instrumento que no podía decirme si había bajado.
+Es exactamente el defecto que este documento persigue desde §1 —un chequeo que ante lo que no
+previó deja de mirar en vez de fallar— aplicado a mi propio razonamiento, con el IC impreso al
+lado y todo.
+
+La regla que queda: **un control de artefacto necesita su poder declarado.** Si el IC del control
+contiene la magnitud del artefacto que se busca, el control no se pasó: no se corrió.
+
+#### El umbral pre-registrado: el TPR clavado, el FPR no
+
+§25 eligió −9 sobre entrenamiento y predijo **TPR ≈ 95% con FPR ≈ 22%**. Salió:
+
+| | predicho (entrenamiento, n=37) | realizado (reservado, n=147) |
+|---|---|---|
+| TPR | 95% | **94%** |
+| FPR | 22% [9% · 45%] | **33% [24% · 45%]** |
+
+El TPR clavado. El FPR 11 puntos arriba, aunque **adentro del IC pre-registrado**. No es que la
+pre-registración falló: es que con 18 negativos no alcanza para pre-registrar un umbral con
+precisión útil. La pre-registración sirvió igual, y para lo que sirve: el 33% es un número
+honesto porque estaba escrito antes, y si lo hubiera elegido después habría publicado el −9 con
+su mejor cara.
+
+#### Un resultado negativo: los tokens no sirven de señal de abstención
+
+Si el juez falla justo donde razona de más, el gasto de tokens —que se conoce ANTES de actuar
+sobre el veredicto, así que es desplegable— debería servirle para abstenerse. Probado, y **no
+paga**:
+
+| corte de abstención | gate corre | de lo que tira, era basura | bueno perdido |
+|---|---|---|---|
+| sin abstención | 56% | 84% | 14% |
+| 6000 tokens | 57% | 84% | 13% |
+| 4000 tokens | 59% | 86% | 11% |
+| 2000 tokens | 62% | 87% | 9% |
+
+Nada que valga el cambio. Y la razón es instructiva: **en un pre-filtro, el FPR alto de un
+subgrupo sólo cuesta cómputo**, porque el gate lo rechaza igual. Abstenerse ahí mueve basura al
+gate, que ya la iba a atrapar. Lo único que el subgrupo difícil cuesta de verdad es su TPR de 79%,
+y abstenerse no lo recupera: lo manda al gate, que es lo mismo que pasarlo.
+
+#### Y la plataforma no es determinista a temperatura 0
+
+Esto afecta a todo lo medido en este documento, así que va con su número. Con `temperature: 0` y
+el mismo prompt, los 39 registros que se cortaron con tope 4000 deberían volver a gastar más de
+4000. Gastan **23 de 39**. Y 14 de los 108 que antes contestaron dentro de 4000 ahora se pasan.
+
+Sobre los 108 comparables: el **veredicto coincide en 99%** [95% · 100%], la **puntuación exacta
+en 86%** [78% · 91%]. O sea que el veredicto es estable y la confianza no, y el gasto de tokens
+se mueve mucho. Dos consecuencias:
+
+- Una corrida de estas no es reproducible al registro, sólo a la distribución. Cualquier
+  comparación de dos corridas tiene que leerse con eso.
+- Explica en parte por qué los tokens no sirven de señal: son una medida ruidosa de la dificultad,
+  aunque el split por run-1 tenga p=0,005, así que la dificultad que marcan es real y la medida no.
+
+#### El veredicto operativo, con los números completos
+
+| | valor | IC95 |
+|---|---|---|
+| el gate corre en | 83/147 = 56% | [48% · 64%] |
+| trabajo del gate evitado | 64/147 = 44% | [36% · 52%] |
+| de lo que tira, era basura | 54/64 = 84% | [74% · 91%] |
+| **material bueno perdido** | **10/72 = 14%** | [8% · 24%] |
+| contaminación como reemplazo del gate | 21/83 = 25% | [17% · 36%] |
+
+**Como pre-filtro sigue sirviendo, y ahora el número es el del banco entero**: ahorra 44% de las
+corridas del gate, 84% de lo que descarta era basura, y cuesta 14% del material bueno. Es peor
+que el 37% / 89% / 8% que publicó §24, y es el que vale.
+
+**Como reemplazo del gate no sirve**, y con menos margen que antes: 25% de lo que etiquetaría como
+aceptado es basura. Uno de cada cuatro.
