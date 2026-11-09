@@ -17132,11 +17132,29 @@ class TestElJuezPuntualSeLeeContraLaTasaBaseYNoContraLaMitad(unittest.TestCase):
                     self.end_headers()
                     self.wfile.write(cuerpo)
                     return
-                texto, motivo, tokens = siguiente
-                cuerpo = json.dumps({
-                    "choices": [{"message": {"content": texto}, "finish_reason": motivo}],
-                    "usage": {"completion_tokens": tokens}}).encode()
+                texto, motivo, tokens = siguiente[:3]
+                razona = siguiente[3] if len(siguiente) > 3 else ""
+                # SSE, porque el juez pide con streaming: el borde de la plataforma real
+                # corta las respuestas no streameadas a los 300 s, y con el tope en 10000 ese
+                # techo queda ADENTRO del presupuesto.
+                trozos = []
+                if razona:
+                    # En un campo APARTE, como lo manda gpt-oss. El juez no lo tiene que
+                    # juntar con el contenido.
+                    trozos.append({"choices": [{"delta": {"reasoning": razona}}]})
+                for ch in (texto[i:i + 7] for i in range(0, len(texto), 7)) if texto else []:
+                    trozos.append({"choices": [{"delta": {"content": ch}}]})
+                trozos.append({"choices": [{"delta": {}, "finish_reason": motivo}]})
+                trozos.append({"choices": [], "usage": {"completion_tokens": tokens}})
+                # Con ruido legal de SSE en el medio: `retry:` e `id:` son campos del
+                # estándar y los proxies mandan comentarios de keepalive. Sin ellos en el
+                # fixture, el guarda que filtra por `data:` no se puede probar —y hace falta,
+                # porque `retry: 3000` se parsea como el ENTERO 3000 y revienta el lazo.
+                cuerpo = ("retry: 3000\n\n: keepalive\n\nid: 1\n\ndata: 3000\n\n"
+                          + "".join(f"data: {json.dumps(x)}\n\n" for x in trozos)
+                          + "data: [DONE]\n\n").encode()
                 self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
                 self.send_header("Content-Length", str(len(cuerpo)))
                 self.end_headers()
                 self.wfile.write(cuerpo)
@@ -17189,12 +17207,15 @@ class TestElJuezPuntualSeLeeContraLaTasaBaseYNoContraLaMitad(unittest.TestCase):
         vistos = []
 
         class Respuesta:
+            """Doble de una respuesta SSE: el juez ITERA sobre las líneas, no hace `read()`."""
             def __enter__(self): return self
             def __exit__(self, *a): return False
-            def read(self):
-                return json.dumps({"choices": [{"message": {"content": "VEREDICTO: ACEPTAR"},
-                                                "finish_reason": "stop"}],
-                                   "usage": {"completion_tokens": 7}}).encode()
+            def __iter__(self):
+                for x in ({"choices": [{"delta": {"content": "VEREDICTO: ACEPTAR"}}]},
+                          {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+                          {"choices": [], "usage": {"completion_tokens": 7}}):
+                    yield (f"data: {json.dumps(x)}\n").encode()
+                yield b"data: [DONE]\n"
 
         original = juez_puntual.urllib.request.urlopen
 
@@ -17252,6 +17273,88 @@ class TestElJuezPuntualSeLeeContraLaTasaBaseYNoContraLaMitad(unittest.TestCase):
         c = json.loads(crudo.read_text().splitlines()[0])
         self.assertEqual(c["corte"], "error")
         self.assertIn("503", c["detalle"])
+
+    def test_el_pedido_va_con_streaming_porque_el_borde_corta_a_los_300s(self):
+        """Encontrado el 2026-11-09, después de TRES mediciones. El borde de la plataforma
+        corta cualquier respuesta no streameada a los 300 s —está escrito en el propio
+        `colabhive/scripts/warm.sh`: «streaming no tiene el corte de 300s»—. Con el tope en
+        10000 y ~30 tok/s, una respuesta larga son 333 s de generación, o sea ARRIBA del
+        corte: el tope y la espera estaban en contradicción y la cola de la distribución
+        llegaba como un 503 indistinguible de un problema de plataforma.
+
+        `espera_para` seguía devolviendo 500 s y nadie los usaba nunca."""
+        d, f = self.jsonl(self.siete_y_tres())
+        url, pedidos = self.plataforma_falsa(
+            [("VEREDICTO: ACEPTAR\nCONFIANZA: 8", "stop", 700)] * 10)
+        r = self.juez_contra(f, url)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual({q.get("stream") for q in pedidos}, {True},
+                         "sin streaming, el borde corta a los 300 s y la espera es ficción")
+        self.assertIn("juzgados 10", r.stdout, r.stdout)
+
+    def test_el_ruido_legal_de_SSE_no_mata_la_corrida(self):
+        """Lo encontré mutando: sacar el filtro de `data:` NO rompía ningún test, porque mi
+        fixture sólo emitía líneas `data:`. El guarda hacía falta igual, y contra algo real.
+
+        Primero razoné mal el mecanismo: creí que `retry: 3000` rompía el lazo. No lo rompe
+        —`linea[5:]` sólo deja JSON válido cuando el prefijo son exactamente los 5 caracteres
+        de `data:`, así que de `retry: 3000` queda `": 3000"` y el `except ValueError` lo
+        cubre—. El filtro del prefijo es redundante con ese except.
+
+        El agujero de verdad aparece CON el filtro puesto: un trozo `data: 3000` parsea sin
+        error y devuelve el ENTERO 3000. Ahí `d.get("choices")` tira `AttributeError`, que no
+        está entre las excepciones que el reintento atrapa, así que sube y mata el proceso.
+        Una medición de cuatro horas muerta por un trozo mal formado en el registro 140.
+
+        El fixture manda ese trozo más el ruido legal de SSE —`retry:`, `id:`, comentarios de
+        keepalive— en TODAS las respuestas, así que lo cubren también los otros treinta."""
+        d, f = self.jsonl(self.siete_y_tres())
+        url, _ = self.plataforma_falsa(
+            [("VEREDICTO: ACEPTAR\nCONFIANZA: 8", "stop", 700)] * 10)
+        r = self.juez_contra(f, url)
+        self.assertEqual(r.returncode, 0,
+                         f"el ruido de SSE mató la corrida:\n{r.stdout[-800:]}{r.stderr[-800:]}")
+        self.assertIn("juzgados 10", r.stdout, r.stdout)
+        self.assertNotIn("AttributeError", r.stdout + r.stderr)
+
+    def test_el_razonamiento_de_un_campo_APARTE_no_se_junta_con_el_contenido(self):
+        """La decisión de diseño que más importa del streaming, y es la falla de campo del
+        2026-11-03 esperando para volver por otra puerta.
+
+        Algunos modelos mandan el razonamiento en `reasoning`, separado (gpt-oss); otros lo
+        funden adentro de `content` (Qwen3.8-27B, y por eso ninguna de las 39 cortadas de §24
+        cerró el `</think>`). Si el juez acumulara los dos campos, una respuesta cortada a
+        mitad del razonamiento traería las palabras de la consigna y el parser devolvería un
+        veredicto que el modelo nunca dio.
+
+        Acá el razonamiento dice RECHAZAR y el contenido dice ACEPTAR. Si se juntaran, el
+        último veredicto del texto sería otro."""
+        d, f = self.jsonl(self.siete_y_tres())
+        crudo = d / "crudo.jsonl"
+        url, _ = self.plataforma_falsa([
+            ("VEREDICTO: ACEPTAR\nCONFIANZA: 9", "stop", 900,
+             "Pensemos. El test parchea mal, asi que habria que RECHAZAR. "
+             "VEREDICTO: RECHAZAR. Pero mejor lo reviso de nuevo.")] * 10)
+        r = self.juez_contra(f, url, "--crudo", str(crudo))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        cs = [json.loads(l) for l in crudo.read_text().splitlines()]
+        self.assertEqual({c["dijo"] for c in cs}, {"aceptado"},
+                         "leyó el razonamiento: el veredicto sale de `content` y nada más")
+        for c in cs:
+            self.assertNotIn("Pensemos", c["cruda"],
+                             "el razonamiento no puede entrar en el texto que se parsea")
+
+    def test_una_respuesta_cortada_a_mitad_del_razonamiento_separado_es_ilegible(self):
+        """El brazo maligno del de arriba: con `reasoning` aparte y `content` VACÍO, una
+        respuesta cortada por el tope no tiene nada que parsear. Tiene que salir ilegible y
+        no inventar un veredicto a partir del razonamiento."""
+        d, f = self.jsonl(self.siete_y_tres())
+        url, _ = self.plataforma_falsa([
+            ("", "length", 10000,
+             "Analizo el test. Podria ser ACEPTAR o RECHAZAR, veamos el patch target")] * 10)
+        r = self.juez_contra(f, url)
+        self.assertIn("ilegibles 10", r.stdout, r.stdout)
+        self.assertIn("NO se midió nada", r.stdout)
 
     def test_el_tope_de_tokens_que_se_pide_es_el_que_viaja(self):
         """`--tokens` tiene que llegar a la plataforma como `max_tokens`. Un tope que se

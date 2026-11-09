@@ -97,7 +97,15 @@ def espera_para(tope):
     falla de herramienta no se distingue de «el modelo no supo» en ningún número de abajo—.
 
     `tope // 20` es el doble de lo medido, de margen; y nunca baja de 300, que es lo que ya
-    estaba y funcionaba."""
+    estaba y funcionaba.
+
+    Y esto SÓLO sirve porque el pedido va con streaming. Sin streaming, el borde de la API
+    corta a los 300 s y devuelve 503, así que una espera de 500 era una ficción: el cliente
+    nunca llegaba a usarla. Con tope 10000 a los ~30 tok/s medidos, una respuesta larga son
+    333 s de generación —o sea ARRIBA del corte—, así que el tope y la espera estaban en
+    contradicción y la cola de la distribución era inalcanzable, llegando como un 503
+    indistinguible de un problema de plataforma. §26 zafó por poco: su máximo fueron 7119
+    tokens, unos 237 s."""
     return max(300, tope // 20)
 
 
@@ -112,21 +120,63 @@ def preguntar(url, clave, modelo, enunciado, test, tiempo=None, tope=None):
         "messages": [{"role": "user", "content": PROMPT.format(
             enunciado=(enunciado or "")[:4000], test=(test or "")[:4000])}],
         "max_tokens": tope or TOPE_TOKENS, "temperature": 0,
+        # STREAMING, y no por velocidad: el borde de esta plataforma corta cualquier
+        # respuesta NO streameada a los 300 s. Está escrito en `colabhive/scripts/warm.sh`
+        # —«streaming no tiene el corte de 300s»— y lo encontré el 2026-11-09, después de
+        # tres mediciones. Con tope 10000 el techo del borde queda ADENTRO del presupuesto,
+        # así que la cola de la distribución no se podía medir y llegaba como 503.
+        "stream": True, "stream_options": {"include_usage": True},
     }).encode()
     pedido = urllib.request.Request(
         f"{url.rstrip('/')}/chat/completions", data=cuerpo,
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {clave}"})
+        headers={"Content-Type": "application/json", "Accept": "text/event-stream",
+                 "Authorization": f"Bearer {clave}"})
     espera = tiempo or espera_para(tope or TOPE_TOKENS)
+    partes, motivo, tokens = [], None, None
     with urllib.request.urlopen(pedido, timeout=espera) as r:
-        d = json.loads(r.read())
-    eleccion = d["choices"][0]
+        for cruda in r:
+            linea = cruda.decode("utf-8", "replace").strip()
+            if not linea.startswith("data:"):
+                # MUTACIÓN QUE SOBREVIVE A PROPÓSITO, y queda declarado para que el próximo
+                # que mute esto no le invente un test: este filtro es REDUNDANTE con el
+                # `except ValueError` de abajo. `linea[5:]` sólo deja JSON válido cuando el
+                # prefijo son exactamente los 5 caracteres de `data:`, así que de `retry: 3000`
+                # queda `": 3000"` y de `id: 1` queda `""`, y los dos fallan al parsear.
+                # Está igual porque expresa el contrato de SSE y evita parsear cada keepalive.
+                # Lo que NO es redundante es el chequeo de tipo: ver abajo.
+                continue
+            dato = linea[5:].strip()
+            if dato == "[DONE]":
+                break
+            try:
+                d = json.loads(dato)
+            except ValueError:
+                continue
+            if not isinstance(d, dict):
+                # `data: 3000` parsea SIN error y devuelve un entero. `d.get(...)` sobre eso
+                # tira AttributeError, que NO está entre las excepciones que el reintento
+                # atrapa: sube y mata el proceso. Una medición de cuatro horas muerta por un
+                # trozo mal formado en el registro 140. El `except ValueError` de arriba no
+                # cubre este caso, que es justo el que no se ve.
+                continue
+            for eleccion in d.get("choices") or []:
+                delta = eleccion.get("delta") or {}
+                # SÓLO `content`. El razonamiento viene en `reasoning` aparte en algunos
+                # modelos (gpt-oss) y fundido adentro de `content` en otros (Qwen). Juntarlo
+                # sería reponer a mano la falla de campo del 2026-11-03: una respuesta
+                # cortada a mitad del razonamiento tiene las palabras de la consigna, y
+                # cualquier parser devuelve un veredicto que el modelo nunca dio.
+                if delta.get("content"):
+                    partes.append(delta["content"])
+                if eleccion.get("finish_reason"):
+                    motivo = eleccion["finish_reason"]
+            if d.get("usage"):
+                tokens = d["usage"].get("completion_tokens")
     # Los tokens gastados se devuelven porque sin ellos no se puede saber si el tope está
     # apretado. §24 midió con tope 4000 y 27% de las respuestas se cortaron SIN cerrar el
     # razonamiento: ninguna de las 39 emitió `</think>`. Ese 27% no es una propiedad del
     # juez, es el presupuesto, y para distinguir una cosa de la otra hay que contar.
-    return ((eleccion["message"].get("content") or "").strip(),
-            eleccion.get("finish_reason"),
-            (d.get("usage") or {}).get("completion_tokens"))
+    return "".join(partes).strip(), motivo, tokens
 
 
 # Códigos que valen un reintento, y los demás NO. Un 400 es un pedido mal armado: pedirlo

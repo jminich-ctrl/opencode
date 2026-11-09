@@ -2737,3 +2737,89 @@ Dos trampas ya encontradas montándolo, que valen para nuestro propio gate: hace
 por corrida** —un mutante entró en bucle infinito— y el mutation score hay que **condicionarlo a
 que el test pase con la referencia**, porque un test que errora contra todo «mata» todos los
 mutantes y el criterio miente justo donde más importa.
+
+---
+
+### §30 — El tope y la espera estaban en contradicción, y la espera nunca se usó (2026-11-09)
+
+Yendo a planificar la replicación multi-modelo que §29 volvió obligatoria, apareció un defecto
+del instrumento que invalida una justificación escrita en §25 y acota el alcance de §26.
+
+#### El pedido iba sin streaming
+
+El borde de esta plataforma **corta cualquier respuesta no streameada a los 300 s**. No es un
+descubrimiento: está escrito en `colabhive/scripts/warm.sh`, del propio proyecto, desde octubre
+—«streaming no tiene el corte de 300s, así que espera la carga completa»—. Y `juez_puntual.py`
+pedía sin streaming.
+
+§25 subió el tope a 10000 tokens y agregó `espera_para`, con su test y su mutación, para que la
+espera creciera con el tope: 500 s para 10000. **Esa espera nunca se usó.** El borde cortaba a
+los 300 y devolvía 503. A los ~30 tok/s medidos, 10000 tokens son **333 s de generación**, o sea
+que el techo del borde quedaba ADENTRO del presupuesto que yo mismo había elegido: el tope y la
+espera se contradecían, y la cola de la distribución era inalcanzable, llegando como un 503
+indistinguible de un problema de plataforma.
+
+§26 zafó por poco: su máximo fueron 7119 tokens, unos 237 s. Un 25% de margen, por suerte y no
+por diseño.
+
+Arreglado: el pedido va con `stream: true` y se parsea SSE. Con una decisión de diseño que es la
+falla de campo del 2026-11-03 volviendo por otra puerta: **el razonamiento NO se acumula**.
+Algunos modelos lo mandan en un campo `reasoning` aparte y otros fundido adentro de `content`
+—Qwen3.8-27B es de los segundos, y por eso ninguna de las 39 cortadas de §24 cerró el
+`</think>`—. Si el instrumento juntara los dos campos, una respuesta cortada a mitad del
+razonamiento traería las palabras de la consigna y el parser devolvería un veredicto que el
+modelo nunca dio. Hay un test donde el razonamiento dice RECHAZAR y el contenido dice ACEPTAR.
+
+#### Y una mutación encontró un agujero que mata la corrida entera
+
+Un trozo `data: 3000` parsea **sin error** y devuelve el entero 3000. Ahí `d.get("choices")`
+tira `AttributeError`, que no está entre las excepciones que el reintento atrapa: sube y mata el
+proceso. Una medición de cuatro horas muerta por un trozo mal formado en el registro 140 —la
+misma falla que el `--crudo` incremental fue a cubrir por el otro lado—. El `except ValueError`
+no cubre este caso, que es justo el que no se ve.
+
+Verificado en los dos sentidos: sacar el chequeo de tipo rompe 12 tests.
+
+#### Una mutación que sobrevive a propósito, declarada
+
+El filtro `startswith("data:")` es **redundante** con ese `except ValueError`: `linea[5:]` sólo
+deja JSON válido cuando el prefijo son exactamente los cinco caracteres de `data:`, así que de
+`retry: 3000` queda `": 3000"` y de `id: 1` queda `""`, y los dos fallan al parsear. Primero
+razoné que `retry:` rompía el lazo; está mal, y la corrección quedó escrita al lado del código.
+
+Queda igual, porque expresa el contrato de SSE y evita parsear cada keepalive, **con su
+sobrevivencia declarada en un comentario**. La regla que esto fija: cuando una mutación sobrevive
+por redundancia REAL y no por falta de cobertura, se declara. Inventarle un test es fabricar
+justamente la decoración que este documento persigue —un chequeo que se satisface con el texto
+que habla de la cosa en vez de con la cosa—.
+
+#### Lo que esto cambia de las mediciones ya hechas
+
+Nada de §24 a §29 se retira: los máximos observados quedaron por debajo del techo del borde. Lo
+que cambia es el **alcance**: con el instrumento viejo, cualquier respuesta de más de ~9000
+tokens era inmedible y se habría contabilizado como falla de herramienta. Con el nuevo, el techo
+lo pone el tope y nada más.
+
+Y queda una ceguera sin arreglar, anotada para no perderla: el contador de reintentos es
+**global**, así que de los 7 reintentos de §26 no se puede saber en qué registros ocurrieron. Es
+la misma clase que el `--crudo` que se volcaba al final.
+
+#### El estado de la plataforma, que bloquea la replicación
+
+`monitorear.sh`, hoy: **4 de 5 réplicas con `warm=0`** y «✗ NO contesta como la corrida la
+necesita». El modelo del juez está `cached`, o sea arranque en frío. Tres modelos candidatos
+devolvieron cero bytes a los 20 minutos. Por la regla de no medir durante cambios, la replicación
+no se lanza hasta que conteste.
+
+Cuando conteste, el plan está armado y el presupuesto bajó de 28,8 h a **~6 h**, porque los
+no-razonadores son casi gratis:
+
+| modelo | familia | ¿razona? | gasto típico | rol en el experimento |
+|---|---|---|---|---|
+| mistral-small-24b | Mistral | **no** | **18 tokens** | el brazo que vuelve FALSABLE la hipótesis: con 18 tokens el tope de 4000 no puede morderlo |
+| gpt-oss-20b | OpenAI gpt-oss | sí | ~288 tokens | razonador de otra familia **y de otra forma**: manda el razonamiento aparte, así que una respuesta cortada deja `content` vacío en vez de ilegible |
+| Llama 3.2 8B | Meta | no | ~132 tokens | segundo no-razonador y salto de tamaño (8B contra 27B) |
+
+Y el propósito ya no es generalizar, es **controlar el confundidor de §29**: si los ítems que el
+juez A no llega a contestar le resultan fáciles al juez B, es pérdida de señal específica del
+juez y no dificultad del ítem.
