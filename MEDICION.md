@@ -2379,6 +2379,11 @@ instrumento, y eso es la mitad de lo que hay que saber para leer el número.
 | FPR | 18% [11% · 30%] | **28% [19% · 39%]** |
 | AUC | 0,88 | **0,83** |
 
+> **Los IC de esta tabla suponen independencia y los 147 registros no la tienen: son de 15
+> tareas. Corregidos en §28** — agrupando por tarea, el FPR es 28% **[14% · 43%]**, la
+> exactitud [70% · 88%] y la AUC [0,73 · 0,92]. Los puntos no cambian; los intervalos se
+> ensanchan y ninguna conclusión se cae.
+
 #### Por qué bajó, y es el resultado más importante de la sección
 
 Los 39 registros que el tope se comía **eran exactamente los que el juez no sabe juzgar.** Medidos
@@ -2552,3 +2557,70 @@ veredicto operativo no es un veredicto: es una suposición con un intervalo de c
 
 Los veredictos operativos de §24 y §26 quedan retirados en esa parte. Los números de §26 no: son
 la línea de base, y no cambian.
+
+---
+
+### §28 — Los intervalos publicados suponían una independencia que no hay (2026-11-08)
+
+§24 a §27 informaron intervalos de Wilson sobre los 147 registros del reservado. Wilson supone
+147 observaciones independientes y **no lo son**: salen de **15 tareas** y **7 corridas**, y dos
+registros de la misma tarea comparten el enunciado. El n efectivo está más cerca de 15 que de
+147, así que esos intervalos afirman una precisión que no se midió.
+
+No es una objeción teórica traída de afuera: es la misma falla que §26 ya cobró una vez, cuando
+leí un control sin poder como evidencia de ausencia. Un intervalo demasiado angosto no falla.
+Da un número mejor.
+
+#### Los intervalos corregidos
+
+Bootstrap percentil remuestreando **tareas** con reemplazo, 10000 repeticiones, semilla 1,
+recalculado sobre el crudo ya medido —sin volver a preguntarle nada al modelo—:
+
+| | punto | Wilson (lo publicado) | **agrupado por tarea** |
+|---|---|---|---|
+| exactitud | 79% | [72% · 85%] | **[70% · 88%]** |
+| TPR | 86% | [76% · 92%] | **[78% · 93%]** |
+| FPR | 28% | [19% · 39%] | **[14% · 43%]** |
+| AUC | 0,83 | — | **[0,73 · 0,92]** |
+
+El ensanchamiento es real y moderado: el FPR pasa de ±10 puntos a ±14. **Ninguna conclusión
+cambia** —la exactitud sigue despegada de la clase mayoritaria (51%) y el FPR sigue lejos del
+100% de «no descartar nada»—, pero el número que hay que citar es **28% [14% · 43%]**.
+
+#### Y agrupar por corrida sale MÁS ANGOSTO, que es una trampa
+
+Las corridas son la unidad con la que se particionó el banco, así que generalizar a una corrida
+nueva es la afirmación que de verdad interesa. Agrupando por corrida (K=7) el FPR sale
+[19% · 38%], **más angosto que Wilson**. Eso no es precisión: con K chico el bootstrap de
+clusters toma el contenido de cada cluster como FIJO, y la varianza entre clusters está estimada
+con siete puntos. El instrumento lo declara arriba del número, no abajo:
+
+> ⚠ sólo 7 grupos: la varianza ENTRE grupos está mal estimada y el intervalo puede salir
+> ENGAÑOSAMENTE ANGOSTO. Indicativo, no intervalo.
+
+#### El hallazgo central de §26 sobrevive
+
+La diferencia entre el subgrupo que el tope censuraba y el resto, agrupada por tarea:
+
+| | punto | IC95 agrupado |
+|---|---|---|
+| exactitud, a favor del resto | +24 puntos | **[+4 · +42]** |
+| AUC, a favor del resto | +0,28 | **[+0,14 · +0,43]** |
+
+Ninguna cruza el cero. La censura informativa sigue afirmada con el agrupamiento puesto.
+
+#### Lo que esto le dice al paper
+
+El límite de este banco no es 147: es **15 tareas y 7 familias**. Cualquier afirmación que
+dependa de la precisión —un umbral afinado, una comparación entre dos modelos que difieran por
+pocos puntos— no la soporta. Lo que sí soporta son los efectos grandes: la censura informativa
+(+24 puntos, +0,28 de AUC), y la distancia a la clase mayoritaria. Para lo demás hace falta más
+familias, no más registros de las mismas.
+
+#### El instrumento
+
+`scripts/ic_agrupado.py` recalcula sobre cualquier crudo del juez; `bootstrap_agrupado` vive en
+`_estadistica.py` al lado de Wilson y de Fisher. Doce mutaciones corridas entre los dos, doce
+cazadas. La que importa es la primera: **remuestrear observaciones en vez de clusters** devuelve
+exactamente el intervalo angosto de Wilson, o sea el defecto que esta sección arregla, y ningún
+test que mirara sólo el orden de los números lo habría notado.

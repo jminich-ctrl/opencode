@@ -8,6 +8,7 @@ Por qué existe: §19 tuvo que calcular su p y su IC fuera del repo, y un númer
 a mano al costado es un número que nadie puede volver a sacar. Si está acá, se audita.
 """
 import math
+import random
 
 
 def fisher_exacto_2x2(a, b, c, d):
@@ -60,3 +61,55 @@ def wilson(k, n, z=1.96):
     centro = (p + z * z / (2 * n)) / denom
     semi = (z / denom) * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))
     return (max(0.0, centro - semi), min(1.0, centro + semi))
+
+
+def bootstrap_agrupado(grupos, estadistico, reps=10000, semilla=1, alfa=0.05):
+    """IC percentil remuestreando CLUSTERS, no observaciones.
+
+    Por qué existe, y es una corrección a números ya publicados: §24 a §27 informaron IC de
+    Wilson sobre 147 registros del reservado, tratándolos como independientes. No lo son:
+    salen de 15 tareas, y dos registros de la misma tarea comparten el enunciado. El n
+    efectivo está más cerca de 15 que de 147, así que esos IC son más angostos que la verdad.
+
+    Un IC demasiado angosto no falla: afirma una precisión que no se midió, que es la misma
+    familia de defecto que persigue todo MEDICION.md. Y le pasó a este proyecto en §25, donde
+    leí un control sin poder como evidencia de ausencia.
+
+    `grupos` es un dict {clave: [observaciones]} o una lista de listas: cada elemento es un
+    cluster. Se remuestrean K clusters CON reemplazo, donde K es la cantidad de clusters, y
+    se juntan sus observaciones. `estadistico` recibe la lista junta y devuelve un float, o
+    None si con esa muestra no se puede calcular —falta una clase, por ejemplo—.
+
+    Devuelve (bajo, alto, descartadas). `descartadas` son las repeticiones donde el
+    estadístico dio None, y se devuelve en vez de tragarse: si son muchas, el IC está
+    calculado sobre un subconjunto sesgado de los remuestreos y el que lo lea tiene que
+    saberlo.
+
+    AVISO sobre pocos clusters: con K chico la varianza ENTRE clusters está mal estimada y el
+    intervalo puede salir ENGAÑOSAMENTE ANGOSTO, porque el bootstrap de clusters toma el
+    contenido de cada cluster como fijo. Medido acá: por corrida (K=7) salió más angosto que
+    Wilson, lo cual no es precisión sino K insuficiente. Con K < 10 el resultado se informa
+    como indicativo, no como intervalo.
+    """
+    bolsas = list(grupos.values()) if isinstance(grupos, dict) else list(grupos)
+    bolsas = [b for b in bolsas if b]
+    if not bolsas:
+        return (0.0, 1.0, reps)
+    rnd = random.Random(semilla)
+    k = len(bolsas)
+    valores, descartadas = [], 0
+    for _ in range(reps):
+        muestra = []
+        for _ in range(k):
+            muestra.extend(bolsas[rnd.randrange(k)])
+        v = estadistico(muestra)
+        if v is None:
+            descartadas += 1
+            continue
+        valores.append(v)
+    if not valores:
+        return (0.0, 1.0, descartadas)
+    valores.sort()
+    lo = valores[int((alfa / 2) * len(valores))]
+    hi = valores[min(len(valores) - 1, int((1 - alfa / 2) * len(valores)))]
+    return (lo, hi, descartadas)

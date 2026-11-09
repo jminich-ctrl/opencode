@@ -16514,6 +16514,94 @@ class TestElMonitoreoVivoEnElRepoYNoEnTmp(unittest.TestCase):
                       f"el aviso no distingue el 2 del 1:\n{tramo[:300]}")
 
 
+class TestLosIntervalosPublicadosSuponianIndependenciaQueNoHay(unittest.TestCase):
+    """Los 147 registros del reservado salen de 15 tareas y 7 corridas, y dos registros de la
+    misma tarea comparten el enunciado. Los IC de Wilson de §24 a §27 los trataron como
+    independientes, así que afirman una precisión que no se midió.
+
+    `ic_agrupado.py` recalcula sobre el crudo ya medido —sin volver a preguntarle al modelo—
+    y es un instrumento, o sea que puede devolver un número mejor sin fallar. Estos tests
+    fijan las dos formas de que eso pase: que agrupe mal, y que no avise cuando hay tan pocos
+    grupos que el intervalo sale angosto por falta de grupos y no por precisión."""
+
+    def banco(self, filas):
+        """filas: [(id, tarea, corrida, veredicto, puntuacion)]"""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-metodo-"))
+        self.addCleanup(tirar_dir, d)
+        b = d / "banco.jsonl"
+        c = d / "crudo.jsonl"
+        b.write_text("".join(json.dumps(
+            {"id": i, "tarea": ta, "corrida": co, "veredicto": v}) + "\n"
+            for i, ta, co, v, _ in filas))
+        c.write_text("".join(json.dumps(
+            {"id": i, "veredicto": v, "dijo": "aceptado" if p > 0 else "rechazado",
+             "puntuacion": p}) + "\n" for i, ta, co, v, p in filas))
+        return b, c
+
+    def correr_ic(self, b, c, por="tarea", reps=2000):
+        return correr(f'python3 "{SCRIPTS}/ic_agrupado.py" "{c}" "{b}" --por {por} '
+                      f'--reps {reps}', RAIZ)
+
+    def rejilla(self, tareas, por_tarea):
+        """Tareas HOMOGÉNEAS: adentro de cada una el juez acierta todo o se equivoca todo.
+        Ahí el n efectivo es la cantidad de tareas, no la de registros."""
+        filas = []
+        for t in range(tareas):
+            acierta = t % 2 == 0
+            for j in range(por_tarea):
+                ok = j % 2 == 0
+                v = "aceptado" if ok else "rechazado"
+                # puntuación correcta si acierta, invertida si no
+                p = (1 if ok else -1) * (1 if acierta else -1) * 10
+                filas.append((f"id{t}-{j}", f"T{t}", f"c{t // 4}", v, p))
+        return filas
+
+    def test_agrupar_por_tarea_ENSANCHA_respecto_de_suponer_independencia(self):
+        """El punto de todo esto. Con 12 tareas homogéneas de 10 registros, el intervalo
+        agrupado tiene que ser claramente más ancho que el de Wilson sobre 120 registros. Si
+        saliera igual, el script estaría remuestreando registros y no tareas, y el número se
+        vería perfecto."""
+        b, c = self.banco(self.rejilla(12, 10))
+        r = self.correr_ic(b, c)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        m = re.search(r"exactitud\s+(\d+)%\s+\[(\d+)% – (\d+)%\]\s+\[(\d+)% – (\d+)%\]",
+                      r.stdout)
+        self.assertIsNotNone(m, f"no pude leer la fila de exactitud:\n{r.stdout}")
+        _, wlo, whi, glo, ghi = (int(x) for x in m.groups())
+        self.assertGreater(ghi - glo, 2 * (whi - wlo),
+                           f"agrupado [{glo},{ghi}] no es mucho más ancho que Wilson "
+                           f"[{wlo},{whi}]: ¿remuestrea registros en vez de tareas?")
+
+    def test_avisa_cuando_hay_tan_pocos_grupos_que_el_intervalo_no_vale(self):
+        """Con K chico el bootstrap de clusters toma el contenido de cada cluster como FIJO y
+        puede dar un intervalo MÁS ANGOSTO que el ingenuo. Eso no es precisión y el que lo lea
+        tiene que verlo arriba del número, no deducirlo."""
+        b, c = self.banco(self.rejilla(12, 10))
+        r = self.correr_ic(b, c, por="corrida")   # 12 tareas / 4 = 3 corridas
+        self.assertIn("3 grupo(s) por corrida", r.stdout, r.stdout)
+        self.assertIn("ENGAÑOSAMENTE ANGOSTO", r.stdout,
+                      "con 3 grupos tiene que avisar")
+
+    def test_con_grupos_de_sobra_NO_avisa(self):
+        """El brazo nulo: un aviso que sale siempre no es un aviso."""
+        b, c = self.banco(self.rejilla(12, 10))
+        r = self.correr_ic(b, c, por="tarea")     # 12 grupos
+        self.assertIn("12 grupo(s) por tarea", r.stdout, r.stdout)
+        self.assertNotIn("ENGAÑOSAMENTE ANGOSTO", r.stdout)
+
+    def test_sin_registros_que_empalmen_no_inventa_un_intervalo(self):
+        """La falla de siempre: devolver [0%-100%] y que parezca una medición."""
+        b, c = self.banco(self.rejilla(4, 4))
+        otro = pathlib.Path(tempfile.mkdtemp(prefix="prueba-metodo-"))
+        self.addCleanup(tirar_dir, otro)
+        vacio = otro / "b.jsonl"
+        vacio.write_text(json.dumps({"id": "nada", "tarea": "X", "corrida": "y",
+                                     "veredicto": "aceptado"}) + "\n")
+        r = self.correr_ic(vacio, c)
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("No es un pase", r.stdout)
+
+
 class TestLaEstadisticaSeVerificaConLapiz(unittest.TestCase):
     """Un p calculado por un script que nadie verificó es un número de adorno. §19 calculó su
     p y su IC FUERA del repo, y un número que se saca a mano al costado no se puede volver a
@@ -16529,6 +16617,90 @@ class TestLaEstadisticaSeVerificaConLapiz(unittest.TestCase):
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
         return m.fisher_exacto_2x2(a, b, c, d)
+
+    def est(self):
+        """El módulo entero, para lo que no es `fisher`."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_est", SCRIPTS / "_estadistica.py")
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+
+    def proporcion(self, xs):
+        return sum(xs) / len(xs) if xs else None
+
+    def test_con_clusters_de_a_uno_el_bootstrap_se_parece_a_Wilson(self):
+        """El caso degenerado, que es el ancla: si cada observación es su propio cluster, el
+        bootstrap agrupado ES el bootstrap de toda la vida, y para una proporción tiene que
+        caer cerca del intervalo de Wilson. Sin este ancla, cualquier intervalo inventado
+        pasaría los otros tests mientras conserve el ORDEN entre ellos."""
+        m = self.est()
+        datos = [1] * 60 + [0] * 40
+        lo, hi, desc = m.bootstrap_agrupado([[x] for x in datos], self.proporcion,
+                                            reps=4000, semilla=3)
+        wlo, whi = m.wilson(60, 100)
+        self.assertEqual(desc, 0)
+        self.assertAlmostEqual(wlo, lo, delta=0.05, msg=f"bajo {lo:.3f} vs Wilson {wlo:.3f}")
+        self.assertAlmostEqual(whi, hi, delta=0.05, msg=f"alto {hi:.3f} vs Wilson {whi:.3f}")
+
+    def test_cuando_el_cluster_correlaciona_el_intervalo_SE_ENSANCHA(self):
+        """EL punto de todo esto, y la propiedad que un bug destruye en silencio.
+
+        Diez clusters de diez observaciones cada uno, y adentro de cada cluster todas las
+        observaciones son IGUALES. Ahí el n efectivo es 10, no 100, y el intervalo tiene que
+        ser MUCHO más ancho que el de Wilson sobre 100 observaciones. Si alguien remuestreara
+        observaciones en vez de clusters, saldría el angosto de Wilson y ningún otro test de
+        esta clase lo notaría: el número se ve bien, sólo que afirma una precisión que no se
+        midió."""
+        m = self.est()
+        # 6 clusters de puros 1, 4 de puros 0: proporción 0,60 con n efectivo 10.
+        grupos = [[1] * 10 for _ in range(6)] + [[0] * 10 for _ in range(4)]
+        lo, hi, _ = m.bootstrap_agrupado(grupos, self.proporcion, reps=4000, semilla=5)
+        wlo, whi = m.wilson(60, 100)
+        self.assertGreater(hi - lo, 2 * (whi - wlo),
+                           f"agrupado [{lo:.2f}, {hi:.2f}] no es mucho más ancho que "
+                           f"Wilson [{wlo:.2f}, {whi:.2f}]: ¿remuestrea observaciones?")
+        # Y el ancho tiene que parecerse al de Wilson sobre los DIEZ clusters, que es el n real.
+        clo, chi = m.wilson(6, 10)
+        self.assertAlmostEqual(chi - clo, hi - lo, delta=0.18,
+                               msg=f"el ancho no se parece al de n=10: [{lo:.2f}, {hi:.2f}]")
+
+    def test_remuestrea_tantos_clusters_como_hay(self):
+        """Si tomara menos clusters por repetición, el intervalo saldría ancho por el motivo
+        equivocado y se leería igual de bien."""
+        m = self.est()
+        vistos = []
+
+        def espia(muestra):
+            vistos.append(len(muestra))
+            return self.proporcion(muestra)
+
+        grupos = [[1, 1, 1], [0, 0, 0], [1, 0, 1], [0, 1, 0], [1, 1, 0]]
+        m.bootstrap_agrupado(grupos, espia, reps=50, semilla=1)
+        self.assertEqual(set(vistos), {15},
+                         "cada repetición tiene que juntar 5 clusters de 3 = 15 observaciones")
+
+    def test_la_semilla_lo_hace_reproducible(self):
+        """Un intervalo que cambia cada vez que se corre no se puede citar en MEDICION."""
+        m = self.est()
+        grupos = [[1, 1, 0], [0, 0, 1], [1, 0, 0], [1, 1, 1]]
+        a = m.bootstrap_agrupado(grupos, self.proporcion, reps=500, semilla=9)
+        b = m.bootstrap_agrupado(grupos, self.proporcion, reps=500, semilla=9)
+        c = m.bootstrap_agrupado(grupos, self.proporcion, reps=500, semilla=10)
+        self.assertEqual(a, b)
+        self.assertNotEqual(a, c, "dos semillas distintas no pueden dar lo mismo")
+
+    def test_las_repeticiones_que_no_se_pudieron_calcular_se_DEVUELVEN(self):
+        """Tragarse los None sería el defecto de siempre: el intervalo queda calculado sobre
+        un subconjunto sesgado de los remuestreos y nadie se entera. Acá el estadístico pide
+        las dos clases, y hay clusters de una sola."""
+        m = self.est()
+        def dos_clases(xs):
+            return None if len(set(xs)) < 2 else sum(xs) / len(xs)
+        grupos = [[1, 1], [0, 0], [1, 1], [0, 0]]
+        lo, hi, desc = m.bootstrap_agrupado(grupos, dos_clases, reps=300, semilla=2)
+        self.assertGreater(desc, 0, "con 4 clusters puros tiene que haber repeticiones nulas")
+        self.assertLess(desc, 300, "pero no todas")
 
     def test_coincide_con_los_dos_casos_que_se_recalculan_a_mano(self):
         # [[2,0],[0,2]]: N=4, márgenes 2/2. P(X=0)=1/6, P(X=1)=4/6, P(X=2)=1/6. A dos colas
