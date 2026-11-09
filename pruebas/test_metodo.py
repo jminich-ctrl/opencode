@@ -17248,6 +17248,25 @@ class TestElJuezPuntualSeLeeContraLaTasaBaseYNoContraLaMitad(unittest.TestCase):
         self.assertIn("1 reintento(s)", r.stdout,
                       "reintentar en silencio cambia el denominador sin que nadie lo vea")
 
+    def test_el_crudo_dice_EN_QUE_REGISTRO_se_reintento(self):
+        """El contador global no alcanza para diagnosticar. De los 7 reintentos de §26 no se
+        pudo saber en qué registros ocurrieron, y eso es la diferencia entre «la plataforma
+        arrancó en frío al principio» y «se cayó a mitad»: dos problemas con dos arreglos
+        distintos. Lo busqué en el crudo de §25 y ahí sí estaban las posiciones —6, 12 y 25
+        de 40, o sea NO el arranque—, pero porque eran fallas finales; un reintento exitoso
+        no dejaba rastro ninguno."""
+        d, f = self.jsonl(self.siete_y_tres())
+        crudo = d / "crudo.jsonl"
+        ok = ("VEREDICTO: ACEPTAR\nCONFIANZA: 8", "stop", 700)
+        # El tercer registro falla una vez y se recupera; los demás salen limpios.
+        url, _ = self.plataforma_falsa([ok, ok, 503, ok, ok, ok, ok, ok, ok, ok, ok])
+        r = self.juez_contra(f, url, "--crudo", str(crudo))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        cs = [json.loads(l) for l in crudo.read_text().splitlines()]
+        self.assertEqual([c["reintentos"] for c in cs], [0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+                         "el crudo tiene que decir en QUÉ registro se insistió")
+        self.assertIn("1 reintento(s)", r.stdout)
+
     def test_un_400_no_se_reintenta_porque_insistir_no_lo_arregla(self):
         """El brazo nulo del de arriba, y no es cosmético: un pedido mal armado reintentado
         tres veces gasta tres esperas por registro y sigue fallando. Con un banco de 147 eso

@@ -390,6 +390,7 @@ def main():
     gastados, detalles = [], []
     for r in rs:
         corte = tokens = detalle = None
+        veces = 0
         if guion is not None:
             cruda = next(guion, "")
         else:
@@ -411,7 +412,7 @@ def main():
             ilegibles += 1
             anotar({"id": r.get("id"), "veredicto": r["veredicto"], "dijo": None,
                     "confianza": None, "corte": corte, "tokens": tokens,
-                    "detalle": detalle, "cruda": cruda[-600:]})
+                    "detalle": detalle, "reintentos": veces, "cruda": cruda[-600:]})
             continue
         if conf is None:
             sin_confianza += 1
@@ -423,7 +424,7 @@ def main():
             gastados.append(tokens)
         anotar({"id": r.get("id"), "veredicto": r["veredicto"], "dijo": dijo,
                 "confianza": conf, "puntuacion": punt, "corte": corte, "tokens": tokens,
-                "detalle": detalle, "cruda": cruda[-600:]})
+                "detalle": detalle, "reintentos": veces, "cruda": cruda[-600:]})
     if salida is not None:
         salida.close()
 
@@ -457,8 +458,13 @@ def main():
               f"\n     {resumen}")
     if reintentos:
         # Declarado porque reintentar en silencio cambia el denominador sin que nadie lo vea.
+        # Y el CRUDO lo anota por registro: el contador global no alcanzaba para diagnosticar.
+        # De los 7 reintentos de §26 no se pudo saber en qué registros ocurrieron, así que no
+        # se pudo distinguir «la plataforma arrancó en frío al principio» de «se cayó a
+        # mitad», que son dos problemas distintos con dos arreglos distintos.
         print(f"  ⊘ {reintentos} reintento(s) por códigos transitorios: la plataforma falló"
-              f"\n     y se insistió. Lo que se informa abajo incluye esos registros.")
+              f"\n     y se insistió. Lo que se informa abajo incluye esos registros."
+              f"\n     En qué registros fue: el campo `reintentos` del --crudo.")
     if sin_confianza:
         print(f"  ⊘ {sin_confianza} respuesta(s) sin confianza legible: se les puso 5 por"
               f" omisión.\n     Se declara porque rellenar en silencio mueve el barrido.")
