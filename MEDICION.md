@@ -2624,3 +2624,116 @@ familias, no más registros de las mismas.
 cazadas. La que importa es la primera: **remuestrear observaciones en vez de clusters** devuelve
 exactamente el intervalo angosto de Wilson, o sea el defecto que esta sección arregla, y ningún
 test que mirara sólo el orden de los números lo habría notado.
+
+---
+
+### §29 — El hallazgo de §26 es trabajo CONCURRENTE, no primero; y las cotas que lo habrían avisado gratis (2026-11-09)
+
+Antes de gastar horas de GPU en replicar §26 con más modelos, fui a ver si el resultado ya
+estaba publicado. Está.
+
+#### La deuda de honestidad, primero
+
+**Vidal, S. (2026). «Cut short: output limits remove an LLM judge's rejections first.»**
+Zenodo, 1 de noviembre de 2026, [10.5281/zenodo.23865213](https://zenodo.org/records/23865213).
+Ocho días antes de que escribiéramos §26. Mide lo mismo sobre 8 pares juez×tarea: el tope de
+salida trunca los rechazos antes que las aceptaciones, descartarlos es insesgado sólo bajo MCAR
+y no lo son. Audita 30 papers de ACL/EMNLP —2 de 30 reportan el `max_tokens` del juez— y los
+defaults de 10 herramientas de evaluación.
+
+Y el principio de fondo tiene cuarenta años, en medicina y no en NLP: **Begg, Greenes &
+Iglewicz (1986)**, *The influence of uninterpretability on the assessment of diagnostic tests*,
+J Chronic Dis 39(8):575–584. «Ignorar resultados ilegibles sesga cuando su causa se relaciona
+con el resultado que el test habría dado». **STARD 2015** ítems 15–16 ya obliga a reportarlo.
+
+Así que §24 a §28 quedan como lo que son: una **réplica independiente y concurrente** de un
+resultado que otra persona publicó primero, sobre un sistema distinto. No es poco y no es lo que
+creíamos. Lo escribo acá y no en una nota al pie porque el documento entero existe para no
+dejar que un número se lea mejor de lo que es, y eso vale también para la originalidad.
+
+Verificado por mí contra el registro de Zenodo, no sólo por el agente que lo trajo. El p=0,005
+de los dos trabajos es coincidencia de redondeos: el suyo es hipergeométrico de una cola sobre
+36 ítems, el nuestro Fisher a dos colas sobre [[24,15],[92,16]].
+
+#### Lo que sigue siendo nuestro, y hay que decirlo con la misma precisión
+
+**El mecanismo es distinto.** El de Vidal es «los rechazos son más largos» —censura por clase—.
+El nuestro es «la censura se concentra donde el juez no tiene señal discriminativa», AUC 0,59
+contra 0,87. Eso no está publicado. Y el detalle que lo vuelve relevante: el mecanismo de ella
+**falla justo en modelos de razonamiento** —se sostuvo en 1 de 4 jueces en una tarea y en 0 de
+11 en JudgeBench—, que es exactamente dónde vive el nuestro.
+
+**El artefacto del parser no está en ninguna parte.** Un parser que toma el último veredicto de
+una respuesta truncada devuelve un veredicto que el modelo nunca emitió, y la firma es
+**especificidad aparentemente perfecta**. Hay folclore de ingeniería en issues y PRs públicos,
+pero nadie lo midió ni publicó la firma. Vidal documenta el caso benigno —su parser devuelve
+«sin veredicto» correctamente—; el nuestro es el maligno, y nos pasó en campo.
+
+#### La descomposición: mezcla, no comportamiento
+
+La objeción obvia a §26 es que el corrimiento 18%→28% sea un cambio de prevalencia en el
+conjunto puntuado y no del juez. Medido:
+
+| | FPR |
+|---|---|
+| los 108 visibles, con tope 4000 (§24) | 18% [11% · 30%] |
+| **los mismos 108, con tope 10000** | **18% [11% · 30%]** |
+| los 39 que el tope censuraba | **67% [42% · 85%]** |
+| los 147 completos (§26) | 28% [19% · 39%] |
+
+**El comportamiento sobre los mismos ítems no se movió.** Todo el corrimiento viene de reponer
+el subgrupo. O sea que sí es mezcla —y la mezcla ES el mecanismo, no un confundidor de él—. Lo
+que sería un problema es que subir el tope cambiara CÓMO juzga, y eso está controlado aparte:
+99% de acuerdo de veredicto en los 108 comparables (§26).
+
+#### Las cotas que lo habrían avisado sin gastar nada
+
+Contando los censurados como todos errados y como todos acertados, al estilo del
+«intention-to-diagnose» de la literatura diagnóstica:
+
+| | FPR |
+|---|---|
+| lo que §24 informó, descartando los censurados | 18% [11% · 30%] |
+| si NINGUNO de los censurados hubiera pasado | 15% [8% · 24%] |
+| si TODOS hubieran pasado | 35% [25% · 46%] |
+| **el valor real, medido con el tope arreglado** | **28% [19% · 39%]** |
+
+La cota honesta de §24 era **[15% · 35%]**, no el 18% puntual. El valor real cae adentro. Y un
+intervalo de ese ancho **ya habría dicho «esto no está medido»**, sin las cuatro horas de GPU
+que costó la recorrida.
+
+Esa es la recomendación accionable y no cuesta nada: **cuando haya respuestas ilegibles, informar
+la métrica con los censurados contados en los dos extremos, al lado del valor que los descarta.**
+Si la cota es ancha, el número no está medido y se sabe ese mismo día.
+
+#### El confundidor que sigue abierto, y por qué no se puede cerrar acá
+
+¿El AUC cae porque la censura selecciona ítems donde el juez no discrimina, o porque selecciona
+ítems **difíciles**, donde cualquier juez discrimina peor? Lo intenté con los datos que hay:
+
+- El proxy obvio —cuántos pasos del gate pasó el test— **es circular**: tiene AUC **1,00** contra
+  el veredicto del gate. No es una medida de dificultad, es la etiqueta. Lo vi porque imprimí el
+  chequeo de sanidad; sin él, el estrato habría devuelto un número con cara de control.
+- El largo del test **no predice ser censurado** (AUC 0,50) ni el veredicto (0,41). Así que
+  «largo = difícil = censurado» no es el mecanismo: lo que se alarga es el razonamiento, no el
+  ítem. Es una pieza a favor, pero no cierra la pregunta.
+
+**No se puede cerrar con un solo juez.** La forma limpia es un segundo juez: si los ítems que el
+juez A no llega a contestar le resultan fáciles al juez B, es pérdida de señal específica del
+juez y no dificultad del ítem. Eso convierte la replicación multi-modelo de «linda para
+generalizar» en **el control del confundidor**: deja de ser opcional.
+
+#### Lo que esto cambia del plan
+
+Y §28 ya dijo que este banco no da para más: su límite no es 147 registros, son **15 tareas y 7
+familias**. Más registros de las mismas familias no compran nada. Hace falta otro banco, y el
+elegido es **TestEval** (210 problemas de LeetCode en Python, MIT, un `.jsonl` de 506 KB), porque
+es isomorfo a nuestro gate campo por campo: trae enunciado, implementación de referencia, y
+`class Solution` + `func_name` como contrato, así que el cuarto criterio —archivo y clase
+correctos— existe nativo en vez de inventado. Python puro, sin Docker. Descartados SWE-bench
+(≥120 GB de disco), TestGenEval (CC-BY-NC, no comercial) y Defects4J (Java 11 y Perl).
+
+Dos trampas ya encontradas montándolo, que valen para nuestro propio gate: hace falta **timeout
+por corrida** —un mutante entró en bucle infinito— y el mutation score hay que **condicionarlo a
+que el test pase con la referencia**, porque un test que errora contra todo «mata» todos los
+mutantes y el criterio miente justo donde más importa.
