@@ -66,7 +66,22 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
                  | grep -E '✗|por qué falla' | head -6
                sed 's/\x1b\[[0-9;]*m//g' "$RAIZ/../tests-$id/.tests.log" 2>/dev/null \
                  | grep -E '^  ✗' | head -4; } | sort -u)"
-  LO_QUE_FALLO="$(printf '%s\n%s\n' "$CONCRETO" "$GENERICO" | grep . | tr '\n' ' ' | cut -c1-600)"
+  # EL VEREDICTO DEL ARNÉS PRIMERO, antes que cualquier grep del transcript.
+  #
+  # Todo lo de arriba lee lo que el AGENTE imprimió. El 2026-11-10, en los cuatro rechazos de
+  # la etapa 1 de clasificados, eso daba «✗ la suite está en rojo» —una categoría— mientras el
+  # motivo real del arnés era «el test parchea un lugar donde el patch no va a tener efecto»,
+  # con la ruta exacta que había que poner. El arquitecto recibió la categoría y no cambió
+  # nada. Es la tercera vez que este script replanifica con el dato equivocado, y las dos
+  # anteriores se arreglaron acotando el grep en vez de cambiar la FUENTE.
+  #
+  # `escribir-tests.sh` ahora escribe su veredicto en `fallidos-<id>/veredicto-*.txt`
+  # (`conservar_veredicto` en _comun.sh). Si está, manda; el grep queda de respaldo para los
+  # fallidos viejos, que no lo tienen.
+  VEREDICTO="$(cat "$(ls -t "$FALLIDOS"/veredicto-*.txt 2>/dev/null | head -1)" 2>/dev/null \
+    | sed 's/\x1b\[[0-9;]*m//g' | grep . | head -14)"
+  LO_QUE_FALLO="$(printf '%s\n%s\n%s\n' "$VEREDICTO" "$CONCRETO" "$GENERICO" | grep . | tr '\n' ' ' | cut -c1-600)"
+  [ -n "$VEREDICTO" ] || echo "     ⊘ sin veredicto del arnés para $id: el motivo sale de grepear el transcript del agente, que da la categoría y no el dato. Lo tendrá en la próxima corrida."
   MOTIVO="$FASE  Lo que falló: $LO_QUE_FALLO"
   # La guarda mira LO QUE FALLÓ, no la oración armada. Miraba `$MOTIVO`, que arranca con
   # `$FASE` y por lo tanto NUNCA está vacío: no podía dispararse jamás. El script replanificaba

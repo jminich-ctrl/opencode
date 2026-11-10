@@ -656,6 +656,42 @@ conservar_intento() {
   fi
 }
 
+# El VEREDICTO del arnés, al lado del transcript y del parche.
+#
+#   conservar_veredicto <id> <motivo> [detalle]
+#
+# Por qué existe, y es un defecto medido hoy (2026-11-10): `replanificar.sh` le arma al
+# arquitecto el «Lo que falló» grepeando `✗` del TRANSCRIPT del agente. Pero el transcript
+# es lo que el agente imprimió mientras trabajaba, no el veredicto del que juzga. En los
+# cuatro rechazos de la etapa 1 de clasificados el único `✗` del transcript era la línea
+# genérica «la suite está en rojo», mientras el motivo real —«el test parchea un lugar donde
+# el patch no va a tener efecto», con la ruta exacta a poner en su lugar— vivía sólo en la
+# salida por consola de `escribir-tests.sh` y se perdía al terminar la corrida.
+#
+# El arquitecto recibió la categoría en vez del dato y no cambió nada: «no es una
+# replanificación fallida, es una que no ocurrió». Ocho minutos de agente para nada, por
+# segunda vez —la primera está escrita en el propio `replanificar.sh`, con fecha 2026-10-23—.
+# El arreglo de entonces acotó CUÁNTO se pasaba y no DE DÓNDE sale.
+#
+# Es la misma regla que este repo ya tiene escrita para `PROCEDENCIA.md`: **el veredicto es
+# el del arnés, no el del log**, porque el agente imprime el gate varias veces mientras
+# trabaja y el último no es el veredicto. Lo que faltaba era que el arnés lo ESCRIBIERA.
+#
+# Y es, otra vez, el patrón que `METODO.md` llama «nombrar la cosa no alcanza»: el motivo
+# estaba calculado, en una variable, a tres líneas del que lo necesitaba — y no tenía camino.
+conservar_veredicto() {
+  local id="${1:-tarea}" motivo="${2:-}" detalle="${3:-}" dest
+  [ -n "$motivo" ] || return 0
+  dest="$RAIZ/../fallidos-$id"
+  mkdir -p "$dest" 2>/dev/null || return 0
+  # Mismo reloj y mismo formato que el transcript y el parche: UTC con fecha. Con hora local
+  # ya creímos una vez que el método destruía su propia evidencia.
+  {
+    printf '%s\n' "$motivo"
+    [ -n "$detalle" ] && printf '%s\n' "$detalle"
+  } > "$dest/veredicto-$(date -u +%Y%m%dT%H%M%SZ).txt" 2>/dev/null || true
+}
+
 # ── El tronco no es un worktree: lo que un agente escribe de más, se mide y se saca.
 #
 # `replanificar.sh` y `replanificar-relevo.sh` corren `cd "$BASE"` sobre el proyecto REAL,

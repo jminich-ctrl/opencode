@@ -999,6 +999,12 @@ for id in "$@"; do
 
   [ -n "$MOTIVO_TESTS" ] || MOTIVO_TESTS="la validación del test no pasó"
   emitir_veredicto rechazado "$MOTIVO_TESTS"
+  # El motivo, al disco. Acá y no en `conservar_intento`, porque acá es donde el arnés SABE
+  # por qué rechazó: tres líneas más arriba el motivo es una variable y tres líneas más abajo
+  # ya se imprimió y se perdió. `replanificar.sh` lo lee de ahí en vez de grepear el
+  # transcript del agente, que es lo que lo hacía replanificar con la categoría en vez del
+  # dato. Ver `conservar_veredicto` en _comun.sh.
+  conservar_veredicto "${id:-${TAREA:-tests}}" "$MOTIVO_TESTS" "$DETALLE_TESTS"
   cd "$RAIZ" || true
 
   # Misma regla de corte que correr-plan.sh: reintentar a ciegas gasta tiempo en la falla

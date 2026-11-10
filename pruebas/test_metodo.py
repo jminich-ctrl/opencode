@@ -10211,6 +10211,119 @@ class TestReplanificarSinMotivoNoReplanifica(unittest.TestCase):
                       f"y pasarle el error CONCRETO, no la categoría:\n{salida}")
 
 
+class TestElMotivoQueLlegaAlArquitectoEsElDelArnesNoElDelTranscript(unittest.TestCase):
+    """Medido el 2026-11-10 en la etapa 1 de clasificados: las cuatro tareas rechazadas
+    tenían un motivo preciso —«el test parchea un lugar donde el patch no va a tener efecto»,
+    con la ruta exacta a poner en su lugar— y el arquitecto recibió «✗ la suite está en rojo».
+
+    La causa: `replanificar.sh` arma el «Lo que falló» grepeando `✗` del TRANSCRIPT del
+    agente, y el transcript es lo que el agente imprimió mientras trabajaba, no el veredicto
+    del que juzga. El motivo del arnés vivía sólo en la salida por consola de
+    `escribir-tests.sh` y moría con la corrida. El arquitecto replanificó T04 con una
+    categoría y no cambió nada: «no es una replanificación fallida, es una que no ocurrió».
+
+    Es la misma regla que el repo ya tiene escrita para `PROCEDENCIA.md` —el veredicto es el
+    del arnés, no el del log— y el mismo patrón que `METODO.md` llama «nombrar la cosa no
+    alcanza»: el motivo estaba calculado, en una variable, a tres líneas del que lo
+    necesitaba, y no tenía camino.
+
+    Este test mide EL CAMINO, no la existencia: lo que se afirma es que el texto llega al
+    prompt del arquitecto. Un test que sólo mirara que el archivo se escribe habría pasado
+    con el defecto entero en pie."""
+
+    plataforma_falsa = TestReplanificarSinMotivoNoReplanifica.plataforma_falsa
+
+    def proyecto(self):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="prueba-veredicto-")).resolve()
+        self.addCleanup(tirar_dir, tmp)
+        d = tmp / "repo"; d.mkdir()
+        correr("git init -q . && git config user.email a@b && git config user.name a", d)
+        (d / "tareas").mkdir()
+        (d / "tareas" / "T41-cosa.md").write_text(
+            "# T41 — Una cosa\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/cosa.py\n**Prohibido tocar:** Ninguno\n\n"
+            "## Objetivo\n\nQue haya una cosa.\n\n"
+            "## Tests\n\nArchivo: `tests/test_cosa.py`, clase `TestCosa`\n\n"
+            "## Terminado cuando\n\n- [ ] anda\n")
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n## Tareas\n\n"
+            "| # | Tarea | Depende de | Archivos | Estado |\n|---|---|---|---|---|\n"
+            "| T41 | Una cosa | — | `app/cosa.py` | pendiente |\n")
+        correr("git add -A && git commit -qm base", d)
+        bin_ = d / ".bin"; bin_.mkdir()
+        # El agente guarda SU PROMPT, que es lo que este test mide. Afuera del proyecto, que
+        # es donde el guardia de escrituras de más no se lo lleva a cuarentena.
+        (bin_ / "opencode").write_text(
+            '#!/usr/bin/env bash\nprintf \'%s\\n\' "$@" > "$(dirname "$0")/../../EL-PROMPT"\n'
+            'echo "replanifiqué"\n')
+        (bin_ / "opencode").chmod(0o755)
+        return d
+
+    def fallidos_con(self, d, veredicto=None):
+        """Un transcript cuyo único `✗` es la línea genérica: el caso real del 2026-11-10."""
+        f = d.parent / "fallidos-T41"
+        f.mkdir(exist_ok=True)
+        (f / "intento-1.log").write_text("  ✗ la suite está en rojo\n")
+        if veredicto is not None:
+            (f / "veredicto-20261110T170000Z.txt").write_text(veredicto)
+        return f
+
+    def test_el_veredicto_del_arnes_le_llega_al_arquitecto(self):
+        d = self.proyecto()
+        self.fallidos_con(d, "el test parchea un lugar donde el patch no va a tener efecto\n"
+                             "Parcheá donde se usa:  patch('app.servicios.cosa.leer')\n")
+        r = correr(f'PATH="{d}/.bin:$PATH" PROYECTO=. LIMITE_AGENTE=60 MODELO=m1 '
+                   f'bash "{SCRIPTS}/replanificar.sh" T41', d, **self.plataforma_falsa())
+        prompt = (d.parent / "EL-PROMPT")
+        self.assertTrue(prompt.exists(), f"no llamó al arquitecto:\n{r.stdout}{r.stderr}")
+        texto = prompt.read_text()
+        self.assertIn("el patch no va a tener efecto", texto,
+                      "el arquitecto recibió el transcript del agente en vez del veredicto "
+                      f"del arnés, que es el defecto entero:\n{texto[:600]}")
+        self.assertIn("app.servicios.cosa.leer", texto,
+                      "llegó el titular del veredicto pero no el DETALLE, que es lo único "
+                      f"que dice qué escribir en su lugar:\n{texto[:600]}")
+
+    def test_el_veredicto_va_ADELANTE_de_la_categoria_del_transcript(self):
+        """No alcanza con que esté: el motivo se corta a 600 caracteres. Si la categoría va
+        primero, en una corrida real con un transcript largo el veredicto queda afuera del
+        corte y el arquitecto vuelve a leer «la suite está en rojo»."""
+        d = self.proyecto()
+        self.fallidos_con(d, "el test obliga un contrato que el enunciado no declara\n")
+        correr(f'PATH="{d}/.bin:$PATH" PROYECTO=. LIMITE_AGENTE=60 MODELO=m1 '
+               f'bash "{SCRIPTS}/replanificar.sh" T41', d, **self.plataforma_falsa())
+        texto = (d.parent / "EL-PROMPT").read_text()
+        i_ver = texto.find("el test obliga un contrato")
+        i_cat = texto.find("la suite está en rojo")
+        self.assertNotEqual(i_ver, -1, f"no llegó el veredicto:\n{texto[:600]}")
+        if i_cat != -1:
+            self.assertLess(i_ver, i_cat,
+                            "la categoría del transcript va antes que el veredicto del "
+                            "arnés: con un transcript largo el corte a 600 se come el dato")
+
+    def test_sin_veredicto_lo_DICE_en_vez_de_replanificar_callado(self):
+        """Los `fallidos-*` de antes de hoy no tienen veredicto, y el respaldo por grep sigue.
+        Lo que no puede pasar es que replanifique con la categoría SIN avisar: ese silencio es
+        lo que hizo que dos replanificaciones se dieran por buenas."""
+        d = self.proyecto()
+        self.fallidos_con(d, None)
+        r = correr(f'PATH="{d}/.bin:$PATH" PROYECTO=. LIMITE_AGENTE=60 MODELO=m1 '
+                   f'bash "{SCRIPTS}/replanificar.sh" T41', d, **self.plataforma_falsa())
+        self.assertIn("sin veredicto del arnés", r.stdout + r.stderr,
+                      "replanificó con la categoría del transcript y no lo dijo")
+
+    def test_el_arnes_de_tests_ESCRIBE_su_veredicto(self):
+        """El otro extremo del camino. `escribir-tests.sh` calcula el motivo en
+        `MOTIVO_TESTS` y lo imprime; si no lo escribe al disco, no hay nada que leer."""
+        s = (SCRIPTS / "escribir-tests.sh").read_text()
+        self.assertIn("conservar_veredicto", s,
+                      "escribir-tests.sh imprime el motivo del rechazo y no lo guarda: "
+                      "muere con la corrida y el replanificador queda sin fuente")
+        c = (SCRIPTS / "_comun.sh").read_text()
+        self.assertIn("conservar_veredicto()", c,
+                      "no existe la función que guarda el veredicto del arnés")
+
+
 class TestTodaPuertaQueLanzaAgentesSondeaLaPlataforma(unittest.TestCase):
     """El arreglo existía y estaba cableado en UNA sola puerta.
 
