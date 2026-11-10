@@ -1,0 +1,108 @@
+{
+ "cuando": "2026-11-10 14:15:48",
+ "encargo": "OBJETIVO.md",
+ "plan": "PLAN.md",
+ "enlaces": {
+  "registro": {
+   "requisito": "3d312aa72799",
+   "plan": "e48b958f03d4",
+   "tareas": [
+    "T26",
+    "T27"
+   ]
+  },
+  "login": {
+   "requisito": "c46b7d0e7a82",
+   "plan": "217069c9410d",
+   "tareas": [
+    "T04",
+    "T07"
+   ]
+  },
+  "publicar|crud": {
+   "requisito": "d339a627e2d2",
+   "plan": "58a66298b4f9",
+   "tareas": [
+    "T05a",
+    "T05c"
+   ]
+  },
+  "editar": {
+   "requisito": "c8241437ee76",
+   "plan": "ccc09359c0ce",
+   "tareas": [
+    "T11"
+   ]
+  },
+  "listado": {
+   "requisito": "3207d9f9a265",
+   "plan": "97831b30d688",
+   "tareas": [
+    "T08",
+    "T12"
+   ]
+  },
+  "busqueda": {
+   "requisito": "02ce7e4fc96b",
+   "plan": "127e1fa99d79",
+   "tareas": [
+    "T28",
+    "T29"
+   ]
+  },
+  "categoria": {
+   "requisito": "6fca009af7e2",
+   "plan": "c7679366b3aa",
+   "tareas": [
+    "T12",
+    "T28"
+   ]
+  },
+  "detalle": {
+   "requisito": "f7d3660ac95f",
+   "plan": "6c471b74c5f6",
+   "tareas": [
+    "T08",
+    "T25"
+   ]
+  },
+  "favorito": {
+   "requisito": "cc797ff915cb",
+   "plan": "c13d7ddfc147",
+   "tareas": [
+    "T14",
+    "T15",
+    "T16",
+    "T17",
+    "T18",
+    "T19"
+   ]
+  },
+  "mensaje": {
+   "requisito": "47c0351db335",
+   "plan": "7af226263186",
+   "tareas": [
+    "T20",
+    "T21",
+    "T22",
+    "T23",
+    "T24",
+    "T25"
+   ]
+  },
+  "diseno": {
+   "requisito": "9be3392b8991",
+   "plan": "500687c5957d",
+   "tareas": [
+    "T13"
+   ]
+  },
+  "migracion": {
+   "requisito": "0e9b47e3e44a",
+   "plan": "8428ec0ff7c3",
+   "tareas": [
+    "T03"
+   ]
+  }
+ }
+}
