@@ -1170,6 +1170,115 @@ class TestElGatePublicoNoLeCobraAlTestLasFallasDelEntorno(unittest.TestCase):
                       "mutación: los operadores se eligieron contra dos estudios a escala")
 
 
+class TestElMaterialCrudoEntraAlRepoYAlguienAvisaSiNo(unittest.TestCase):
+    """El método produce transcripts, parches y veredictos AFUERA del repo, en
+    `../fallidos-TNN/`, porque el worktree donde nacen se destruye. Eso está bien mientras
+    alguien los traiga, y durante meses no los trajo nadie.
+
+    Lo que costó: el 2026-11-10 `gate_publico.py` se escribió en el scratchpad de /tmp junto
+    con el banco de 210 ítems de TestEval y su venv; el sistema limpió /tmp y se fueron los
+    tres. El script se pudo reescribir porque quedó en una transcripción. Y no era sólo
+    /tmp: `~/rechazados/` —cuyo propio PROCEDENCIA.md dice «la única copia que existe»— y
+    3,6 MB de `../fallidos-*` tampoco estaban versionados.
+
+    Material de investigación que vive en un directorio que administra otro no está
+    guardado: está prestado.
+
+    El aviso va en `estado.sh` y no en una nota, porque *una cura que depende de que alguien
+    se acuerde no es parte del método: es documentación*. Y avisa en vez de cosechar solo
+    porque una corrida activa no se toca y ensuciar el árbol sin pedirlo rompe los chequeos
+    que exigen el árbol limpio.
+    """
+
+    def andamio(self):
+        """Un repo de mentira: `raiz/scripts/cosechar.sh` con `raiz/../fallidos-T99` al lado."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-cosecha-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        raiz = d / "raiz"
+        (raiz / "scripts").mkdir(parents=True)
+        shutil.copy2(SCRIPTS / "cosechar.sh", raiz / "scripts" / "cosechar.sh")
+        fall = d / "fallidos-T99"
+        fall.mkdir()
+        (fall / "intento-20261101T000000Z.log").write_text("lo que dijo el agente\n")
+        (fall / "parche-20261101T000000Z.diff").write_text("--- a/x\n+++ b/x\n")
+        (fall / "veredicto-20261101T000001Z.txt").write_text("el test parchea donde no va\n")
+        return d, raiz
+
+    def cosechar(self, raiz, *args):
+        return correr(f"bash {raiz}/scripts/cosechar.sh {' '.join(args)}", raiz,
+                      HOME=str(raiz / "home-vacio"))
+
+    def test_en_seco_no_escribe_nada(self):
+        d, raiz = self.andamio()
+        r = self.cosechar(raiz, "--seco")
+        self.assertIn("en seco", r.stdout)
+        self.assertFalse((raiz / "experimentos" / "crudo").exists(),
+                         "la corrida en seco escribió igual: entonces no es en seco")
+
+    def test_copia_los_tres_tipos_y_es_idempotente(self):
+        d, raiz = self.andamio()
+        self.cosechar(raiz)
+        dest = raiz / "experimentos" / "crudo" / "fallidos" / "T99"
+        for nombre in ("intento-20261101T000000Z.log", "parche-20261101T000000Z.diff",
+                       "veredicto-20261101T000001Z.txt"):
+            self.assertTrue((dest / nombre).exists(), f"no cosechó {nombre}")
+        r = self.cosechar(raiz)
+        self.assertIn("0 archivo(s) nuevos", r.stdout,
+                      "la segunda cosecha volvió a copiar: no es idempotente, y correrla "
+                      f"seguido duplicaría material. Dijo: {r.stdout!r}")
+
+    def test_NO_borra_el_original(self):
+        """El runner y `replanificar.sh` leen el veredicto de `../fallidos-TNN/`. Si la
+        cosecha moviera en vez de copiar, el próximo reintento replanificaría sin motivo."""
+        d, raiz = self.andamio()
+        self.cosechar(raiz)
+        self.assertTrue((d / "fallidos-T99" / "veredicto-20261101T000001Z.txt").exists(),
+                        "se llevó el original: el arnés lee de ahí")
+
+    def test_el_indice_se_REGENERA_no_se_apenda(self):
+        """Un índice que se apenda queda describiendo un estado que ya no es, y a un material
+        mal descripto se le cree."""
+        d, raiz = self.andamio()
+        self.cosechar(raiz)
+        indice = raiz / "experimentos" / "crudo" / "INDICE.md"
+        primera = indice.read_text()
+        self.cosechar(raiz)
+        self.assertEqual(primera.count("## Intentos reprobados"),
+                         indice.read_text().count("## Intentos reprobados"),
+                         "el índice se duplicó: se está apendando en vez de regenerarse")
+
+    def test_el_gitignore_no_se_come_los_transcripts(self):
+        """`*.log` está en `.gitignore` desde siempre, y los transcripts son `.log`. Sin la
+        excepción, la cosecha corre, dice que copió, y git no guarda ni uno: el peor caso,
+        porque el informe dice que sí."""
+        # Se mide el COMPORTAMIENTO —¿git ve el archivo nuevo?— y no `check-ignore`, que no
+        # sirve acá por dos motivos que me comí los dos: sin `--no-index` calla sobre lo que
+        # ya está seguido, así que una vez commiteado pasa aunque la excepción no exista; y
+        # con `--no-index` devuelve 0 también cuando la regla que machea es la NEGACIÓN, así
+        # que el código de salida no dice si está ignorado. Las dos versiones pasaban con la
+        # excepción borrada. Una aserción que no puede fallar es decoración, y ésta habría
+        # dejado pasar justo el defecto que persigue: la cosecha corre, dice que copió, y
+        # git no guarda ni uno.
+        suelto = RAIZ / "experimentos" / "crudo" / "fallidos" / "prueba-gitignore.log"
+        suelto.parent.mkdir(parents=True, exist_ok=True)
+        suelto.write_text("un transcript cualquiera\n")
+        self.addCleanup(lambda: suelto.unlink(missing_ok=True))
+        r = correr("git status --porcelain --untracked-files=all "
+                   "experimentos/crudo/fallidos/prueba-gitignore.log", RAIZ)
+        self.assertIn("prueba-gitignore.log", r.stdout,
+                      "git ignora los transcripts cosechados: la cosecha va a decir que "
+                      "copió y el commit no va a guardar ni uno, que es el peor caso porque "
+                      f"el informe dice que sí. Dijo: {r.stdout!r}")
+
+    def test_estado_avisa_cuando_queda_material_afuera(self):
+        texto = (SCRIPTS / "estado.sh").read_text()
+        self.assertIn("cosechar.sh", texto,
+                      "`estado.sh` no avisa si quedó material sin traer al repo. Una cura "
+                      "que depende de que alguien se acuerde no es parte del método")
+        self.assertIn("fallidos-", texto,
+                      "y el aviso tiene que mirar los fallidos de verdad, no ser un cartel")
+
+
 class TestRetomarPorNumeroNoSaltaTrabajo(unittest.TestCase):
     """Los números de etapa NO son estables entre corridas, y retomar por número saltaba
     trabajo en silencio.

@@ -172,3 +172,29 @@ EOF_F
     fi
   fi
 fi
+
+# ── Material sin cosechar ────────────────────────────────────────────────────────────────
+# El método produce transcripts, parches y veredictos AFUERA del repo (`../fallidos-TNN/`),
+# porque el worktree donde nacen se destruye. Eso está bien mientras alguien los traiga: el
+# 2026-11-10 se perdió `gate_publico.py` con su banco y su venv cuando el sistema limpió
+# /tmp, y nadie se enteró hasta once días después.
+#
+# Una cura que depende de que alguien se acuerde no es parte del método: es documentación.
+# Así que lo dice el informe de estado, que es lo que uno mira igual. No cosecha solo: una
+# corrida activa no se toca, y ensuciar el árbol sin pedirlo rompe los chequeos que exigen
+# el árbol limpio.
+_sin_cosechar=0
+for _d in "$RAIZ"/../fallidos-*; do
+  [ -d "$_d" ] || continue
+  _id="$(basename "$_d" | sed 's/^fallidos-//')"
+  for _f in "$_d"/*; do
+    [ -f "$_f" ] || continue
+    [ -f "$RAIZ/experimentos/crudo/fallidos/$_id/$(basename "$_f")" ] || _sin_cosechar=$((_sin_cosechar+1))
+  done
+done
+if [ "$_sin_cosechar" -gt 0 ]; then
+  echo
+  echo "  ⊘ $_sin_cosechar archivo(s) de intentos reprobados todavía no están en el repo."
+  echo "    Es material de la fábrica de dataset y vive afuera, donde ya perdimos cosas:"
+  echo "      bash \$AGENTES/scripts/cosechar.sh"
+fi
