@@ -75,20 +75,27 @@ Los dos defectos de contrato, medidos en las dos corridas:
 | `2541cf6` | Un permiso denegado ya no se cuenta como corte de plataforma (regalaba un reintento **e inflaba el denominador de salud de la plataforma**), y la verificación de `warm.sh` dejó de mirar modelos que ningún agente usa. 9 tests. |
 | `2d1a201`, `d4fc7f0` | 4,4 MB de material de investigación, que vivía afuera del repo, cosechado adentro con `scripts/cosechar.sh`. Incluye `gate_publico.py` reescrito. |
 
-## Lo que se perdió, y hay que rehacer
+## Lo que se perdió, y cómo quedó
 
-/tmp se limpió y se llevó el scratchpad del 2026-11-10. `gate_publico.py` se pudo reescribir
-porque quedó en una transcripción. **No se pudieron recuperar el banco de 210 ítems de TestEval
-ni su venv**, así que esa parte de §29 hay que rehacerla: bajar el banco y armar un venv con
-`pytest` y `sortedcontainers`, que es lo que `--python` necesita.
+/tmp se limpió y se llevó el scratchpad del 2026-11-10: `gate_publico.py`, el banco de 210
+ítems de TestEval y su venv. Los tres están recuperados y, esta vez, de forma que no dependa de
+que /tmp sobreviva:
+
+- `scripts/gate_publico.py` — reescrito y **verificado de punta a punta** contra un ítem real
+  del banco: un test que distingue sale `aceptado`, uno vacuo sale `rechazado: sobreviven 7 de
+  9 mutantes`. Importa `mutar.py`, o sea que la réplica pública usa el mismo operador que el
+  gate nuestro; si inventara los suyos, la comparación no diría nada.
+- `scripts/bajar_testeval.py` — baja el banco con el **sha256 clavado** y arma el venv con
+  `--venv`. Si el upstream cambia el archivo, para en vez de medir sobre otro banco.
 
 Material de investigación que vive en un directorio que administra otro no está guardado: está
 prestado. Por eso existe `scripts/cosechar.sh` y por eso corre en cada cierre.
 
 ## Pendientes técnicos, sin bloquear a nadie
 
-- Correr el gate público sobre los 210 ítems (~2 h a un hilo, ~15 min con 8), una vez rearmado
-  el banco.
+- Correr el gate público sobre los 210 ítems (~2 h a un hilo, ~15 min con 8). El banco y el
+  venv ya están: `python3 scripts/bajar_testeval.py --venv`. Falta el `tests.jsonl`, o sea
+  generar los tests con los modelos.
 - La replicación multi-modelo (mistral-small-24b, gpt-oss-20b, llama-3.2-8b). **Ya no es para
   generalizar: es el control del confundidor de §29.** Presupuesto ~6 h. Bloqueada por el estado
   de las réplicas de la plataforma.

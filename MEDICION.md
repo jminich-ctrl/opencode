@@ -2897,8 +2897,11 @@ entrega, y lo declaró en vez de inventarlo. Por el método, eso lo decide una p
 
 `gate_publico.py` —la réplica pública del gate sobre TestEval que §29 volvió obligatoria— se
 escribió en el scratchpad de /tmp junto con el banco de 210 ítems y su venv. El sistema limpió
-/tmp y se fueron los tres. El script se pudo reescribir porque quedó en una transcripción; **el
-banco de 210 ítems y el venv hay que rearmarlos**, y eso es trabajo de §29 que hay que repetir.
+/tmp y se fueron los tres. Los tres están recuperados el 2026-11-21, y de forma que no dependa
+de que /tmp sobreviva: `scripts/gate_publico.py` versionado y verificado de punta a punta —un
+test que distingue sale `aceptado`, uno vacuo `rechazado: sobreviven 7 de 9 mutantes`— y
+`scripts/bajar_testeval.py`, que baja el banco con el sha256 clavado y arma el venv. El trabajo
+que no está en un script hay que volver a hacerlo; bajar el banco a mano costó dos veces.
 
 No era sólo /tmp: `~/rechazados/` —los 16 intentos con código real, que su propio
 `PROCEDENCIA.md` llama «la única copia que existe»— y los 3,6 MB de `../fallidos-TNN/` tampoco
