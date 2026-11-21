@@ -983,6 +983,92 @@ class TestPlataformaCaida(unittest.TestCase):
                       "un stream cortado por la plataforma no es culpa del agente")
 
 
+class TestUnPermisoDenegadoNoEsUnCorteDePlataforma(unittest.TestCase):
+    """Medido el 2026-11-10 en la corrida de clasificados. El arnés le negó permiso a una
+    herramienta, opencode lo imprimió por su canal de error, y el método informó:
+
+        ✗ la plataforma cortó el intento: The user rejected permission to use this specific
+          tool call.
+           (corte de plataforma 1 de 12; no cuenta contra la tarea)
+
+    Dos daños, y el segundo es el que no se ve. El primero es que regala un reintento que va
+    a morir igual: el permiso no cambia solo, así que la próxima herramienta se niega igual.
+    El segundo es que **infla el denominador de «perdidas por plataforma»**, que es el mismo
+    número con el que informamos la salud de la plataforma —15% histórico, `experimentos/`
+    «los dos denominadores»—. Una falla de configuración NUESTRA entrando como falla de un
+    tercero mueve las dos métricas en la dirección cómoda a la vez.
+
+    Es la misma familia que el comentario de `error_del_agente` ya tenía escrita dos veces:
+    un detector que mete todo en un balde deja de distinguir. Acá el balde era «el canal de
+    opencode = la plataforma», y el permiso denegado entra por ese canal igual que un 503.
+    """
+
+    CANAL = "\033[91m\033[1mError: \033[0m"
+
+    def log_con(self, d, texto):
+        log = d / ".tarea.log"
+        log.write_text(f"=== T04\n> ejecutor\nleyendo la tarea\n{self.CANAL}{texto}\n"
+                       "=== gate ===\nx\n=== rc=1\n=== fin T04 · hoy\n")
+        return log
+
+    def error(self, log):
+        return correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                      f'error_del_agente {shlex.quote(str(log))}', RAIZ).stdout
+
+    def test_el_permiso_denegado_se_informa_como_NUESTRO_no_de_la_plataforma(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-permiso-"))
+        self.addCleanup(tirar_dir, d)
+        log = self.log_con(d, "The user rejected permission to use this specific tool call.")
+        salida = self.error(log)
+        self.assertIn("permiso denegado", salida.lower(),
+                      "un permiso denegado tiene que decir que es del arnés. Si sale con el "
+                      "texto pelado, el que cuenta cortes lo suma a la plataforma. "
+                      f"Dijo: {salida!r}")
+        self.assertIn("NO es la plataforma", salida,
+                      "y tiene que decirlo con esas palabras, porque el que lee el log es el "
+                      "que decide si espera a que la plataforma se estabilice o si va a "
+                      "arreglar la config")
+
+    def test_no_se_queda_CALLADO(self):
+        """La corrección fácil era devolver vacío para que no contara como corte. Sería el
+        mismo defecto que esta función tiene documentado dos veces: lo que calla envejece, y
+        acá además el intento quedaría anotado como «no escribió el test» —contra el modelo—
+        por una falla de permisos de esta máquina."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-permiso-mudo-"))
+        self.addCleanup(tirar_dir, d)
+        log = self.log_con(d, "The user rejected permission to use this specific tool call.")
+        self.assertNotEqual(self.error(log).strip(), "",
+                            "si devuelve vacío, el intento se anota contra la tarea")
+
+    def test_un_503_SIGUE_contando_como_plataforma(self):
+        """El brazo que no se tiene que mover. Un detector que distingue de más es tan malo
+        como uno que no distingue: si esto deja de reconocerse como plataforma, cada caída
+        real empieza a contar contra el modelo."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-503-"))
+        self.addCleanup(tirar_dir, d)
+        log = self.log_con(d, "Cannot connect to API: Unable to connect")
+        salida = self.error(log)
+        self.assertIn("Cannot connect", salida)
+        self.assertNotIn("permiso denegado", salida.lower(),
+                         "un corte de conexión NO es un permiso denegado")
+
+    def test_escribir_tests_NO_lo_cuenta_como_corte_y_NO_reintenta(self):
+        """El veredicto es del arnés, no del log: no alcanza con que `error_del_agente` lo
+        marque, tiene que llegar al que decide. `escribir-tests.sh` ponía
+        `PLATAFORMA_CORTO=1` para cualquier texto no vacío, así que la marca sola no habría
+        cambiado nada —el patrón de METODO.md: alguien declara algo y el que lo tiene que
+        recibir no lo recibe—."""
+        texto = (SCRIPTS / "escribir-tests.sh").read_text()
+        self.assertIn("PERMISO_DENEGADO", texto,
+                      "escribir-tests.sh no distingue el permiso denegado: lo sigue metiendo "
+                      "en el mismo balde que un 503")
+        antes = texto.index("PERMISO_DENEGADO:-0")
+        despues = texto.index("PLATAFORMA_CORTO:-0")
+        self.assertLess(antes, despues,
+                        "la rama del permiso tiene que mirarse ANTES que la del corte de "
+                        "plataforma: si va después, el corte se la come y nunca se ejecuta")
+
+
 class TestRetomarPorNumeroNoSaltaTrabajo(unittest.TestCase):
     """Los números de etapa NO son estables entre corridas, y retomar por número saltaba
     trabajo en silencio.
@@ -1542,6 +1628,133 @@ class TestLaCuraEstaConectadaAlProceso(unittest.TestCase):
                       "un 400 por contexto es de la configuración, no del agente: "
                       "informarlo como «no escribió el test» manda a buscar al lugar "
                       f"equivocado. Dijo: {r.stdout!r}")
+
+
+class TestElVerificadorDeCalentadoSigueALaConfig(unittest.TestCase):
+    """`colabhive/scripts/_status.py` —la verificación final de `warm.sh`— tenía los papeles
+    escritos a mano y la tabla quedó vieja.
+
+    Decía `arquitecto → gpt-oss-120b` y `worker → hf-Qwen-Qwen3-8B` cuando la config ya
+    asignaba el arquitecto al Qwen3.8-27B FP8 y ningún agente usaba el 8B. Lo imprimió el
+    2026-11-10 después de calentar bien los tres modelos del equipo:
+
+        ○ arquitecto   cold    gpt-oss-120b
+        ◐ worker       cached  hf-Qwen-Qwen3-8B
+        ⚠ Quedaron modelos fríos.
+
+    Un ⚠ sobre un modelo que la corrida no iba a usar, y silencio sobre los tres que sí.
+    `warm.sh` tiene esta misma lección escrita en su cabecera y resuelta de su lado —saca la
+    lista de modelos de la config— así que el calentador calentaba lo correcto y el
+    verificador miraba otra cosa: el arreglo vivía en un hermano y no en el otro.
+
+    Hay DOS espacios de id y no son el mismo. La config usa el id del despliegue, que es lo
+    que acepta `/v1/chat/completions`; `readiness` lo publica el catálogo con su propio id.
+    El puente es `/v1/models`, que trae `id` y `model_config_id`. Por nombre no se puede: un
+    mismo modelo se llama «Qwen3-Coder-30B-A3B» en la config, «Qwen3 Coder 30B-A3B AWQ» en
+    `/v1/models` y «hf-Qwen-Qwen3-Coder-30B-A3B-Instruct-FP8» en el catálogo.
+    """
+
+    STATUS = RAIZ / "colabhive" / "scripts" / "_status.py"
+
+    def andamio(self, papeles, v1, readiness):
+        """(cfg, base). `v1` son filas de /v1/models; `readiness`, filas del catálogo."""
+        import http.server, threading
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-status-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        cfg = d / "opencode.json"
+        cfg.write_text(json.dumps({
+            "provider": {"colabhive": {"models": {m: {} for m in set(papeles.values())}}},
+            "agent": {pa: {"model": f"colabhive/{m}"} for pa, m in papeles.items()}}))
+        cuerpo = json.dumps({"data": v1}).encode()
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(cuerpo)))
+                self.end_headers()
+                self.wfile.write(cuerpo)
+
+            def log_message(self, *a):
+                pass
+
+        srv = ServidorFalso(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        base = f"http://127.0.0.1:{srv.server_address[1]}/v1"
+        entrada = json.dumps({"models": readiness})
+        return subprocess.run([sys.executable, str(self.STATUS)], input=entrada, text=True,
+                              capture_output=True,
+                              env={**os.environ, "CONFIG_OC": str(cfg),
+                                   "COLABHIVE_BASE_URL": base, "COLABHIVE_API_KEY": "x"})
+
+    def test_no_hay_ninguna_tabla_de_papeles_escrita_a_mano(self):
+        texto = self.STATUS.read_text()
+        codigo = "\n".join(l for l in texto.splitlines() if not l.strip().startswith("#"))
+        codigo = re.sub(r'""".*?"""', "", codigo, flags=re.S)
+        self.assertNotIn("gpt-oss-120b", codigo,
+                         "volvió a aparecer un nombre de modelo clavado en el código: una "
+                         "tabla a mano envejece en cuanto un agente cambia de modelo, y lo "
+                         "que envejece CALLA")
+        self.assertIn("CONFIG_OC", texto,
+                      "los papeles tienen que salir de la config de OpenCode, igual que la "
+                      "lista de modelos de warm.sh")
+
+    def test_informa_el_papel_que_la_config_declara_hoy(self):
+        r = self.andamio(
+            papeles={"arquitecto": "desp-A", "ejecutor": "desp-B"},
+            v1=[{"id": "desp-A", "model_config_id": "cat-A"},
+                {"id": "desp-B", "model_config_id": "cat-B"}],
+            readiness=[{"model_id": "cat-A", "model_name": "m-razona", "readiness": "warm"},
+                       {"model_id": "cat-B", "model_name": "m-escribe", "readiness": "warm"},
+                       {"model_id": "cat-Z", "model_name": "ajeno", "readiness": "cold"}])
+        self.assertIn("arquitecto", r.stdout)
+        self.assertIn("ejecutor", r.stdout)
+        self.assertNotIn("ajeno", r.stdout,
+                         "un modelo que ningún agente declara no es asunto de la corrida: "
+                         "informarlo en frío produce el ⚠ que hizo volver a calentar de más")
+        self.assertEqual(r.returncode, 0, f"nada frío y sin embargo rc={r.returncode}")
+
+    def test_un_modelo_del_equipo_en_frio_es_rc_1(self):
+        r = self.andamio(
+            papeles={"ejecutor": "desp-B"},
+            v1=[{"id": "desp-B", "model_config_id": "cat-B"}],
+            readiness=[{"model_id": "cat-B", "model_name": "m-escribe", "readiness": "cold"}])
+        self.assertEqual(r.returncode, 1, "un modelo del equipo frío tiene que dar rc=1")
+
+    def test_varios_despliegues_del_MISMO_modelo_no_se_tapan(self):
+        """La relación catálogo → despliegue es uno a MUCHOS. En la plataforma real
+        `gpt-oss-20b` tiene dos despliegues —el del equipo y uno llamado `R6 · gpt-oss-20b`—
+        y el ejecutor también. La primera versión guardaba `{catálogo: despliegue}` y el
+        segundo tapaba al primero: los dos modelos del equipo salieron informados como «NO
+        están en el catálogo», o sea un ⚠ inventado sobre dos modelos listados y listos.
+
+        Lo encontré corriendo el script contra la API de verdad, no leyéndolo: leyéndolo el
+        join uno a uno se ve bien."""
+        r = self.andamio(
+            papeles={"ejecutor": "desp-equipo"},
+            v1=[{"id": "desp-equipo", "model_config_id": "cat-B"},
+                {"id": "desp-otro", "model_config_id": "cat-B"}],
+            readiness=[{"model_id": "cat-B", "model_name": "m-escribe", "readiness": "warm"}])
+        self.assertIn("ejecutor", r.stdout,
+                      "el despliegue del equipo quedó tapado por otro del mismo modelo. "
+                      f"Dijo: {r.stdout!r} {r.stderr[-300:]!r}")
+        self.assertNotIn("NO están en el catálogo", r.stdout)
+        self.assertEqual(r.returncode, 0)
+
+    def test_sin_el_puente_lo_DICE_en_vez_de_dar_todo_bien(self):
+        """Si `/v1/models` no responde, el script no sabe cuál es cada modelo. Decir rc=0
+        ahí sería «no vi nada malo porque no miré», que es el verde falso que este archivo
+        entero persigue."""
+        r = subprocess.run(
+            [sys.executable, str(self.STATUS)],
+            input=json.dumps({"models": [{"model_id": "cat-B", "model_name": "x",
+                                          "readiness": "warm"}]}),
+            text=True, capture_output=True,
+            env={**os.environ, "COLABHIVE_BASE_URL": "http://127.0.0.1:9", 
+                 "COLABHIVE_API_KEY": "x"})
+        self.assertEqual(r.returncode, 1, "sin puente tiene que ser rc=1, no «todo bien»")
+        self.assertIn("no miré", r.stdout + r.stderr)
 
 
 class TestElCalentadorSigueALaConfig(unittest.TestCase):

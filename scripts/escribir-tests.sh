@@ -379,8 +379,19 @@ for id in "$@"; do
   ERROR_PLAT="$(error_del_agente "$log")"
   paso plataforma
   if [ -n "$ERROR_PLAT" ] && [ "$fallos" = "0" ]; then
-    malo "la plataforma cortó el intento: $ERROR_PLAT"
-    PLATAFORMA_CORTO=1
+    # Un permiso denegado NO es la plataforma y NO se reintenta: el permiso no cambia solo,
+    # así que cada reintento vuelve a morir en la misma herramienta y además suma al
+    # denominador con el que informamos la salud de la plataforma. Ver `error_del_agente`.
+    case "$ERROR_PLAT" in
+      "permiso denegado por el arnés"*)
+        malo "$ERROR_PLAT"
+        PERMISO_DENEGADO=1
+        ;;
+      *)
+        malo "la plataforma cortó el intento: $ERROR_PLAT"
+        PLATAFORMA_CORTO=1
+        ;;
+    esac
   fi
   # Otra vez, porque el agente pudo CREAR el manifiesto: T30 escribe el package.json con
   # vitest, y recién ahora se sabe que hace falta instalarlo.
@@ -1018,6 +1029,17 @@ for id in "$@"; do
   # presupuesto generoso de los cortes de herramienta —no con el de «límite total», que es
   # el único que habla de la tarea— y la huella se limpia para que el reintento no reciba
   # «un intento anterior falló así» con un motivo que el enunciado no puede arreglar.
+  # Va ANTES del corte de plataforma a propósito: es la rama que ese bloque se estaba
+  # comiendo. Un permiso denegado no se reintenta porque reintentar vuelve a pedir la misma
+  # herramienta al mismo arnés, que la vuelve a negar. Lo que hay que arreglar no está ni en
+  # el plan ni en la plataforma: está en la config de permisos de esta máquina.
+  if [ "${PERMISO_DENEGADO:-0}" = "1" ]; then
+    PERMISO_DENEGADO=0
+    echo "  ✗ $id: el arnés le negó permiso a una herramienta que el agente necesita."
+    echo "     No es la plataforma ni la tarea, y NO cuenta como corte de plataforma."
+    echo "     Reintentar vuelve a negar lo mismo: arreglá el permiso y retomá. Log: $log"
+    break
+  fi
   if [ "${PLATAFORMA_CORTO:-0}" = "1" ]; then
     PLATAFORMA_CORTO=0
     HUELLA_ANTERIOR=""; MOTIVO_TESTS=""; DETALLE_TESTS=""

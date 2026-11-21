@@ -235,6 +235,26 @@ error_del_agente() {
       canal="$(printf '%s\n' "$agente_limpio" | sed -n "${nro_error}p" \
                | sed "s/$(printf '\033')\[[0-9;]*m//g" | sed -n 's/^Error: *\(.*\)/\1/p')"
       if [ -n "$canal" ]; then
+        # NO toda muerte por el canal es de la plataforma. Un permiso denegado a una
+        # herramienta llega por acá igual que un 503, y el 2026-11-10 la corrida de
+        # clasificados lo informó como «la plataforma cortó el intento: The user rejected
+        # permission to use this specific tool call» y lo contó como *corte de plataforma 1
+        # de 12*. Dos daños, y el segundo es el que no se ve:
+        #   1. regala un reintento que va a morir igual, porque el permiso no cambia solo;
+        #   2. infla el denominador de «perdidas por plataforma», que es el MISMO número con
+        #      el que informamos la salud de la plataforma (15% histórico, EXPERIMENTOS:
+        #      «los dos denominadores»). Una falla de configuración NUESTRA entrando como
+        #      falla de un tercero es la peor clase de contaminación: mejora lo que medimos
+        #      de nosotros y empeora lo que medimos de ellos, las dos en la dirección cómoda.
+        # Se devuelve con marca para que el que cuenta cortes pueda distinguirlo. No se
+        # devuelve vacío: lo que calla envejece, y esto tiene que gritar quién lo tiene que
+        # arreglar —nosotros, en la config de permisos—.
+        case "$canal" in
+          *"rejected permission"*|*"rejected the request"*|*"permission to use"*|*"Permission denied by"*)
+            printf 'permiso denegado por el arnés (NO es la plataforma): %s\n' "$canal" | cut -c1-200
+            return 0
+            ;;
+        esac
         printf '%s\n' "$canal" | cut -c1-200
         return 0
       fi
