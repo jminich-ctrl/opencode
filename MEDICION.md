@@ -2823,3 +2823,97 @@ no-razonadores son casi gratis:
 Y el propósito ya no es generalizar, es **controlar el confundidor de §29**: si los ítems que el
 juez A no llega a contestar le resultan fáciles al juez B, es pérdida de señal específica del
 juez y no dificultad del ítem.
+
+---
+
+### §31 — Arreglé el motivo que recibía el arquitecto, y la corrida refutó mi hipótesis (2026-11-10 / 2026-11-21)
+
+Dos corridas de la etapa 1 de `ejemplo-clasificados` sobre cuatro tareas —T04, T16, T26, T28—,
+más la cosecha de todo lo que el método venía produciendo afuera del repo.
+
+#### El gate no dejó pasar nada, dos veces, con la misma huella
+
+**0 falsos verdes en 16 intentos**, en dos corridas independientes, con las mismas huellas las
+dos veces. Por la regla del propio método —*tres fallas con la misma huella no son tres fallas
+del agente, son una del enunciado*— eso apunta al enunciado y no al modelo. Las huellas son dos
+defectos de contrato, y los dos son el patrón de METODO.md «nombrar la cosa no alcanza»:
+
+1. **El enunciado no declara con qué `import` la implementación trae el nombre** (T04, T26). El
+   test apuesta a una de tres formas y el patch no tiene efecto. Es la regla 13 de `AGENTS.md`
+   escrita desde el otro lado: está dicha para el que escribe el test y no para el que escribe
+   el enunciado, que es el único que puede fijarla.
+2. **El enunciado no declara el contrato de respuesta** (T16, T28). El test inventa claves
+   —`favorited`, `status`, `fecha_creacion`, `precio`— que no son columna de ninguna tabla, y
+   una vez aceptadas obligan a toda implementación futura a adivinar ese mapeo exacto.
+
+#### El veredicto del arnés no llegaba al arquitecto, y arreglarlo no alcanzó
+
+`replanificar.sh` le pasaba al arquitecto el primer `✗` del **transcript del agente**, que es la
+categoría («la suite está en rojo»), no el dato. El veredicto real —el del arnés, con archivo,
+línea y qué parchear— sólo existía en stdout y moría con la corrida. Arreglado en `6edb4bd`:
+`conservar_veredicto` lo escribe a disco y `replanificar.sh` lo lee de ahí, con 4 tests; se
+verificó en los dos sentidos (con el defecto reintroducido caen 2 de 4).
+
+**Y la corrida con el motivo correcto refutó la hipótesis con la que lo arreglé.** Verifiqué que
+el veredicto llegaba verbatim al prompt —incluido `Parcheá donde se usa: patch('backend.app.
+servicios.auth.read_user_by_email')`— y el arquitecto **igual no reescribió** T04, T26 ni T28:
+«no cambió nada: leyó la tarea y no la reescribió». El arreglo era real y necesario; no era la
+causa. Lo dejé escrito antes de lanzar —«si tampoco cambia nada ahora, el problema no era el
+motivo»— que es lo único que convierte una corrida en una medición y no en una confirmación.
+
+Lo que los transcripts sí muestran (`experimentos/crudo/replan/`): el arquitecto gasta el
+presupuesto **deliberando si tiene permiso para leer un archivo** —«the instructions say not to
+explore beyond the task file… but `scripts/_arquitectura.py` is named in PLAN.md… I think it's
+justified»— y nunca llama a `write`. El candidato es la restricción de alcance del prompt, que
+se agregó para que no explorara `node_modules` y ahora parece dejarlo sin material. Eso es un
+cambio de MÉTODO y no de plan, así que no se toca sin decidirlo con una persona.
+
+T16 es la excepción y produjo lo único accionable: `HUECO: the plan doesn't provide a service
+function to list favorites`. El arquitecto tiene prohibido inventar lo que ninguna tarea
+entrega, y lo declaró en vez de inventarlo. Por el método, eso lo decide una persona.
+
+#### Tres defectos del instrumento, encontrados por la corrida
+
+- **El contexto declarado no era el servido.** El ejecutor declaraba 153000 y la plataforma le
+  sirve ~35000. El número estaba medido y anotado en una nota de memoria desde el 10-19 y nunca
+  llegó a la config: tres semanas de un dato correcto que no llegó a quien lo tenía que recibir.
+  Sin eso, cada tarea moría con un 400 que no se parece a su causa. Arreglado en `d761233`, y
+  verificado LEYENDO los dos archivos, no confiando en la salida del script que los escribe.
+- **Un permiso denegado se contaba como corte de plataforma.** `The user rejected permission to
+  use this specific tool call` entra por el mismo canal de opencode que un 503, así que la
+  corrida lo anotó como «corte de plataforma 1 de 12». Regala un reintento que va a morir igual
+  —el permiso no cambia solo— e **infla el denominador con el que informamos la salud de la
+  plataforma**, ese 15 % histórico. Una falla de configuración nuestra entrando como falla de un
+  tercero mueve las dos métricas en la dirección cómoda a la vez. Arreglado con 4 tests.
+- **La verificación final de `warm.sh` miraba otros modelos.** `_status.py` tenía los papeles
+  escritos a mano y la tabla quedó vieja: avisaba en frío sobre `gpt-oss-120b`, que ningún
+  agente usa, y callaba sobre los tres que la corrida sí iba a usar. `warm.sh` tiene esta
+  lección en su cabecera y resuelta de su lado. Ahora sale de la config, por el puente
+  `/v1/models` (`id` de despliegue ↔ `model_config_id` de catálogo), que es **uno a muchos**: la
+  primera versión lo trató uno a uno y los dos modelos del equipo salieron como «no están en el
+  catálogo». Lo encontré corriéndolo contra la API, no leyéndolo. 5 tests.
+
+#### El material vivía afuera del repo, y una parte ya se perdió
+
+`gate_publico.py` —la réplica pública del gate sobre TestEval que §29 volvió obligatoria— se
+escribió en el scratchpad de /tmp junto con el banco de 210 ítems y su venv. El sistema limpió
+/tmp y se fueron los tres. El script se pudo reescribir porque quedó en una transcripción; **el
+banco de 210 ítems y el venv hay que rearmarlos**, y eso es trabajo de §29 que hay que repetir.
+
+No era sólo /tmp: `~/rechazados/` —los 16 intentos con código real, que su propio
+`PROCEDENCIA.md` llama «la única copia que existe»— y los 3,6 MB de `../fallidos-TNN/` tampoco
+estaban versionados, y tres documentos citaban el banco por ruta absoluta a un home. Cosechado
+al repo con `scripts/cosechar.sh` (257 archivos, 4,4 MB, índice generado). **Material de
+investigación que vive en un directorio que administra otro no está guardado: está prestado.**
+
+#### Qué queda medido, y qué no
+
+Lo que esta corrida **no** mide: nada comparable con las 71 tentativas históricas. Esas mezclan
+12 instrumentos distintos, y encima el ejecutor pasó a servir un contexto 5× menor. **La serie
+comparable arranca de cero con el instrumento de hoy.** Decirlo es la mitad del valor: un número
+nuevo puesto al lado de los viejos habría parecido una mejora o un empeoramiento, y no es ni una
+cosa ni la otra.
+
+Lo que sí queda: 10 veredictos del arnés —el dato que ningún intento anterior tiene, porque
+antes moría en stdout— y 13 parches nuevos, todos cosechados. Es insumo directo de la fábrica de
+dataset.

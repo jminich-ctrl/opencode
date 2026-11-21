@@ -1,12 +1,39 @@
 # Experimentos
 
-Lo que todavía no sabemos y cómo pensamos averiguarlo. **Nada de acá está ejecutado, y los dos
-diseños están bloqueados a propósito.**
+Lo que todavía no sabemos y cómo pensamos averiguarlo. **Ninguno de los dos diseños está
+ejecutado, y los dos están bloqueados a propósito.** Lo que sí corrió —y está medido en
+[`../MEDICION.md`](../MEDICION.md)— es la validación del instrumento, que es lo que la compuerta
+de abajo exige antes de ejecutar nada.
 
 | Archivo | Qué pregunta | Estado |
 |---|---|---|
 | [memoria-verificada.md](memoria-verificada.md) | ¿La memoria de fallas verificadas por el gate mejora al que escribe código, y es la **verificación** lo que la hace valer? | **bloqueado**: la memoria produce 0 registros y entrega 0 bytes |
 | [modelos-por-papel.md](modelos-por-papel.md) | ¿Qué modelo va en cada papel, y conviene un equipo en lugar de uno solo? | **bloqueado**: el banco tiene 9 ítems de 30, el reservado 0 de 6 |
+
+### Qué desbloquearía a los dos, y por dónde se atascó (al 2026-11-21)
+
+Subir K. Con K=16 ítems congelados, **7 de las 9 decisiones de modelo son indecidibles**, y el
+McNemar exacto necesita 13-3 para moverse. Eso no lo arregla el banco: lo arregla escribir
+ítems nuevos, o sea **terminar el plan de `ejemplo-clasificados/`** —18 de 34 tareas hechas, 16
+pendientes, 10 de ellas backend en Python, que es justo lo que falta: de los 9 ítems viables de
+hoy sólo 4 son Python, porque el mutador no muta `.sql` ni TypeScript—.
+
+Y ahí está el atasco real, medido en dos corridas independientes del 2026-11-10:
+
+- **El gate no dejó pasar nada**: 0 falsos verdes en 16 intentos, con la misma huella las dos
+  veces. Por la regla del propio método —tres fallas con la misma huella no son tres fallas del
+  agente, son una del enunciado— eso apunta al enunciado, no al modelo.
+- **Las huellas son dos defectos de contrato**: el enunciado no declara con qué `import` la
+  implementación trae el nombre (T04, T26), y no declara el contrato de respuesta (T16, T28),
+  así que el test lo inventa y queda obligado para siempre.
+- **El arquitecto no replanifica.** Se arregló el camino por el que recibía el motivo —recibía
+  la categoría del transcript en vez del veredicto del arnés, `6edb4bd`— y con el motivo
+  correcto adelante **igual no reescribió** T04, T26 ni T28. La hipótesis era mía y la corrida
+  la refutó. Los transcripts (`crudo/replan/`) lo muestran gastando el presupuesto deliberando
+  si tiene permiso para leer un archivo, en vez de planificar.
+- **T16 es la excepción y es una decisión humana**: `HUECO: the plan doesn't provide a service
+  function to list favorites`. El arquitecto tiene prohibido inventar lo que ninguna tarea
+  entrega, y lo declaró en vez de inventarlo.
 
 ## La compuerta
 
@@ -57,10 +84,11 @@ La diferencia es la salud de la plataforma, y la tasa histórica real es 15 %.
 
 ## El material que sí tenemos
 
-`crudo/banco/` guarda (cosechado al repo desde `~/rechazados/`) **16 intentos que el gate reprobó, con el código real** (22
-carpetas en total: 16 rojas, 3 verdes, 3 sin dato; 3283 líneas, 5 modelos, tareas T04, T06c,
-T40, T41), rescatados de worktrees de
-experimento que estaban por borrarse. Es el insumo de la condición central del experimento de
+`crudo/banco/` guarda **16 intentos que el gate reprobó, con el código real** (22 carpetas en
+total: 16 rojas, 3 verdes, 3 sin dato; 3283 líneas, 5 modelos, tareas T04, T06c, T40, T41),
+rescatados de worktrees de experimento que estaban por borrarse. Vivía en `~/rechazados/` y se
+cosechó al repo el 2026-11-21 con `scripts/cosechar.sh`, después de que /tmp se comiera
+`gate_publico.py` con su banco: material que vive sólo afuera del repo no está guardado. Es el insumo de la condición central del experimento de
 memoria, que el diseño daba por inexistente — y la única copia que hay, porque
 `marcar_hecha_y_limpiar` destruye el árbol con el worktree.
 

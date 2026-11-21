@@ -49,3 +49,9 @@ escribió de verdad. Su procedencia, modelo por modelo, está en `banco/PROCEDEN
 `replan/` — lo que el arquitecto hizo cuando recibió el motivo del rechazo. Son los
 transcripts que el 2026-11-10 refutaron la hipótesis de que el arquitecto no actuaba
 porque recibía la categoría en vez del dato: con el dato adelante tampoco reescribió.
+
+## Historia
+
+`historia/` — handoffs viejos, traídos del home. Los supera `../../ESTADO.md`;
+están acá porque el de 2026-10-19 tiene la tabla de afirmaciones mías que resultaron
+FALSAS, que es material y no ruido.

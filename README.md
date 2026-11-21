@@ -2,6 +2,8 @@
 
 *[Castellano](LEEME.md)*
 
+> **Dónde está todo hoy: [`ESTADO.md`](ESTADO.md)** — qué está trabado, qué hace falta decidir.
+
 How to run a large project with coding agents (OpenCode) on 27B–30B open-weight models served
 by [ColabHive](https://colabhive.com) — or by your own vLLM or Ollama. This repository is what
 we learned doing it for real: the method, the complete OpenCode configuration for a three-model

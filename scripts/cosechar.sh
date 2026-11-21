@@ -140,6 +140,14 @@ fi
   echo "\`replan/\` — lo que el arquitecto hizo cuando recibió el motivo del rechazo. Son los"
   echo "transcripts que el 2026-11-10 refutaron la hipótesis de que el arquitecto no actuaba"
   echo "porque recibía la categoría en vez del dato: con el dato adelante tampoco reescribió."
+  if [ -d "$DESTINO/historia" ]; then
+    echo
+    echo "## Historia"
+    echo
+    echo "\`historia/\` — handoffs viejos, traídos del home. Los supera \`../../ESTADO.md\`;"
+    echo "están acá porque el de 2026-10-19 tiene la tabla de afirmaciones mías que resultaron"
+    echo "FALSAS, que es material y no ruido."
+  fi
 } > "$DESTINO/INDICE.md"
 
 echo

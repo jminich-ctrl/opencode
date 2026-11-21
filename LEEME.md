@@ -2,6 +2,8 @@
 
 *[English](README.md)*
 
+> **Dónde está todo hoy: [`ESTADO.md`](ESTADO.md)** — qué está trabado, qué hace falta decidir.
+
 Cómo llevar un proyecto grande adelante con agentes que corren sobre modelos chicos
 open-weight (27B–30B), en OpenCode contra ColabHive o contra modelos locales.
 
