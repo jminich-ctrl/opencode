@@ -21,7 +21,14 @@ import sys
 
 def main():
     ap = argparse.ArgumentParser()
-    for a in ("destino", "tarea", "test", "clase", "veredicto", "motivo", "raiz", "desde"):
+    # `modelo`, `segundos`, `instrumento` y `contextos` NO son adorno: son lo que hace que
+    # dos filas se puedan comparar. Sin ellos, los 19 registros que esta etapa dejó el
+    # 2026-11-10 no se comparan con nada — la misma enfermedad que `intentos.csv`, donde 91
+    # intentos se reparten en 13 huellas de instrumento y 60 filas sin ninguna. Un registro
+    # rico en contenido y mudo sobre con qué se produjo es un registro que no se puede usar
+    # dos veces.
+    for a in ("destino", "tarea", "test", "clase", "veredicto", "motivo", "raiz", "desde",
+              "modelo", "segundos", "instrumento", "contextos", "etapa"):
         ap.add_argument(f"--{a}", default="")
     args = ap.parse_args()
     if not args.destino or not args.tarea:
@@ -68,6 +75,11 @@ def main():
         "archivo_de_test": args.test,
         "clase": args.clase,
         "veredicto": args.veredicto,
+        "etapa": args.etapa or "escribir-tests",
+        "modelo": args.modelo or None,
+        "segundos": int(args.segundos) if args.segundos.isdigit() else None,
+        "instrumento": args.instrumento or None,
+        "contextos": args.contextos or None,
         "motivo": args.motivo or None,
         "dimensiones": dims,
         "enunciado": enunciados[0].read_text() if enunciados else None,

@@ -50,6 +50,14 @@ escribió de verdad. Su procedencia, modelo por modelo, está en `banco/PROCEDEN
 transcripts que el 2026-11-10 refutaron la hipótesis de que el arquitecto no actuaba
 porque recibía la categoría en vez del dato: con el dato adelante tampoco reescribió.
 
+## El registro de mediciones
+
+`metricas/` — `intentos.csv` (una fila por intento, con la huella del
+instrumento que la produjo) y `veredictos.jsonl` (el veredicto del gate con el
+enunciado y el test completos, que es el insumo del dataset). Vivían sólo en
+`.metricas/`, que está gitignoreado: correcto para el worktree de una tarea,
+falso para la serie con la que se decide si un cambio del método sirvió.
+
 ## Historia
 
 `historia/` — handoffs viejos, traídos del home. Los supera `../../ESTADO.md`;

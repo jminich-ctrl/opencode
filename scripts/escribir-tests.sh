@@ -116,7 +116,19 @@ emitir_veredicto() {
     --destino "$BASE/.metricas/veredictos.jsonl" \
     --tarea "$id" --test "$ruta" --clase "${clase:-}" \
     --veredicto "$1" --motivo "${2:-}" --raiz "$BASE" \
-    --desde "${wt:-}${wt:+/}${PROYECTO:-.}" 2>/dev/null || true
+    --desde "${wt:-}${wt:+/}${PROYECTO:-.}" \
+    --modelo "$(modelo_del_agente "$AGENTE" 2>/dev/null)" \
+    --segundos "${SEGUNDOS_DEL_INTENTO:-}" \
+    --instrumento "$(huella_instrumento)" --contextos "$(huella_contextos)" \
+    --etapa escribir-tests 2>/dev/null || true
+  # Y al registro que lee `metricas.sh`, que es otro archivo y no lo veía nunca: esta etapa
+  # escribía su veredicto en `veredictos.jsonl` —rico en contenido, insumo del dataset— y
+  # NO en `.metricas/intentos.csv`. O sea que el informe del método no mostraba una sola
+  # fila de la etapa que más falla: 19 rechazos el 2026-11-10 y el informe en blanco.
+  # Son dos registros con dos propósitos, y el error era que uno de ellos no se escribía.
+  anotar_intento "$id" "$([ "$1" = aceptado ] && echo VERDE || echo ROJO)" \
+    "${SEGUNDOS_DEL_INTENTO:-0}" "$(modelo_del_agente "$AGENTE" 2>/dev/null)" \
+    "${log:-}" escribir-tests
 }
 
 
@@ -345,6 +357,11 @@ for id in "$@"; do
   # ruta relativa es lo correcto además por otra razón: el 2026-10-21 el mismo prompt anduvo
   # en un intento y falló en el siguiente, así que esa resolución no es estable.
   echo "▶ $id · $AGENTE escribe $ruta::$clase"
+  # El reloj del intento. Va al registro porque sin segundos no hay forma de distinguir «el
+  # modelo no pudo» de «la herramienta se colgó», y es además la columna que decide si una
+  # fila sirve para medir tiempo (junto con la concurrencia).
+  SEGUNDOS_DEL_INTENTO=0
+  _t0="$(date +%s)"
   (
     cd "$wt/$PROYECTO" || exit 1
     export XDG_DATA_HOME="$wt/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
@@ -352,6 +369,7 @@ for id in "$@"; do
       "${MOTIVO_TESTS:+Un intento anterior falló así: $MOTIVO_TESTS. ${DETALLE_TESTS:+El chequeo dijo exactamente esto, y dice qué poner en su lugar: $(printf '%s' "$DETALLE_TESTS" | head -12 | cut -c1-200 | tr '\n' ' ') }No repitas ese camino. }Leé $wt/$PROYECTO/tareas/$(basename \"$archivo\"). Ojo: esta corrida es la que CREA los tests, así que todavía no existen, los estás creando vos. Hacé la tarea completa: la implementación Y sus tests, las dos cosas con la herramienta write. El archivo de test es '$ruta' y su agrupador se llama '$clase'. Las reglas de cómo escribir tests están en AGENTS.md: leelas. Al terminar corré 'bash scripts/correr-suite.sh $ruta::$clase' y mostrá su salida real." 2>&1
   ) > "$log" 2>&1
   RC_AGENTE=$?
+  SEGUNDOS_DEL_INTENTO=$(( $(date +%s) - _t0 ))
 
   cd "$wt/$PROYECTO" || break
   fallos=0

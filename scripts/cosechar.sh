@@ -79,6 +79,18 @@ for p in "$RAIZ"/ejemplo-clasificados "$RAIZ"/../ejemplo-clasificados; do
   break
 done
 
+# El registro de mediciones. `.metricas/` está en el .gitignore —es dato de medición y no
+# del proyecto— y eso es correcto para el worktree de una tarea y falso para la serie: son
+# 91 intentos con su huella de instrumento, o sea LA serie con la que se decide si un cambio
+# del método sirvió. No estaba versionada en ningún lado.
+echo "→ el registro de mediciones"
+for _m in "$RAIZ/.metricas" "$RAIZ"/*/.metricas; do
+  [ -d "$_m" ] || continue
+  _quien="$(basename "$(dirname "$_m")")"
+  [ "$_quien" = "$(basename "$RAIZ")" ] && _quien=tronco
+  cosechar_dir "$_m" "metricas/$_quien"
+done
+
 echo "→ el banco de 16 rechazados con código real"
 # Recursivo: cada ítem es una carpeta con el worktree adentro, no archivos sueltos.
 if [ -d "$HOME/rechazados" ]; then
@@ -140,6 +152,16 @@ fi
   echo "\`replan/\` — lo que el arquitecto hizo cuando recibió el motivo del rechazo. Son los"
   echo "transcripts que el 2026-11-10 refutaron la hipótesis de que el arquitecto no actuaba"
   echo "porque recibía la categoría en vez del dato: con el dato adelante tampoco reescribió."
+  if [ -d "$DESTINO/metricas" ]; then
+    echo
+    echo "## El registro de mediciones"
+    echo
+    echo "\`metricas/\` — \`intentos.csv\` (una fila por intento, con la huella del"
+    echo "instrumento que la produjo) y \`veredictos.jsonl\` (el veredicto del gate con el"
+    echo "enunciado y el test completos, que es el insumo del dataset). Vivían sólo en"
+    echo "\`.metricas/\`, que está gitignoreado: correcto para el worktree de una tarea,"
+    echo "falso para la serie con la que se decide si un cambio del método sirvió."
+  fi
   if [ -d "$DESTINO/historia" ]; then
     echo
     echo "## Historia"

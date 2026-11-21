@@ -26,6 +26,7 @@ forma concreta, y se afirma el VEREDICTO esperado. No se afirma el texto exacto 
 aparezca.
 """
 import ast
+import csv
 import atexit
 import http.server
 import hashlib
@@ -1277,6 +1278,99 @@ class TestElMaterialCrudoEntraAlRepoYAlguienAvisaSiNo(unittest.TestCase):
                       "que depende de que alguien se acuerde no es parte del método")
         self.assertIn("fallidos-", texto,
                       "y el aviso tiene que mirar los fallidos de verdad, no ser un cartel")
+
+
+class TestLaEtapaQueEscribeLosTestsEntraAlRegistroYEsComparable(unittest.TestCase):
+    """La etapa que más falla era la que menos se medía, por dos caminos a la vez.
+
+    **Uno.** `anotar_intento` lo llamaban `correr-tarea.sh` y `cerrar-tarea.sh`, y no
+    `escribir-tests.sh`. Así que `.metricas/intentos.csv` —el registro que lee
+    `metricas.sh`— no tenía UNA fila de esa etapa. El 2026-11-10 hubo 19 rechazos y el
+    informe del método estaba en blanco.
+
+    **Dos.** Sí escribía en `.metricas/veredictos.jsonl`, que es el insumo del dataset y es
+    rico en contenido —enunciado, test, dimensiones, motivo—, pero **sin un solo campo de
+    comparabilidad**: ni modelo, ni segundos, ni huella de instrumento, ni contextos. O sea
+    19 registros que no se comparan con nada: la misma enfermedad que el CSV, donde 91
+    intentos se reparten en 13 huellas de instrumento y 60 filas sin ninguna, por otra
+    puerta. Un registro rico en contenido y mudo sobre con qué se produjo no se puede usar
+    dos veces.
+
+    Y la etapa va como COLUMNA porque escribir tests e implementar son poblaciones distintas
+    con dificultad distinta: una tasa de verde que las promedia no mide ninguna de las dos.
+    Cambiar «no medir» por «medir mal» es peor, porque lo segundo tiene cara de dato.
+    """
+
+    def test_escribir_tests_anota_el_intento_en_el_registro(self):
+        s = (SCRIPTS / "escribir-tests.sh").read_text()
+        self.assertIn("anotar_intento", s,
+                      "la etapa que escribe los tests no deja fila en intentos.csv: "
+                      "`metricas.sh` no ve nada de la etapa que más falla")
+        self.assertIn("escribir-tests", s.split("anotar_intento", 1)[1][:400],
+                      "anota sin decir de qué etapa es: mezclada con las de implementación, "
+                      "la tasa de verde deja de medir cualquiera de las dos")
+
+    def test_el_registro_tiene_columna_de_etapa_y_no_se_la_inventa_a_las_viejas(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-etapa-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        (d / ".metricas").mkdir()
+        viejo = (d / ".metricas" / "intentos.csv")
+        viejo.write_text(
+            "fecha,proyecto,tarea,veredicto,segundos,modelo,motivo,concurrencia,instrumento,contextos\n"
+            "2026-01-01T00:00:00Z,p,T01,VERDE,10,m,,1,abc,xyz\n")
+        correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; RAIZ={shlex.quote(str(d))}; '
+               f'PROYECTO=p; anotar_intento T02 ROJO 5 m "" escribir-tests', d)
+        filas = list(csv.DictReader(viejo.open()))
+        self.assertIn("etapa", filas[0], "no se agregó la columna")
+        self.assertEqual("", filas[0]["etapa"],
+                         "le inventó una etapa a una fila vieja. «no se registró» y "
+                         "«implementación» son cosas distintas, y suponer la segunda mete "
+                         "una fila en una población a la que no sabemos si pertenece")
+        self.assertEqual("escribir-tests", filas[1]["etapa"])
+
+    def test_el_veredicto_del_dataset_dice_CON_QUE_se_produjo(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-ver-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        destino = d / "veredictos.jsonl"
+        r = subprocess.run(
+            [sys.executable, str(SCRIPTS / "_veredicto.py"), "--destino", str(destino),
+             "--tarea", "T04", "--test", "t/x.py", "--veredicto", "rechazado",
+             "--modelo", "f5d76140", "--segundos", "42",
+             "--instrumento", "a236ec8", "--contextos", "6f9a347",
+             "--etapa", "escribir-tests"],
+            input="alcance=✓\n", text=True, capture_output=True)
+        self.assertEqual(0, r.returncode, r.stderr[-400:])
+        fila = json.loads(destino.read_text().splitlines()[0])
+        for campo, esperado in (("modelo", "f5d76140"), ("segundos", 42),
+                                ("instrumento", "a236ec8"), ("contextos", "6f9a347"),
+                                ("etapa", "escribir-tests")):
+            self.assertEqual(esperado, fila.get(campo),
+                             f"sin `{campo}` la fila no se compara con ninguna otra: "
+                             f"es el punto 7 de la regla de parada de MEDICION.md")
+
+    def test_la_huella_del_instrumento_se_calcula_en_UN_solo_lugar(self):
+        """La calculaba inline `anotar_intento`. Ahora la necesita también la etapa de tests,
+        que escribe en otro archivo. Copiarla sería la regla en dos lados que este repo tiene
+        documentado que diverge: pasó con el marcador `sin-commitear`, que `congelar-banco.sh`
+        tenía y el registro no."""
+        c = (SCRIPTS / "_comun.sh").read_text()
+        self.assertEqual(1, c.count("huella_instrumento() {"),
+                         "hay más de una definición de la huella del instrumento")
+        self.assertEqual(1, c.count("rev-parse --short HEAD:scripts"),
+                         "la huella está calculada a mano en más de un lugar: va a divergir")
+        self.assertIn("huella_instrumento", (SCRIPTS / "escribir-tests.sh").read_text(),
+                      "la etapa de tests no usa la huella común: si la copia, diverge")
+
+    def test_sin_etapa_la_fila_NO_se_hace_pasar_por_implementacion(self):
+        """El llamador que no la pasa es `cerrar-tarea.sh`, que es trabajo humano. El default
+        es explícito y verificable; lo que no puede pasar es que quede vacío y alguien lo
+        lea como implementación, ni al revés."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-etapa2-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; RAIZ={shlex.quote(str(d))}; '
+               f'PROYECTO=p; anotar_intento T03 VERDE 9 m', d)
+        filas = list(csv.DictReader((d / ".metricas" / "intentos.csv").open()))
+        self.assertEqual("implementacion", filas[0]["etapa"])
 
 
 class TestRetomarPorNumeroNoSaltaTrabajo(unittest.TestCase):

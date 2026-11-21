@@ -993,10 +993,31 @@ clasificar_sin_tests() {
   echo "entorno: $ent"
 }
 
+# La huella de los scripts que produjeron una medición. Dos filas con huellas distintas NO se
+# comparan — es el punto 7 de la regla de parada de MEDICION.md, que decía «cambiaste el
+# instrumento entre dos corridas: no son comparables» y no tenía cómo saberlo.
+#
+# Vive acá y no adentro de `anotar_intento` porque la etapa que escribe los tests también la
+# necesita, y la escribe en otro archivo (`.metricas/veredictos.jsonl`). Copiarla sería la
+# regla en dos lados que este repo tiene documentado que diverge — pasó con el marcador de
+# `sin-commitear`, que `congelar-banco.sh` tenía y el registro no.
+huella_instrumento() {
+  local instrumento
+  instrumento="$(git -C "$RAIZ" rev-parse --short HEAD:scripts 2>/dev/null || echo "?")"
+  # Si el árbol de trabajo tiene cambios en scripts/, la huella del COMMIT miente: lo que
+  # corrió no es lo commiteado, y dos corridas con scripts distintos comparten huella — que
+  # es justo el estado contra el que avisa el guardia de `correr-todo.sh`.
+  # Con HEAD: `git diff --quiet -- <ruta>` compara árbol↔ÍNDICE, así que un `git add scripts/`
+  # —el reflejo de cualquiera que quiera mirar su propio diff antes de lanzar— apagaba la
+  # marca y la fila quedaba con la huella del commit viejo y sin aviso.
+  git -C "$RAIZ" diff --quiet HEAD -- scripts 2>/dev/null || instrumento="${instrumento}+sin-commitear"
+  printf '%s\n' "$instrumento"
+}
+
 # Registro de intentos: una línea por corrida, para que las métricas lean datos y no
 # adivinen del texto de las tareas. Vive fuera del árbol versionado del proyecto.
 anotar_intento() {
-  local id="$1" ver="$2" segs="$3" modelo="${4:-}" log="${5:-}"
+  local id="$1" ver="$2" segs="$3" modelo="${4:-}" log="${5:-}" etapa="${6:-implementacion}"
   local reg="$RAIZ/.metricas/intentos.csv" motivo=""
   # El motivo va al registro porque "falló" no se puede analizar y "falló por esto" sí. Es
   # la misma huella que usa el runner para decidir si reintentar: una sola fuente.
@@ -1022,26 +1043,16 @@ anotar_intento() {
   local concurrencia="${CONCURRENCIA_AL_ARRANCAR:-}"
   [ -n "$concurrencia" ] || concurrencia="$(pgrep -f "opencode run" 2>/dev/null | wc -l | tr -d ' ')"
   [ -n "$concurrencia" ] || concurrencia=0
-  # `instrumento`: la huella de los scripts que produjeron la fila. Dos filas con huellas
-  # distintas no se comparan — es el punto 7 de la regla de parada de MEDICION.md, que decía
-  # «cambiaste el instrumento entre dos corridas: no son comparables» y no tenía cómo saberlo.
-  local instrumento
-  instrumento="$(git -C "$RAIZ" rev-parse --short HEAD:scripts 2>/dev/null || echo "?")"
-  # Si el árbol de trabajo tiene cambios en scripts/, la huella del COMMIT miente: lo que
-  # corrió no es lo commiteado, y dos corridas con scripts distintos comparten huella — que
-  # es justo el estado contra el que avisa el guardia de `correr-todo.sh`. `congelar-banco.sh`
-  # ya lo marcaba así y esto no: el arreglo estaba de un lado y no del otro.
-  # Con HEAD: `git diff --quiet -- <ruta>` compara árbol↔ÍNDICE, así que un `git add scripts/`
-  # —el reflejo de cualquiera que quiera mirar su propio diff antes de lanzar— apagaba la
-  # marca y la fila quedaba con la huella del commit viejo y sin aviso. Justo el estado que
-  # esta línea existe para delatar. El modelo que cité al escribirla (`congelar-banco.sh`)
-  # tenía el mismo defecto, así que el arreglo copió el agujero.
-  git -C "$RAIZ" diff --quiet HEAD -- scripts 2>/dev/null || instrumento="${instrumento}+sin-commitear"
-  # Y los contextos declarados, que también son el instrumento. Las filas viejas quedan con
+  local instrumento contextos
+  instrumento="$(huella_instrumento)"
+  # Los contextos declarados, que también son el instrumento. Las filas viejas quedan con
   # el campo VACÍO, que es lo honesto: no dice «el mismo contexto», dice «no se registró».
-  local contextos
   contextos="$(huella_contextos)"
-  local ENCABEZADO="fecha,proyecto,tarea,veredicto,segundos,modelo,motivo,concurrencia,instrumento,contextos"
+  # `etapa`: escribir-tests o implementacion. Va como COLUMNA porque son poblaciones
+  # distintas con dificultad distinta, y una tasa de verde que las promedia no mide ninguna
+  # de las dos. Las filas viejas quedan con el campo vacío, que es «no se registró» y no
+  # «implementación»: inventarles la etapa sería peor que no tenerla.
+  local ENCABEZADO="fecha,proyecto,tarea,veredicto,segundos,modelo,motivo,concurrencia,instrumento,contextos,etapa"
   if [ ! -f "$reg" ]; then
     echo "$ENCABEZADO" > "$reg"
   elif [ "$(head -1 "$reg")" != "$ENCABEZADO" ]; then
@@ -1073,7 +1084,7 @@ open(ruta, "w").write("\n".join(salida) + "\n")
 PYMIG
     echo "  (registro migrado a $n_cols columnas: el encabezado no nombraba todas las escritas)" >&2
   fi
-  echo "$(date -u +%FT%TZ),${PROYECTO:-.},$id,$ver,$segs,$modelo,$motivo,$concurrencia,$instrumento,$contextos" >> "$reg"
+  echo "$(date -u +%FT%TZ),${PROYECTO:-.},$id,$ver,$segs,$modelo,$motivo,$concurrencia,$instrumento,$contextos,$etapa" >> "$reg"
 }
 
 # VERDE / ROJO / IMPOSIBLE si el runner ya cerró el log; vacío si la tarea sigue corriendo.

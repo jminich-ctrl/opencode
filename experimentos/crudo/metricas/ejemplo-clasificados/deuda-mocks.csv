@@ -1,0 +1,9 @@
+fecha,tarea,test,objetivo,destino,linea
+2026-11-10T17:33:20Z,T28-busqueda_backend,backend/tests/test_search_backend.py,backend.app.datos.search_ads.obtener_anuncios_por_texto_y_categoria,backend.app.servicios.search,14
+2026-11-10T17:33:20Z,T28-busqueda_backend,backend/tests/test_search_backend.py,backend.app.datos.search_ads.obtener_anuncios_por_texto_y_categoria,backend.app.rutas.search,14
+2026-11-10T17:33:20Z,T28-busqueda_backend,backend/tests/test_search_backend.py,backend.app.datos.search_ads.obtener_anuncios_por_texto_y_categoria,backend.app.servicios.search,40
+2026-11-10T17:33:20Z,T28-busqueda_backend,backend/tests/test_search_backend.py,backend.app.datos.search_ads.obtener_anuncios_por_texto_y_categoria,backend.app.rutas.search,40
+2026-11-10T17:33:20Z,T28-busqueda_backend,backend/tests/test_search_backend.py,backend.app.datos.search_ads.obtener_anuncios_por_texto_y_categoria,backend.app.servicios.search,66
+2026-11-10T17:33:20Z,T28-busqueda_backend,backend/tests/test_search_backend.py,backend.app.datos.search_ads.obtener_anuncios_por_texto_y_categoria,backend.app.rutas.search,66
+2026-11-10T17:33:20Z,T28-busqueda_backend,backend/tests/test_search_backend.py,backend.app.datos.search_ads.obtener_anuncios_por_texto_y_categoria,backend.app.servicios.search,82
+2026-11-10T17:33:20Z,T28-busqueda_backend,backend/tests/test_search_backend.py,backend.app.datos.search_ads.obtener_anuncios_por_texto_y_categoria,backend.app.rutas.search,82
