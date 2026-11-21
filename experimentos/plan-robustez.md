@@ -211,6 +211,20 @@ escrito la predicción antes y haber mirado CÓMO terminó cada intento, no sól
 
 **La trampa de §30 quedó chequeada arriba**, con el dato y no con el supuesto.
 
+### Segunda corrida — predicción escrita antes, ahora CON la fila que me faltó
+
+Tope 6000 (984 s, adentro del gateway con 216 s de margen), guardia que mira el reloj más
+corto, mismas cuatro tareas, mismo criterio del script: escribió o no escribió.
+
+**Predicción:** ningún intento muere por reloj, y el arquitecto escribe en **≥2 de 4**.
+
+| cómo terminó | escribió | lectura |
+|---|---|---|
+| completó | ≥2 | la causa era el presupuesto. Hipótesis confirmada. |
+| completó | 0–1 | el presupuesto era necesario y no suficiente. Ahí vuelve el prompt como candidato, con mi hipótesis vieja ya refutada una vez |
+| completó, truncado a mitad de palabra | — | 6000 tampoco alcanza, y el techo duro son 7320: **no hay tope que lo arregle**, y la respuesta es el modelo del papel |
+| **≥2 murieron por reloj o plataforma** | — | **⊘ tanda inválida otra vez.** No se lee el resultado: se arregla el instrumento. *Esta es la fila que no escribí la primera vez y que fue justo la que pasó.* |
+
 ---
 
 ## Fase 2 — Para que corra local, el contexto se mide, no se pregunta
