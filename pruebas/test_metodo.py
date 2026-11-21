@@ -16975,8 +16975,51 @@ class TestElMonitoreoVivoEnElRepoYNoEnTmp(unittest.TestCase):
                    if f'"{p}"' in s]
         self.assertEqual([], papeles,
                          f"tiene papeles escritos a mano: {papeles}")
+        # Antes acá se exigía que `_status.py` tuviera el literal `ROLES = {`, porque el
+        # lector lo extraía con `ast.literal_eval`. Eso ataba un archivo a cómo estaba
+        # ESCRITO el otro: el día que los papeles pasaron a salir de la config de OpenCode el
+        # literal dejó de existir, el extractor devolvió {} y el monitoreo degradó en
+        # silencio justo cuando había réplicas frías. Lo que se exige ahora es el CONTRATO
+        # —una función exportada— y que el lector la llame; eso sobrevive a cómo esté escrito
+        # el mapa adentro.
         st = (RAIZ / "colabhive" / "scripts" / "_status.py").read_text()
-        self.assertIn("ROLES = {", st, "cambió la fuente del mapa: hay que actualizar el lector")
+        self.assertIn("def papeles_por_nombre(", st,
+                      "`_status.py` dejó de exportar el mapa: el lector se queda sin fuente")
+        self.assertIn("papeles_por_nombre", s,
+                      "el lector no usa la función que `_status.py` exporta: si la copia o la "
+                      "parsea, vuelve a divergir")
+
+    def andamio_de_papeles(self):
+        """(cfg, base) — config de OpenCode de mentira y un `/v1/models` local.
+
+        Hace falta desde que el mapa de papeles sale de la config y se cruza por el puente
+        `/v1/models`: el fixture de antes era un modelo con `model_name` y nada más, que ya
+        no se parece a lo que la API devuelve. Un fixture que dejó de parecerse a lo que
+        representa mide otra cosa."""
+        import http.server, threading
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-monrep-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        cfg = d / "opencode.json"
+        cfg.write_text(json.dumps({
+            "provider": {"colabhive": {"models": {"desp-A": {}}}},
+            "agent": {"orquestador": {"model": "colabhive/desp-A"}}}))
+        cuerpo = json.dumps({"data": [{"id": "desp-A", "model_config_id": "cat-A"}]}).encode()
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(cuerpo)))
+                self.end_headers()
+                self.wfile.write(cuerpo)
+
+            def log_message(self, *a):
+                pass
+
+        srv = ServidorFalso(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return cfg, f"http://127.0.0.1:{srv.server_address[1]}/v1"
 
     def test_no_pude_leer_y_hay_replicas_frias_son_codigos_distintos(self):
         """Con un JSON que no es JSON, el código es 2. Con uno válido y réplicas frías, 1."""
@@ -16984,13 +17027,33 @@ class TestElMonitoreoVivoEnElRepoYNoEnTmp(unittest.TestCase):
                    RAIZ)
         self.assertEqual(2, r.returncode, f"«no pude leer» tiene que ser 2:\n{r.stdout}")
         self.assertIn("⊘", r.stdout)
+        cfg, base = self.andamio_de_papeles()
         falso = json.dumps({"models": [
-            {"model_name": "gpt-oss-20b", "readiness": "cached", "warm_nodes": 0}]})
+            {"model_id": "cat-A", "model_name": "gpt-oss-20b",
+             "readiness": "cached", "warm_nodes": 0}]})
         r2 = correr(f'printf %s {shlex.quote(falso)} | '
-                    f'python3 "{SCRIPTS}/_monitor_replicas.py" "{RAIZ}"', RAIZ)
+                    f'python3 "{SCRIPTS}/_monitor_replicas.py" "{RAIZ}"', RAIZ,
+                    CONFIG_OC=str(cfg), COLABHIVE_BASE_URL=base, COLABHIVE_API_KEY="x")
         self.assertEqual(1, r2.returncode,
                          f"«leí y hay frías» tiene que ser 1, no 2:\n{r2.stdout}")
         self.assertIn("warm=0", r2.stdout)
+
+    def test_sin_poder_armar_el_mapa_NO_dice_que_esta_todo_bien(self):
+        """Sin la config ni el puente, el monitoreo no sabe cuáles son del equipo. Devolvía
+        **0** —«todas puestas»— y listaba los no fríos del catálogo: el verde falso que su
+        propia cabecera documenta, cometido en la rama de la que no habla. Es 2: NO PUDE
+        LEER. La distinción entre «miré y está bien» y «no miré» es la que todo este
+        repositorio existe para sostener."""
+        falso = json.dumps({"models": [
+            {"model_id": "cat-A", "model_name": "gpt-oss-20b",
+             "readiness": "cached", "warm_nodes": 0}]})
+        r = correr(f'printf %s {shlex.quote(falso)} | '
+                   f'python3 "{SCRIPTS}/_monitor_replicas.py" "{RAIZ}"', RAIZ,
+                   CONFIG_OC="/no/existe.json", COLABHIVE_BASE_URL="http://127.0.0.1:9",
+                   COLABHIVE_API_KEY="x", HOME="/no/existe")
+        self.assertEqual(2, r.returncode,
+                         f"sin poder armar el mapa devolvió «todo bien»:\n{r.stdout}")
+        self.assertIn("NO se verificó", r.stdout)
 
     def test_el_monitoreo_dice_DE_QUE_se_llena_el_disco_y_no_solo_cuanto_queda(self):
         """«Quedan 238 Mi» llega tarde: cuando el umbral avisa, ya no hay margen para decidir.

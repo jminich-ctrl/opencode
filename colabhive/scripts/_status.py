@@ -99,6 +99,31 @@ def puente():
     return mapa
 
 
+def papeles_por_nombre(models):
+    """{model_name: 'build, ejecutor, tester'} para los modelos del equipo que la API lista.
+
+    Existe para que `scripts/_monitor_replicas.py` NO vuelva a copiar el mapa ni a parsearlo:
+    lo leía extrayendo el literal `ROLES = {` de este archivo con `ast.literal_eval`, y
+    cuando los papeles pasaron a salir de la config ese extractor se quedó sin qué extraer y
+    el monitoreo degradó EN SILENCIO a «muestro sólo los no fríos», devolviendo 0. Una regla
+    leída por una forma del código es una regla acoplada a cómo está escrito el código. Se
+    exporta una función: eso sí es un contrato.
+
+    {} si no se pudo armar el mapa, y el que llama tiene que tratarlo como «no verifiqué» y
+    no como «está todo bien»."""
+    roles = papeles()
+    if not roles:
+        return {}
+    despliegue_de = puente()
+    if not despliegue_de:
+        return {}
+    salida = {}
+    for m in models:
+        for mid in sorted(despliegue_de.get(m.get("model_id"), set()) & set(roles)):
+            salida[m["model_name"]] = roles[mid]
+    return salida
+
+
 def main():
     try:
         models = json.load(sys.stdin)["models"]
