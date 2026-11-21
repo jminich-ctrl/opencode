@@ -1390,7 +1390,7 @@ class TestElTopeDeSalidaYElRelojNoPuedenContradecirse(unittest.TestCase):
     corridas. Se usa el piso porque el que importa es el caso lento.
     """
 
-    def correr_guarda(self, limite, cfg=None, tope=8192):
+    def correr_guarda(self, limite, cfg=None, tope=6000):
         d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-presup-")).resolve()
         self.addCleanup(tirar_dir, d)
         if cfg is None:
@@ -1407,7 +1407,7 @@ class TestElTopeDeSalidaYElRelojNoPuedenContradecirse(unittest.TestCase):
         r = self.correr_guarda(600)
         self.assertIn("rc=1", r.stdout)
         salida = r.stdout + r.stderr
-        self.assertIn("1343", salida,
+        self.assertIn("984", salida,
                       "no dice CUÁNTOS segundos tarda: sin el número, el que lee no puede "
                       "decidir si sube el reloj o baja el tope")
         self.assertIn("600", salida, "ni contra qué límite lo comparó")
@@ -1415,7 +1415,7 @@ class TestElTopeDeSalidaYElRelojNoPuedenContradecirse(unittest.TestCase):
     def test_un_tope_que_SI_entra_no_molesta(self):
         """El brazo que no se tiene que mover. Un guardia que se queja siempre se apaga, y
         un guardia apagado es peor que ninguno porque figura en la lista."""
-        r = self.correr_guarda(3600)
+        r = self.correr_guarda(3600, tope=6000)
         self.assertIn("rc=0", r.stdout, r.stdout + r.stderr)
         self.assertNotIn("⚠", r.stdout + r.stderr)
 
@@ -1427,6 +1427,34 @@ class TestElTopeDeSalidaYElRelojNoPuedenContradecirse(unittest.TestCase):
         r = self.correr_guarda(60, cfg=d / "no-existe.json")
         self.assertIn("rc=0", r.stdout,
                       "se negó sin saber el tope: eso para corridas por nada")
+
+    def test_el_reloj_que_manda_es_el_MAS_CORTO_no_el_nuestro(self):
+        """El caso exacto que invalidó la tanda del 2026-11-21, y el que el guardia dejaba
+        pasar el mismo día que lo escribí.
+
+        Tope 8192, nuestro límite 3600 s: holgado del lado nuestro y el guardia decía que
+        sí. Pero **el gateway corta cualquier pedido a los 20 minutos**, y 8192 tokens a 6,1
+        tok/s son 1343 s. Las cuatro replanificaciones murieron ahí con
+        `inference timed out or returned no result`.
+
+        Lo peor no es el número: es que estaba escrito en `OPENCODE.md` desde octubre
+        —«timeout: false … el gateway corta igual a los 20 min»— y el chequeo no lo sabía.
+        Alguien declara algo y el que lo tiene que recibir no lo recibe, cometido por el
+        chequeo que existe para que eso no pase.
+
+        Y la inferencia andaba bien: un pedido streameado de 8192 tokens tardó 1231 s y la
+        plataforma lo completó con `finish_reason: length`. O sea que el mensaje apunta a la
+        inferencia y la causa es el gateway — por eso el aviso lo dice con todas las letras.
+        """
+        r = self.correr_guarda(3600, tope=8192)
+        self.assertIn("rc=1", r.stdout,
+                      "con el reloj nuestro holgado y el del gateway corto, dijo que sí: "
+                      "es la configuración exacta que tiró cuatro intentos")
+        salida = r.stdout + r.stderr
+        self.assertIn("gateway", salida, "no nombra cuál de los relojes es el que manda")
+        self.assertIn("7320", salida,
+                      "no dice cuál es el techo DURO. Sin ese número, el que lee no sabe si "
+                      "bajar el tope alcanza o hay que cambiar el modelo del papel")
 
     def test_la_velocidad_esta_MEDIDA_y_con_fecha(self):
         """Un número mágico sin procedencia no se puede volver a chequear, y cuando el

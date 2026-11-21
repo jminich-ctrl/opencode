@@ -1009,8 +1009,20 @@ clasificar_sin_tests() {
 # el servido hay que volver a medirla — y que esté acá, con fecha, es lo que hace que se
 # note que envejeció.
 TOK_S_PISO="${TOK_S_PISO:-6.1}"
+# El gateway corta CUALQUIER pedido a los 20 minutos, pase lo que pase del lado nuestro.
+# Está escrito en OPENCODE.md desde octubre —«timeout: false … el gateway corta igual a los
+# 20 min»— y el guardia no lo sabía: chequeaba sólo contra NUESTRO reloj. Por eso dejó pasar
+# un tope de 8192 que a 6,1 tok/s son 1343 s, y las cuatro replanificaciones del 2026-11-21
+# murieron a los ~20 min con «inference timed out». El dato estaba declarado y el que lo
+# tenía que recibir no lo recibía: el patrón de METODO.md, cometido por el chequeo que
+# escribí ESE MISMO DÍA para que no volviera a pasar.
+#
+# Medido el 2026-11-21: un pedido streameado de 8192 tokens tardó 1231 s y la PLATAFORMA lo
+# completó bien (`finish_reason: length`, `[DONE]`). O sea que la pared no es la inferencia:
+# es el gateway. La distinción importa porque se arregla distinto.
+GATEWAY_TOPE_S="${GATEWAY_TOPE_S:-1200}"
 presupuesto_coherente() {
-  local agente="${1:-arquitecto}" limite="${2:-1800}" mid cfg tope segs
+  local agente="${1:-arquitecto}" limite="${2:-1800}" mid cfg tope segs quien
   cfg="${CONFIG_OC:-$HOME/.config/opencode/opencode.json}"
   [ -f "$cfg" ] || return 0          # sin config no se opina: ⊘ no es un no
   mid="$(modelo_del_agente "$agente")"
@@ -1024,11 +1036,17 @@ PYTOPE
 )"
   [ -n "$tope" ] || return 0
   segs="$(python3 -c "print(round($tope/$TOK_S_PISO))" 2>/dev/null)" || return 0
+  # El que manda es el reloj MÁS CORTO, no el nuestro. Chequear sólo contra `LIMITE_AGENTE`
+  # es lo que dejó pasar el tope de 8192: nuestro límite eran 3600 s y el gateway 1200.
+  quien=nuestro
+  if [ "$GATEWAY_TOPE_S" -lt "$limite" ]; then limite="$GATEWAY_TOPE_S"; quien="del gateway"; fi
   if [ "${segs:-0}" -gt "$limite" ]; then
-    echo "  ⚠ el tope de salida de '$agente' no entra en su tiempo: $tope tokens a" >&2
-    echo "    ${TOK_S_PISO} tok/s son ${segs}s y el límite es ${limite}s. El agente va a morir por" >&2
-    echo "    reloj a mitad de la respuesta, con un diagnóstico que no se parece a la causa." >&2
-    echo "    Subí LIMITE_AGENTE o bajá limit.output: tienen que ser coherentes (MEDICION §30)." >&2
+    echo "  ⚠ el tope de salida de '$agente' no entra en el reloj $quien: $tope tokens a" >&2
+    echo "    ${TOK_S_PISO} tok/s son ${segs}s y el tope es ${limite}s. El agente va a morir por" >&2
+    echo "    reloj a mitad de la respuesta, con un diagnóstico que no se parece a la causa" >&2
+    echo "    —el del gateway llega como «inference timed out», que apunta a la inferencia" >&2
+    echo "    cuando la inferencia andaba bien—." >&2
+    echo "    Techo duro: $(python3 -c "print(int($limite*$TOK_S_PISO))") tokens. Bajá limit.output, o cambiá el modelo del papel." >&2
     return 1
   fi
   return 0

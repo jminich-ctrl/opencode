@@ -10,7 +10,7 @@ Estado de cada fase acá abajo. Lo que ya está medido va a [`../MEDICION.md`](.
 | Fase | Qué | Estado |
 |---|---|---|
 | 0 | La etapa que más falla no entra al informe, y su registro no es comparable | **hecha** |
-| 1 | El arquitecto se corta a mitad del razonamiento | medida; corriendo la intervención |
+| 1 | El arquitecto se corta a mitad del razonamiento | **⊘ tanda inválida** por el gateway. Pared medida, tope a 6000, lista para re-correr |
 | 2 | Contexto real contra el servidor, para local | diseñada |
 | 3 | Subir K con el plan de clasificados | bloqueada por 1 |
 
@@ -134,6 +134,80 @@ palabra, y el arquitecto escribe en **≥2 de 4** tareas (T04, T16, T26, T28).
 | no | ≥2 | la causa era el presupuesto. Confirmado. |
 | no | 0–1 | el presupuesto era necesario y no suficiente: ahí sí vuelve el prompt como candidato, **con la hipótesis vieja ya refutada una vez** |
 | sí | — | la intervención no hizo lo que decía: no se lee el resultado, se arregla el instrumento |
+
+### Resultado: ⊘. La tabla de arriba no tenía la fila que pasó
+
+**4 de 4 intentos murieron con `inference timed out or returned no result`.** Ninguno llegó a
+un veredicto, así que **el experimento no midió la hipótesis**. No es una confirmación ni una
+refutación: es una tanda inválida.
+
+| tarea | transcript | antes (2026-11-10) | cómo terminó |
+|---|---|---|---|
+| T04 | 307 b | 17 242 b | timeout, sin emitir nada |
+| T16 | 24 084 b | 26 872 b | emitió y después timeout |
+| T26 | 42 564 b | 17 262 b | emitió **2,5×** y después timeout |
+| T28 | 27 445 b | 24 927 b | emitió y después timeout |
+
+**El chequeo de manipulación SÍ pasó, y eso es lo que queda en pie.** Ningún transcript corta
+ya a mitad de palabra: terminan una frase y recién ahí viene el error de la plataforma. T26
+emitió 2,5 veces más que con el tope viejo. O sea que **subir el presupuesto hizo exactamente
+lo que decía hacer** — el arquitecto dejó de quedarse sin tokens. Haber separado esa pregunta
+de «¿sirvió?» es lo único que permite afirmar eso con la tanda invalidada.
+
+### La pared, medida: no era la inferencia, y estaba escrita en nuestra propia documentación
+
+Primero creí que era un timeout de inferencia de la plataforma. **Lo medí y es falso.** Un
+pedido streameado de 8192 tokens tardó **1231 s y la plataforma lo completó bien**
+(`finish_reason: length`, cerró con `[DONE]`, 6,65 tok/s). La inferencia andaba perfecta.
+
+La pared es **el gateway, que corta cualquier pedido a los 20 minutos**. Y está en
+[`../OPENCODE.md`](../OPENCODE.md) desde octubre, escrito por nosotros:
+
+> `timeout: false` — sin tope total del lado de OpenCode. **El gateway corta igual a los 20 min.**
+
+8192 tokens a 6,1 tok/s son **1343 s**: 143 segundos por encima del gateway. Las cuatro
+replanificaciones murieron ahí, y el mensaje que llega —`inference timed out`— **apunta a la
+inferencia cuando la inferencia no tuvo nada que ver**.
+
+Van tres relojes distintos en un día, y el tope de salida no entra en ninguno por la misma
+razón: nadie hizo la división.
+
+1. el nuestro, `LIMITE_AGENTE`;
+2. el del borde, 300 s para pedidos no streameados (§30);
+3. **el del gateway, 1200 s**, que es éste.
+
+**Y el peor detalle: el guardia que escribí ESE MISMO DÍA para que esto no pasara sólo
+chequeaba contra el reloj nuestro.** Nuestro límite eran 3600 s, holgado, así que dijo que sí.
+El dato del gateway estaba declarado en nuestra documentación y el que lo tenía que recibir no
+lo recibía — el patrón de `METODO.md`, cometido por el chequeo que existe para evitarlo.
+Arreglado: ahora el guardia toma **el reloj más corto**, no el nuestro, y dice cuál manda.
+
+### El techo duro, y lo que se deduce de él
+
+A 6,1 tok/s, el gateway de 1200 s pone un techo de **7320 tokens de salida por pedido**. No es
+negociable con prompt ni con presupuesto.
+
+| tope | segundos | ¿entra en 1200 s? |
+|---|---|---|
+| 4096 (el viejo) | 671 s | sí, margen 529 s — pero truncaba el razonamiento |
+| **6000 (el nuevo)** | **984 s** | **sí, margen 216 s** |
+| 7320 | 1200 s | justo en la pared |
+| 8192 (el que probé) | 1343 s | **no**, 143 s de más |
+
+Queda en **6000**: 46 % más presupuesto que antes y adentro del gateway con margen para el
+prefill, que también corre contra ese reloj.
+
+**Lo que se deduce, y es el hallazgo que vale:** si la deliberación de este modelo no entra en
+7320 tokens, no hay tope que la haga entrar. O se achica lo que el arquitecto tiene que
+deliberar, o se cambia el modelo del papel — que es exactamente la pregunta de
+[`modelos-por-papel.md`](modelos-por-papel.md), el experimento bloqueado por K. Llegamos a ella
+por el otro lado, con un caso real en vez de un banco congelado.
+
+**Lo que me equivoqué, en el diseño y no en la ejecución:** la tabla de predicciones tenía tres
+filas y ninguna decía «el intento no llega a terminar». Un diseño que no prevé que el sujeto
+pueda no responder cuenta las no-respuestas como si fueran respuestas, y acá habría contado
+cuatro «no escribió» —que es la fila que confirma mi propia hipótesis vieja—. Lo salvó haber
+escrito la predicción antes y haber mirado CÓMO terminó cada intento, no sólo si escribió.
 
 **La trampa de §30 quedó chequeada arriba**, con el dato y no con el supuesto.
 

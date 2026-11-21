@@ -19,7 +19,7 @@
           "temperature": true,
           "limit": {
             "context": 117000,
-            "output": 8192
+            "output": 6000
           }
         },
         "5d21e32a-3bbb-4040-9c34-3b06c4415b84": {
