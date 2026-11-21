@@ -24,6 +24,7 @@ banco y el venv—. Por eso está acá adentro y versionado.
 import argparse
 import ast
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -155,6 +156,22 @@ def main():
                          "si falta, la referencia no importa y sin el guarda de arriba eso "
                          "se informaba como «el test no pasa», culpando al test del entorno")
     args = ap.parse_args()
+    # Absoluto: los tests corren con `cwd` en un directorio temporal, así que un `--python`
+    # relativo —el que uno escribe parado en la raíz del repo— explota con FileNotFoundError
+    # a mitad del primer ítem, y el mensaje habla del intérprete y no de la ruta.
+    #
+    # `abspath` y NO `resolve()`. `bin/python` de un venv es un symlink al intérprete base, y
+    # `resolve()` lo sigue: devuelve el python de Homebrew y el venv deja de existir, en
+    # silencio. Lo probé y el banco entero dio ⊘ con
+    # `ModuleNotFoundError: No module named 'sortedcontainers'` — o sea el arreglo del
+    # `--python` relativo reintroducía exactamente la falla de entorno que el guarda de
+    # `correr_test` existe para no cobrarle al test. Un arreglo que vuelve a abrir el agujero
+    # que el archivo documenta haber cerrado.
+    if args.python:
+        args.python = os.path.abspath(args.python)
+        if not pathlib.Path(args.python).exists():
+            sys.exit(f"✗ no existe el intérprete {args.python}\n"
+                     f"  Armalo con: python3 scripts/bajar_testeval.py --venv")
     leer = lambda p: [json.loads(l) for l in pathlib.Path(p).read_text().splitlines() if l.strip()]
     banco = {r["task_title"]: r for r in leer(args.banco)}
     filas, cuenta = [], {"aceptado": 0, "rechazado": 0, "⊘": 0}

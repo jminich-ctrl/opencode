@@ -1069,6 +1069,107 @@ class TestUnPermisoDenegadoNoEsUnCorteDePlataforma(unittest.TestCase):
                         "plataforma: si va después, el corte se la come y nunca se ejecuta")
 
 
+class TestElGatePublicoNoLeCobraAlTestLasFallasDelEntorno(unittest.TestCase):
+    """`scripts/gate_publico.py` recalcula nuestros cuatro criterios sobre un banco PÚBLICO
+    (TestEval, 210 problemas de LeetCode), para que un tercero pueda replicar sin nuestro
+    gate — que no puede correr: necesita un proyecto, un plan y un worktree.
+
+    Su defecto propio, medido montándolo: la primera corrida de humo no tenía
+    `sortedcontainers` instalado, la referencia no importaba, y el gate informó «el test no
+    pasa ni con la implementación». Le cobró al TEST una falla del entorno. Es el defecto que
+    persigue todo MEDICION.md —ante algo que no previó, deja de mirar y culpa al sujeto—
+    cometido por el instrumento que iba a medirlo. Por eso una falla de entorno es ⊘ y no un
+    rechazo: ⊘ no cuenta ni a favor ni en contra, un rechazo sí.
+    """
+
+    GATE = SCRIPTS / "gate_publico.py"
+
+    def banco_y_tests(self, solucion, test):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-gatepub-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        (d / "banco.jsonl").write_text(json.dumps(
+            {"task_title": "suma", "func_name": "suma", "python_solution": solucion}) + "\n")
+        (d / "tests.jsonl").write_text(json.dumps(
+            {"task_title": "suma", "test": test}) + "\n")
+        return d
+
+    def correr_gate(self, d, python=None, cwd=None):
+        cmd = [sys.executable, str(self.GATE), str(d / "banco.jsonl"), str(d / "tests.jsonl"),
+               "--tiempo", "20"]
+        if python:
+            cmd += ["--python", python]
+        r = subprocess.run(cmd, capture_output=True, text=True, cwd=str(cwd or d))
+        return r.stdout + r.stderr
+
+    # Sin ramas que ningún test distinga: con `if a > b: return a+b` / `return a+b` los
+    # mutantes sobreviven y hasta el test bueno sale RECHAZADO, así que el brazo positivo no
+    # mediría lo que dice medir.
+    SOLUCION = ("class Solution:\n"
+                "    def suma(self, a, b):\n"
+                "        total = a + b\n"
+                "        return total\n")
+    BUENO = ("from solucion import Solution\n"
+             "def test_suma():\n"
+             "    assert Solution().suma(2, 3) == 5\n"
+             "def test_suma_al_reves():\n"
+             "    assert Solution().suma(3, 2) == 5\n")
+
+    def test_un_test_que_distingue_se_acepta(self):
+        salida = self.correr_gate(self.banco_y_tests(self.SOLUCION, self.BUENO))
+        # El CONTADOR, no la palabra: el resumen imprime siempre «0 aceptado(s) · 0
+        # rechazado(s) · 1 ⊘», así que `assertIn("aceptado")` se cumple pase lo que pase.
+        # Lo escribí así primero y el test pasaba con el defecto puesto: una aserción que no
+        # puede fallar es decoración, que es justo lo que este gate existe para atrapar.
+        self.assertIn("1 aceptado(s)", salida, salida[-600:])
+
+    def test_una_dependencia_que_falta_es_circulo_barrado_y_no_un_rechazo(self):
+        """El brazo que define el archivo. Si esto se informa como «rechazado», el banco
+        público empieza a contar como tests malos los ítems cuyo entorno no armamos."""
+        solucion = "import no_existe_este_paquete\n" + self.SOLUCION
+        salida = self.correr_gate(self.banco_y_tests(solucion, self.BUENO))
+        self.assertIn("1 ⊘", salida, f"una falla de entorno tiene que ser ⊘. Dijo: {salida[-600:]}")
+        self.assertIn("0 rechazado(s)", salida,
+                         "le cobró al test una falla del entorno: es el defecto que este "
+                         "archivo entero persigue, cometido por el instrumento que mide")
+
+    def test_un_python_RELATIVO_no_deja_de_usar_el_venv(self):
+        """`--python` se vuelve absoluto porque los tests corren en un directorio temporal.
+        El arreglo obvio es `Path(...).resolve()`, y está MAL: `bin/python` de un venv es un
+        symlink al intérprete base y `resolve()` lo sigue, así que el venv deja de existir en
+        silencio y todo el banco da ⊘ por dependencias que sí estaban instaladas.
+
+        O sea que el arreglo del path reabría exactamente el agujero que el docstring de
+        `correr_test` dice haber cerrado. Lo vi corriendo el gate, no leyéndolo."""
+        import venv as _venv
+        d = self.banco_y_tests(self.SOLUCION, self.BUENO)
+        entorno = d / "venv"
+        _venv.create(entorno, with_pip=False, symlinks=True)
+        # Un paquete que SÓLO existe en el venv: si el gate se sale del venv, no lo ve.
+        sitio = next((entorno / "lib").glob("python*/site-packages"), None)
+        self.assertIsNotNone(sitio, "el venv no armó site-packages")
+        (sitio / "solo_en_el_venv.py").write_text("VALOR = 1\n")
+        # pytest no está en el venv sin pip, así que se lo presta el intérprete de afuera.
+        (sitio / "prestado.pth").write_text("\n".join(p for p in sys.path if p) + "\n")
+        solucion = "import solo_en_el_venv\n" + self.SOLUCION
+        (d / "banco.jsonl").write_text(json.dumps(
+            {"task_title": "suma", "func_name": "suma", "python_solution": solucion}) + "\n")
+
+        salida = self.correr_gate(d, python="venv/bin/python", cwd=d)
+        self.assertIn("0 ⊘", salida,
+                      "el gate siguió el symlink del venv y terminó corriendo con el "
+                      "intérprete de afuera, así que el paquete que SÓLO está en el venv no "
+                      f"se importa y el ítem entero queda sin juzgar. Dijo: {salida[-700:]}")
+        self.assertIn("1 aceptado(s)", salida, salida[-700:])
+
+    def test_usa_NUESTRO_mutador_y_no_uno_propio(self):
+        """Si la réplica pública inventara sus propios operadores de mutación mediría otro
+        gate, y la comparación con el nuestro no diría nada. El import es el contrato."""
+        texto = self.GATE.read_text()
+        self.assertIn("from mutar import", texto,
+                      "el gate público tiene que importar `mutar.py`, no reimplementar la "
+                      "mutación: los operadores se eligieron contra dos estudios a escala")
+
+
 class TestRetomarPorNumeroNoSaltaTrabajo(unittest.TestCase):
     """Los números de etapa NO son estables entre corridas, y retomar por número saltaba
     trabajo en silencio.

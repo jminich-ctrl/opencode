@@ -27,3 +27,7 @@ node_modules
 # El material crudo cosechado SÍ se versiona, aunque sean .log: es el producto, no ruido.
 # `*.log` de arriba lo excluía entero y lo dejaba fuera del commit en silencio.
 !experimentos/crudo/**/*.log
+
+# El banco de TestEval son datos de terceros: lo baja `scripts/bajar_testeval.py` con el
+# hash clavado, que es tan reproducible como la copia y deja clara la procedencia.
+experimentos/crudo/testeval/
