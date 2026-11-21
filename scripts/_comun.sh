@@ -993,6 +993,47 @@ clasificar_sin_tests() {
   echo "entorno: $ent"
 }
 
+# ¿El tope de salida del agente ENTRA en el tiempo que le damos? Devuelve 0 si entra, 1 si
+# no, y lo dice.
+#
+# Existe porque este defecto ya pasó dos veces con dos formas distintas. §30: el tope se
+# subió a 10000 tokens y la espera se hizo crecer con él, pero el borde cortaba a los 300 s
+# y esa espera NUNCA se usó — el tope y el límite se contradecían y nadie hizo la división.
+# Y el 2026-11-21: el arquitecto se cortaba a mitad del razonamiento con el tope en 4096, y
+# subirlo a 10000 sin tocar el límite de 1800 s habría dejado 161 s para escribir, o sea
+# habría MOVIDO la falla de «cortado por tokens» a «matado por el reloj», con un diagnóstico
+# nuevo y el mismo resultado.
+#
+# La velocidad NO se adivina: medida el 2026-11-21 contra el 27B FP8, 6,1 y 6,6 tok/s en dos
+# corridas. Se toma el piso, porque el que importa es el caso lento. Si cambia el modelo o
+# el servido hay que volver a medirla — y que esté acá, con fecha, es lo que hace que se
+# note que envejeció.
+TOK_S_PISO="${TOK_S_PISO:-6.1}"
+presupuesto_coherente() {
+  local agente="${1:-arquitecto}" limite="${2:-1800}" mid cfg tope segs
+  cfg="${CONFIG_OC:-$HOME/.config/opencode/opencode.json}"
+  [ -f "$cfg" ] || return 0          # sin config no se opina: ⊘ no es un no
+  mid="$(modelo_del_agente "$agente")"
+  [ -n "$mid" ] || return 0
+  tope="$(python3 - "$cfg" "$mid" <<'PYTOPE' 2>/dev/null
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+m = (cfg.get("provider", {}).get("colabhive", {}).get("models", {}) or {}).get(sys.argv[2], {})
+print((m.get("limit") or {}).get("output") or "")
+PYTOPE
+)"
+  [ -n "$tope" ] || return 0
+  segs="$(python3 -c "print(round($tope/$TOK_S_PISO))" 2>/dev/null)" || return 0
+  if [ "${segs:-0}" -gt "$limite" ]; then
+    echo "  ⚠ el tope de salida de '$agente' no entra en su tiempo: $tope tokens a" >&2
+    echo "    ${TOK_S_PISO} tok/s son ${segs}s y el límite es ${limite}s. El agente va a morir por" >&2
+    echo "    reloj a mitad de la respuesta, con un diagnóstico que no se parece a la causa." >&2
+    echo "    Subí LIMITE_AGENTE o bajá limit.output: tienen que ser coherentes (MEDICION §30)." >&2
+    return 1
+  fi
+  return 0
+}
+
 # La huella de los scripts que produjeron una medición. Dos filas con huellas distintas NO se
 # comparan — es el punto 7 de la regla de parada de MEDICION.md, que decía «cambiaste el
 # instrumento entre dos corridas: no son comparables» y no tenía cómo saberlo.

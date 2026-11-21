@@ -1373,6 +1373,82 @@ class TestLaEtapaQueEscribeLosTestsEntraAlRegistroYEsComparable(unittest.TestCas
         self.assertEqual("implementacion", filas[0]["etapa"])
 
 
+class TestElTopeDeSalidaYElRelojNoPuedenContradecirse(unittest.TestCase):
+    """Tercera vez que el tope de tokens y el tiempo que damos se contradicen, y la primera
+    en que hay un chequeo en vez de un comentario.
+
+    §30: el tope del juez subió a 10000 y se hizo crecer la espera con él, pero el borde
+    cortaba a los 300 s y **esa espera nunca se usó**. Nadie había hecho la división.
+
+    2026-11-21: el arquitecto se cortaba a mitad del razonamiento con el tope en 4096 —los
+    tres transcripts terminan a mitad de palabra, dos de ellos a ~4310 tokens estimados—.
+    Subirlo a 10000 sin tocar el límite de 1800 s habría dejado **161 s para escribir**, o
+    sea habría MOVIDO la falla de «cortado por tokens» a «matado por el reloj»: diagnóstico
+    nuevo, mismo resultado, y una tanda entera tirada antes de notarlo.
+
+    La velocidad no se adivina: medida contra el 27B FP8, **6,1 y 6,6 tok/s** en dos
+    corridas. Se usa el piso porque el que importa es el caso lento.
+    """
+
+    def correr_guarda(self, limite, cfg=None, tope=8192):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-presup-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        if cfg is None:
+            cfg = d / "opencode.json"
+            cfg.write_text(json.dumps({
+                "provider": {"colabhive": {"models": {
+                    "m-lento": {"limit": {"context": 100, "output": tope}}}}},
+                "agent": {"arquitecto": {"model": "colabhive/m-lento"}}}))
+        return correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                      f'CONFIG_OC={shlex.quote(str(cfg))}; '
+                      f'presupuesto_coherente arquitecto {limite}; echo "rc=$?"', d)
+
+    def test_un_tope_que_no_entra_en_el_reloj_se_informa(self):
+        r = self.correr_guarda(600)
+        self.assertIn("rc=1", r.stdout)
+        salida = r.stdout + r.stderr
+        self.assertIn("1343", salida,
+                      "no dice CUÁNTOS segundos tarda: sin el número, el que lee no puede "
+                      "decidir si sube el reloj o baja el tope")
+        self.assertIn("600", salida, "ni contra qué límite lo comparó")
+
+    def test_un_tope_que_SI_entra_no_molesta(self):
+        """El brazo que no se tiene que mover. Un guardia que se queja siempre se apaga, y
+        un guardia apagado es peor que ninguno porque figura en la lista."""
+        r = self.correr_guarda(3600)
+        self.assertIn("rc=0", r.stdout, r.stdout + r.stderr)
+        self.assertNotIn("⚠", r.stdout + r.stderr)
+
+    def test_sin_config_NO_opina(self):
+        """⊘ no es un no. Si no hay config no se sabe el tope, y negarse ahí sería un rojo
+        inventado que para una corrida por algo que nadie midió."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-presup-sin-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        r = self.correr_guarda(60, cfg=d / "no-existe.json")
+        self.assertIn("rc=0", r.stdout,
+                      "se negó sin saber el tope: eso para corridas por nada")
+
+    def test_la_velocidad_esta_MEDIDA_y_con_fecha(self):
+        """Un número mágico sin procedencia no se puede volver a chequear, y cuando el
+        modelo o el servido cambien nadie va a saber que envejeció."""
+        c = (SCRIPTS / "_comun.sh").read_text()
+        self.assertIn("TOK_S_PISO", c)
+        bloque = c[max(0, c.index("TOK_S_PISO") - 1200):c.index("TOK_S_PISO") + 80]
+        self.assertIn("2026-11-21", bloque,
+                      "la velocidad no dice cuándo se midió: un número sin fecha no se "
+                      "puede declarar viejo")
+        self.assertIn("tok/s", bloque)
+
+    def test_replanificar_LLAMA_a_la_guarda(self):
+        """Una cura que depende de que alguien se acuerde no es parte del método."""
+        s = (SCRIPTS / "replanificar.sh").read_text()
+        self.assertIn("presupuesto_coherente", s,
+                      "replanificar.sh no chequea el presupuesto antes de lanzar: el guardia "
+                      "existe y no lo llama nadie, que es la forma de no tenerlo")
+        self.assertLess(s.index("presupuesto_coherente"), s.index("opencode run"),
+                        "chequea DESPUÉS de lanzar: para eso no chequea")
+
+
 class TestRetomarPorNumeroNoSaltaTrabajo(unittest.TestCase):
     """Los números de etapa NO son estables entre corridas, y retomar por número saltaba
     trabajo en silencio.

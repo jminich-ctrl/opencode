@@ -19,6 +19,16 @@ AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$AQUI/_comun.sh"
 ubicar_proyecto
 cargar_entorno_colabhive
+
+# El tope de salida del arquitecto tiene que entrar en el tiempo que le damos. Un chequeo y
+# no un comentario: el 2026-11-21 el arquitecto se cortaba a mitad del razonamiento con el
+# tope en 4096, y subirlo sin tocar el límite habría movido la falla de «cortado por tokens»
+# a «matado por el reloj» — diagnóstico nuevo, mismo resultado. Ver `presupuesto_coherente`.
+presupuesto_coherente "${AGENTE_REPLAN:-arquitecto}" "${LIMITE_AGENTE:-3600}" || {
+  echo "✗ no arranco con el presupuesto en contradicción: lo que saldría de acá sería una" >&2
+  echo "  medición de nuestro reloj, no del arquitecto." >&2
+  exit 1
+}
 [ $# -ge 1 ] || { echo "uso: $0 TNN [TNN ...]" >&2; exit 1; }
 
 for id in "$@"; do
@@ -139,7 +149,7 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
     # puede evaluar con un banco de seis preguntas, y la única prueba real es si replanifica
     # una tarea que falló de verdad.
     if [ -n "${MODELO:-}" ]; then COMO=(--model "colabhive/$MODELO"); else COMO=(--agent arquitecto); fi
-    con_limite "${LIMITE_AGENTE:-1800}" opencode run "${COMO[@]}" \
+    con_limite "${LIMITE_AGENTE:-3600}" opencode run "${COMO[@]}" \
       "Mirá SOLO el archivo de la tarea, PLAN.md y, si hace falta, los archivos que la tarea nombra. NO explores .venv, node_modules, .git ni ningún directorio de dependencias: no tienen nada que ver con el enunciado y hay decenas de miles de archivos ahí. La tarea tareas/$(basename \"$archivo\") falló al ejecutarse, y el motivo es cómo está escrita, no el agente que la intentó. Esto es lo que falló: $MOTIVO. Leé la tarea, leé PLAN.md, y reescribí SOLO el archivo de tarea con la herramienta write para que el defecto no pueda repetirse. Reglas que no podés romper: (1) no cambies el archivo de test ni el nombre de su clase, los declara el plan; (2) no saques ni ablandes ningún criterio de terminado — si hace falta, agregá; (3) si el problema es que la tarea necesita algo que ninguna tarea del plan entrega, decilo con la palabra HUECO y explicá qué falta, en vez de inventarlo. Lo que la tarea NO puede tocar va en el campo «Prohibido tocar», no en prosa, y NO expliques cómo hacer lo que prohibís: medido, el ejecutor hace lo que la receta dice aunque dos líneas antes diga que no le corresponde. Nombrar un archivo ajeno está bien para decir DÓNDE VIVE algo que la tarea importa, y mal si viene con instrucciones de cómo modificarlo. Lo más útil que podés hacer es decir DÓNDE vive cada cosa que la tarea nombra: archivo exacto, import exacto." 2>&1
   ) > "$LOG_VIGILADO" 2>&1
   RC=$?

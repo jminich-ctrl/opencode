@@ -10,7 +10,7 @@ Estado de cada fase acá abajo. Lo que ya está medido va a [`../MEDICION.md`](.
 | Fase | Qué | Estado |
 |---|---|---|
 | 0 | La etapa que más falla no entra al informe, y su registro no es comparable | **hecha** |
-| 1 | El arquitecto se corta a mitad del razonamiento | diseñada, falta correr |
+| 1 | El arquitecto se corta a mitad del razonamiento | medida; corriendo la intervención |
 | 2 | Contexto real contra el servidor, para local | diseñada |
 | 3 | Subir K con el plan de clasificados | bloqueada por 1 |
 
@@ -92,8 +92,37 @@ Dos mediciones distintas, y la distinción es el punto:
 2. **Resultado — ¿escribió?** El criterio que el script ya tiene: *«el arquitecto no cambió
    nada: leyó la tarea y no la reescribió»*.
 
-**Intervención:** subir `limit.output` del arquitecto de 4096 a 10000. Mismo número y mismo
-motivo que §25.
+### Lo que medí antes de tocar nada
+
+**El flag que apaga el razonamiento es inerte.** El agente declara
+`chat_template_kwargs: {enable_thinking: False}`. Mandé el mismo pedido con y sin el flag: las
+dos respuestas arrancan igual —`"We need answer in Spanish..."`— y ninguna trae campo
+`reasoning` aparte. El modelo razona igual, en inglés, dentro de `content`. Eso **cierra** la
+hipótesis barata y deja el presupuesto como única palanca.
+
+**La velocidad: 6,1 y 6,6 tok/s**, dos corridas contra el 27B FP8 caliente. No es ~30 como
+supuso §30. Y eso cambia todo el aritmético:
+
+| tope | segundos por turno (a 6,1) | con límite 1800 | con límite 3600 |
+|---|---|---|---|
+| 4096 | 671 s | entra, sobran 1129 s | entra |
+| 8192 | 1343 s | entra, sobran **457 s** | entra, sobran 2257 s |
+| 10000 | 1639 s | entra, sobran **161 s** ⚠ | entra, sobran 1961 s |
+
+**El corte del borde para pedidos no streameados son 300 s = ~1830 tokens.** Los transcripts
+del 10-11 emitieron bastante más que eso, así que **opencode sí streamea** y la trampa de §30
+no aplica acá. Eso se verifica con el dato, no se supone.
+
+**Intervención, y por qué NO es 10000.** Subir el tope a 10000 dejando el límite en 1800 s
+daría 161 s para escribir: habría movido la falla de «cortado por tokens» a «matado por el
+reloj», con un diagnóstico nuevo y el mismo resultado. Van los dos juntos:
+
+- `limit.output` del arquitecto: **4096 → 8192**
+- `LIMITE_AGENTE` de `replanificar.sh`: **1800 → 3600**
+- y un guardia, `presupuesto_coherente`, que hace la división **antes de lanzar** y se niega
+  a arrancar si no entra. Tercera vez que el tope y el reloj se contradicen y la primera que
+  hay un chequeo en vez de un comentario. La velocidad vive ahí con su fecha, para que se
+  note cuando envejezca.
 
 **Predicción, escrita antes de correr:** los cuatro transcripts dejan de cortarse a mitad de
 palabra, y el arquitecto escribe en **≥2 de 4** tareas (T04, T16, T26, T28).
@@ -106,10 +135,7 @@ palabra, y el arquitecto escribe en **≥2 de 4** tareas (T04, T16, T26, T28).
 | no | 0–1 | el presupuesto era necesario y no suficiente: ahí sí vuelve el prompt como candidato, **con la hipótesis vieja ya refutada una vez** |
 | sí | — | la intervención no hizo lo que decía: no se lee el resultado, se arregla el instrumento |
 
-**La trampa de §30, chequeada antes:** el borde corta respuestas NO streameadas a los 300 s, y a
-~30 tok/s 10000 tokens son ~333 s. Hay que confirmar que el pedido del agente va con streaming
-antes de subir el tope, o estaríamos poniendo el techo del borde adentro del presupuesto —el
-error exacto que §30 documenta—.
+**La trampa de §30 quedó chequeada arriba**, con el dato y no con el supuesto.
 
 ---
 
