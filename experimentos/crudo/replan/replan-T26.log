@@ -1,0 +1,186 @@
+[0m
+> arquitecto · 1af07b1f-5832-4451-a61c-76d1fe43115a
+[0m
+[0m→ [0mRead tareas/T26-registro_backend.md
+[0m→ [0mRead PLAN.md
+Let's start by reading the task file, PLAN.md, and the related files that the task references.
+Let me understand the situation:
+
+1. Task T26 is "Registro backend (creación de cuenta)" (backend registration (account creation)).
+2. The task failed at the phase that writes the tests. The test file `backend/tests/test_register_backend.py` doesn't exist yet.
+3. The failure: the test doesn't execute the implementation's lines. Mutation testing revealed the following:
+   - `backend/app/datos/users_register.py:6` `with conexion() as conn:` — line not executed
+   - `backend/app/datos/users_register.py:7` `with conn.cursor() as cur:` — line not executed
+   - `backend/app/datos/users_register.py:8` `cur.execute(` — line not executed
+   - `backend/tests/test_register_backend.py:14` `patch('backend.app.datos.users_register.insert_user')` has no effect
+   - The task description instructs to import the name with `from backend.app.datos.users_register import insert_...`
+
+Wait, let me re-read the failure message:
+
+"Lo que falló: el test NO EJECUTA las líneas de la implementación: no las está probando. Sobrevivió:
+→ backend/app/datos/users_register.py:6 [la línea NO se ejecuta] with conexion() as conn:
+→ backend/app/datos/users_register.py:7 [la línea NO se ejecuta] with conn.cursor() as cur:
+→ backend/app/datos/users_register.py:8 [la línea NO se ejecuta] cur.execute(
+backend/tests/test_register_backend.py:14 patch('backend.app.datos.users_register.insert_user') no va a tener efecto
+el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users_register import insert_."
+
+Hmm, wait. So the test file `backend/tests/test_register_backend.py` — the user says "the phase that writes the tests failed, so 'backend/tests/test_register_backend.py' doesn't exist yet — the description says it's already in the repo because it's written for the next phase, ignore that sentence."
+
+So the test file doesn't exist in the repo. But the mutation output references `backend/tests/test_register_backend.py:14` — that must be from a previous run where the test writer agent wrote the test, and the gate ran mutation testing. The test the agent wrote patched `backend.app.datos.users_register.insert_user`, but the implementation (written by the agent in the same run? or a previous run?) imported with `from backend.app.datos.users_register import insert_user`, so the patch had no effect...
+
+Wait, actually, let me think about the flow of this method:
+
+1. Phase 1: test writer agent writes the test file (and possibly a reference implementation? no...). Actually, from AGENTS.md: "A veces se te pide la tarea completa —implementación **y** tests— y de ese trabajo nos quedamos **sólo con los tests**: la implementación la escribe otro agente desde cero." (Sometimes you're asked for the complete task — implementation **and** tests — and from that work we keep **only the tests**: the implementation is written by another agent from scratch.)
+
+So the test writer agent writes both the implementation and the tests, but only the tests are kept. Then the implementation agent writes the implementation from scratch, and the gate runs the tests + mutation testing.
+
+The failure here: the test writer agent wrote a test that patches `backend.app.datos.users_register.insert_user`. But wait — if the test writer's implementation is discarded, then the implementation that the test runs against is written by the implementation agent. The implementation agent followed the task description, which says:
+
+"`insert_user` se llama como ATRIBUTO del módulo: `users_register.insert_user(...)` con `from backend.app.datos import users_register`."
+
+Hmm, wait, but the failure says "el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users_register import insert_`" — the task description instructs to bring the name with `from backend.app.datos.users_register import insert_...`.
+
+Hmm, where in the task file is that? Let me look at the task file again...
+
+The contract section says:
+
+```python
+# backend/app/datos/users_register.py
+def insert_user(email: str, password_hash: str) -> int:
+    """Inserta la fila y devuelve el id nuevo. Lanza si el email ya existe.
+    Recibe el hash YA calculado: el hasheo es del servicio, no de la capa de datos."""
+
+# backend/app/servicios/register.py
+def crear_usuario(email: str, password: str) -> int:
+    """Valida, hashea con el mismo esquema que `auth.py` y delega en
+    `users_register.insert_user`. Devuelve el id."""
+```
+
+Hmm, the docstring of `crear_usuario` says "delega en `users_register.insert_user`" — that suggests attribute access. And point 2 of "Tres cosas que el test impone" says:
+
+"**`insert_user` se llama como ATRIBUTO del módulo**: `users_register.insert_user(...)` con `from backend.app.datos import users_register`. Con `from backend.app.datos.users_register import insert_user` el servicio se queda con su propia referencia, el `@patch` del test no aplica, la consulta va a la base de verdad y el rojo no se parece a su causa."
+
+So the task file actually says to use attribute access. But the failure message says "el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users_register import insert_`".
+
+Hmm, wait. Maybe the failure message is truncated: "el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users_register import insert_." — cut off mid-word. Maybe it's referring to something else in the task file. Let me search...
+
+Actually, wait. Maybe the problem is in the test writer phase. The test writer agent reads the task file and writes the test. The test patches `backend.app.datos.users_register.insert_user`. For the patch to have an effect, the service module must import with `from backend.app.datos import users_register` and call `users_register.insert_user(...)`.
+
+But the test writer agent also writes a reference implementation (which gets discarded). The gate's mutation testing ran against... hmm, actually, wait. Let me re-read the user's message:
+
+"Falló la fase que ESCRIBE los tests, así que 'backend/tests/test_register_backend.py' todavía NO existe —el enunciado dice que ya está en el repo porque está escrito para la fase siguiente, ignorá esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
+
+So the test-writing phase failed. The test file doesn't exist. My job: rewrite the task file so that the test-writing phase succeeds.
+
+"Lo que falló: el test NO EJECUTA las líneas de la implementación: no las está probando."
+
+So in the failed run, the test writer agent wrote a test that patches `insert_user` at `backend.app.datos.users_register.insert_user`. The test writer's own implementation (the one that gets discarded, but used to verify that the test passes against a reference implementation) — hmm, wait.
+
+Actually, let me think about how the gate works in the test-writing phase. From AGENTS.md: "Antes de decir que terminaste, corré la suite con el comando que te indiquen y mostrá su salida real. Si tu test no pasa contra tu propia implementación, uno de los dos está mal y lo arreglás vos." (Before saying you're done, run the suite with the command they tell you and show its actual output. If your test doesn't pass against your own implementation, one of the two is wrong and you fix it.)
+
+So in the test-writing phase, the agent writes both the implementation and the tests, and the test must pass against its own implementation. The gate also runs mutation testing: "El gate muta tu código línea por línea y exige que la suite lo note: cuando sobreviven mutantes es que escribiste comportamiento que nadie verifica" (The gate mutates your code line by line and demands that the suite notice it: when mutants survive, it means you wrote behavior that no one verifies).
+
+So in the failed run: the test writer agent wrote the implementation `users_register.py` with `insert_user`, and the test that patches `backend.app.datos.users_register.insert_user`. The mutation report says:
+
+- Lines 6-8 of `users_register.py` (the body of `insert_user`: `with conexion() as conn:`, `with conn.cursor() as cur:`, `cur.execute(`) were not executed by the test.
+- `backend/tests/test_register_backend.py:14` `patch('backend.app.datos.users_register.insert_user')` has no effect.
+
+So the test patches `insert_user` in the datos module, but the service (the test's target) imported it with `from backend.app.datos.users_register import insert_user`, so the patch had no effect — the service called the real `insert_user`, which... wait, but then the real `insert_user` would have been executed (lines 6-8), and would have tried to connect to MySQL. Hmm, but the mutation report says lines 6-8 were not executed.
+
+Hmm, wait. Let me think again. If the patch had no effect, the service would call the real `insert_user`, which would execute lines 6-8. But the report says they weren't executed. So something else is going on.
+
+Maybe... the test writer's implementation of the service didn't call `insert_user` at all? Or the test mocked at a different level?
+
+Actually, wait. Let me re-read: "backend/tests/test_register_backend.py:14 patch('backend.app.datos.users_register.insert_user') no va a tener efecto" — "is not going to have an effect". This is a prediction/diagnosis from the gate: the patch at line 14 of the test is not going to have an effect (because the service imports the name directly).
+
+And "el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users_register import insert_`" — the task description instructs to bring the name with `from backend.app.datos.users_register import insert_...`.
+
+Hmm, so where in the task file does it say that? Let me look at the contract again:
+
+```python
+# backend/app/servicios/register.py
+def crear_usuario(email: str, password: str) -> int:
+    """Valida, hashea con el mismo esquema que `auth.py` y delega en
+    `users_register.insert_user`. Devuelve el id."""
+```
+
+Hmm, "delega en `users_register.insert_user`" — that's attribute-style.
+
+Wait, maybe the truncated message is referring to something I'm not seeing. The message ends with "import insert_." — cut off. Maybe it's `from backend.app.datos.users_register import insert_user` — where in the task file?
+
+Hmm, let me search the task file for "from backend.app.datos.users_register import":
+
+Line 74: "Con `from backend.app.datos.users_register import insert_user` el servicio se queda con su propia referencia, el `@patch` del test no aplica..."
+
+That's in the context of "don't do this". Hmm.
+
+Wait, maybe the problem is more subtle. Let me think about what the test writer agent does:
+
+1. Reads the task file.
+2. Writes the test file `backend/tests/test_register_backend.py` with class `TestRegisterBackend`.
+3. Writes a reference implementation (3 files).
+4. Runs the tests; they must pass against its own implementation.
+5. The gate runs mutation testing on the implementation.
+
+The test patches `backend.app.datos.users_register.insert_user`. For the patch to work, the service must use attribute access. The task file says so (point 2). So the test writer's service should use attribute access, and the patch should work...
+
+But the failure says the patch "no va a tener efecto" (is not going to have an effect). So in the failed run, the service used `from backend.app.datos.users_register import insert_user`.
+
+Hmm, wait, but the user says "el motivo es cómo está escrita, no el agente que la intentó" (the reason is how it's written, not the agent that attempted it). So the task file is causing this. How?
+
+Let me look at the contract section again very carefully:
+
+```python
+# backend/app/datos/users_register.py
+def insert_user(email: str, password_hash: str) -> int:
+    """Inserta la fila y devuelve el id nuevo. Lanza si el email ya existe.
+    Recibe el hash YA calculado: el hasheo es del servicio, no de la capa de datos."""
+
+# backend/app/servicios/register.py
+def crear_usuario(email: str, password: str) -> int:
+    """Valida, hashea con el mismo esquema que `auth.py` y delega en
+    `users_register.insert_user`. Devuelve el id."""
+```
+
+Hmm, OK, another thought. Maybe the problem is that the test writer agent, when writing the test, needs to test the service `crear_usuario`. The test patches `insert_user`. But the test also needs to test the endpoint (rutas). For the endpoint test, it uses FastAPI's TestClient. The route calls the service.
+
+Now, the mutation report says lines 6-8 of `users_register.py` (the body of `insert_user`) were not executed. That's expected if the test patches `insert_user` — the datos layer is mocked, so its body doesn't execute. But the gate's mutation testing requires that the implementation's lines be executed...
+
+Wait, but that's the whole point of the method: "No mockees lo que vinieron a probar. Si mockeás un símbolo que vive en un archivo de TU tarea, estás reemplazando el sujeto: el gate lo nota porque las líneas de la implementación no se ejecutan. Mockeá lo de abajo, no la tarea." (Don't mock what you came to test. If you mock a symbol that lives in a file of YOUR task, you're replacing the subject: the gate notices because the implementation's lines don't execute. Mock what's below, not the task.)
+
+Hmm! So the rule is: don't mock a symbol that lives in a file of your task. In the test-writing phase, the agent's task includes all 3 files (datos, servicios, rutas). If the test mocks `insert_user` (which lives in `backend/app/datos/users_register.py`, a file of the task), then the lines of `insert_user` don't execute, and the mutation gate detects that.
+
+But wait — the task file explicitly says: "La costura para aislar MySQL es `insert_user`, y el test la mockea por su nombre completo: `@patch('backend.app.datos.users_register.insert_user')`." (The seam to isolate MySQL is `insert_user`, and the test mocks it by its full name: `@patch('backend.app.datos.users_register.insert_user')`.)
+
+Hmm, so the task file says to mock `insert_user`. But the gate says mocking a symbol of your own task's files means the lines don't execute.
+
+Wait, but in the implementation phase, the implementation agent's task is also the same 3 files. Hmm.
+
+Let me look at how other tasks handle this. Let me look at T04 (auth backend), which is the analogous task: login. Its test is `backend/tests/test_auth_backend.py` with class `TestAuthBackend`. The task file says the test uses `users.read_user_by_email` in the same way.
+
+Let me read T04's task file and the existing test `test_auth_backend.py` to see the pattern. Also let me read `backend/app/servicios/auth.py`, `backend/app/datos/users.py`, `backend/app/datos/conexion.py` to understand the existing code.
+
+Actually, wait. Let me reconsider. In the implementation phase, the gate's mutation testing runs against the implementation agent's code. The test mocks `insert_user`... then the lines of `insert_user` don't execute, and the mutation gate should fail. Unless the gate only mutates lines that are executed? No — the report says "Sobrevivió: → backend/app/datos/users_register.py:6 [la línea NO se ejecuta]" — "Survived: line not executed". So the gate treats "line not executed" as a surviving mutant (or a failure).
+
+Hmm, wait, but then how does T04 pass? T04's test mocks `users.read_user_by_email`... let me check. Actually, T04 is "pendiente" (pending) in the plan. So T04 hasn't been executed yet. Hmm.
+
+Wait, let me re-read the plan's table: T04 is pendiente. T05a is "✅ hecha" (done). Let me look at T05a's test to see how the datos layer is tested.
+
+Actually, let me look at the existing tests in the repo to understand the pattern:
+- `backend/tests/test_auth_backend.py` — does it exist? T04 is pendiente, so maybe not.
+- `backend/tests/test_ads_datos.py` — T05a is done, so it should exist.
+
+Let me explore the repo structure (but not .venv, node_modules, .git).
+
+Actually, the user said: "Mirá SOLO el archivo de la tarea, PLAN.md y, si hace falta, los archivos que la tarea nombra. NO explores .venv, node_modules, .git ni ningún directorio de dependencias." (Look ONLY at the task file, PLAN.md, and, if needed, the files the task names. Do NOT explore .venv, node_modules, .git, or any dependency directory.)
+
+So I should look at:
+- `tareas/T26-registro_backend.md` (done)
+- `PLAN.md` (done)
+- Files the task names:
+  - `backend/app/rutas/register.py` (doesn't exist yet — the task creates it)
+  - `backend/app/servicios/register.py` (doesn't exist yet)
+  - `backend/app/datos/users_register.py` (doesn't exist yet? or does it exist from a previous run? The "Reabierta" section says "Su código anterior se sacó del tronco (copia en reabrir-T26-previo)" (Its previous code was removed from the trunk (copy in reabrir-T26-previo)) — so the previous code was removed. Let me check if the file exists.)
+  - `backend/app/servicios/auth.py` (named in the scope: "Leé ese archivo")
+  - `backend/tests/test_auth_backend.py` (named in the contract: "Es la misma forma que usa `backend/tests/test_auth_backend.py`")
+  - `backend/app/datos/conexion.py

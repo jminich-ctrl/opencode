@@ -1,0 +1,194 @@
+[0m
+> arquitecto · 1af07b1f-5832-4451-a61c-76d1fe43115a
+[0m
+[0m→ [0mRead tareas/T04-auth-backend.md
+[0m→ [0mRead PLAN.md
+Let's start by reading the task file, PLAN.md, and the related files that the task references.
+Let me understand the situation:
+
+1. Task T04 failed in the phase that writes the tests. The test file `backend/tests/test_auth_backend.py` doesn't exist yet.
+2. The failure: the test patches `backend.app.datos.users.read_user_by_email`, but the task statement instructs the implementation to import via `from backend.app.datos.users import read_user_by_email` at module level, so `backend.app.servicios.auth.read_user_by_email` is already bound when the patch runs. The patch has no effect.
+3. My job: rewrite only the task file so that the test can be written correctly.
+
+Wait, let me re-read the user's message:
+
+"La tarea tareas/T04-auth-backend.md falló al ejecutarse, y el motivo es cómo está escrita, no el agente que la intentó. Esto es lo que falló: Falló la fase que ESCRIBE los tests, así que 'backend/tests/test_auth_backend.py' todavía NO existe —el enunciado dice que ya está en el repo porque está escrito para la fase siguiente, ignorá esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
+
+So the test-writing phase failed. The test file doesn't exist yet. My job is to make it so the task can be written as a test.
+
+"Lo que falló: el test parchea un lugar donde el patch no va a tener efecto
+backend/tests/test_auth_backend.py:18
+patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo, así que backend.app.servicios.auth.read_user_by_email ya está ligado cuando el patch corre.
+Parcheá donde se usa: patch('backend.app.servicios.auth.read_user_by_email')"
+
+Hmm, wait. This is interesting. The test (which was written in the failed phase) patched `backend.app.datos.users.read_user_by_email`. But the task statement (the current T04 file) says:
+
+"**`read_user_by_email` se llama como ATRIBUTO del módulo**: `users.read_user_by_email(email)` con `from backend.app.datos import users`. Con `from backend.app.datos.users import read_user_by_email` el servicio se queda con su propia referencia, el `@patch` del test no aplica, la consulta va a la base de verdad y el test falla con 401 — un rojo que no se parece a su causa."
+
+So the current task statement already says the service should call it as an attribute of the module (`from backend.app.datos import users` and then `users.read_user_by_email(email)`). With that import style, patching `backend.app.datos.users.read_user_by_email` works, because the service looks up the attribute at call time.
+
+But the failure report says: "el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo" — the task statement instructs to bring the name with `from backend.app.datos.users import read_user_by_email` at module level.
+
+Hmm, wait. Let me re-read the current task file. The contract section says:
+
+```python
+# backend/app/datos/users.py
+def read_user_by_email(email: str) -> dict | None:
+    """El usuario como dict con al menos `id`, `email` y `password_hash`, o None."""
+```
+
+And:
+
+"2. **`read_user_by_email` se llama como ATRIBUTO del módulo**: `users.read_user_by_email(email)` con `from backend.app.datos import users`. Con `from backend.app.datos.users import read_user_by_email` el servicio se queda con su propia referencia, el `@patch` del test no aplica, la consulta va a la base de verdad y el test falla con 401 — un rojo que no se parece a su causa."
+
+So the current task file already has the fix in it? Wait, but the user says the task failed because of how it's written. Let me think about the timeline.
+
+Actually, wait. Let me re-read the user's message more carefully:
+
+"Falló la fase que ESCRIBE los tests, así que 'backend/tests/test_auth_backend.py' todavía NO existe —el enunciado dice que ya está en el repo porque está escrito para la fase siguiente, ignorá esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
+
+So the test-writing phase failed. The test file doesn't exist. The user is telling me to ignore the phrase in the task file that says the test already exists in the repo (because that's written for the next phase, i.e., the implementation phase).
+
+"Lo que falló: el test parchea un lugar donde el patch no va a tener efecto
+backend/tests/test_auth_backend.py:18
+patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo, así que backend.app.servicios.auth.read_user_by_email ya está ligado cuando el patch corre.
+Parcheá donde se usa: patch('backend.app.servicios.auth.read_user_by_email')"
+
+Hmm, so the failure analysis says: the test patched `backend.app.datos.users.read_user_by_email`, which has no effect, because the task statement instructs the implementation to import with `from backend.app.datos.users import read_user_by_email` at module level. So the fix is to patch where it's used: `patch('backend.app.servicios.auth.read_user_by_email')`.
+
+But wait — the current task file says the opposite: it says the service should use `from backend.app.datos import users` and call `users.read_user_by_email(email)`, which makes patching `backend.app.datos.users.read_user_by_email` work.
+
+Hmm, this is confusing. Let me think about what happened.
+
+Possibility 1: The task file was already updated after the failure (the "Reabierta" section says it was reopened on 2026-10-25). The current version of the task file contains the fix (the "Dos cosas que el test impone" section). But the test-writing agent still failed... no wait, the user says the test-writing phase failed and the test file doesn't exist.
+
+Hmm, wait, let me actually re-read again. The user says:
+
+"Falló la fase que ESCRIBE los tests, así que 'backend/tests/test_auth_backend.py' todavía NO existe"
+
+So the test-writing phase failed. The test file doesn't exist. The failure report quotes `backend/tests/test_auth_backend.py:18` — so the test file existed at some point (during the failed run), with a patch on line 18. But now it doesn't exist (probably deleted after the failure, or the run was rolled back).
+
+"Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
+
+My job: make it so the task can be written as a test. That is, rewrite the task file so that when the test-writing agent runs, it writes a test that works.
+
+Now, the failure: the test patched `backend.app.datos.users.read_user_by_email`. The failure analysis says this patch has no effect because "el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo".
+
+Hmm, but the current task file says the opposite... Let me look at the current task file again:
+
+"2. **`read_user_by_email` se llama como ATRIBUTO del módulo**: `users.read_user_by_email(email)` con `from backend.app.datos import users`. Con `from backend.app.datos.users import read_user_by_email` el servicio se queda con su propia referencia, el `@patch` del test no aplica, la consulta va a la base de verdad y el test falla con 401 — un rojo que no se parece a su causa."
+
+OK, so the current task file says: the service must use `from backend.app.datos import users` and call `users.read_user_by_email(email)`. This makes patching `backend.app.datos.users.read_user_by_email` work.
+
+But the failure report says the task statement instructs `from backend.app.datos.users import read_user_by_email`. That contradicts the current file...
+
+Unless the failure report is describing what the test-writing agent inferred from the task file, and the task file at the time of the failed run was different. Or... hmm.
+
+Wait, actually, let me reconsider. Maybe the timeline is:
+
+1. T04 was originally executed (implementation + tests). It passed.
+2. T04 was reopened (2026-10-25) because the data layer was a placeholder.
+3. The reopened T04 goes through tests-first again: first the test-writing phase, then the implementation phase.
+4. The test-writing phase failed: the agent wrote a test that patches `backend.app.datos.users.read_user_by_email`, but the gate (or the analysis) detected that the patch has no effect.
+
+Hmm, but why would the patch have no effect? If the task statement says the service should use `from backend.app.datos import users` and call `users.read_user_by_email(email)`, then patching `backend.app.datos.users.read_user_by_email` works.
+
+Unless... the test-writing agent wrote the test based on the contract, and the contract says:
+
+```python
+# backend/app/servicios/auth.py
+def login(email: str, password: str) -> dict | None:
+    """Verifica credenciales. Devuelve algo con `token` si son válidas, o None."""
+```
+
+The contract doesn't specify how `login` imports `read_user_by_email`. The "Dos cosas" section says the service should call it as an attribute of the module. But maybe the test-writing agent didn't read that carefully, or...
+
+Hmm, wait. Actually, let me re-read the failure message once more:
+
+"el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo, así que backend.app.servicios.auth.read_user_by_email ya está ligado cuando el patch corre."
+
+Hmm, "el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo". So the failure analysis claims the task statement instructs that import. But the current task file says the opposite...
+
+Wait, maybe I'm misreading the current task file. Let me look again:
+
+"2. **`read_user_by_email` se llama como ATRIBUTO del módulo**: `users.read_user_by_email(email)` con `from backend.app.datos import users`. Con
+    `from backend.app.datos.users import read_user_by_email` el servicio se queda con su propia
+    referencia, el `@patch` del test no aplica, la consulta va a la base de verdad y el test
+    falla con 401 — un rojo que no se parece a su causa."
+
+OK, so the current task file explicitly says: use `from backend.app.datos import users` and call `users.read_user_by_email(email)`. And it warns that `from backend.app.datos.users import read_user_by_email` breaks the patch.
+
+Hmm, so the current task file already contains the fix. But the user says the task failed because of how it's written, and asks me to rewrite it so the defect can't recur.
+
+Wait, maybe the situation is this: the failure report is from a previous version of the task file (before the "Dos cosas" section was added). The task file was updated after that failure (the "Reabierta" section and the "Dos cosas" section were added). But then the test-writing phase was run again and failed again? No...
+
+Hmm, actually, let me reconsider. Maybe the user's message is the failure report, and the current task file is the version that produced the failure. Let me check if there's a contradiction.
+
+The failure report says: "el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo".
+
+The current task file says: "Con `from backend.app.datos.users import read_user_by_email` el servicio se queda con su propia referencia, el `@patch` del test no aplica".
+
+These are contradictory. The failure report says the task statement instructs the `from ... import` style; the current task file warns against it.
+
+Hmm, wait, wait. Let me re-read the failure report once more, very carefully:
+
+"Lo que falló: el test parchea un lugar donde el patch no va a tener efecto
+backend/tests/test_auth_backend.py:18
+patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo, así que backend.app.servicios.auth.read_user_by_email ya está ligado cuando el patch corre.
+Parcheá donde se usa: patch('backend.app.servicios.auth.read_user_by_email')"
+
+Hmm, OK, another thought. Maybe the failure report is auto-generated by the gate, and its explanation is a hypothesis. The gate detected that the patch on line 18 has no effect. Its explanation: "el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo".
+
+But wait — the test file doesn't exist now. So how did the gate analyze it? The gate must have run during the failed test-writing phase, when the test file existed. The gate detected that the patch has no effect (probably by running the test with the patch removed, or by mutation testing, or by checking whether the patched symbol is actually used).
+
+Hmm, but actually, if the test file doesn't exist now, maybe the failed run was rolled back.
+
+OK, let me step back and think about what the user is actually asking me to do:
+
+"Leé la tarea, leé PLAN.md, y reescribí SOLO el archivo de tarea con la herramienta write para que el defecto no pueda repetirse."
+
+So: read the task, read PLAN.md, and rewrite only the task file with the write tool so the defect can't recur.
+
+"Reglas que no podés romper: (1) no cambies el archivo de test ni el nombre de su clase, los declara el plan; (2) no saques ni ablandes ningún criterio de terminado — si hace falta, agregá; (3) si el problema es que la tarea necesita algo que ninguna tarea del plan entrega, decilo con la palabra HUECO y explicá qué falta, en vez de inventarlo."
+
+Rules:
+1. Don't change the test file name or class name (the plan declares them: `backend/tests/test_auth_backend.py`, class `TestAuthBackend`).
+2. Don't remove or weaken any completion criterion — if needed, add.
+3. If the problem is that the task needs something no task in the plan delivers, say HUECO and explain what's missing, instead of inventing it.
+
+"Lo que la tarea NO puede tocar va en el campo «Prohibido tocar», no en prosa, y NO expliques cómo hacer lo que prohibís: medido, el ejecutor hace lo que la receta dice aunque dos líneas antes diga que no le corresponde. Nombrar un archivo ajeno está bien para decir DÓNDE VIVE algo que la tarea importa, y mal si viene con instrucciones de cómo modificarlo. Lo más útil que podés hacer es decir DÓNDE vive cada cosa que la tarea nombra: archivo exacto, import exacto."
+
+- What the task can't touch goes in the "Prohibido tocar" field, not in prose.
+- Don't explain how to do what you prohibit: measured, the executor does what the recipe says even if two lines earlier it says it doesn't belong to them.
+- Naming an external file is fine to say where something the task imports lives, and wrong if it comes with instructions on how to modify it.
+- The most useful thing you can do is say where each thing the task names lives: exact file, exact import.
+
+OK, so the core problem: the test-writing agent wrote a test that patches `backend.app.datos.users.read_user_by_email`, but that patch has no effect because the implementation (per the task statement) imports with `from backend.app.datos.users import read_user_by_email` at module level.
+
+Wait, but the current task file says the implementation should use `from backend.app.datos import users`...
+
+Hmm, let me look at the actual files in the repo to understand the current state. Let me check:
+- backend/app/datos/users.py
+- backend/app/servicios/auth.py
+- backend/app/rutas/auth.py
+- backend/tests/test_auth_backend.py (should not exist)
+- backend/app/datos/users_register.py (mentioned in AGENTS.md as an example of correct usage)
+
+Actually, wait. The user said: "Mirá SOLO el archivo de la tarea, PLAN.md y, si hace falta, los archivos que la tarea nombra. NO explores .venv, node_modules, .git ni ningún directorio de dependencias."
+
+So I can look at the files the task names: backend/app/rutas/auth.py, backend/app/servicios/auth.py, backend/app/datos/users.py. And probably the test file (which shouldn't exist). Let me check.
+
+Actually, the task file says the test file doesn't exist (per the user). Let me verify.
+
+Let me also think about the "Reabierta" section: "la capa de datos de T04 no implementa nada: backend/app/datos/users.py tiene una sola funcion y devuelve None sin hacer nada, declarado en su propio comentario (Por ahora retornamos None como placeholder). Los tres tests de T04 la mockean, asi que el verde no lo gano el producto. Y usuario_desde_token de T04b devuelve el id de cualquier token bien formado sin consultar la base: con un id inexistente contesta ese id en vez de None. Las dos comparten backend/app/servicios/auth.py, asi que se reabren juntas"
+
+So T04 was reopened because:
+1. `backend/app/datos/users.py` has a single function that returns None without doing anything (placeholder).
+2. T04b's `usuario_desde_token` returns the id of any well-formed token without consulting the database.
+
+Both share `backend/app/servicios/auth.py`, so they're reopened together.
+
+"Se reabrió con scripts/reabrir.sh el 2026-10-25 13:37 UTC. Su código anterior se sacó del tronco (copia en reabrir-T04+T04b-previo): esta tarea vuelve a pasar por tests

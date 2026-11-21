@@ -43,3 +43,9 @@ imprime no es el veredicto (ver `banco/PROCEDENCIA.md`).
 
 `banco/` — 22 carpetas, 16 de ellas con veredicto ✗ ROJO y el parche que un modelo
 escribió de verdad. Su procedencia, modelo por modelo, está en `banco/PROCEDENCIA.md`.
+
+## Replanificación
+
+`replan/` — lo que el arquitecto hizo cuando recibió el motivo del rechazo. Son los
+transcripts que el 2026-11-10 refutaron la hipótesis de que el arquitecto no actuaba
+porque recibía la categoría en vez del dato: con el dato adelante tampoco reescribió.

@@ -55,6 +55,30 @@ for d in "$RAIZ"/../fallidos-*; do
   cosechar_dir "$d" "fallidos/$(basename "$d" | sed 's/^fallidos-//')"
 done
 
+# Los transcripts del arquitecto cuando replanifica. Son `.log` sueltos dentro del
+# proyecto, o sea gitignoreados y a un `git clean` de distancia, y son la ÚNICA evidencia de
+# qué hizo el arquitecto con un motivo en la mano. El 2026-11-10 fueron lo que refutó mi
+# propia hipótesis: con el veredicto correcto adelante, el arquitecto igual no reescribió
+# nada, y por qué sólo se ve ahí adentro.
+echo "→ transcripts de replanificación del proyecto de ejemplo"
+for p in "$RAIZ"/ejemplo-clasificados "$RAIZ"/../ejemplo-clasificados; do
+  [ -d "$p" ] || continue
+  dest="$DESTINO/replan"
+  for f in "$p"/.replan-*.log; do
+    [ -f "$f" ] || continue
+    # Sin el punto de adelante: en el proyecto están ocultos a propósito —son temporales
+    # del runner— pero acá son material, y un material que `ls` no muestra es un material
+    # que nadie va a mirar.
+    base="$(basename "$f" | sed 's/^\.//')"
+    if [ -f "$dest/$base" ]; then ya=$((ya+1)); continue; fi
+    copiados=$((copiados+1))
+    [ "$SECO" = "1" ] && { echo "  + replan/$base"; continue; }
+    mkdir -p "$dest"; cp -p "$f" "$dest/$base"
+  done
+  dirs=$((dirs+1))
+  break
+done
+
 echo "→ el banco de 16 rechazados con código real"
 # Recursivo: cada ítem es una carpeta con el worktree adentro, no archivos sueltos.
 if [ -d "$HOME/rechazados" ]; then
@@ -110,6 +134,12 @@ fi
   echo
   echo "\`banco/\` — 22 carpetas, 16 de ellas con veredicto ✗ ROJO y el parche que un modelo"
   echo "escribió de verdad. Su procedencia, modelo por modelo, está en \`banco/PROCEDENCIA.md\`."
+  echo
+  echo "## Replanificación"
+  echo
+  echo "\`replan/\` — lo que el arquitecto hizo cuando recibió el motivo del rechazo. Son los"
+  echo "transcripts que el 2026-11-10 refutaron la hipótesis de que el arquitecto no actuaba"
+  echo "porque recibía la categoría en vez del dato: con el dato adelante tampoco reescribió."
 } > "$DESTINO/INDICE.md"
 
 echo
