@@ -1,0 +1,594 @@
+[0m
+> ejecutor · 1af07b1f-5832-4451-a61c-76d1fe43115a
+[0m
+[0m→ [0mRead tareas/T06a-app-fastapi.md
+[0m→ [0mRead .
+Let's start by reading the task file and understanding what needs to be done.
+[0m→ [0mRead backend
+[0m✱ [0mGlob "backend/**/*.py"[90m 9 matches[0m
+Let's check the current state of the backend directory, especially `backend/app/main.py` and the tests directory.
+[0m→ [0mRead backend/app/main.py
+[0m→ [0mRead backend/tests/test_scaffolding.py
+[0m→ [0mRead backend/tests/test_conexion.py
+Let's check the existing files: `backend/app/main.py`, existing tests to follow the style, and the scripts.
+[0m→ [0mRead tareas
+[0m→ [0mRead backend/app/rutas/__init__.py
+[0m→ [0mRead scripts
+Interesting. The current `main.py` already contains the following:
+1. `app = FastAPI()`
+2. Automatic router mounting (this is T06b's scope!)
+3. `/salud` endpoint
+
+Wait, the task says "No entra: El montaje automático de routers: eso es T06b." (Not included: automatic router mounting: that's T06b's job). But the current main.py already has automatic router mounting. Hmm.
+
+Wait, let me re-read the task:
+
+- **Archivos que podés tocar:** backend/app/main.py (Files you can touch: backend/app/main.py)
+- **Prohibido tocar:** `scripts/` and `*/tests/` (Forbidden to touch: `scripts/` and `*/tests/`)
+
+Wait, "Prohibido tocar: scripts/ y */tests/" — but the user is telling me to create `backend/tests/test_app.py`. Hmm, the task file says tests are forbidden to touch, but the user explicitly says "esta corrida es la que CREA los tests, así que todavía no existen, los estás creando vos" (this run is the one that CREATES the tests, so they don't exist yet, you're creating them). The user's instructions take precedence — this is the test-creation run. The "Prohibido tocar" in the task file is for the implementation run (the gate checks that the implementation agent didn't touch tests). In this run, I'm creating the tests.
+
+So my job is:
+1. Write `backend/tests/test_app.py` with a `TestApp` class.
+2. Implement `backend/app/main.py` — but wait, main.py already exists with content that includes T06b's scope (automatic router mounting).
+
+Hmm, this is tricky. The task says the scope is only:
+- `app = FastAPI()` in `backend/app/main.py`
+- `GET /salud` returning `{"estado": "ok"}`
+
+Not included: automatic router mounting (T06b), error normalization (T06c).
+
+But the existing main.py already has router mounting. Should I delete it? The task says "No entra: El montaje automático de routers: eso es T06b." (Not included: automatic router mounting: that's T06b's job).
+
+Hmm, wait. Let me think about this. The task file says "Depende de: T02" (Depends on: T02). Let me check the state of the tasks to understand what's been done. Let me look at the tareas directory and BITACORA.md.
+
+Actually, wait. Let me think about what the "correct" behavior is here. The existing main.py has router mounting code. If I leave it in, then when T06b runs, it will be re-implementing something that already exists. But the task explicitly says router mounting is not in scope for T06a.
+
+But wait — there's a subtle point. The tests I write must fail if the implementation doesn't do what the scope says. The scope is:
+1. `from app.main import app` works and `app` is a FastAPI instance.
+2. `GET /salud` returns 200 with `{"estado": "ok"}`.
+
+If I leave the router mounting code in main.py, the tests will still pass. But the task says router mounting is T06b's job.
+
+Hmm, but should I delete the existing router mounting code? The rules say "No borres código que no entendés. Preguntá." (Don't delete code you don't understand. Ask.) I do understand it — it's the automatic router mounting that T06b is supposed to implement.
+
+Let me check the task list to see the state of T06b and whether main.py was created by a previous task (T04, according to the "Por qué está como tarea aparte" (Why it's a separate task) section).
+
+Actually, the "Por qué está como tarea aparte" section says: "El agente de T04 lo creó por su cuenta —hacía falta para que su propio test pudiera llamar al endpoint— y el chequeo de alcance lo reprobó por eso." (The T04 agent created it on its own — it was needed so its own test could call the endpoint — and the scope check failed it for that reason.)
+
+So the current main.py was created by the T04 agent (or a previous run). It contains router mounting, which is T06b's scope.
+
+Now, the question is: in this run, should I:
+a) Rewrite main.py to contain only `app = FastAPI()` and `/salud` (deleting the router mounting code), or
+b) Leave main.py as is (since it already satisfies T06a's scope) and just write the tests?
+
+Hmm. The task says "Archivos que podés tocar: backend/app/main.py" (Files you can touch: backend/app/main.py). The scope says what goes in and what doesn't. The "No entra" (Not included) section says router mounting is T06b's job.
+
+If I leave the router mounting code in, then when T06b runs, its agent will find it already implemented. That might be fine, or it might cause confusion. But more importantly, the scope check ("chequeo de alcance") seems to verify that the task only touched what was in scope. If I leave the router mounting code, that's T06b's scope being present in T06a's deliverable.
+
+Actually, wait. Let me re-read: "El agente de T04 lo creó por su cuenta ... y el chequeo de alcance lo reprobó por eso." (The T04 agent created it on its own ... and the scope check failed it for that reason.) So the scope check failed T04 because it created main.py (which wasn't in T04's scope). This suggests the scope check verifies that files touched are within the declared scope.
+
+For T06a, main.py is in scope. So touching it is fine. But the content should match the scope: only the app instance and /salud.
+
+Hmm, but here's the thing: if I delete the router mounting code, will other tests break? Let me check if there are tests that depend on router mounting. Let me look at the rutas directory and other tests.
+
+Actually, let me first check the state of the tasks and the rutas directory.
+
+Let me also check the scripts to understand how the suite runs.
+
+
+The current `main.py` already contains router mounting (which is T06b's scope). Let me check the task states, the `rutas/` directory, and the scripts before deciding.
+[0m→ [0mRead tareas/T06b-montaje-routers.md
+[0m→ [0mRead scripts/correr-suite.sh
+[0m→ [0mRead scripts/gate.sh
+The `rutas/` directory only contains an empty `__init__.py` — no route modules exist yet. Therefore, the router mounting code in main.py currently doesn't mount anything (the loop finds no `.py` files other than `__init__.py`).
+
+Let me check the T06b task to understand what it's expecting, and also check the scripts (gate.sh, correr-suite.sh) to understand how the tests are run.
+
+
+`rutas/` está vacío (sólo `__init__.py`). Veamos T06b para entender qué espera, y los scripts de gate/suite.
+[0m
+[0m$ [0mgit status && echo "=== LOG ===" && git log --oneline -10 && echo "=== main.py en HEAD? ===" && git cat-file -e HEAD:backend/app/main.py 2>/dev/null && echo "SÍ existe en HEAD" || echo "NO existe en HEAD"
+On branch tests/T06a
+nothing to commit, working tree clean
+=== LOG ===
+bdef5a2 T06 partida en tres: era el doble de grande que cualquier tarea que cerró
+0b7e295 el método borraba el transcript de sus propios fallos
+58f0d91 el archivo de tarea afirmaba algo cierto sólo en la otra mitad del proceso
+1a92898 las reglas de escribir tests no estaban donde el agente las busca
+8bbd303 consolidar el patrón: la misma declaración doble, ahora en el entorno
+cc9414a el método tenía la cura del 400 por contexto y nadie la aplicaba
+f4c1d4b la medición desmintió a la tabla: gana Devstral, pierde GLM-4.7-Flash
+48cf945 la sonda de plataforma consultaba un modelo que ningún agente usa
+caa057b warm.sh tenía su propia lista de modelos y calentaba los viejos
+118612f los agentes que escriben código pasan a Devstral-Small-2-24B
+=== main.py en HEAD? ===
+NO existe en HEAD
+[0m
+[0m→ [0mRead backend/tests/test_migracion.py
+[0m✱ [0mGrep "app\.main|from app|import app|TestClient|/salud|routers_montados"[90m in backend · 5 matches[0m
+Now I understand the setup. Let me think carefully:
+
+1. **Task T06a**: Create `app = FastAPI()` in `backend/app/main.py` and add a `GET /salud` endpoint that returns `{"estado": "ok"}`.
+
+2. **Current state of main.py**: Already contains the following:
+   - `app = FastAPI()` ✓
+   - Automatic router mounting (T06b's scope!)
+   - `/salud` endpoint ✓
+
+3. **This run**: I'm creating the tests (`backend/tests/test_app.py`, class `TestApp`) AND doing the implementation.
+
+Now, the key question: should I remove the router mounting code from main.py?
+
+The task says:
+- **Entra (in scope)**: `app = FastAPI()`, `GET /salud`
+- **No entra (out of scope)**: automatic router mounting (T06b), error normalization (T06c)
+
+The existing main.py was created by the T04 agent (per the "Por qué está como tarea aparte" section). It contains T06b's scope.
+
+Hmm, wait. Let me re-read: "El agente de T04 lo creó por su cuenta —hacía falta para que su propio test pudiera llamar al endpoint— y el chequeo de alcance lo reprobó por eso." (The T04 agent created it on its own — it was needed so its own test could call the endpoint — and the scope check failed it for that reason.)
+
+So T04 was failed by the scope check because it created main.py. But main.py still exists in the repo. Interesting.
+
+Now, for T06a, the scope is only the app instance and /salud. The router mounting is T06b's job.
+
+The question is whether I should:
+(a) Leave main.py as-is (it already satisfies T06a's scope, plus has T06b's scope)
+(b) Rewrite main.py to only contain T06a's scope (removing the router mounting)
+
+Let me think about the gate's "¿Los tests distinguen?" (Do the tests distinguish?) check (step 4):
+
+```
+IMPL="$(echo "$CAMBIADOS" | grep -E '^(backend/app|frontend/src)/.*\.(py|ts|tsx|jsx)$' || true)"
+...
+for f in $IMPL; do
+    if git cat-file -e "HEAD:${PREFIJO}$f" 2>/dev/null; then
+      cp "$f" "$TMP/$(echo "$f" | tr / _)"
+      git checkout HEAD -- "$f" && REVERTIDOS="$REVERTIDOS $f"
+    fi
+  done
+...
+    if bash scripts/correr-suite.sh >/dev/null 2>&1; then
+      rojo "los tests PASAN con la implementación vieja: no verifican el cambio"
+```
+
+So the gate reverts the implementation files to their HEAD state and checks whether the tests still pass. If they pass, the tests don't distinguish.
+
+Wait, but this is the test-creation run. In this run, I'm creating both the tests and the implementation. The gate's step 4 reverts `backend/app/main.py` to HEAD.
+
+What's in HEAD? Let me check git status. The current main.py has the router mounting code. If HEAD's main.py is the same as the current one (with router mounting), then reverting to HEAD would still have `app = FastAPI()` and `/salud`, and my tests would still pass. That would make the gate's step 4 fail ("los tests PASAN con la implementación vieja").
+
+Hmm, wait, but that's only if main.py is in HEAD. Let me check git status to see what's committed and what's not.
+
+Actually, let me think about this from a different angle. The key insight is:
+
+**In this run, I'm creating the tests.** The tests must fail if the implementation doesn't do what the scope says. The scope is:
+1. `from app.main import app` works and `app` is a FastAPI instance.
+2. `GET /salud` returns 200 with `{"estado": "ok"}`.
+
+Now, the implementation (main.py) already exists with these features. So my tests would pass against the current implementation. Good.
+
+But the gate's step 4 (¿Los tests distinguen?) reverts main.py to HEAD. If HEAD's main.py already has these features, the tests would still pass, and the gate would say "los tests PASAN con la implementación vieja: no verifican el cambio".
+
+Wait, but that's a problem for the gate, not for me. Let me re-read the task's "Criterio de terminado":
+- [ ] `from app.main import app` works and `app` is a FastAPI instance.
+- [ ] `GET /salud` returns 200 with `{"estado": "ok"}`.
+- [ ] `bash scripts/gate.sh` is green.
+
+So I need the gate to be green. Let me think about whether the gate would be green.
+
+Actually, wait. Let me reconsider. The user said: "Al terminar corré 'bash scripts/correr-suite.sh backend/tests/test_app.py::TestApp' y mostrá su salida real." (When you're done, run 'bash scripts/correr-suite.sh backend/tests/test_app.py::TestApp' and show its actual output.)
+
+So the user is asking me to run the suite for my specific test, not the full gate. But the task's "Criterio de terminado" says the gate should be green. Let me focus on what the user explicitly asked: run `bash scripts/correr-suite.sh backend/tests/test_app.py::TestApp` and show the output.
+
+But I should also make sure the implementation is correct and the tests are good.
+
+Now, the key decision: should I modify main.py or not?
+
+Let me reconsider the situation. The current main.py has:
+1. `app = FastAPI()` ✓ (T06a scope)
+2. Router mounting (T06b scope)
+3. `/salud` ✓ (T06a scope)
+
+The task T06a says the scope is only #1 and #3. The router mounting is T06b's job.
+
+Now, here's the thing: the task says "Archivos que podés tocar: backend/app/main.py". So I can touch main.py. But the scope says what should be in it.
+
+If I leave the router mounting code, then:
+- T06a's scope is satisfied (app + /salud).
+- But T06b's scope is also present, which is "not in scope" for T06a.
+
+If I remove the router mounting code, then:
+- T06a's scope is satisfied (app + /salud).
+- T06b's scope is removed, which is correct for T06a.
+
+But wait, there's a risk: if I remove the router mounting code, and there are other tests that depend on it, they would break. Let me check if there are any tests that depend on router mounting.
+
+Looking at the tests:
+- test_scaffolding.py: checks directory structure, requirements.txt, package.json. No dependency on router mounting.
+- test_conexion.py: tests the connection module. No dependency on router mounting.
+- test_migracion.py: let me check.
+
+Let me also check if there are any route modules in rutas/ that would need to be mounted. Earlier I saw that rutas/ only has an empty __init__.py. So there are no route modules yet. That means the router mounting code currently doesn't mount anything.
+
+So removing the router mounting code wouldn't break anything, because there are no route modules to mount.
+
+But wait, should I remove it? Let me think about the philosophy here. The task is T06a, and its scope is explicitly "No entra: El montaje automático de routers: eso es T06b." (Not in scope: automatic router mounting: that's T06b's job.)
+
+The cleanest interpretation is: T06a should produce a main.py that has ONLY the app instance and /salud. The router mounting should be added by T06b.
+
+But the current main.py already has the router mounting. If I leave it, then when T06b runs, its agent will find it already implemented. That might be fine, but it's not clean.
+
+However, there's a bigger concern: **the gate's step 4 (¿Los tests distinguen?)**. Let me think about this carefully.
+
+Actually, wait. Let me reconsider the whole thing. Let me re-read the user's instructions:
+
+"Leé tareas/T06a-app-fastapi.md. Ojo: esta corrida es la que CREA los tests, así que todavía no existen, los estás creando vos. Hacé la tarea completa: la implementación Y sus tests, las dos cosas con la herramienta write. El archivo de test es 'backend/tests/test_app.py' y su agrupador se llama 'TestApp'. Las reglas de cómo escribir tests están en AGENTS.md: leelas. Al terminar corré 'bash scripts/correr-suite.sh backend/tests/test_app.py::TestApp' y mostrá su salida real."
+
+So the user is saying:
+1. Read the task.
+2. This run CREATES the tests (they don't exist yet, I'm creating them).
+3. Do the complete task: implementation AND tests, both with the write tool.
+4. The test file is 'backend/tests/test_app.py' and its aggregator is 'TestApp'.
+5. The rules for writing tests are in AGENTS.md: read them.
+6. When done, run 'bash scripts/correr-suite.sh backend/tests/test_app.py::TestApp' and show the actual output.
+
+So I need to:
+1. Write `backend/tests/test_app.py` with a `TestApp` class.
+2. Implement `backend/app/main.py` (the implementation).
+3. Run the suite and show the output.
+
+Now, the implementation already exists (main.py has app + /salud + router mounting). So do I need to change it?
+
+The user says "Hacé la tarea completa: la implementación Y sus tests" (Do the complete task: the implementation AND its tests). So I should make sure the implementation is correct.
+
+Given that the current main.py already has the app instance and /salud, the implementation is technically already done. But it also has the router mounting, which is T06b's scope.
+
+Hmm, let me think about whether I should remove the router mounting.
+
+Actually, I think the safest and most correct approach is:
+1. Keep the implementation minimal and matching T06a's scope: `app = FastAPI()` and `/salud`.
+2. Remove the router mounting code, because it's T06b's scope and not T06a's.
+
+But wait, there's a risk. If I remove the router mounting code, and the gate's step 4 reverts main.py to HEAD (which has the router mounting), then... no wait, that doesn't make sense. Let me re-read step 4.
+
+Step 4:
+```
+IMPL="$(echo "$CAMBIADOS" | grep -E '^(backend/app|frontend/src)/.*\.(py|ts|tsx|jsx)$' || true)"
+TMP="$(mktemp -d)"; REVERTIDOS=""
+PREFIJO="$(git rev-parse --show-prefix)"
+for f in $IMPL; do
+    if git cat-file -e "HEAD:${PREFIJO}$f" 2>/dev/null; then
+      cp "$f" "$TMP/$(echo "$f" | tr / _)"
+      git checkout HEAD -- "$f" && REVERTIDOS="$REVERTIDOS $f"
+    fi
+  done
+if [ -z "$IMPL" ]; then vacuo "no hay implementación que revertir"
+elif [ -z "$REVERTIDOS" ]; then vacuo "archivos nuevos (no existían en HEAD): nada que revertir"
+else
+    if bash scripts/correr-suite.sh >/dev/null 2>&1; then
+      rojo "los tests PASAN con la implementación vieja: no verifican el cambio"
+      echo "     revertí:$REVERTIDOS y la suite siguió verde"
+    else verde "la suite falla al revertir$REVERTIDOS"; fi
+    for f in $REVERTIDOS; do cp "$TMP/$(echo "$f" | tr / _)" "$f"; done
+  fi
+```
+
+So step 4:
+1. Finds all implementation files that were changed (in backend/app or frontend/src).
+2. For each, if it exists in HEAD, saves the current version and reverts to HEAD.
+3. Runs the suite. If the suite passes with the old (HEAD) implementation, the tests don't distinguish (red). If the suite fails, the tests distinguish (green).
+4. Restores the current version.
+
+So the question is: what's in HEAD for main.py?
+
+Let me check git status and git log to understand the state.
+
+Actually, this is the key question. Let me check what's committed in HEAD.
+
+Let me run git status and git log.
+
+Actually, I realize I need to understand the git state first. Let me check.
+
+But wait, there's a subtlety. The user said "esta corrida es la que CREA los tests" (this run CREATES the tests). This suggests that in the normal workflow, the tests are created in a separate run before the implementation. But here, I'm doing both.
+
+The gate's step 4 is designed to catch the case where the tests don't actually verify the change. If I create both the tests and the implementation in the same run, and the implementation already existed in HEAD, then step 4 would revert to HEAD (which has the implementation) and the tests would pass, making the gate red.
+
+But that's only if main.py is in HEAD. Let me check.
+
+Let me run git commands to understand the state.
+
+Actually, let me step back and think about what the "right" thing to do is, independent of the gate mechanics.
+
+The task T06a is: create the FastAPI app instance and the /salud endpoint. The current main.py already has these, plus the router mounting (T06b's scope).
+
+The cleanest interpretation:
+- T06a should produce a main.py with ONLY the app instance and /salud.
+- The router mounting should be removed (it's T06b's job).
+
+But there's a practical concern: if I remove the router mounting, and later T06b adds it back, that's fine. But if some other test depends on the router mounting being present, it would break.
+
+Let me check if any test depends on the router mounting. Let me look at test_migracion.py and check for any test that imports app.main or uses the app.
+
+Let me also check the git state.
+
+Let me run several commands in parallel:
+1. git status
+2. git log --oneline -10
+3. Read test_migracion.py
+4. Check if any test imports app.main
+
+Let me do this.
+
+
+Ahora entiendo el setup. El `main.py` actual ya tiene `app = FastAPI()`, `/salud` Y el montaje de routers (que es alcance de T06b). Necesito entender el estado de git y si algún test depende del montaje antes de decidir.
+[0m
+[0m$ [0mgit rev-parse --show-toplevel && echo "=== main.py en HEAD (ruta correcta) ===" && git cat-file -e HEAD:ejemplo-clasificados/backend/app/main.py 2>/dev/null && echo "SÍ existe en HEAD" || echo "NO existe en HEAD" && echo "=== git ls-files main ===" && git ls-files | grep -E "main\.py|test_app" ; echo "=== .gitignore ===" && cat .gitignore
+/Users/jose/tests-T06a
+=== main.py en HEAD (ruta correcta) ===
+SÍ existe en HEAD
+=== git ls-files main ===
+backend/app/main.py
+=== .gitignore ===
+.entorno
+.mysql/
+[0m
+Very interesting findings:
+
+1. **`main.py` does not exist in HEAD** — "NO existe en HEAD". Wait, but `git status` says "nothing to commit, working tree clean". That's contradictory... unless main.py is gitignored? Let me check.
+
+Wait, `git status` says "nothing to commit, working tree clean", but `git cat-file -e HEAD:backend/app/main.py` says it doesn't exist in HEAD. So main.py must be untracked but ignored (gitignored), or... hmm.
+
+Wait, let me check .gitignore. Actually, if the working tree is clean and main.py exists on disk but not in HEAD, then main.py must be in .gitignore.
+
+Hmm, wait, that's weird. Let me check .gitignore.
+
+Actually, wait — maybe I misread. Let me double-check: `git cat-file -e HEAD:backend/app/main.py` — the path might need to be relative to the repo root. The working directory is `/Users/jose/tests-T06a/ejemplo-clasificados`, and the repo root is... let me check. The env info says "Workspace root folder: /Users/jose/tests-T06a" and "Is directory a git repo: yes". So the git repo root might be `/Users/jose/tests-T06a`, not `/Users/jose/tests-T06a/ejemplo-clasificados`!
+
+Let me verify: `git rev-parse --show-toplevel`.
+
+If the repo root is `/Users/jose/tests-T06a`, then the path in HEAD would be `ejemplo-clasificados/backend/app/main.py`, not `backend/app/main.py`. That would explain why `git cat-file -e HEAD:backend/app/main.py` failed — wrong path.
+
+Let me check the repo root and the actual git state.
+
+2. **No test currently imports `app.main`** — only `test_conexion.py` imports `app.datos.conexion`. So no existing test depends on the router mounting.
+
+3. The branch is `tests/T06a`.
+
+Let me check the git repo root and the state of main.py in git.
+
+
+`git status` dice "working tree clean" pero `main.py` "no existe en HEAD" — sospecho que la raíz del repo no es el proyecto. Verifico.
+[0m→ [0mRead backend/requirements.txt
+[0m→ [0mRead backend/requirements-dev.txt
+[0m
+[0m$ [0m.venv/bin/python -c "import fastapi, httpx, starlette; print('fastapi', fastapi.__version__); print('httpx', httpx.__version__); print('starlette', starlette.__version__)" 2>&1; echo "=== .base-ref? ==="; cat .base-ref 2>/dev/null || echo "no hay .base-ref"; echo "=== .tests-base? ==="; cat .tests-base 2>/dev/null || echo "no hay .tests-base"
+fastapi 0.104.1
+httpx 0.27.2
+starlette 0.27.0
+=== .base-ref? ===
+no hay .base-ref
+=== .tests-base? ===
+no hay .tests-base
+[0m
+In other words, the root of the git repository is `/Users/jose/tests-T06a`, and the project is in the subdirectory `ejemplo-clasificados/`. `main.py` exists in HEAD (at the path `ejemplo-clasificados/backend/app/main.py` relative to the repository root, or `backend/app/main.py` relative to the project).
+
+Wait, but `git ls-files | grep main.py` returned `backend/app/main.py` — that's a relative path from the current directory (the project directory). So main.py is tracked and committed.
+
+Now, the important question about step 4 of the gate: the gate runs `git checkout HEAD -- "$f"`, where `$f` is a relative path from the project directory (e.g., `backend/app/main.py`). Since the gate runs from the project root (it does `cd "$(dirname "${BASH_SOURCE[0]}")/.."`), `git checkout HEAD -- backend/app/main.py` will work (git resolves relative paths from cwd).
+
+So in step 4 of the gate, `backend/app/main.py` will be reverted to the HEAD version. The HEAD version is the current one (with router mounting, app, and /salud).
+
+Wait, but that's the current HEAD. If I modify main.py and commit it... no wait, I shouldn't commit. The gate compares against BASE_REF, which is either `.base-ref` (set by the runner) or `git merge-base HEAD main`.
+
+Hmm, let me think about this. The gate's step 4 reverts the implementation files to HEAD (not BASE_REF). So:
+
+- If I modify main.py (e.g., remove router mounting), the gate will revert main.py to HEAD (the version with router mounting). Then it runs the test suite. If my tests still pass with the HEAD version (which has app + /salud + router mounting), the gate will say "los tests PASAN con la implementación vieja: no verifican el cambio" (the tests PASS with the old implementation: they don't verify the change) → red.
+
+- If I don't modify main.py (leave it as is), then main.py is not in CAMBIADOS (the list of changed files), so step 4 won't revert it. But wait, in that case, what is the "implementation" for this task? The task is to create main.py, but it already exists. So there's no implementation change, and step 4 will say "no hay implementación que revertir" (there's no implementation to revert) (vacuo).
+
+Hmm, this is getting complicated. Let me think about what the correct behavior is.
+
+Actually, wait. Let me reconsider. The key question is: **what is the diff for this task?**
+
+The gate computes `CAMBIADOS` as the diff between BASE_REF and the current state (including untracked files). BASE_REF is either `.base-ref` (set by the runner) or `git merge-base HEAD main`.
+
+Let me check if `.base-ref` exists.
+
+Actually, the user's instruction is clear: "Al terminar corré 'bash scripts/correr-suite.sh backend/tests/test_app.py::TestApp' y mostrá su salida real." (When you're done, run 'bash scripts/correr-suite.sh backend/tests/test_app.py::TestApp' and show its actual output.)
+
+So the user is asking me to run the suite for my specific test, not the full gate. The task's "Criterio de terminado" (completion criteria) mentions the gate, but the user's explicit instruction is to run the suite for my test.
+
+Let me focus on:
+1. Writing good tests in `backend/tests/test_app.py` (class `TestApp`).
+2. Making sure the implementation (main.py) is correct.
+3. Running the suite and showing the output.
+
+Now, about the implementation: the current main.py already has app + /salud + router mounting. The task's scope is only app + /salud.
+
+Let me think about whether I should remove the router mounting.
+
+Arguments for removing it:
+- The task explicitly says "No entra: El montaje automático de routers: eso es T06b." (Not included: automatic router mounting: that's T06b's job.)
+- Clean separation of concerns.
+
+Arguments against removing it:
+- The rule "No borres código que no entendés. Preguntá." (Don't delete code you don't understand. Ask.) — but I do understand it.
+- If I remove it, and the gate's step 4 reverts to HEAD (which has it), the tests would still pass (since app + /salud are still there), and the gate would say the tests don't distinguish. But that's only if I'm modifying main.py.
+
+Wait, actually, let me reconsider the gate's step 4 more carefully.
+
+Step 4 reverts the implementation files to HEAD and checks if the tests still pass. The purpose is to verify that the tests actually test the change.
+
+But in this case, the "change" is the creation of main.py (app + /salud). However, main.py already exists in HEAD (with app + /salud + router mounting). So there's no real "change" to main.py — it already has what T06a needs.
+
+Hmm, this is a weird situation. The task is to create main.py, but it already exists (created by the T04 agent, who was failed by the scope check, but the file remained).
+
+So what should I do?
+
+Option A: Leave main.py as is (don't modify it). Write the tests. The tests will pass against the current main.py. The gate's step 4 will say "no hay implementación que revertir" (since main.py is not in the diff).
+
+Option B: Modify main.py to remove the router mounting (to match T06a's scope exactly). Write the tests. The tests will pass. The gate's step 4 will revert main.py to HEAD (with router mounting) and the tests will still pass (since app + /salud are still there) → the gate will say the tests don't distinguish → red.
+
+Wait, that's a problem with option B. If I remove the router mounting, the gate will revert to HEAD (with router mounting), and my tests (which only test app + /salud) will still pass. So the gate will say the tests don't distinguish the change.
+
+But wait, that's actually the correct behavior of the gate! The gate is saying: "your tests pass even with the old implementation, so they don't verify your change." And that's true — my tests only test app + /salud, which are in both the old and new implementations. The "change" (removing router mounting) is not tested by my tests.
+
+But that's a problem, because the task's scope is app + /salud, and those are already in HEAD. So there's no real change to test.
+
+Hmm, this is a fundamental issue with the task setup. The task is to create main.py, but it already exists.
+
+Let me reconsider. Maybe the correct interpretation is:
+
+The task T06a is about ensuring that main.py has app + /salud. The current main.py already has them. So the implementation is already done. My job is to write the tests that verify this.
+
+The tests should:
+1. Verify that `from app.main import app` works and `app` is a FastAPI instance.
+2. Verify that `GET /salud` returns 200 with `{"estado": "ok"}`.
+
+These tests will pass against the current main.py. Good.
+
+Now, about the router mounting: should I remove it?
+
+I think the answer is: **no, I should not remove it.** Here's why:
+1. The task's scope is app + /salud, and those are already present.
+2. Removing the router mounting would be a "change" that my tests don't verify, which would make the gate's step 4 fail.
+3. The router mounting is T06b's scope, but it's already there. Removing it and having T06b re-add it is wasteful and error-prone.
+4. The rule "No borres código que no entendés" (don't delete code you don't understand) — while I do understand it, deleting it is not necessary for T06a's scope.
+
+Wait, but the task explicitly says "No entra: El montaje automático de routers: eso es T06b." This suggests that T06a should not include the router mounting. But it's already there.
+
+Hmm, let me reconsider. Maybe the intent is:
+- T06a creates main.py with app + /salud.
+- T06b adds the router mounting to main.py.
+
+But main.py already has the router mounting (from the T04 agent). So the state is "ahead" of what T06a should produce.
+
+In this case, I think the safest approach is:
+- Leave main.py as is (it already satisfies T06a's scope).
+- Write the tests for T06a's scope (app + /salud).
+- Don't remove the router mounting (it's not my job to remove it, and removing it would create a diff that my tests don't verify).
+
+Actually, wait. Let me reconsider once more. Let me re-read the task's "Alcance" (scope) section:
+
+"Entra:
+- Crear la instancia `app = FastAPI()` en `backend/app/main.py`.
+- Un endpoint `GET /salud` que devuelva `{"estado": "ok"}`.
+
+No entra:
+- El montaje automático de routers: eso es T06b.
+- La normalización de errores: eso es T06c.
+- Cualquier endpoint de negocio: ésos son de las tareas de `rutas/`.
+- Middleware, CORS, autenticación: no los pide el encargo."
+
+So the scope is clear: T06a is about creating the app instance and the /salud endpoint. The router mounting is explicitly not in scope.
+
+Now, the current main.py has the router mounting. This is a pre-existing state that's "ahead" of T06a's scope.
+
+I think the correct interpretation is:
+- T06a's job is to ensure that main.py has app + /salud.
+- The router mounting is already there (from T04), and it's not T06a's job to add or remove it.
+- My tests should verify app + /salud (T06a's scope).
+
+So I should:
+1. Leave main.py as is (it already has app + /salud).
+2. Write the tests for app + /salud.
+
+But wait, the user said "Hacé la tarea completa: la implementación Y sus tests, las dos cosas con la herramienta write." (Do the complete task: the implementation AND its tests, both with the write tool.)
+
+So the user is asking me to write both the implementation and the tests. But the implementation already exists. Do I need to rewrite it?
+
+I think the user's instruction is a general one (for the case where the implementation doesn't exist yet). In this case, the implementation already exists, so I just need to verify it's correct and write the tests.
+
+But to be safe, let me make sure the implementation is correct. The current main.py has:
+- `app = FastAPI()` ✓
+- Router mounting (not T06a's scope, but already there)
+- `/salud` ✓
+
+So the implementation is correct for T06a's scope. I don't need to change it.
+
+Actually, wait. Let me reconsider whether I should remove the router mounting.
+
+The concern is: if I leave the router mounting, then when T06b runs, its agent will find it already implemented. T06b's task is to add the router mounting. If it's already there, T06b's agent might:
+(a) Do nothing (since it's already there), or
+(b) Rewrite it (which is fine).
+
+Either way, it's not a problem. The router mounting is correct and matches T06b's spec.
+
+But there's a subtle issue: the gate's step 4 for T06b. If T06b's agent doesn't modify main.py (since the router mounting is already there), then T06b's gate will say "no hay implementación que revertir" (vacuo). That's fine.
+
+If T06b's agent modifies main.py (e.g., rewrites the router mounting), then T06b's gate will revert main.py to HEAD (which has the router mounting) and check if T06b's tests still pass. If T06b's tests test the router mounting, they would still pass (since HEAD has it). So the gate would say the tests don't distinguish → red.
+
+Hmm, that's a potential problem for T06b, but it's not my concern for T06a.
+
+OK here's my decision: **I will leave main.py as is.** The implementation already satisfies T06a's scope. I will write the tests for T06a's scope (app + /salud).
+
+Wait, but actually, let me reconsider once more. There's a risk that leaving the router mounting could cause issues. Let me think about what happens when the full test suite runs.
+
+The full test suite includes:
+- test_scaffolding.py: checks directory structure, requirements.txt, package.json. No dependency on main.py.
+- test_conexion.py: tests the connection module. No dependency on main.py.
+- test_migracion.py: tests the migration files. No dependency on main.py.
+- test_app.py (my new tests): tests app + /salud. Depends on main.py.
+
+So the full suite will run my tests, which import app.main. When app.main is imported, it will:
+1. Create the FastAPI app.
+2. Mount the routers (loop over rutas/ — but there are no route modules, so nothing is mounted).
+3. Define the /salud endpoint.
+
+This should work fine. The router mounting loop will find no .py files (other than __init__.py) in rutas/, so it won't mount anything. No errors.
+
+So leaving the router mounting is safe.
+
+Now, let me write the tests.
+
+The tests should be in `backend/tests/test_app.py`, class `TestApp`.
+
+Following the style of the existing tests (test_conexion.py uses pytest style with `class TestX:` and `def test_x(self):` methods, and uses `assert` statements).
+
+Let me write the tests:
+
+```python
+import pytest
+from fastapi.testclient import TestClient
+
+from app.main import app
+
+
+class TestApp:
+    def test_app_es_instancia_de_fastapi(self):
+        """Verifica que `app` sea una instancia de FastAPI."""
+        from fastapi import FastAPI
+        assert isinstance(app, FastAPI)
+
+    def test_salud_responde_200(self):
+        """Verifica que GET /salud responda 200."""
+        client = TestClient(app)
+        response = client.get("/salud")
+        assert response.status_code == 200
+
+    def test_salud_devuelve_estado_ok(self):
+        """Verifica que GET /salud devuelva {"estado": "ok"}."""
+        client = TestClient(app)
+        response = client.get("/salud")
+        assert response.json() == {"estado": "ok"}
+```
+
+Wait, but I need to be careful about the TestClient. The AGENTS.md mentions:
+
+"Con versión fija. `fastapi==0.104.1`, no `fastapi`. Sin fijar, el veredicto del gate depende del día: httpx 0.28 sacó un atajo que usa el TestClient de la starlette que trae fastapi 0.104, y de un día para el otro todos los tests de endpoints empezaron a fallar con un `TypeError` que no tenía nada que ver con el código."
+
+So there's a known issue with httpx 0.28 and the TestClient. Let me check the requirements-dev.txt to see what version of httpx is pinned.
+
+Let me read requirements-dev.txt and requirements.txt.
+
+Also, I need to make sure that the tests use the correct import. The tests run with `PYTHONPATH=backend`, so `from app.main import app` should work.
+
+Let me also consider: should I use `TestClient` from `fastapi.testclient` or from `starlette.testclient`? The AGENTS.md mentions the TestClient issue with httpx 0.28. Let me check the pinned versions.
+
+Let me read the requirements files.
+
+
+La raíz del repo es `/Users/jose/tests-T06a` (el proyecto está en `ejemplo-clasificados/`). `main.py` **sí** existe en HEAD y está trackeado. Ningún test actual importa `app.main`. Veamos los requirements para entender la versión de httpx/fastapi (el AGENTS.md menciona un problema conocido con TestClient).
+/Users/jose/metodo-agentes/scripts/_comun.sh: line 307:  5706 Terminated: 15          "$@"
+· MySQL del proyecto ya está arriba en 127.0.0.1:33306

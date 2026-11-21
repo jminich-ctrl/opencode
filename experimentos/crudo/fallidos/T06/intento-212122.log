@@ -1,0 +1,323 @@
+[0m
+> ejecutor · 1af07b1f-5832-4451-a61c-76d1fe43115a
+[0m
+[0m→ [0mRead tareas/T06-app-fastapi.md
+[0m→ [0mRead PLAN.md
+Let's start by reading the task file and understanding what needs to be done.
+[0m
+[0m$ [0mfind backend -type f -name "*.py" | sort && echo "---" && ls scripts/
+backend/app/datos/__init__.py
+backend/app/datos/conexion.py
+backend/app/main.py
+backend/app/rutas/__init__.py
+backend/app/servicios/__init__.py
+backend/tests/__init__.py
+backend/tests/test_conexion.py
+backend/tests/test_migracion.py
+backend/tests/test_scaffolding.py
+---
+_arquitectura.py
+_imports.py
+_suprimidas.py
+correr-suite.sh
+entorno.sh
+gate.sh
+[0m
+[0m✱ [0mGlob "backend/tests/*.py"[90m 4 matches[0m
+Let's understand the task:
+
+1. Create `backend/app/main.py` — a FastAPI app that does the following:
+   - `app = FastAPI()`
+   - Automatically discover and mount routers from `backend/app/rutas/*.py`
+   - Store the mounted module names in `app.state.routers_montados`
+   - If a module fails to import, propagate the error with the module name included
+   - `GET /salud` → 200 `{"estado": "ok"}`
+   - Error handlers: `RequestValidationError` → 400 `{"error": ...}`, `HTTPException` → `{"error": detail}`
+
+2. Create `backend/tests/test_app.py` with a class `TestApp`.
+
+First, let's check the current state of the project: what exists in `backend/app/`, what's in `rutas/`, what the existing tests look like (to follow the style), and the scripts.
+
+
+Ahora miro el estado actual del proyecto: qué hay en `backend/app/`, los tests existentes para seguir el estilo, y los scripts.
+[0m→ [0mRead backend/app/main.py
+[0m→ [0mRead backend/tests/test_conexion.py
+[0m→ [0mRead backend/app/datos/conexion.py
+Interesting — `backend/app/main.py` already exists. Let me read it, and also read the existing tests to follow the style. Also, let me check `rutas/__init__.py` and `conexion.py` to understand the structure.
+
+
+Ya existe un `main.py`. Lo leo junto con los tests existentes para seguir el estilo.
+[0m→ [0mRead scripts/correr-suite.sh
+[0m→ [0mRead scripts/entorno.sh
+[0m→ [0mRead scripts/gate.sh
+Interesting. `main.py` already exists, but it's incomplete:
+1. It doesn't have error handlers for `RequestValidationError` → 400 and `HTTPException` → `{"error": ...}`.
+2. It uses `importlib.util.spec_from_file_location` to load modules — this works, but the task says "recorré `backend/app/rutas/*.py`, importá cada módulo (traverse `backend/app/rutas/*.py` and import each module)". The current approach loads modules by file location, which means the module name in `sys.modules` won't be `app.rutas.x` but just `x`. Hmm, but the task says "importá cada módulo (import each module)". Let me think about what the tests should verify.
+
+Also, the current main.py has a subtle issue: it catches `Exception` and re-raises `ImportError` — this is fine per the task ("propagá el error con el nombre del módulo adelante (propagate the error with the module name in front)"). But wait — the task says "no se atrapa la excepción para seguir (the exception is not caught in order to continue)" — the current code catches and re-raises, so it's fine.
+
+But there's a problem: the current code catches `Exception` and wraps it in `ImportError`. If the module raises `ImportError` itself, it gets wrapped. That's fine.
+
+But wait — there's a subtle issue with the current implementation: if a module fails to import, the error is raised. Good.
+
+Now, the missing parts per the task:
+- Error handlers: `RequestValidationError` → 400 `{"error": ...}`, `HTTPException` → `{"error": detail}`.
+
+The current main.py doesn't have these. So I need to add them.
+
+Also, the task says "un módulo de `rutas/` que no se pueda importar tiene que hacer fallar el arranque, con el nombre del módulo y el error original (a `rutas/` module that can't be imported must make startup fail, with the module name and the original error)". The current code does that.
+
+Now, about the tests. The tests are the deliverable (the implementation is written by another agent from scratch — wait, no. Let me re-read the user's instructions:
+
+"Ojo: esta corrida es la que CREA los tests, así que todavía no existen, los estás creando vos. Hacé la tarea completa: la implementación Y sus tests, las dos cosas con la herramienta write. (Note: this run is the one that CREATES the tests, so they don't exist yet, you're creating them. Do the complete task: the implementation AND its tests, both things with the write tool.)"
+
+So this run creates the tests, and I also do the implementation. Both with the write tool. The test file is `backend/tests/test_app.py` with the aggregator `TestApp`.
+
+Wait, but `main.py` already exists. Hmm. The task says "Archivos que podés tocar: backend/app/main.py (Files you can touch: backend/app/main.py)". So I can modify main.py. The existing main.py was probably created by the T04 agent (per the task description: "El agente de T04 lo creó por su cuenta (The T04 agent created it on its own)"). But in this repo state, T04 is "pendiente (pending)"... actually, in the PLAN table T04 is pendiente. But main.py exists. Interesting — maybe it was created in a previous run. In any case, I can touch main.py, so I'll rewrite it to fully meet the spec.
+
+Now, let me think about what the tests should verify (per the "Criterio de terminado (Completion criteria)"):
+
+1. `from app.main import app` works and `app` is a FastAPI instance.
+2. `GET /salud` responds 200 with `{"estado": "ok"}`.
+3. A new router in `backend/app/rutas/` gets mounted without touching `main.py`, and its name appears in `app.state.routers_montados`. The test creates the router file at runtime, reloads `app.main`, verifies, and cleans up in `finally`.
+4. A `rutas/` module that errors on import makes the import of `app.main` fail, with the module name in the message.
+5. A POST with an incomplete body responds 400 (not 422) with body `{"error": ...}`.
+6. `HTTPException(404, "no existe")` comes out as `{"error": "no existe"}`.
+
+Now, how do the tests import `app.main`? The tests run from the project root. So `from app.main import app` — for that to work, `backend` must be on `sys.path`. Let me check how the existing tests do it: `from app.datos.conexion import conexion, configuracion`. So `backend` must be on `sys.path` somehow. Let me check `correr-suite.sh` and `entorno.sh` to see how the environment is set up.
+
+Also, I need to check whether there's a conftest.py that adds backend to sys.path. Let me look at the scripts.
+
+Another important point: `app.main` imports `app.datos.conexion`? No — main.py doesn't import conexion. But wait, when the tests import `app.main`, the `app` package's `__init__.py` runs. Let me check `backend/app/__init__.py` — wait, does it exist? The find output showed:
+- backend/app/datos/__init__.py
+- backend/app/datos/conexion.py
+- backend/app/main.py
+- backend/app/rutas/__init__.py
+- backend/app/servicios/__init__.py
+
+There's no `backend/app/__init__.py`! Interesting. So `app` is a namespace package (Python 3.3+ implicit namespace package). That works fine.
+
+Let me check the scripts to understand how the tests are run.
+
+
+El `main.py` ya existe pero le faltan los manejadores de errores del contrato. Ahora reviso los scripts para entender cómo corre la suite (paths, entorno).
+[0m
+[0m$ [0mgit status --short && echo "---" && git log --oneline -5 && echo "---" && git ls-files backend/app/ && echo "---" && cat backend/app/rutas/__init__.py && echo "---" && cat backend/requirements.txt
+---
+0b7e295 el método borraba el transcript de sus propios fallos
+58f0d91 el archivo de tarea afirmaba algo cierto sólo en la otra mitad del proceso
+1a92898 las reglas de escribir tests no estaban donde el agente las busca
+8bbd303 consolidar el patrón: la misma declaración doble, ahora en el entorno
+cc9414a el método tenía la cura del 400 por contexto y nadie la aplicaba
+---
+backend/app/datos/__init__.py
+backend/app/datos/conexion.py
+backend/app/main.py
+backend/app/rutas/__init__.py
+backend/app/servicios/__init__.py
+---
+---
+fastapi==0.104.1
+uvicorn==0.24.0
+pydantic==2.5.0
+pymysql==1.1.0
+[0m
+Now I understand the setup:
+- Tests are run from the project root with `PYTHONPATH="$PWD/backend"`, so `from app.main import app` works.
+- The gate has a "¿Los tests distinguen? (Do the tests distinguish?)" check: it reverts the implementation files (those that exist in HEAD) and verifies that the suite fails. In other words, my tests must fail against the old implementation (the current main.py in HEAD, which lacks the error handlers).
+
+Wait, an important point: the current `main.py` already exists in the repo (probably committed in HEAD). Let me check git status to see whether main.py is tracked in HEAD.
+
+The gate's step 4 reverts `backend/app/main.py` to the HEAD version and runs the suite. If the suite still passes, the tests are "not distinguishing." So my tests must fail against the HEAD version of main.py. The HEAD version lacks the error handlers (RequestValidationError → 400, HTTPException → {"error": ...}), so the tests for those will fail against the old implementation. Good.
+
+But wait — if main.py is a new file (not in HEAD), the gate will say "archivos nuevos (no existían en HEAD): nada que revertir (new files (didn't exist in HEAD): nothing to revert)" and mark it as vacuo (vacuous). Let me check git status.
+
+Also, the gate's step 0 (Integridad / Integrity) checks that I haven't touched `backend/tests/` — but wait, that's for the implementation agent. In this run I'm the test-writing agent, and the user explicitly instructed me to create the test file. The gate's integrity check only runs when the `TAREA` environment variable is set. When I run `bash scripts/correr-suite.sh backend/tests/test_app.py::TestApp`, TAREA isn't set, so there's no integrity check. No problem.
+
+Now, let me check git status to see what's tracked.
+
+
+Ahora reviso el estado git para saber qué está en HEAD (el gate revierte la implementación vieja para verificar que los tests distinguen).
+The working tree is clean, and `backend/app/main.py` is tracked in HEAD. In other words, the current main.py (without error handlers) is the "old implementation" that the gate reverts to in step 4. My tests must fail against it.
+
+Let me check the available Python environment:
+- `.venv/bin/python` or `../.venv/bin/python`?
+
+Let me check. Also, I'll check whether fastapi is installed.
+
+Now, let me design the implementation and tests.
+
+## Implementation: `backend/app/main.py`
+
+Requirements:
+1. `app = FastAPI()`
+2. Scan `backend/app/rutas/*.py`, import each module, and if it exposes `router`, include it.
+3. `app.state.routers_montados` = list of mounted module names.
+4. If a module can't be imported → propagate the error with the module name prepended. Don't catch it and continue.
+5. `GET /salud` → 200 `{"estado": "ok"}`.
+6. Error handlers:
+   - `RequestValidationError` → 400 `{"error": "<mensaje para la persona>"}`
+   - `HTTPException(code, detail)` → code `{"error": detail}`
+
+Design decisions:
+
+**How to import the modules?** The current implementation uses `importlib.util.spec_from_file_location`. The task says "Recorré `backend/app/rutas/*.py`, importá cada módulo (traverse `backend/app/rutas/*.py`, import each module)". A cleaner approach: use `importlib.import_module(f"app.rutas.{nombre}")`. This is a real import, and the module gets registered in `sys.modules` as `app.rutas.x`. This matters for the tests: the test creates a file `backend/app/rutas/_test_router.py`, reloads `app.main`, and verifies. With `importlib.import_module`, the module is cached in `sys.modules` — when the test deletes the file and re-imports, the cached module remains. Hmm, but for the "failing module" test, the test creates a broken module file, then re-imports `app.main` and expects failure. If the broken module was previously imported successfully (it wasn't — it's new), no problem.
+
+But there's a subtle point about `importlib.reload(app.main)`: when main.py is reloaded, it re-runs the scan. If it uses `importlib.import_module("app.rutas.x")`, the module is already in `sys.modules` (from the first import), so it won't be re-executed. For the test flow:
+
+Test A (new router gets mounted):
+1. Create `backend/app/rutas/zz_test_router.py` with a `router = APIRouter()` and a route.
+2. `importlib.reload(app.main)` (or a fresh import).
+3. Verify that `app.state.routers_montados` contains `"zz_test_router"` and that the route responds.
+4. finally: delete the file, and reload `app.main` again to restore state? Or just delete the file.
+
+Hmm, wait. There's a problem: `app.state.routers_montados` — when main.py is reloaded, a new `app` object is created (because `app = FastAPI()` re-runs). So after reload, `app.main.app` is a new instance. The test should re-fetch `app` from the reloaded module.
+
+Also, `sys.modules` caching: if the test creates `zz_test_router.py` and reloads main, `importlib.import_module("app.rutas.zz_test_router")` imports it fresh (not in sys.modules yet). Good. Then in finally, delete the file. But `app.rutas.zz_test_router` remains in `sys.modules`. If a later test (or the gate's revert check) re-imports main, `importlib.import_module` will return the cached module even though the file is gone — the module still has `router`, so it gets mounted. That's fine for the test, but it could cause weird behavior. To be safe, the test should also remove it from `sys.modules` in finally.
+
+Alternatively, the implementation could use `spec_from_file_location` like the current one. But then the module name in sys.modules is just `zz_test_router` (top-level), which pollutes the namespace. The `importlib.import_module` approach is cleaner and more standard.
+
+But wait — there's a pitfall with `importlib.import_module` and the failing-module test:
+
+Test B (broken module fails the import):
+1. Create `backend/app/rutas/zz_broken.py` containing `raise RuntimeError("boom")` at module level.
+2. `importlib.reload(app.main)` → should raise an exception with "zz_broken" in the message.
+3. finally: delete the file.
+
+But here's the problem: if the import of `app.rutas.zz_broken` fails, Python removes it from `sys.modules` (a failed import doesn't leave an entry). Good. But if a previous test had already imported it successfully... no, it's a new file.
+
+However, there's a subtle issue with reload: `importlib.reload(app.main)` — if main.py's execution raises an exception during reload, the module `app.main` in `sys.modules` is... let me think. `importlib.reload` executes the module's code in the existing module's namespace. If the code raises, the module remains in sys.modules in a partially updated state (the old attributes may still be there, or partially new ones). Actually, reload doesn't remove the module on failure. The old `app` object remains accessible as `app.main.app`. Hmm, this could be a problem for subsequent tests: after test B fails the reload, `app.main.app` is the old app (from before the reload started... actually, the namespace is updated as execution proceeds; `app = FastAPI()` runs first, so `app.main.app` is the new app instance, but the router scan failed, so `routers_montados` is... wait, the order in main.py matters).
+
+Let me think about the order in main.py:
+```python
+app = FastAPI()
+app.state.routers_montados = []
+# scan and mount
+# /salud endpoint
+# error handlers
+```
+
+If the scan raises, `app.main.app` is a new FastAPI instance with `routers_montados = []` (or partially filled), no /salud, no error handlers. Subsequent tests that use `from app.main import app` will get this broken app.
+
+So the test order matters, and the tests must be robust. Options:
+
+Option 1: In test B's finally, after deleting the broken file, reload `app.main` again to restore a healthy module. This works: delete the file, reload → the scan succeeds (no broken module), the module is healthy again.
+
+But wait — there's a `sys.modules` caching issue with the healthy router test: after test A's finally deletes `zz_test_router.py` and removes `app.rutas.zz_test_router` from `sys.modules`, a subsequent reload of main won't find the file (the scan is filesystem-based), so it won't be mounted. Good.
+
+Option 2: Use a fresh subprocess for each test. Too heavy.
+
+Option 3: Structure the tests so the destructive tests run last (pytest runs in definition order within a class). But relying on order is fragile; better to make each test self-contained with proper cleanup.
+
+Let me design the tests to be self-contained:
+
+```python
+import importlib
+import os
+import sys
+
+import pytest
+from fastapi import FastAPI
+
+RUTAS_DIR = "backend/app/rutas"
+
+
+def _recargar_main():
+    """Recarga app.main desde cero y devuelve el módulo fresco."""
+    import app.main as main
+    importlib.reload(main)
+    return main
+```
+
+Hmm, wait, but there's a problem: the first import of `app.main` happens at test module import time (or lazily). Let me think about how the tests import app.
+
+Actually, let me think about whether to use `importlib.reload` or a fresh import. The task says: "El router de prueba lo crea el test en tiempo de ejecución y lo borra al terminar —escribir el archivo, recargar `app.main`, verificar, y limpiar en un `finally`—. (The test router is created by the test at runtime and deleted when it finishes —write the file, reload `app.main`, verify, and clean up in a `finally`.)"
+
+So the task explicitly says: write the file, reload `app.main`, verify, clean up in finally. So `importlib.reload` is the sanctioned approach.
+
+Now, the key question: how does the implementation scan the directory? Two options:
+
+**Option A: `importlib.import_module(f"app.rutas.{nombre}")`**
+- Pros: standard, modules are cached in sys.modules under the proper name.
+- Cons: the sys.modules cache means that if a module file is deleted and re-created with different content, the reload of main won't re-execute it. For the tests, this is manageable (the test removes from sys.modules in cleanup).
+- Another con: if a module import fails, Python removes it from sys.modules, so a subsequent retry will re-execute. Good.
+
+**Option B: `spec_from_file_location` (current implementation)**
+- Pros: always re-executes the file.
+- Cons: the module is registered under a bare name (`zz_test_router`), polluting the top-level namespace; if two directories had modules with the same name, they'd collide. Also, the module's `__package__` isn't set correctly, so relative imports inside the route module would fail. The route modules (T04, T05, etc.) will do `from app.servicios.auth import ...` — absolute imports, so either works. But `importlib.import_module` is cleaner.
+
+Hmm, wait. Actually, there's a subtle issue with Option A and the "failing module" test: if `app.rutas.zz_broken` raises during import, `importlib.import_module` propagates the exception. The implementation must catch it, wrap it with the module name, and re-raise. The task says: "Si un módulo no se puede importar, propagar el error con el nombre del módulo adelante. No se atrapa para seguir. (If a module can't be imported, propagate the error with the module name in front. Don't catch it to continue.)" So the implementation catches, wraps, and re-raises. The current implementation does `raise ImportError(f"Error al cargar el módulo {module_name}: {str(e)}")`.
+
+Hmm, but should it be an ImportError? The task says "propagar el error con el nombre del módulo y el error original (propagate the error with the module name and the original error)". The test should check that the exception message contains the module name. Let me not over-constrain the exception type in the test — check that the message contains the module name. Actually, let me think about what's most robust: the test creates a broken module that raises `RuntimeError("boom")`, reloads main, and expects an exception whose str contains "zz_broken" (the module name). Should it also check that the original error is visible? The task says "con el nombre del módulo y el error original (with the module name and the original error)". So the message should contain both the module name and the original error. Let me check that the message contains the module name; checking the original error text is also reasonable. Let me check both: the module name in the message. For the original error, I can make the broken module raise `RuntimeError("fallo-sembrado")` and check that "fallo-sembrado" is in the message. That verifies "el error original (the original error)".
+
+Hmm, but wait: if the implementation does `raise ImportError(f"... {module_name}: {e}") from e`, the str contains both. If the implementation just re-raises the original exception without wrapping... the module name wouldn't be in the message (the original RuntimeError's message is "fallo-sembrado"). So checking the module name in the message is the key assertion. Let me assert the module name is in str(excinfo.value), and also that the original error text is in str(excinfo.value) — that's what the task says ("con el nombre del módulo y el error original").
+
+Hmm, actually, let me be careful: if the implementation wraps with `raise ... from e`, `str(e)` is the wrapped message. If the implementation does `raise ImportError(f"módulo {name}: {e}")`, str contains both. OK.
+
+But there's a risk: what if the implementation propagates the original exception as-is (without wrapping)? In that case, the module name isn't in the message, and the test fails — which is correct per the task ("con el nombre del módulo adelante").
+
+Now, another consideration for Option A: the scan order. `os.listdir` order is arbitrary. For determinism, sort the files. The current implementation doesn't sort. Let me sort — it's harmless and deterministic.
+
+**Which option to pick?** Let me think about which is more robust for the tests I'm writing, since the tests are the deliverable and another agent might re-implement main.py from scratch (wait, no — in this run I write both the implementation and the tests. But the gate's step 4 reverts to the HEAD implementation and checks that the tests fail. And in a future run, another agent might rewrite main.py... actually, the user said "Hacé la tarea completa: la implementación Y sus tests (Do the complete task: the implementation AND its tests)". So I write both. But the tests must be good enough that they fail against a wrong implementation.)
+
+The tests should test the contract, not the implementation details. The contract:
+- `from app.main import app` works, and app is a FastAPI.
+- GET /salud → 200 {"estado": "ok"}.
+- A new router file in rutas/ gets mounted on (re)import, and its name is in `app.state.routers_montados`.
+- A broken module → the import of app.main fails with the module name in the message.
+- POST with an incomplete body → 400 {"error": ...}.
+- HTTPException(404, "no existe") → {"error": "no existe"}.
+
+The tests use `importlib.reload(app.main)` to re-trigger the scan. This works with either Option A or B.
+
+One issue with Option A + reload: after `importlib.reload(main)`, the module's `app` attribute is a new FastAPI instance. The test must use `main.app` (the new one), not the old reference. No problem.
+
+Another issue with Option A: the `sys.modules` cache of `app.rutas.zz_test_router`. In test A's finally: delete the file, `sys.modules.pop("app.rutas.zz_test_router", None)`, and reload main to restore a healthy state. Wait — do I need to reload main in finally? If I don't, `app.main.app` remains the app with zz_test_router mounted. A subsequent test that does `from app.main import app` (a fresh import at the top of the test module? no — the import is cached) hmm.
+
+Let me think about how the tests reference `app`. If the test module does `from app.main import app` at the top, it binds the app instance at import time. After a reload inside a test, that binding is stale. So the tests should always fetch app via the module: `import app.main as main_mod; main_mod.app`. Or re-import in each test.
+
+The cleanest: a helper in the test file:
+
+```python
+def _app_fresco():
+    """Importa (o recarga) app.main y devuelve su instancia de app."""
+    import app.main as main
+    importlib.reload(main)
+    return main.app
+```
+
+Hmm, but reloading on every test is a bit heavy, though it's fine (it's fast). Actually, wait — is it safe to reload app.main when the routes directory is healthy? Yes: the scan re-imports the route modules (cached in sys.modules, so no re-execution), includes the routers in the new app, and sets routers_montados.
+
+But note: with Option A, when main is reloaded, `importlib.import_module("app.rutas.auth")` returns the cached module — no re-execution, no problem.
+
+Now, the test flow for test A (new router):
+1. Write `backend/app/rutas/zz_test_router.py`:
+   ```python
+   from fastapi import APIRouter
+   router = APIRouter()
+   @router.get("/zz-prueba")
+   def zz_prueba():
+       return {"ok": True}
+   ```
+2. `main = _app_fresco()` (reload).
+3. Assert `"zz_test_router" in main.app.state.routers_montados`.
+4. Use TestClient(main.app) to GET /zz-prueba → 200 {"ok": True}.
+5. finally: delete the file; `sys.modules.pop("app.rutas.zz_test_router", None)`; reload main to restore a healthy state (so subsequent tests see a clean app).
+
+Wait, but there's a problem with step 5's reload: after deleting the file and popping from sys.modules, the reload scans the directory — the file is gone, so it's not mounted. Good.
+
+But hmm, actually there's a subtle issue: what if the implementation (Option B, spec_from_file_location) doesn't use sys.modules at all? Then the pop is a no-op, no problem. The test works with either implementation. Good — the test is implementation-agnostic.
+
+Test B (broken module):
+1. Write `backend/app/rutas/zz_broken.py`:
+   ```python
+   raise RuntimeError("fallo-sembrado")
+   ```
+2. `with pytest.raises(Exception) as excinfo: _app_fresco()` — wait, the reload itself raises. Actually, the import of app.main must fail. Since app.main is already in sys.modules (imported earlier), `importlib.reload` re-executes it and raises. The test asserts that the exception's message contains "zz_broken".
+3. finally: delete the file; `sys.modules.pop("app.rutas.zz_broken", None)` (a failed import doesn't leave an entry, but just in case); reload main to restore a healthy state.
+
+Wait, but there's a pitfall: after the failed reload, `app.main` in sys.modules is in a broken/partial state. The finally's reload fixes it. But if the assertion in step 2 fails (the test fails), the finally still runs (pytest.raises context manager — the finally is outside it). Let me structure it:
+
+```python
+def test_modulo_ro
+· MySQL del proyecto ya está arriba en 127.0.0.1:33306

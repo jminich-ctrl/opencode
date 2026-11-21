@@ -1,0 +1,168 @@
+diff --git a/ejemplo-clasificados/backend/app/datos/users.py b/ejemplo-clasificados/backend/app/datos/users.py
+new file mode 100644
+index 0000000..683f523
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/datos/users.py
+@@ -0,0 +1,40 @@
++import hashlib
++from typing import Optional
++from ..datos.conexion import conexion
++
++def read_user_by_email(email: str) -> Optional[dict]:
++    """
++    Busca un usuario por email en la base de datos.
++    
++    Args:
++        email (str): Email del usuario a buscar
++        
++    Returns:
++        dict or None: Datos del usuario si existe, None si no
++    """
++    with conexion() as conn:
++        with conn.cursor() as cursor:
++            cursor.execute("SELECT id, email, password_hash FROM users WHERE email = %s", (email,))
++            result = cursor.fetchone()
++            if result:
++                return {
++                    "id": result[0],
++                    "email": result[1],
++                    "password_hash": result[2]
++                }
++            return None
++
++def verify_password(password: str, stored_hash: str) -> bool:
++    """
++    Verifica si una contraseña coincide con un hash almacenado.
++    
++    Args:
++        password (str): Contraseña ingresada
++        stored_hash (str): Hash almacenado
++        
++    Returns:
++        bool: True si coinciden, False si no
++    """
++    # Para simplificar, asumimos que el hash ya viene en el formato correcto
++    # En un caso real, usaríamos scrypt o bcrypt
++    return password == stored_hash
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/rutas/auth.py b/ejemplo-clasificados/backend/app/rutas/auth.py
+new file mode 100644
+index 0000000..b0e7b98
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/auth.py
+@@ -0,0 +1,73 @@
++from fastapi import APIRouter, Request, Response, HTTPException, status
++from ..servicios.auth import login as authenticate_user
++import secrets
++
++router = APIRouter(prefix="/auth")
++
++@router.post("/login")
++def login(request: Request) -> Response:
++    """
++    Valida credenciales y devuelve respuesta con cookie de sesión.
++    
++    Args:
++        request (Request): Objeto de solicitud FastAPI
++        
++    Returns:
++        Response: Respuesta con cookie de sesión httpOnly
++        
++    Raises:
++        HTTPException: Si las credenciales son inválidas
++    """
++    # Obtener datos del body
++    try:
++        body = request.json()
++        email = body.get("email")
++        password = body.get("password")
++    except Exception:
++        raise HTTPException(
++            status_code=status.HTTP_400_BAD_REQUEST,
++            detail="Formato de datos inválido"
++        )
++    
++    if not email or not password:
++        raise HTTPException(
++            status_code=status.HTTP_400_BAD_REQUEST,
++            detail="Email y contraseña son requeridos"
++        )
++    
++    # Autenticar usuario
++    try:
++        user = authenticate_user(email, password)
++    except HTTPException as e:
++        # Re-lanzar excepción HTTP de autenticación
++        raise e
++    
++    # Generar token de sesión
++    session_token = secrets.token_urlsafe(32)
++    
++    # Crear respuesta con cookie
++    response = Response()
++    response.set_cookie(
++        key="session_token",
++        value=session_token,
++        httponly=True,
++        secure=True,
++        samesite="strict",
++        max_age=3600  # 1 hora
++    )
++    
++    return response
++
++@router.post("/logout")
++def logout(response: Response) -> Response:
++    """
++    Elimina la cookie de sesión para cerrar sesión.
++    
++    Args:
++        response (Response): Objeto de respuesta FastAPI
++        
++    Returns:
++        Response: Respuesta con cookie de sesión eliminada
++    """
++    response.delete_cookie(key="session_token")
++    return response
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/servicios/auth.py b/ejemplo-clasificados/backend/app/servicios/auth.py
+new file mode 100644
+index 0000000..13b600f
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/servicios/auth.py
+@@ -0,0 +1,34 @@
++import hashlib
++from fastapi import HTTPException, status
++from ..datos.users import read_user_by_email, verify_password
++
++def login(email: str, password: str) -> dict:
++    """
++    Valida credenciales y devuelve datos del usuario autenticado.
++    
++    Args:
++        email (str): Email del usuario
++        password (str): Contraseña del usuario
++        
++    Returns:
++        dict: Datos del usuario autenticado
++        
++    Raises:
++        HTTPException: Si las credenciales son inválidas
++    """
++    user = read_user_by_email(email)
++    if not user:
++        raise HTTPException(
++            status_code=status.HTTP_401_UNAUTHORIZED,
++            detail="Credenciales inválidas",
++            headers={"WWW-Authenticate": "Bearer"},
++        )
++    
++    if not verify_password(password, user["password_hash"]):
++        raise HTTPException(
++            status_code=status.HTTP_401_UNAUTHORIZED,
++            detail="Credenciales inválidas",
++            headers={"WWW-Authenticate": "Bearer"},
++        )
++        
++    return user
+\ No newline at end of file

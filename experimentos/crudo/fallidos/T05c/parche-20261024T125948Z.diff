@@ -1,0 +1,356 @@
+diff --git a/ejemplo-clasificados/backend/app/datos/ads.py b/ejemplo-clasificados/backend/app/datos/ads.py
+index 5733141..23fd163 100644
+--- a/ejemplo-clasificados/backend/app/datos/ads.py
++++ b/ejemplo-clasificados/backend/app/datos/ads.py
+@@ -39,6 +39,19 @@ def get_ad_by_id(ad_id: int) -> dict | None:
+             )
+             return cur.fetchone()
+ 
++def get_all_ads() -> list[dict]:
++    """Obtiene todos los anuncios disponibles.
++    
++    Returns:
++        list[dict]: Lista de diccionarios con los datos de los anuncios
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "SELECT id, usuario_id, categoria_id, titulo, descripcion, precio_centavos FROM anuncios"
++            )
++            return cur.fetchall()
++
+ def update_ad(ad_id: int, usuario_id: int, titulo: str, descripcion: str,
+               precio_centavos: int) -> bool:
+     """Actualiza un anuncio si pertenece al usuario especificado.
+diff --git a/ejemplo-clasificados/backend/app/servicios/ads.py b/ejemplo-clasificados/backend/app/servicios/ads.py
+index 65ba43e..3c43d35 100644
+--- a/ejemplo-clasificados/backend/app/servicios/ads.py
++++ b/ejemplo-clasificados/backend/app/servicios/ads.py
+@@ -41,6 +41,16 @@ def crear_anuncio(usuario_id: int, categoria_id: int, titulo: str, descripcion:
+     return datos_ads.insert_ad(usuario_id, categoria_id, titulo, descripcion, precio_centavos)
+ 
+ 
++def listar_anuncios() -> list[dict]:
++    """
++    Lista todos los anuncios disponibles.
++    
++    Returns:
++        Lista de diccionarios con los datos de los anuncios
++    """
++    return datos_ads.get_all_ads()
++
++
+ def obtener_anuncio(ad_id: int) -> dict | None:
+     """
+     Obtiene un anuncio por su ID.
+diff --git a/ejemplo-clasificados/backend/app/rutas/ads.py b/ejemplo-clasificados/backend/app/rutas/ads.py
+new file mode 100644
+index 0000000..20d3fd8
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/ads.py
+@@ -0,0 +1,117 @@
++from fastapi import APIRouter, HTTPException, Depends
++from pydantic import BaseModel
++from typing import Optional
++from backend.app.servicios.auth import usuario_desde_token
++from backend.app.servicios.ads import (
++    crear_anuncio,
++    listar_anuncios,
++    obtener_anuncio,
++    actualizar_anuncio,
++    eliminar_anuncio
++)
++
++router = APIRouter()
++
++class AnuncioCreate(BaseModel):
++    categoria_id: int
++    titulo: str
++    descripcion: str
++    precio_centavos: int
++
++class AnuncioUpdate(BaseModel):
++    categoria_id: int
++    titulo: str
++    descripcion: str
++    precio_centavos: int
++
++@router.post("/ads")
++async def crear_anuncio_endpoint(
++    anuncio: AnuncioCreate,
++    usuario = Depends(usuario_desde_token)
++):
++    """Endpoint para crear un nuevo anuncio."""
++    # Verificar que el usuario esté autenticado
++    if usuario is None:
++        raise HTTPException(status_code=401, detail="Credenciales inválidas")
++    
++    try:
++        anuncio_id = crear_anuncio(
++            usuario,
++            anuncio.categoria_id,
++            anuncio.titulo,
++            anuncio.descripcion,
++            anuncio.precio_centavos
++        )
++        return {"id": anuncio_id}
++    except Exception as e:
++        raise HTTPException(status_code=400, detail=str(e))
++
++@router.get("/ads")
++async def listar_anuncios_endpoint(
++    usuario = Depends(usuario_desde_token)
++):
++    """Endpoint para listar todos los anuncios."""
++    # Verificar que el usuario esté autenticado
++    if usuario is None:
++        raise HTTPException(status_code=401, detail="Credenciales inválidas")
++    
++    anuncios = listar_anuncios()
++    return anuncios
++
++@router.get("/ads/{id}")
++async def obtener_anuncio_endpoint(
++    id: int,
++    usuario = Depends(usuario_desde_token)
++):
++    """Endpoint para obtener un anuncio específico."""
++    # Verificar que el usuario esté autenticado
++    if usuario is None:
++        raise HTTPException(status_code=401, detail="Credenciales inválidas")
++    
++    anuncio = obtener_anuncio(id)
++    if anuncio is None:
++        raise HTTPException(status_code=404, detail="Anuncio no encontrado")
++    return anuncio
++
++@router.put("/ads/{id}")
++async def actualizar_anuncio_endpoint(
++    id: int,
++    anuncio: AnuncioUpdate,
++    usuario = Depends(usuario_desde_token)
++):
++    """Endpoint para actualizar un anuncio existente."""
++    # Verificar que el usuario esté autenticado
++    if usuario is None:
++        raise HTTPException(status_code=401, detail="Credenciales inválidas")
++    
++    try:
++        actualizar_anuncio(
++            id,
++            usuario,
++            anuncio.titulo,
++            anuncio.descripcion,
++            anuncio.precio_centavos
++        )
++        return {}
++    except Exception as e:
++        if "No es tu aviso" in str(e):
++            raise HTTPException(status_code=403, detail="No es tu aviso")
++        raise HTTPException(status_code=400, detail=str(e))
++
++@router.delete("/ads/{id}")
++async def eliminar_anuncio_endpoint(
++    id: int,
++    usuario = Depends(usuario_desde_token)
++):
++    """Endpoint para eliminar un anuncio."""
++    # Verificar que el usuario esté autenticado
++    if usuario is None:
++        raise HTTPException(status_code=401, detail="Credenciales inválidas")
++    
++    try:
++        eliminar_anuncio(id, usuario)
++        return {}
++    except Exception as e:
++        if "No es tu aviso" in str(e):
++            raise HTTPException(status_code=403, detail="No es tu aviso")
++        raise HTTPException(status_code=400, detail=str(e))
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_ads_rutas.py b/ejemplo-clasificados/backend/tests/test_ads_rutas.py
+new file mode 100644
+index 0000000..3d38b84
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_ads_rutas.py
+@@ -0,0 +1,180 @@
++import pytest
++from unittest.mock import patch, MagicMock
++from fastapi.testclient import TestClient
++from backend.app.main import app
++from backend.app.rutas.ads import router as ads_router
++
++# Agregar el router de ads a la app para los tests
++app.include_router(ads_router)
++
++client = TestClient(app)
++
++class TestAdsRutas:
++    
++    def test_post_ads_success(self):
++        """Prueba que POST /ads cree un anuncio correctamente"""
++        with patch('backend.app.servicios.ads.crear_anuncio') as mock_crear:
++            mock_crear.return_value = 123
++            
++            response = client.post(
++                "/ads",
++                json={
++                    "categoria_id": 1,
++                    "titulo": "Anuncio de prueba",
++                    "descripcion": "Descripción de prueba",
++                    "precio_centavos": 10000
++                },
++                headers={"Authorization": "Bearer token123"}
++            )
++            
++            assert response.status_code == 201
++            assert response.json() == {"id": 123}
++            mock_crear.assert_called_once_with(1, 1, "Anuncio de prueba", "Descripción de prueba", 10000)
++    
++    def test_post_ads_invalid_token(self):
++        """Prueba que POST /ads falle con token inválido"""
++        response = client.post(
++            "/ads",
++            json={
++                "categoria_id": 1,
++                "titulo": "Anuncio de prueba",
++                "descripcion": "Descripción de prueba",
++                "precio_centavos": 10000
++            },
++            headers={"Authorization": "Bearer invalid_token"}
++        )
++        
++        assert response.status_code == 401
++    
++    def test_get_ads_list(self):
++        """Prueba que GET /ads liste los anuncios correctamente"""
++        with patch('backend.app.servicios.ads.listar_anuncios') as mock_listar:
++            mock_listar.return_value = [
++                {
++                    "id": 1,
++                    "categoria_id": 1,
++                    "titulo": "Anuncio 1",
++                    "descripcion": "Descripción 1",
++                    "precio_centavos": 10000,
++                    "usuario_id": 1
++                }
++            ]
++            
++            response = client.get(
++                "/ads",
++                headers={"Authorization": "Bearer token123"}
++            )
++            
++            assert response.status_code == 200
++            assert response.json() == [
++                {
++                    "id": 1,
++                    "categoria_id": 1,
++                    "titulo": "Anuncio 1",
++                    "descripcion": "Descripción 1",
++                    "precio_centavos": 10000,
++                    "usuario_id": 1
++                }
++            ]
++    
++    def test_get_ads_by_id_success(self):
++        """Prueba que GET /ads/{id} obtenga un anuncio correctamente"""
++        with patch('backend.app.servicios.ads.obtener_anuncio') as mock_obtener:
++            mock_obtener.return_value = {
++                "id": 1,
++                "categoria_id": 1,
++                "titulo": "Anuncio 1",
++                "descripcion": "Descripción 1",
++                "precio_centavos": 10000,
++                "usuario_id": 1
++            }
++            
++            response = client.get(
++                "/ads/1",
++                headers={"Authorization": "Bearer token123"}
++            )
++            
++            assert response.status_code == 200
++            assert response.json() == {
++                "id": 1,
++                "categoria_id": 1,
++                "titulo": "Anuncio 1",
++                "descripcion": "Descripción 1",
++                "precio_centavos": 10000,
++                "usuario_id": 1
++            }
++    
++    def test_get_ads_by_id_not_found(self):
++        """Prueba que GET /ads/{id} falle con 404 si no existe"""
++        with patch('backend.app.servicios.ads.obtener_anuncio') as mock_obtener:
++            mock_obtener.return_value = None
++            
++            response = client.get(
++                "/ads/999",
++                headers={"Authorization": "Bearer token123"}
++            )
++            
++            assert response.status_code == 404
++    
++    def test_put_ads_success(self):
++        """Prueba que PUT /ads/{id} actualice un anuncio correctamente"""
++        with patch('backend.app.servicios.ads.actualizar_anuncio') as mock_actualizar:
++            mock_actualizar.return_value = True
++            
++            response = client.put(
++                "/ads/1",
++                json={
++                    "categoria_id": 2,
++                    "titulo": "Anuncio actualizado",
++                    "descripcion": "Descripción actualizada",
++                    "precio_centavos": 15000
++                },
++                headers={"Authorization": "Bearer token123"}
++            )
++            
++            assert response.status_code == 200
++            assert response.json() == {}
++            mock_actualizar.assert_called_once_with(1, 1, "Anuncio actualizado", "Descripción actualizada", 15000)
++    
++    def test_put_ads_unauthorized(self):
++        """Prueba que PUT /ads/{id} falle con 403 si no es el dueño"""
++        with patch('backend.app.servicios.ads.actualizar_anuncio') as mock_actualizar:
++            mock_actualizar.side_effect = Exception("No es tu aviso")
++            
++            response = client.put(
++                "/ads/1",
++                json={
++                    "categoria_id": 2,
++                    "titulo": "Anuncio actualizado",
++                    "descripcion": "Descripción actualizada",
++                    "precio_centavos": 15000
++                },
++                headers={"Authorization": "Bearer token123"}
++            )
++            
++            assert response.status_code == 403
++    
++    def test_delete_ads_success(self):
++        """Prueba que DELETE /ads/{id} elimine un anuncio correctamente"""
++        with patch('backend.app.servicios.ads.eliminar_anuncio') as mock_eliminar:
++            mock_eliminar.return_value = True
++            
++            response = client.delete(
++                "/ads/1",
++                headers={"Authorization": "Bearer token123"}
++            )
++            
++            assert response.status_code == 204
++            assert response.json() == {}
++    
++    def test_delete_ads_unauthorized(self):
++        """Prueba que DELETE /ads/{id} falle con 403 si no es el dueño"""
++        with patch('backend.app.servicios.ads.eliminar_anuncio') as mock_eliminar:
++            mock_eliminar.side_effect = Exception("No es tu aviso")
++            
++            response = client.delete(
++                "/ads/1",
++                headers={"Authorization": "Bearer token123"}
++            )
++            
++            assert response.status_code == 403
+\ No newline at end of file

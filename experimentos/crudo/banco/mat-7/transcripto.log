@@ -1,0 +1,19 @@
+[0m
+> build · cc2f4c65-54e9-48c3-b43c-5e3138bf384b
+[0m
+[0m✗ [0mRead tareas/T41-*.md failed
+[91m[1mError: [0mFile not found: /Users/jose/mat-7/ejemplo-pacman/tareas/T41-*.md
+[0m✱ [0mGlob "tests/*.py"[90m 8 matches[0m
+[0m→ [0mRead AGENTS.md
+El archivo `tareas/T41-*.md` no fue encontrado. Como no se puede acceder a la tarea específica, no se puede implementar ninguna acción. El proyecto no contiene la tarea descrita, por lo que no se puede avanzar con la implementación.
+
+**Estado actual:**  
+- No se encontró la tarea en `tareas/T41-*.md`.  
+- No se puede proceder con la implementación sin una descripción clara de lo que se debe hacer.  
+- No se pueden modificar archivos ni escribir tests sin saber el objetivo.
+
+**Falta verificar:**  
+- La existencia de la tarea `T41-*.md`.  
+- Si se trata de un error de ruta o si se requiere una acción diferente.
+
+Si el archivo `tareas/T41-*.md` está disponible en otra ubicación o si se puede proporcionar el contenido de la tarea, por favor indíquelo. De lo contrario, la tarea no puede ser implementada.

@@ -1,0 +1,485 @@
+diff --git a/.sucio-antes b/.sucio-antes
+new file mode 100644
+index 0000000..e69de29
+diff --git a/ejemplo-clasificados/backend/app/datos/search_ads.py b/ejemplo-clasificados/backend/app/datos/search_ads.py
+new file mode 100644
+index 0000000..3699f05
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/datos/search_ads.py
+@@ -0,0 +1,46 @@
++from .conexion import conexion
++
++def buscar_anuncios(titulo: str = "", categoria: str = "") -> list:
++    """
++    Busca anuncios por título y categoría.
++    
++    Args:
++        titulo: Texto a buscar en el título
++        categoria: Categoría a filtrar
++        
++    Returns:
++        Lista de anuncios que coinciden con los criterios de búsqueda
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            # Construimos la consulta SQL dinámica
++            query = "SELECT id, titulo, descripcion, precio, categoria, usuario_id FROM anuncios WHERE 1=1"
++            params = []
++            
++            if titulo:
++                query += " AND titulo LIKE %s"
++                params.append(f"%{titulo}%")
++                
++            if categoria:
++                query += " AND categoria = %s"
++                params.append(categoria)
++                
++            query += " ORDER BY id DESC"
++            
++            cur.execute(query, params)
++            resultados = cur.fetchall()
++            
++            # Convertir los resultados a una lista de diccionarios
++            anuncios = []
++            for row in resultados:
++                anuncio = {
++                    "id": row["id"],
++                    "titulo": row["titulo"],
++                    "descripcion": row["descripcion"],
++                    "precio": row["precio"],
++                    "categoria": row["categoria"],
++                    "usuario_id": row["usuario_id"]
++                }
++                anuncios.append(anuncio)
++                
++            return anuncios
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/rutas/search.py b/ejemplo-clasificados/backend/app/rutas/search.py
+new file mode 100644
+index 0000000..2058742
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/search.py
+@@ -0,0 +1,24 @@
++from fastapi import APIRouter, Depends, HTTPException
++from typing import List
++from ..datos.conexion import conexion
++from ..datos.search_ads import buscar_anuncios
++
++router = APIRouter(prefix="/search", tags=["search"])
++
++@router.get("/")
++def search(q: str = "", category: str = ""):
++    """
++    Busca anuncios por título y categoría.
++    
++    Args:
++        q: Texto a buscar en el título
++        category: Categoría a filtrar
++        
++    Returns:
++        Lista de anuncios que coinciden con los criterios de búsqueda
++    """
++    try:
++        resultados = buscar_anuncios(q, category)
++        return {"results": resultados}
++    except Exception as e:
++        raise HTTPException(status_code=500, detail="Error interno del servidor")
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_search_backend.py b/ejemplo-clasificados/backend/tests/test_search_backend.py
+new file mode 100644
+index 0000000..ddbe7d3
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_search_backend.py
+@@ -0,0 +1,223 @@
++import pytest
++from unittest.mock import patch, MagicMock
++from backend.app.datos.search_ads import buscar_anuncios
++from fastapi.testclient import TestClient
++from backend.app.main import app
++
++class TestSearchBackend:
++    """Tests para la funcionalidad de búsqueda de anuncios"""
++    
++    def test_buscar_anuncios_sin_filtro(self):
++        """Test que verifica búsqueda sin filtros"""
++        with patch('backend.app.datos.search_ads.conexion') as mock_conexion:
++            # Configurar el mock de conexión
++            mock_conn = MagicMock()
++            mock_cursor = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn
++            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
++            
++            # Configurar el resultado esperado
++            mock_cursor.fetchall.return_value = [
++                {
++                    "id": 1,
++                    "titulo": "Anuncio 1",
++                    "descripcion": "Descripción 1",
++                    "precio": 1000,
++                    "categoria": "Electrónica",
++                    "usuario_id": 1
++                },
++                {
++                    "id": 2,
++                    "titulo": "Anuncio 2",
++                    "descripcion": "Descripción 2",
++                    "precio": 2000,
++                    "categoria": "Electrónica",
++                    "usuario_id": 2
++                }
++            ]
++            
++            # Ejecutar la función
++            resultados = buscar_anuncios("", "")
++            
++            # Verificaciones
++            assert len(resultados) == 2
++            assert resultados[0]["titulo"] == "Anuncio 1"
++            assert resultados[1]["titulo"] == "Anuncio 2"
++            # Verificar que se llamó a execute con los parámetros correctos
++            assert mock_cursor.execute.called
++            args, kwargs = mock_cursor.execute.call_args
++            assert "ORDER BY id DESC" in args[0]
++            assert len(args) == 2  # query y params
++            assert args[1] == []  # params vacíos
++
++    def test_buscar_anuncios_por_titulo(self):
++        """Test que verifica búsqueda por título"""
++        with patch('backend.app.datos.search_ads.conexion') as mock_conexion:
++            # Configurar el mock de conexión
++            mock_conn = MagicMock()
++            mock_cursor = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn
++            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
++            
++            # Configurar el resultado esperado
++            mock_cursor.fetchall.return_value = [
++                {
++                    "id": 1,
++                    "titulo": "Laptop",
++                    "descripcion": "Laptop de alta gama",
++                    "precio": 10000,
++                    "categoria": "Electrónica",
++                    "usuario_id": 1
++                }
++            ]
++            
++            # Ejecutar la función
++            resultados = buscar_anuncios("Laptop", "")
++            
++            # Verificaciones
++            assert len(resultados) == 1
++            assert resultados[0]["titulo"] == "Laptop"
++            # Verificar que se llamó a execute con los parámetros correctos
++            assert mock_cursor.execute.called
++            args, kwargs = mock_cursor.execute.call_args
++            assert "AND titulo LIKE %s" in args[0]
++            assert args[1] == ["%Laptop%"]
++
++    def test_buscar_anuncios_por_categoria(self):
++        """Test que verifica búsqueda por categoría"""
++        with patch('backend.app.datos.search_ads.conexion') as mock_conexion:
++            # Configurar el mock de conexión
++            mock_conn = MagicMock()
++            mock_cursor = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn
++            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
++            
++            # Configurar el resultado esperado
++            mock_cursor.fetchall.return_value = [
++                {
++                    "id": 1,
++                    "titulo": "Televisor",
++                    "descripcion": "Televisor 50 pulgadas",
++                    "precio": 5000,
++                    "categoria": "Electrónica",
++                    "usuario_id": 1
++                }
++            ]
++            
++            # Ejecutar la función
++            resultados = buscar_anuncios("", "Electrónica")
++            
++            # Verificaciones
++            assert len(resultados) == 1
++            assert resultados[0]["categoria"] == "Electrónica"
++            # Verificar que se llamó a execute con los parámetros correctos
++            assert mock_cursor.execute.called
++            args, kwargs = mock_cursor.execute.call_args
++            assert "AND categoria = %s" in args[0]
++            assert args[1] == ["Electrónica"]
++
++    def test_buscar_anuncios_por_titulo_y_categoria(self):
++        """Test que verifica búsqueda por título y categoría"""
++        with patch('backend.app.datos.search_ads.conexion') as mock_conexion:
++            # Configurar el mock de conexión
++            mock_conn = MagicMock()
++            mock_cursor = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn
++            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
++            
++            # Configurar el resultado esperado
++            mock_cursor.fetchall.return_value = [
++                {
++                    "id": 1,
++                    "titulo": "Laptop Gaming",
++                    "descripcion": "Laptop de gaming",
++                    "precio": 8000,
++                    "categoria": "Electrónica",
++                    "usuario_id": 1
++                }
++            ]
++            
++            # Ejecutar la función
++            resultados = buscar_anuncios("Laptop", "Electrónica")
++            
++            # Verificaciones
++            assert len(resultados) == 1
++            assert resultados[0]["titulo"] == "Laptop Gaming"
++            # Verificar que se llamó a execute con los parámetros correctos
++            assert mock_cursor.execute.called
++            args, kwargs = mock_cursor.execute.call_args
++            assert "AND titulo LIKE %s" in args[0]
++            assert "AND categoria = %s" in args[0]
++            assert args[1] == ["%Laptop%", "Electrónica"]
++
++    def test_buscar_anuncios_error_interno(self):
++        """Test que verifica manejo de error interno"""
++        with patch('backend.app.datos.search_ads.conexion') as mock_conexion:
++            # Configurar el mock de conexión
++            mock_conn = MagicMock()
++            mock_cursor = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn
++            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
++            mock_cursor.execute.side_effect = Exception("Error de base de datos")
++            
++            # Verificar que se lanza una excepción
++            try:
++                buscar_anuncios("Laptop", "")
++                assert False, "Debería haber lanzado una excepción"
++            except Exception as e:
++                assert "Error de base de datos" in str(e)
++
++    @pytest.fixture(autouse=True)
++    def setup_client(self):
++        """Configuración del cliente de prueba"""
++        self.client = TestClient(app)
++        
++    def test_ruta_search_get(self):
++        """Test que verifica la ruta GET /search"""
++        with patch('backend.app.datos.search_ads.buscar_anuncios') as mock_buscar:
++            # Configurar el mock para que devuelva resultados
++            mock_buscar.return_value = [
++                {
++                    "id": 1,
++                    "titulo": "Anuncio 1",
++                    "descripcion": "Descripción 1",
++                    "precio": 1000,
++                    "categoria": "Electrónica",
++                    "usuario_id": 1
++                }
++            ]
++            
++            # Hacer la llamada a la ruta
++            response = self.client.get("/search/")
++            
++            # Verificaciones
++            assert response.status_code == 200
++            data = response.json()
++            assert "results" in data
++            assert len(data["results"]) == 1
++            assert data["results"][0]["titulo"] == "Anuncio 1"
++            
++    def test_ruta_search_get_con_parametros(self):
++        """Test que verifica la ruta GET /search con parámetros"""
++        with patch('backend.app.datos.search_ads.buscar_anuncios') as mock_buscar:
++            # Configurar el mock para que devuelva resultados
++            mock_buscar.return_value = [
++                {
++                    "id": 1,
++                    "titulo": "Laptop",
++                    "descripcion": "Laptop de alta gama",
++                    "precio": 10000,
++                    "categoria": "Electrónica",
++                    "usuario_id": 1
++                }
++            ]
++            
++            # Hacer la llamada a la ruta con parámetros
++            response = self.client.get("/search/?q=Laptop&category=Electrónica")
++            
++            # Verificaciones
++            assert response.status_code == 200
++            data = response.json()
++            assert "results" in data
++            assert len(data["results"]) == 1
++            assert data["results"][0]["titulo"] == "Laptop"
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/debug_route.py b/ejemplo-clasificados/debug_route.py
+new file mode 100644
+index 0000000..f7b3dd6
+--- /dev/null
++++ b/ejemplo-clasificados/debug_route.py
+@@ -0,0 +1,41 @@
++#!/usr/bin/env python3
++
++import sys
++import os
++sys.path.insert(0, os.path.join(os.path.dirname(__file__), '.'))
++
++from unittest.mock import patch, MagicMock
++from fastapi.testclient import TestClient
++from backend.app.main import app
++
++def debug_route():
++    """Debug function to see what's happening in the route"""
++    client = TestClient(app)
++    
++    # Test the route directly
++    try:
++        with patch('backend.app.datos.search_ads.buscar_anuncios') as mock_buscar:
++            # Configurar el mock para que devuelva resultados
++            mock_buscar.return_value = [
++                {
++                    "id": 1,
++                    "titulo": "Anuncio 1",
++                    "descripcion": "Descripción 1",
++                    "precio": 1000,
++                    "categoria": "Electrónica",
++                    "usuario_id": 1
++                }
++            ]
++            
++            # Hacer la llamada a la ruta
++            response = client.get("/search/")
++            print(f"Status Code: {response.status_code}")
++            print(f"Response: {response.text}")
++            
++    except Exception as e:
++        print(f"Error: {e}")
++        import traceback
++        traceback.print_exc()
++
++if __name__ == "__main__":
++    debug_route()
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/debug_test.py b/ejemplo-clasificados/debug_test.py
+new file mode 100644
+index 0000000..eba1fd2
+--- /dev/null
++++ b/ejemplo-clasificados/debug_test.py
+@@ -0,0 +1,45 @@
++import sys
++import os
++sys.path.insert(0, '.')
++
++# Agregar el directorio backend al path
++sys.path.insert(0, './backend')
++
++# Importar las funciones
++from backend.app.datos.search_ads import buscar_anuncios
++from unittest.mock import patch, MagicMock
++
++# Probar la función directamente
++print("Probando la función buscar_anuncios...")
++
++try:
++    # Crear un mock de conexión como lo haría el test
++    with patch('backend.app.datos.search_ads.conexion') as mock_conexion:
++        # Configurar el mock de conexión
++        mock_conn = MagicMock()
++        mock_cursor = MagicMock()
++        mock_conexion.return_value.__enter__.return_value = mock_conn
++        mock_conn.cursor.return_value = mock_cursor
++        
++        # Configurar el resultado esperado
++        mock_cursor.fetchall.return_value = [
++            {
++                "id": 1,
++                "titulo": "Anuncio 1",
++                "descripcion": "Descripción 1",
++                "precio": 1000,
++                "categoria": "Electrónica",
++                "usuario_id": 1
++            }
++        ]
++        
++        print("Mock configurado, ejecutando función...")
++        # Ejecutar la función
++        resultados = buscar_anuncios("", "")
++        print(f"Resultados obtenidos: {len(resultados)}")
++        print(f"Contenido: {resultados}")
++        
++except Exception as e:
++    print(f"Error durante la prueba: {e}")
++    import traceback
++    traceback.print_exc()
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/test_debug.py b/ejemplo-clasificados/test_debug.py
+new file mode 100644
+index 0000000..c89f9d5
+--- /dev/null
++++ b/ejemplo-clasificados/test_debug.py
+@@ -0,0 +1,61 @@
++#!/usr/bin/env python3
++import sys
++import os
++sys.path.insert(0, '.')
++
++# Importar las funciones necesarias
++from backend.app.datos.search_ads import buscar_anuncios
++from unittest.mock import patch, MagicMock
++
++# Probar paso a paso
++print("=== DEBUG TEST ===")
++
++# Paso 1: Verificar que la función se puede importar
++print("1. Función importada correctamente")
++
++# Paso 2: Probar con mock directo
++print("2. Probando con mock...")
++
++try:
++    with patch('backend.app.datos.search_ads.conexion') as mock_conexion:
++        print("   Mock de conexión creado")
++        
++        # Configurar el mock de conexión
++        mock_conn = MagicMock()
++        mock_cursor = MagicMock()
++        
++        # Simular el comportamiento de __enter__ y __exit__
++        mock_conexion.return_value.__enter__.return_value = mock_conn
++        mock_conn.cursor.return_value = mock_cursor
++        
++        # Configurar el resultado esperado
++        mock_cursor.fetchall.return_value = [
++            {
++                "id": 1,
++                "titulo": "Anuncio 1",
++                "descripcion": "Descripción 1",
++                "precio": 1000,
++                "categoria": "Electrónica",
++                "usuario_id": 1
++            }
++        ]
++        
++        print("   Mock configurado")
++        print("   Llamando a buscar_anuncios...")
++        
++        # Ejecutar la función
++        resultados = buscar_anuncios("", "")
++        print(f"   Resultados obtenidos: {len(resultados)}")
++        print(f"   Contenido: {resultados}")
++        
++        # Verificar si se llamó al execute
++        print(f"   Execute llamado: {mock_cursor.execute.called}")
++        if mock_cursor.execute.called:
++            args, kwargs = mock_cursor.execute.call_args
++            print(f"   Query ejecutada: {args[0]}")
++            print(f"   Parámetros: {args[1]}")
++        
++except Exception as e:
++    print(f"   Error: {e}")
++    import traceback
++    traceback.print_exc()
+\ No newline at end of file

@@ -1,0 +1,17 @@
+[0m
+> ejecutor · f5d76140-5b4d-41c0-88da-dad6d11f341a
+[0m
+Voy a leer el archivo de tarea para entender qué se pide y luego crearé la implementación y los tests correspondientes.
+[0m✗ [0mRead /Users/jose/tests-T05a/tareas/T05a-avisos-datos.md failed
+[91m[1mError: [0mFile not found: /Users/jose/tests-T05a/tareas/T05a-avisos-datos.md
+Voy a buscar los archivos relacionados con T05a para entender mejor el contexto:
+[0m✱ [0mGlob "tareas/T05a-*.md"[90m 1 match[0m
+Ahora leo el archivo de tarea para entender qué se pide:
+[0m→ [0mRead tareas/T05a-avisos-datos.md
+Ahora veo si existe el archivo de tests que menciona la tarea:
+[0m✱ [0mGlob "backend/tests/test_ads_datos.py"[90m 0 matches[0m
+Veo que el archivo de tests aún no existe, así que lo crearé según las instrucciones. Primero, revisemos qué estructura tiene el backend:
+[0m✱ [0mGlob "backend/app/datos/"[90m 0 matches[0m
+[0m✱ [0mGlob "backend/app/datos/**/*.py"[90m 4 matches[0m
+[91m[1mError: [0m{"message":"memory_session_expired","type":"api_error"}
+· MySQL del proyecto ya está arriba en 127.0.0.1:33306

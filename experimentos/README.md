@@ -57,7 +57,7 @@ La diferencia es la salud de la plataforma, y la tasa histórica real es 15 %.
 
 ## El material que sí tenemos
 
-`/Users/jose/rechazados/` guarda **16 intentos que el gate reprobó, con el código real** (22
+`crudo/banco/` guarda (cosechado al repo desde `~/rechazados/`) **16 intentos que el gate reprobó, con el código real** (22
 carpetas en total: 16 rojas, 3 verdes, 3 sin dato; 3283 líneas, 5 modelos, tareas T04, T06c,
 T40, T41), rescatados de worktrees de
 experimento que estaban por borrarse. Es el insumo de la condición central del experimento de

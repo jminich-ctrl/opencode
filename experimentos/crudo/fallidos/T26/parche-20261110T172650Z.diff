@@ -1,0 +1,122 @@
+diff --git a/.sucio-antes b/.sucio-antes
+new file mode 100644
+index 0000000..e69de29
+diff --git a/ejemplo-clasificados/backend/app/datos/users_register.py b/ejemplo-clasificados/backend/app/datos/users_register.py
+new file mode 100644
+index 0000000..bf1e6b0
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/datos/users_register.py
+@@ -0,0 +1,14 @@
++import hashlib
++from backend.app.datos.conexion import conexion
++
++
++def insert_user(email: str, password_hash: str) -> int:
++    """Inserta la fila y devuelve el id nuevo. Lanza si el email ya existe.
++    Recibe el hash YA calculado: el hasheo es del servicio, no de la capa de datos."""
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "INSERT INTO usuarios (email, clave_hash, clave_salt) VALUES (%s, %s, %s)",
++                (email, password_hash, "")
++            )
++            return cur.lastrowid
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/rutas/register.py b/ejemplo-clasificados/backend/app/rutas/register.py
+new file mode 100644
+index 0000000..faa6804
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/register.py
+@@ -0,0 +1,20 @@
++from fastapi import APIRouter, HTTPException
++from pydantic import BaseModel
++from backend.app.servicios.register import crear_usuario
++
++
++router = APIRouter()
++
++
++class RegisterRequest(BaseModel):
++    email: str
++    password: str
++
++
++@router.post("/register")
++def register(request: RegisterRequest):
++    try:
++        user_id = crear_usuario(request.email, request.password)
++        return {"user_id": user_id}
++    except Exception as e:
++        raise HTTPException(status_code=400, detail=str(e))
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/servicios/register.py b/ejemplo-clasificados/backend/app/servicios/register.py
+new file mode 100644
+index 0000000..1236c1b
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/servicios/register.py
+@@ -0,0 +1,12 @@
++import hashlib
++from backend.app.datos.users_register import insert_user
++
++
++def crear_usuario(email: str, password: str) -> int:
++    """Valida, hashea con el mismo esquema que `auth.py` y delega en
++    `users_register.insert_user`. Devuelve el id."""
++    # Hashear la contraseña con sha256 (igual que en auth.py)
++    password_hash = hashlib.sha256(password.encode()).hexdigest()
++    
++    # Insertar el usuario
++    return insert_user(email, password_hash)
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_register_backend.py b/ejemplo-clasificados/backend/tests/test_register_backend.py
+new file mode 100644
+index 0000000..a929224
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_register_backend.py
+@@ -0,0 +1,45 @@
++import pytest
++from unittest.mock import patch, MagicMock
++from backend.app.servicios.register import crear_usuario
++from backend.app.datos.users_register import insert_user
++import hashlib
++
++
++class TestRegisterBackend:
++    def test_crear_usuario_ok(self):
++        """Prueba que se pueda crear un usuario correctamente"""
++        # Arrange
++        email = "test@example.com"
++        password = "password123"
++        
++        # Mock de la función de inserción
++        with patch('backend.app.datos.users_register.insert_user') as mock_insert:
++            mock_insert.return_value = 123
++            
++            # Act
++            result = crear_usuario(email, password)
++            
++            # Assert
++            assert result == 123
++            # El hash que se espera es el que se menciona en el enunciado
++            expected_hash = "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
++            mock_insert.assert_called_once_with(email, expected_hash)
++
++    def test_crear_usuario_error_email_repetido(self):
++        """Prueba que se lance una excepción cuando se intenta registrar un email repetido"""
++        # Arrange
++        email = "test@example.com"
++        password = "password123"
++        
++        # Mock de la función de inserción para simular error de email duplicado
++        with patch('backend.app.datos.users_register.insert_user') as mock_insert:
++            # Simular que la base de datos lanza una excepción de duplicado
++            from pymysql.err import IntegrityError
++            mock_insert.side_effect = IntegrityError(1062, "Duplicate entry 'test@example.com' for key 'usuarios.email'")
++            
++            # Act & Assert
++            with pytest.raises(Exception) as excinfo:
++                crear_usuario(email, password)
++            
++            # Verificar que se lance una excepción de tipo adecuado
++            assert "Duplicate entry" in str(excinfo.value) or "1062" in str(excinfo.value)
+\ No newline at end of file

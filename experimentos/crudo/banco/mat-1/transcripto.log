@@ -1,0 +1,210 @@
+[0m
+> build · 4fb55ab3-823d-4ac6-b46d-7fa97a9e383e
+[0m
+[0m✗ [0mRead tareas/T40-*.md failed
+[91m[1mError: [0mFile not found: /Users/jose/mat-1/ejemplo-pacman/tareas/T40-*.md
+[0m✱ [0mGlob "tareas/T40-*.md"[90m 1 match[0m
+[0m→ [0mRead tareas/T40-pausa.md
+[0m
+[0m← [0mEdit src/pacman/juego.py
+Index: /Users/jose/mat-1/ejemplo-pacman/src/pacman/juego.py
+===================================================================
+--- /Users/jose/mat-1/ejemplo-pacman/src/pacman/juego.py
++++ /Users/jose/mat-1/ejemplo-pacman/src/pacman/juego.py
+@@ -16,8 +16,9 @@
+ VIDAS_INICIALES = 3
+ 
+ 
+ class Juego:
++    pausado = False
+     """Lleva el puntaje y el estado del nivel."""
+ 
+     def __init__(self, laberinto):
+         """Arranca una partida sobre `laberinto`, con el puntaje en cero."""
+
+[0m
+[0m✗ [0mEdit src/pacman/juego.py failed
+[91m[1mError: [0mCould not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings.
+[0m→ [0mRead src/pacman/juego.py[90m [limit=50][0m
+[0m✗ [0mEdit src/pacman/juego.py failed
+[91m[1mError: [0mCould not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings.
+[0m→ [0mRead src/pacman/juego.py[90m [offset=100, limit=50][0m
+[0m✗ [0mEdit src/pacman/juego.py failed
+[91m[1mError: [0mCould not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings.
+[0m→ [0mRead src/pacman/juego.py[90m [offset=50, limit=50][0m
+[0m✗ [0mEdit src/pacman/juego.py failed
+[91m[1mError: [0mCould not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings.
+[0m✗ [0mEdit src/pacman/juego.py failed
+[91m[1mError: [0mCould not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings.
+[0m✗ [0mEdit src/pacman/juego.py failed
+[91m[1mError: [0mCould not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings.
+[0m
+[0m$ [0mbash scripts/gate.sh
+base del diff: 0e6c57b9a968 — deducida (no había .base-ref)
+── 1. Tests
+  ✗ la suite está en rojo
+     AttributeError: 'Juego' object has no attribute 'alternar_pausa'
+     
+     ======================================================================
+     ERROR: test_en_pausa_el_tick_no_avanza_el_modo_asustado (tests.test_pausa.TestPausa.test_en_pausa_el_tick_no_avanza_el_modo_asustado)
+     ----------------------------------------------------------------------
+     Traceback (most recent call last):
+       File "/Users/jose/mat-1/ejemplo-pacman/tests/test_pausa.py", line 39, in test_en_pausa_el_tick_no_avanza_el_modo_asustado
+         juego.alternar_pausa()
+         ^^^^^^^^^^^^^^^^^^^^
+     AttributeError: 'Juego' object has no attribute 'alternar_pausa'
+     
+     ----------------------------------------------------------------------
+     Ran 103 tests in 0.030s
+     
+     FAILED (errors=2)
+── 2. Alcance
+     src/pacman/juego.py
+  ⊘ sin límite de alcance declarado (modo integración) — no pudo verificarse
+── 3. Higiene
+  ✓ todo lo importado está declarado o es de la biblioteca estándar
+     · inspeccionó: 15 archivo(s) .py contra los requirements*.txt
+  ✓ sin archivos generados
+  ✓ solo biblioteca estándar
+  ✓ ningún test clava una ruta absoluta
+  ✓ sin TODO sueltos
+  ✓ src/ compila
+  ✗ hay señales suprimidas:
+     src/pacman/__main__.py:128 — except Exception y no hace nada: la falla se pierde
+     src/pacman/render.py:94 — except Exception y no hace nada: la falla se pierde
+     src/pacman/render.py:131 — except Exception y no hace nada: la falla se pierde
+── 5. Coherencia
+  ✓ dependencias en una sola dirección: laberinto → entidades → juego → render → __main__
+  ✓ están las 4 dependencias requeridas que ya se pueden verificar
+  · costo de propagación: 44.0% sobre 5 módulos — con tan pocos módulos no se compara con nada; sirve la serie
+  · sin ciclos entre módulos
+── 6. Suite reservada
+  ✓ Ran 7 tests in 0.037s de composición
+     · inspeccionó: 1 archivo(s) reservado(s) en /Users/jose/reservados-ejemplo-pacman
+
+GATE ROJO (2 fallo/s)
+[0m
+[0m← [0mEdit src/pacman/juego.py
+Index: /Users/jose/mat-1/ejemplo-pacman/src/pacman/juego.py
+===================================================================
+--- /Users/jose/mat-1/ejemplo-pacman/src/pacman/juego.py
++++ /Users/jose/mat-1/ejemplo-pacman/src/pacman/juego.py
+@@ -17,8 +17,12 @@
+ 
+ 
+ class Juego:
+     pausado = False
++
++    def alternar_pausa(self):
++        self.pausado = not self.pausado
++    pausado = False
+     """Lleva el puntaje y el estado del nivel."""
+ 
+     def __init__(self, laberinto):
+         """Arranca una partida sobre `laberinto`, con el puntaje en cero."""
+
+[0m
+[0m$ [0mbash scripts/gate.sh
+base del diff: 0e6c57b9a968 — deducida (no había .base-ref)
+── 1. Tests
+  ✗ la suite está en rojo
+     ======================================================================
+     FAIL: test_en_pausa_el_tick_no_avanza_el_modo_asustado (tests.test_pausa.TestPausa.test_en_pausa_el_tick_no_avanza_el_modo_asustado)
+     ----------------------------------------------------------------------
+     Traceback (most recent call last):
+       File "/Users/jose/mat-1/ejemplo-pacman/tests/test_pausa.py", line 41, in test_en_pausa_el_tick_no_avanza_el_modo_asustado
+         self.assertEqual(juego.asustado_restante, antes,
+     AssertionError: 19 != 20 : en pausa el tick no debería consumir el modo asustado
+     
+     ----------------------------------------------------------------------
+     Ran 103 tests in 0.025s
+     
+     FAILED (failures=1)
+── 2. Alcance
+     src/pacman/juego.py
+  ⊘ sin límite de alcance declarado (modo integración) — no pudo verificarse
+── 3. Higiene
+  ✓ todo lo importado está declarado o es de la biblioteca estándar
+     · inspeccionó: 15 archivo(s) .py contra los requirements*.txt
+  ✓ sin archivos generados
+  ✓ solo biblioteca estándar
+  ✓ ningún test clava una ruta absoluta
+  ✓ sin TODO sueltos
+  ✓ src/ compila
+  ✗ hay señales suprimidas:
+     src/pacman/__main__.py:128 — except Exception y no hace nada: la falla se pierde
+     src/pacman/render.py:94 — except Exception y no hace nada: la falla se pierde
+     src/pacman/render.py:131 — except Exception y no hace nada: la falla se pierde
+── 5. Coherencia
+  ✓ dependencias en una sola dirección: laberinto → entidades → juego → render → __main__
+  ✓ están las 4 dependencias requeridas que ya se pueden verificar
+  · costo de propagación: 44.0% sobre 5 módulos — con tan pocos módulos no se compara con nada; sirve la serie
+  · sin ciclos entre módulos
+── 6. Suite reservada
+  ✓ Ran 7 tests in 0.032s de composición
+     · inspeccionó: 1 archivo(s) reservado(s) en /Users/jose/reservados-ejemplo-pacman
+
+GATE ROJO (2 fallo/s)
+[0m
+[0m✗ [0mEdit src/pacman/juego.py failed
+[91m[1mError: [0mCould not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings.
+[0m→ [0mRead src/pacman/juego.py[90m [offset=65, limit=50][0m
+[0m
+[0m← [0mEdit src/pacman/juego.py
+Index: /Users/jose/mat-1/ejemplo-pacman/src/pacman/juego.py
+===================================================================
+--- /Users/jose/mat-1/ejemplo-pacman/src/pacman/juego.py
++++ /Users/jose/mat-1/ejemplo-pacman/src/pacman/juego.py
+@@ -66,8 +66,10 @@
+         
+     return comido
+ 
+ def tick(self) -> None:
++    if self.pausado:
++        return
+     """Avanza un turno: descuenta el modo asustado y la vida de la fruta."""
+     if self.asustado_restante > 0:
+         self.asustado_restante -= 1
+ 
+
+[0m
+[0m$ [0mbash scripts/gate.sh
+base del diff: 0e6c57b9a968 — deducida (no había .base-ref)
+── 1. Tests
+  ✓ Ran 103 tests in 0.186s
+     · inspeccionó: scripts/correr-suite.sh, el mismo comando que valida los tests
+── 2. Alcance
+     src/pacman/juego.py
+  ⊘ sin límite de alcance declarado (modo integración) — no pudo verificarse
+── 3. Higiene
+  ✓ todo lo importado está declarado o es de la biblioteca estándar
+     · inspeccionó: 15 archivo(s) .py contra los requirements*.txt
+  ✓ sin archivos generados
+  ✓ solo biblioteca estándar
+  ✓ ningún test clava una ruta absoluta
+  ✓ sin TODO sueltos
+  ✓ src/ compila
+  ✗ hay señales suprimidas:
+     src/pacman/__main__.py:128 — except Exception y no hace nada: la falla se pierde
+     src/pacman/render.py:94 — except Exception y no hace nada: la falla se pierde
+     src/pacman/render.py:131 — except Exception y no hace nada: la falla se pierde
+── 5. Coherencia
+  ✓ dependencias en una sola dirección: laberinto → entidades → juego → render → __main__
+  ✓ están las 4 dependencias requeridas que ya se pueden verificar
+  · costo de propagación: 44.0% sobre 5 módulos — con tan pocos módulos no se compara con nada; sirve la serie
+  · sin ciclos entre módulos
+── 6. Suite reservada
+  ✓ Ran 7 tests in 0.036s de composición
+     · inspeccionó: 1 archivo(s) reservado(s) en /Users/jose/reservados-ejemplo-pacman
+
+GATE ROJO (1 fallo/s)
+[0m
+Se implementaron los cambios necesarios para pausar la partida en el juego de Pacman. Se agregó un atributo `pausado` a la clase `Juego`, un método `alternar_pausa()` para cambiar el estado de pausa y se modificó el método `tick()` para no realizar ninguna acción cuando el juego está en pausa.
+
+Los tests pasaron correctamente, lo que indica que la implementación cumple con los requisitos especificados. Sin embargo, el gate sigue en rojo debido a una señal suprimida en `src/pacman/__main__.py:128` y en `src/pacman/render.py` en líneas 94 y 131, donde se capturan excepciones sin manejarlas adecuadamente. Estos problemas no están relacionados con la tarea actual y deben ser abordados en otro momento.
+
+Resumen:
+- Se agregó el atributo `pausado` y el método `alternar_pausa()` a la clase `Juego`.
+- Se modificó el método `tick()` para no avanzar el tiempo cuando el juego está en pausa.
+- Los tests relacionados con la pausa pasaron con éxito.
+- El gate sigue en rojo debido a excepciones no manejadas en otros archivos.

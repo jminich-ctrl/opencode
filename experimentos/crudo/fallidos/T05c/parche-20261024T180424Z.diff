@@ -1,0 +1,344 @@
+diff --git a/ejemplo-clasificados/backend/app/datos/ads.py b/ejemplo-clasificados/backend/app/datos/ads.py
+index 5733141..d19f7e4 100644
+--- a/ejemplo-clasificados/backend/app/datos/ads.py
++++ b/ejemplo-clasificados/backend/app/datos/ads.py
+@@ -39,6 +39,21 @@ def get_ad_by_id(ad_id: int) -> dict | None:
+             )
+             return cur.fetchone()
+ 
++def get_all_ads() -> list:
++    """Obtiene todos los anuncios de la base de datos.
++    
++    Returns:
++        list: Lista de diccionarios con los datos de todos los anuncios
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "SELECT id, usuario_id, categoria_id, titulo, descripcion, precio_centavos FROM anuncios"
++            )
++            result = cur.fetchall()
++            # Convertir a lista de diccionarios para mantener compatibilidad
++            return [dict(row) for row in result]
++
+ def update_ad(ad_id: int, usuario_id: int, titulo: str, descripcion: str,
+               precio_centavos: int) -> bool:
+     """Actualiza un anuncio si pertenece al usuario especificado.
+diff --git a/.sucio-antes b/.sucio-antes
+new file mode 100644
+index 0000000..e69de29
+diff --git a/ejemplo-clasificados/backend/app/rutas/ads.py b/ejemplo-clasificados/backend/app/rutas/ads.py
+new file mode 100644
+index 0000000..9215b83
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/ads.py
+@@ -0,0 +1,89 @@
++from fastapi import APIRouter, HTTPException, Depends
++from typing import List, Dict, Any
++from backend.app.servicios.ads import crear_anuncio, obtener_anuncio, actualizar_anuncio, eliminar_anuncio
++from backend.app.servicios.auth import usuario_desde_token
++from backend.app.datos.ads import get_all_ads
++
++router = APIRouter()
++
++def get_current_user(token: str):
++    """Obtiene el usuario actual a partir del token"""
++    try:
++        return usuario_desde_token(token)
++    except Exception:
++        raise HTTPException(status_code=401, detail="Unauthorized")
++
++@router.post("/ads", status_code=201)
++async def create_ad(
++    categoria_id: int,
++    titulo: str,
++    descripcion: str,
++    precio_centavos: int,
++    token: str = Depends(get_current_user)
++):
++    """Crea un nuevo anuncio"""
++    try:
++        ad_id = crear_anuncio(token, categoria_id, titulo, descripcion, precio_centavos)
++        return {"id": ad_id}
++    except Exception as e:
++        # Manejar errores específicos
++        if "Forbidden" in str(e):
++            raise HTTPException(status_code=403, detail="Forbidden")
++        # Para otros errores, simplemente devolver 400
++        raise HTTPException(status_code=400, detail="Bad Request")
++
++@router.get("/ads", response_model=List[Dict[str, Any]])
++async def list_ads():
++    """Lista todos los anuncios"""
++    try:
++        ads = get_all_ads()
++        return ads
++    except Exception:
++        # Si ocurre algún error, retornamos lista vacía
++        return []
++
++@router.get("/ads/{id}", response_model=Dict[str, Any])
++async def get_ad(id: int, token: str = Depends(get_current_user)):
++    """Obtiene un anuncio específico por ID"""
++    try:
++        ad = obtener_anuncio(id)
++        if ad is None:
++            raise HTTPException(status_code=404, detail="Not Found")
++        return ad
++    except Exception:
++        raise HTTPException(status_code=404, detail="Not Found")
++
++@router.put("/ads/{id}")
++async def update_ad(
++    id: int,
++    categoria_id: int,
++    titulo: str,
++    descripcion: str,
++    precio_centavos: int,
++    token: str = Depends(get_current_user)
++):
++    """Actualiza un anuncio existente"""
++    try:
++        # Verificar que el usuario sea el dueño del anuncio
++        # Esto se haría con una función adicional que verifique el dueño
++        # Por ahora asumimos que el servicio manejará esto
++        actualizar_anuncio(id, token, categoria_id, titulo, descripcion, precio_centavos)
++        return {}
++    except Exception as e:
++        if "Forbidden" in str(e):
++            raise HTTPException(status_code=403, detail="Forbidden")
++        raise HTTPException(status_code=400, detail="Bad Request")
++
++@router.delete("/ads/{id}")
++async def delete_ad(id: int, token: str = Depends(get_current_user)):
++    """Elimina un anuncio"""
++    try:
++        # Verificar que el usuario sea el dueño del anuncio
++        # Esto se haría con una función adicional que verifique el dueño
++        # Por ahora asumimos que el servicio manejará esto
++        eliminar_anuncio(id, token)
++        return {}
++    except Exception as e:
++        if "Forbidden" in str(e):
++            raise HTTPException(status_code=403, detail="Forbidden")
++        raise HTTPException(status_code=400, detail="Bad Request")
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_ads_rutas.py b/ejemplo-clasificados/backend/tests/test_ads_rutas.py
+new file mode 100644
+index 0000000..663365e
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_ads_rutas.py
+@@ -0,0 +1,172 @@
++import pytest
++from unittest.mock import patch, MagicMock
++from fastapi import HTTPException
++from fastapi.testclient import TestClient
++from backend.app.main import app
++
++
++class TestAdsRutas:
++    @pytest.fixture(autouse=True)
++    def setup(self):
++        self.client = TestClient(app)
++        # Mock de la función de autenticación
++        with patch('backend.app.servicios.auth.usuario_desde_token') as mock_auth:
++            self.mock_usuario_desde_token = mock_auth
++            yield
++    
++    def test_post_ads_success(self):
++        # Mock del servicio de creación de anuncios
++        with patch('backend.app.servicios.ads.crear_anuncio') as mock_crear:
++            mock_crear.return_value = 123
++            self.mock_usuario_desde_token.return_value = 1
++            
++            response = self.client.post(
++                "/ads",
++                json={
++                    "categoria_id": 1,
++                    "titulo": "Anuncio de prueba",
++                    "descripcion": "Descripción de prueba",
++                    "precio_centavos": 10000
++                },
++                headers={"Authorization": "Bearer test_token"}
++            )
++            
++            assert response.status_code == 201
++            assert response.json() == {"id": 123}
++    
++    def test_post_ads_unauthorized(self):
++        # Mock de la función de autenticación para fallar
++        with patch('backend.app.servicios.auth.usuario_desde_token') as mock_auth:
++            mock_auth.side_effect = HTTPException(status_code=401, detail="Unauthorized")
++            
++            response = self.client.post(
++                "/ads",
++                json={
++                    "categoria_id": 1,
++                    "titulo": "Anuncio de prueba",
++                    "descripcion": "Descripción de prueba",
++                    "precio_centavos": 10000
++                },
++                headers={"Authorization": "Bearer invalid_token"}
++            )
++            
++            assert response.status_code == 401
++    
++    def test_get_ads_success(self):
++        # Mock del servicio de obtención de anuncios
++        with patch('backend.app.datos.ads.get_all_ads') as mock_obtener:
++            mock_obtener.return_value = [
++                {
++                    "id": 1,
++                    "usuario_id": 1,
++                    "categoria_id": 1,
++                    "titulo": "Anuncio de prueba",
++                    "descripcion": "Descripción de prueba",
++                    "precio_centavos": 10000
++                }
++            ]
++            
++            response = self.client.get("/ads")
++            
++            assert response.status_code == 200
++            assert response.json() == [
++                {
++                    "id": 1,
++                    "usuario_id": 1,
++                    "categoria_id": 1,
++                    "titulo": "Anuncio de prueba",
++                    "descripcion": "Descripción de prueba",
++                    "precio_centavos": 10000
++                }
++            ]
++    
++    def test_get_ads_by_id_success(self):
++        # Mock del servicio de obtención de anuncio por ID
++        with patch('backend.app.servicios.ads.obtener_anuncio') as mock_obtener:
++            mock_obtener.return_value = {
++                "id": 1,
++                "usuario_id": 1,
++                "categoria_id": 1,
++                "titulo": "Anuncio de prueba",
++                "descripcion": "Descripción de prueba",
++                "precio_centavos": 10000
++            }
++            
++            response = self.client.get("/ads/1")
++            
++            assert response.status_code == 200
++            assert response.json() == {
++                "id": 1,
++                "usuario_id": 1,
++                "categoria_id": 1,
++                "titulo": "Anuncio de prueba",
++                "descripcion": "Descripción de prueba",
++                "precio_centavos": 10000
++            }
++    
++    def test_get_ads_by_id_not_found(self):
++        # Mock del servicio de obtención de anuncio por ID para caso no encontrado
++        with patch('backend.app.servicios.ads.obtener_anuncio') as mock_obtener:
++            mock_obtener.side_effect = HTTPException(status_code=404, detail="Not Found")
++            
++            response = self.client.get("/ads/999")
++            
++            assert response.status_code == 404
++    
++    def test_put_ads_success(self):
++        # Mock del servicio de actualización de anuncio
++        with patch('backend.app.servicios.ads.actualizar_anuncio') as mock_actualizar:
++            mock_actualizar.return_value = True
++            self.mock_usuario_desde_token.return_value = 1
++            
++            response = self.client.put(
++                "/ads/1",
++                json={
++                    "categoria_id": 1,
++                    "titulo": "Anuncio actualizado",
++                    "descripcion": "Descripción actualizada",
++                    "precio_centavos": 15000
++                },
++                headers={"Authorization": "Bearer test_token"}
++            )
++            
++            assert response.status_code == 200
++    
++    def test_put_ads_forbidden(self):
++        # Mock del servicio de actualización de anuncio para permiso denegado
++        with patch('backend.app.servicios.ads.actualizar_anuncio') as mock_actualizar:
++            mock_actualizar.side_effect = HTTPException(status_code=403, detail="Forbidden")
++            self.mock_usuario_desde_token.return_value = 2  # Usuario diferente
++            
++            response = self.client.put(
++                "/ads/1",
++                json={
++                    "categoria_id": 1,
++                    "titulo": "Anuncio actualizado",
++                    "descripcion": "Descripción actualizada",
++                    "precio_centavos": 15000
++                },
++                headers={"Authorization": "Bearer test_token"}
++            )
++            
++            assert response.status_code == 403
++    
++    def test_delete_ads_success(self):
++        # Mock del servicio de eliminación de anuncio
++        with patch('backend.app.servicios.ads.eliminar_anuncio') as mock_eliminar:
++            mock_eliminar.return_value = True
++            self.mock_usuario_desde_token.return_value = 1
++            
++            response = self.client.delete("/ads/1", headers={"Authorization": "Bearer test_token"})
++            
++            assert response.status_code == 204
++    
++    def test_delete_ads_forbidden(self):
++        # Mock del servicio de eliminación de anuncio para permiso denegado
++        with patch('backend.app.servicios.ads.eliminar_anuncio') as mock_eliminar:
++            mock_eliminar.side_effect = HTTPException(status_code=403, detail="Forbidden")
++            self.mock_usuario_desde_token.return_value = 2  # Usuario diferente
++            
++            response = self.client.delete("/ads/1", headers={"Authorization": "Bearer test_token"})
++            
++            assert response.status_code == 403
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/debug_route.py b/ejemplo-clasificados/debug_route.py
+new file mode 100644
+index 0000000..9f8937e
+--- /dev/null
++++ b/ejemplo-clasificados/debug_route.py
+@@ -0,0 +1,33 @@
++#!/usr/bin/env python3
++
++# Script para probar manualmente el funcionamiento de las rutas
++import sys
++import os
++sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'backend'))
++
++from fastapi.testclient import TestClient
++from backend.app.main import app
++
++def test_routes():
++    client = TestClient(app)
++    
++    print("Probando endpoint POST /ads...")
++    response = client.post("/ads", 
++                         json={
++                             "categoria_id": 1,
++                             "titulo": "Anuncio de prueba",
++                             "descripcion": "Descripción de prueba",
++                             "precio_centavos": 10000
++                         },
++                         headers={"Authorization": "Bearer test_token"})
++    
++    print(f"Status Code: {response.status_code}")
++    print(f"Response: {response.json()}")
++    
++    print("\nProbando endpoint GET /ads...")
++    response = client.get("/ads")
++    print(f"Status Code: {response.status_code}")
++    print(f"Response: {response.json()}")
++
++if __name__ == "__main__":
++    test_routes()
+\ No newline at end of file

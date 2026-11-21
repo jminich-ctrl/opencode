@@ -1,0 +1,984 @@
+[0m
+> ejecutor · f5d76140-5b4d-41c0-88da-dad6d11f341a
+[0m
+Voy a leer el archivo de tarea para entender qué se requiere.
+[0m→ [0mRead tareas/T05-crud-ads-backend.md
+Ahora voy a revisar los archivos que tengo disponibles para entender la estructura del proyecto y cómo están implementadas las capas de datos y servicios.
+[0m✱ [0mGlob "backend/app/datos/ads.py"[90m 0 matches[0m
+Let me check what files exist in the backend structure:
+[0m✱ [0mGlob "backend/app/**"[90m 11 matches[0m
+Veo que aún no existe el archivo `backend/app/datos/ads.py` que necesito crear. También necesito ver cómo están estructurados los otros archivos para entender el patrón:
+[0m→ [0mRead backend/app/datos/conexion.py
+[0m→ [0mRead backend/app/datos/users_register.py
+Ahora voy a revisar el archivo de tests para entender qué se espera:
+[0m✗ [0mRead backend/tests/test_ads_backend.py failed
+[91m[1mError: [0mFile not found: /Users/jose/tests-T05/ejemplo-clasificados/backend/tests/test_ads_backend.py
+Como se menciona en la tarea, el archivo de test aún no existe, así que lo crearé. Primero, voy a crear los archivos necesarios según el alcance de la tarea:
+[0m
+[0m← [0mWrite backend/app/datos/ads.py
+Wrote file successfully.
+[0m
+Ahora crearé el archivo de servicios:
+[0m← [0mWrite backend/app/servicios/ads.py
+Wrote file successfully.
+[0m
+Ahora crearé el archivo de rutas:
+[0m← [0mWrite backend/app/rutas/ads.py
+Wrote file successfully.
+[0m
+Voy a crear el archivo de test que se menciona en la tarea:
+[0m← [0mWrite backend/tests/test_ads_backend.py
+Wrote file successfully.
+[0m
+Voy a correr los tests para verificar que todo funciona correctamente:
+[0m$ [0mcd /Users/jose/tests-T05/ejemplo-clasificados && bash scripts/correr-suite.sh backend/tests/test_ads_backend.py::TestAdsBackend
+F.FFFFFF                                                                 [100%]
+=================================== FAILURES ===================================
+______________________ TestAdsBackend.test_crear_ad_exito ______________________
+
+self = <tests.test_ads_backend.TestAdsBackend object at 0x10ef42180>
+
+    def test_crear_ad_exito(self):
+        """Prueba que se pueda crear un anuncio exitosamente."""
+        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
+            with patch('backend.app.datos.ads.insert_ad', return_value=123) as mock_insert:
+                client = TestClient(app)
+>               response = client.post(
+                    "/ads",
+                    json={
+                        "categoria_id": 1,
+                        "titulo": "Anuncio de prueba",
+                        "descripcion": "Descripción de prueba",
+                        "precio_centavos": 1000
+                    },
+                    headers={"Authorization": "Bearer cualquiera"}
+                )
+
+backend/tests/test_ads_backend.py:14: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:590: in post
+    return super().post(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:1157: in post
+    return self.request(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:465: in request
+    return super().request(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:837: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:926: in send
+    response = self._send_handling_auth(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:954: in _send_handling_auth
+    response = self._send_handling_redirects(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:991: in _send_handling_redirects
+    response = self._send_single_request(request)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:1027: in _send_single_request
+    response = transport.handle_request(request)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:342: in handle_request
+    raise exc
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:339: in handle_request
+    portal.call(self.app, scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/anyio/from_thread.py:277: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+/usr/local/Cellar/python@3.12/3.12.3/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py:456: in result
+    return self.__get_result()
+/usr/local/Cellar/python@3.12/3.12.3/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py:401: in __get_result
+    raise self._exception
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/anyio/from_thread.py:217: in _call_func
+    retval = await retval
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/applications.py:1106: in __call__
+    await super().__call__(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/applications.py:122: in __call__
+    await self.middleware_stack(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:184: in __call__
+    raise exc
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:162: in __call__
+    await self.app(scope, receive, _send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:79: in __call__
+    raise exc
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:68: in __call__
+    await self.app(scope, receive, sender)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:20: in __call__
+    raise e
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:17: in __call__
+    await self.app(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/routing.py:718: in __call__
+    await route.handle(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/routing.py:276: in handle
+    await self.app(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/routing.py:66: in app
+    response = await func(request)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/routing.py:274: in app
+    raw_response = await run_endpoint_function(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/routing.py:191: in run_endpoint_function
+    return await dependant.call(**values)
+backend/app/rutas/ads.py:23: in crear_ad
+    ad_id = crear_anuncio(
+backend/app/servicios/ads.py:17: in crear_anuncio
+    return insert_ad(usuario_id, categoria_id, titulo, descripcion, precio_centavos)
+backend/app/datos/ads.py:20: in insert_ad
+    cur.execute("""
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/cursors.py:153: in execute
+    result = self._query(query)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/cursors.py:322: in _query
+    conn.query(q)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/connections.py:558: in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/connections.py:822: in _read_query_result
+    result.read()
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/connections.py:1200: in read
+    first_packet = self.connection._read_packet()
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/connections.py:772: in _read_packet
+    packet.raise_for_error()
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/protocol.py:221: in raise_for_error
+    err.raise_mysql_exception(self._data)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+data = b"\xff\x18\x04#23000Column 'usuario_id' cannot be null"
+
+    def raise_mysql_exception(data):
+        errno = struct.unpack("<h", data[1:3])[0]
+        errval = data[9:].decode("utf-8", "replace")
+        errorclass = error_map.get(errno)
+        if errorclass is None:
+            errorclass = InternalError if errno < 1000 else OperationalError
+>       raise errorclass(errno, errval)
+E       pymysql.err.IntegrityError: (1048, "Column 'usuario_id' cannot be null")
+
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/err.py:143: IntegrityError
+_____________________ TestAdsBackend.test_obtener_ad_exito _____________________
+
+self = <tests.test_ads_backend.TestAdsBackend object at 0x110e82b40>
+
+    def test_obtener_ad_exito(self):
+        """Prueba que se pueda obtener un anuncio existente."""
+        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
+            with patch('backend.app.datos.ads.get_ad_by_id', return_value={
+                "id": 123,
+                "usuario_id": 7,
+                "categoria_id": 1,
+                "titulo": "Anuncio de prueba",
+                "descripcion": "Descripción de prueba",
+                "precio_centavos": 1000,
+                "fecha_creacion": "2023-01-01"
+            }) as mock_get:
+                client = TestClient(app)
+>               response = client.get("/ads/123", headers={"Authorization": "Bearer cualquiera"})
+
+backend/tests/test_ads_backend.py:65: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:499: in get
+    return super().get(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:1066: in get
+    return self.request(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:465: in request
+    return super().request(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:837: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:926: in send
+    response = self._send_handling_auth(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:954: in _send_handling_auth
+    response = self._send_handling_redirects(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:991: in _send_handling_redirects
+    response = self._send_single_request(request)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:1027: in _send_single_request
+    response = transport.handle_request(request)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:342: in handle_request
+    raise exc
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:339: in handle_request
+    portal.call(self.app, scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/anyio/from_thread.py:277: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+/usr/local/Cellar/python@3.12/3.12.3/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py:456: in result
+    return self.__get_result()
+/usr/local/Cellar/python@3.12/3.12.3/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py:401: in __get_result
+    raise self._exception
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/anyio/from_thread.py:217: in _call_func
+    retval = await retval
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/applications.py:1106: in __call__
+    await super().__call__(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/applications.py:122: in __call__
+    await self.middleware_stack(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:184: in __call__
+    raise exc
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:162: in __call__
+    await self.app(scope, receive, _send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:79: in __call__
+    raise exc
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:68: in __call__
+    await self.app(scope, receive, sender)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:20: in __call__
+    raise e
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:17: in __call__
+    await self.app(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/routing.py:718: in __call__
+    await route.handle(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/routing.py:276: in handle
+    await self.app(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/routing.py:66: in app
+    response = await func(request)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/routing.py:274: in app
+    raw_response = await run_endpoint_function(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/routing.py:191: in run_endpoint_function
+    return await dependant.call(**values)
+backend/app/rutas/ads.py:39: in obtener_ad
+    ad = obtener_anuncio(id)
+backend/app/servicios/ads.py:28: in obtener_anuncio
+    return get_ad_by_id(ad_id)
+backend/app/datos/ads.py:37: in get_ad_by_id
+    cur.execute("""
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/cursors.py:153: in execute
+    result = self._query(query)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/cursors.py:322: in _query
+    conn.query(q)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/connections.py:558: in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/connections.py:822: in _read_query_result
+    result.read()
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/connections.py:1200: in read
+    first_packet = self.connection._read_packet()
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/connections.py:772: in _read_packet
+    packet.raise_for_error()
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/protocol.py:221: in raise_for_error
+    err.raise_mysql_exception(self._data)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+data = b"\xff\x1e\x04#42S22Unknown column 'fecha_creacion' in 'field list'"
+
+    def raise_mysql_exception(data):
+        errno = struct.unpack("<h", data[1:3])[0]
+        errval = data[9:].decode("utf-8", "replace")
+        errorclass = error_map.get(errno)
+        if errorclass is None:
+            errorclass = InternalError if errno < 1000 else OperationalError
+>       raise errorclass(errno, errval)
+E       pymysql.err.OperationalError: (1054, "Unknown column 'fecha_creacion' in 'field list'")
+
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/err.py:143: OperationalError
+_________________ TestAdsBackend.test_obtener_ad_no_encontrado _________________
+
+self = <tests.test_ads_backend.TestAdsBackend object at 0x110e0a3f0>
+
+    def test_obtener_ad_no_encontrado(self):
+        """Prueba que se devuelva 404 para un anuncio inexistente."""
+        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
+            with patch('backend.app.datos.ads.get_ad_by_id', return_value=None) as mock_get:
+                client = TestClient(app)
+>               response = client.get("/ads/999", headers={"Authorization": "Bearer cualquiera"})
+
+backend/tests/test_ads_backend.py:76: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:499: in get
+    return super().get(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:1066: in get
+    return self.request(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:465: in request
+    return super().request(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:837: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:926: in send
+    response = self._send_handling_auth(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:954: in _send_handling_auth
+    response = self._send_handling_redirects(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:991: in _send_handling_redirects
+    response = self._send_single_request(request)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:1027: in _send_single_request
+    response = transport.handle_request(request)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:342: in handle_request
+    raise exc
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:339: in handle_request
+    portal.call(self.app, scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/anyio/from_thread.py:277: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+/usr/local/Cellar/python@3.12/3.12.3/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py:456: in result
+    return self.__get_result()
+/usr/local/Cellar/python@3.12/3.12.3/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py:401: in __get_result
+    raise self._exception
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/anyio/from_thread.py:217: in _call_func
+    retval = await retval
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/applications.py:1106: in __call__
+    await super().__call__(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/applications.py:122: in __call__
+    await self.middleware_stack(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:184: in __call__
+    raise exc
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:162: in __call__
+    await self.app(scope, receive, _send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:79: in __call__
+    raise exc
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:68: in __call__
+    await self.app(scope, receive, sender)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:20: in __call__
+    raise e
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:17: in __call__
+    await self.app(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/routing.py:718: in __call__
+    await route.handle(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/routing.py:276: in handle
+    await self.app(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/routing.py:66: in app
+    response = await func(request)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/routing.py:274: in app
+    raw_response = await run_endpoint_function(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/routing.py:191: in run_endpoint_function
+    return await dependant.call(**values)
+backend/app/rutas/ads.py:39: in obtener_ad
+    ad = obtener_anuncio(id)
+backend/app/servicios/ads.py:28: in obtener_anuncio
+    return get_ad_by_id(ad_id)
+backend/app/datos/ads.py:37: in get_ad_by_id
+    cur.execute("""
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/cursors.py:153: in execute
+    result = self._query(query)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/cursors.py:322: in _query
+    conn.query(q)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/connections.py:558: in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/connections.py:822: in _read_query_result
+    result.read()
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/connections.py:1200: in read
+    first_packet = self.connection._read_packet()
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/connections.py:772: in _read_packet
+    packet.raise_for_error()
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/protocol.py:221: in raise_for_error
+    err.raise_mysql_exception(self._data)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+data = b"\xff\x1e\x04#42S22Unknown column 'fecha_creacion' in 'field list'"
+
+    def raise_mysql_exception(data):
+        errno = struct.unpack("<h", data[1:3])[0]
+        errval = data[9:].decode("utf-8", "replace")
+        errorclass = error_map.get(errno)
+        if errorclass is None:
+            errorclass = InternalError if errno < 1000 else OperationalError
+>       raise errorclass(errno, errval)
+E       pymysql.err.OperationalError: (1054, "Unknown column 'fecha_creacion' in 'field list'")
+
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/err.py:143: OperationalError
+___________________ TestAdsBackend.test_actualizar_ad_exito ____________________
+
+self = <tests.test_ads_backend.TestAdsBackend object at 0x110e082c0>
+
+    def test_actualizar_ad_exito(self):
+        """Prueba que se pueda actualizar un anuncio exitosamente."""
+        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
+            with patch('backend.app.datos.ads.update_ad', return_value=True) as mock_update:
+                client = TestClient(app)
+                response = client.put(
+                    "/ads/123",
+                    json={
+                        "categoria_id": 2,
+                        "titulo": "Anuncio actualizado",
+                        "descripcion": "Descripción actualizada",
+                        "precio_centavos": 1500
+                    },
+                    headers={"Authorization": "Bearer cualquiera"}
+                )
+    
+>               assert response.status_code == 200
+E               assert 403 == 200
+E                +  where 403 = <Response [403 Forbidden]>.status_code
+
+backend/tests/test_ads_backend.py:98: AssertionError
+_______________ TestAdsBackend.test_actualizar_ad_no_autorizado ________________
+
+self = <tests.test_ads_backend.TestAdsBackend object at 0x110eabc20>
+
+    def test_actualizar_ad_no_autorizado(self):
+        """Prueba que se rechace la actualización de un anuncio de otro usuario."""
+        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
+            with patch('backend.app.datos.ads.update_ad', return_value=False) as mock_update:
+                client = TestClient(app)
+                response = client.put(
+                    "/ads/123",
+                    json={
+                        "categoria_id": 2,
+                        "titulo": "Anuncio actualizado",
+                        "descripcion": "Descripción actualizada",
+                        "precio_centavos": 1500
+                    },
+                    headers={"Authorization": "Bearer cualquiera"}
+                )
+    
+                assert response.status_code == 403
+                assert "No tienes permiso para actualizar este anuncio" in response.json()["error"]
+>               mock_update.assert_called_once_with(
+                    ad_id=123,
+                    usuario_id=7,
+                    titulo="Anuncio actualizado",
+                    descripcion="Descripción actualizada",
+                    precio_centavos=1500
+                )
+
+backend/tests/test_ads_backend.py:125: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='update_ad' id='4579701200'>, args = ()
+kwargs = {'ad_id': 123, 'descripcion': 'Descripción actualizada', 'precio_centavos': 1500, 'titulo': 'Anuncio actualizado', ...}
+msg = "Expected 'update_ad' to be called once. Called 0 times."
+
+    def assert_called_once_with(self, /, *args, **kwargs):
+        """assert that the mock was called exactly once and that that call was
+        with the specified arguments."""
+        if not self.call_count == 1:
+            msg = ("Expected '%s' to be called once. Called %s times.%s"
+                   % (self._mock_name or 'mock',
+                      self.call_count,
+                      self._calls_repr()))
+>           raise AssertionError(msg)
+E           AssertionError: Expected 'update_ad' to be called once. Called 0 times.
+
+/usr/local/Cellar/python@3.12/3.12.3/Frameworks/Python.framework/Versions/3.12/lib/python3.12/unittest/mock.py:955: AssertionError
+____________________ TestAdsBackend.test_eliminar_ad_exito _____________________
+
+self = <tests.test_ads_backend.TestAdsBackend object at 0x110eabb00>
+
+    def test_eliminar_ad_exito(self):
+        """Prueba que se pueda eliminar un anuncio exitosamente."""
+        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
+            with patch('backend.app.datos.ads.delete_ad', return_value=True) as mock_delete:
+                client = TestClient(app)
+>               response = client.delete("/ads/123", headers={"Authorization": "Bearer cualquiera"})
+
+backend/tests/test_ads_backend.py:138: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:697: in delete
+    return super().delete(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:1264: in delete
+    return self.request(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:465: in request
+    return super().request(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:837: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:926: in send
+    response = self._send_handling_auth(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:954: in _send_handling_auth
+    response = self._send_handling_redirects(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:991: in _send_handling_redirects
+    response = self._send_single_request(request)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:1027: in _send_single_request
+    response = transport.handle_request(request)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:342: in handle_request
+    raise exc
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:339: in handle_request
+    portal.call(self.app, scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/anyio/from_thread.py:277: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+/usr/local/Cellar/python@3.12/3.12.3/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py:449: in result
+    return self.__get_result()
+/usr/local/Cellar/python@3.12/3.12.3/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py:401: in __get_result
+    raise self._exception
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/anyio/from_thread.py:217: in _call_func
+    retval = await retval
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/applications.py:1106: in __call__
+    await super().__call__(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/applications.py:122: in __call__
+    await self.middleware_stack(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:184: in __call__
+    raise exc
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:162: in __call__
+    await self.app(scope, receive, _send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:79: in __call__
+    raise exc
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:68: in __call__
+    await self.app(scope, receive, sender)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:20: in __call__
+    raise e
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:17: in __call__
+    await self.app(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/routing.py:718: in __call__
+    await route.handle(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/routing.py:276: in handle
+    await self.app(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/routing.py:66: in app
+    response = await func(request)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/routing.py:274: in app
+    raw_response = await run_endpoint_function(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/routing.py:191: in run_endpoint_function
+    return await dependant.call(**values)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+id = 123
+
+    @router.delete("/ads/{id}")
+    async def eliminar_ad(id: int) -> Response:
+        """Elimina un anuncio si pertenece al usuario actual."""
+        # Obtener el usuario desde el token
+>       usuario_id = usuario_desde_token(request.headers.get("Authorization"))
+E       NameError: name 'request' is not defined
+
+backend/app/rutas/ads.py:77: NameError
+________________ TestAdsBackend.test_eliminar_ad_no_autorizado _________________
+
+self = <tests.test_ads_backend.TestAdsBackend object at 0x110eaba40>
+
+    def test_eliminar_ad_no_autorizado(self):
+        """Prueba que se rechace la eliminación de un anuncio de otro usuario."""
+        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
+            with patch('backend.app.datos.ads.delete_ad', return_value=False) as mock_delete:
+                client = TestClient(app)
+>               response = client.delete("/ads/123", headers={"Authorization": "Bearer cualquiera"})
+
+backend/tests/test_ads_backend.py:148: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:697: in delete
+    return super().delete(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:1264: in delete
+    return self.request(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:465: in request
+    return super().request(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:837: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:926: in send
+    response = self._send_handling_auth(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:954: in _send_handling_auth
+    response = self._send_handling_redirects(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:991: in _send_handling_redirects
+    response = self._send_single_request(request)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:1027: in _send_single_request
+    response = transport.handle_request(request)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:342: in handle_request
+    raise exc
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:339: in handle_request
+    portal.call(self.app, scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/anyio/from_thread.py:277: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+/usr/local/Cellar/python@3.12/3.12.3/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py:449: in result
+    return self.__get_result()
+/usr/local/Cellar/python@3.12/3.12.3/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py:401: in __get_result
+    raise self._exception
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/anyio/from_thread.py:217: in _call_func
+    retval = await retval
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/applications.py:1106: in __call__
+    await super().__call__(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/applications.py:122: in __call__
+    await self.middleware_stack(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:184: in __call__
+    raise exc
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:162: in __call__
+    await self.app(scope, receive, _send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:79: in __call__
+    raise exc
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:68: in __call__
+    await self.app(scope, receive, sender)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:20: in __call__
+    raise e
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:17: in __call__
+    await self.app(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/routing.py:718: in __call__
+    await route.handle(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/routing.py:276: in handle
+    await self.app(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/routing.py:66: in app
+    response = await func(request)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/routing.py:274: in app
+    raw_response = await run_endpoint_function(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/routing.py:191: in run_endpoint_function
+    return await dependant.call(**values)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+id = 123
+
+    @router.delete("/ads/{id}")
+    async def eliminar_ad(id: int) -> Response:
+        """Elimina un anuncio si pertenece al usuario actual."""
+        # Obtener el usuario desde el token
+>       usuario_id = usuario_desde_token(request.headers.get("Authorization"))
+E       NameError: name 'request' is not defined
+
+backend/app/rutas/ads.py:77: NameError
+=============================== warnings summary ===============================
+backend/tests/test_ads_backend.py::TestAdsBackend::test_crear_ad_exito
+backend/tests/test_ads_backend.py::TestAdsBackend::test_crear_ad_campos_faltantes
+backend/tests/test_ads_backend.py::TestAdsBackend::test_obtener_ad_exito
+backend/tests/test_ads_backend.py::TestAdsBackend::test_obtener_ad_no_encontrado
+backend/tests/test_ads_backend.py::TestAdsBackend::test_actualizar_ad_exito
+backend/tests/test_ads_backend.py::TestAdsBackend::test_actualizar_ad_no_autorizado
+backend/tests/test_ads_backend.py::TestAdsBackend::test_eliminar_ad_exito
+backend/tests/test_ads_backend.py::TestAdsBackend::test_eliminar_ad_no_autorizado
+  /Users/jose/metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:690: DeprecationWarning: The 'app' shortcut is now deprecated. Use the explicit style 'transport=WSGITransport(app=...)' instead.
+    warnings.warn(message, DeprecationWarning)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED backend/tests/test_ads_backend.py::TestAdsBackend::test_crear_ad_exito
+FAILED backend/tests/test_ads_backend.py::TestAdsBackend::test_obtener_ad_exito
+FAILED backend/tests/test_ads_backend.py::TestAdsBackend::test_obtener_ad_no_encontrado
+FAILED backend/tests/test_ads_backend.py::TestAdsBackend::test_actualizar_ad_exito
+FAILED backend/tests/test_ads_backend.py::TestAdsBackend::test_actualizar_ad_no_autorizado
+FAILED backend/tests/test_ads_backend.py::TestAdsBackend::test_eliminar_ad_exito
+FAILED backend/tests/test_ads_backend.py::TestAdsBackend::test_eliminar_ad_no_autorizado
+7 failed, 1 passed, 8 warnings in 2.20s
+[0m
+Veo varios problemas en mi implementación. Primero, corrijo el archivo de rutas para solucionar los errores:
+[0m← [0mEdit backend/app/rutas/ads.py
+Index: /Users/jose/tests-T05/ejemplo-clasificados/backend/app/rutas/ads.py
+===================================================================
+--- /Users/jose/tests-T05/ejemplo-clasificados/backend/app/rutas/ads.py
++++ /Users/jose/tests-T05/ejemplo-clasificados/backend/app/rutas/ads.py
+@@ -33,10 +33,13 @@
+     response.headers["Location"] = f"/ads/{ad_id}"
+     return response
+ 
+ @router.get("/ads/{id}")
+-async def obtener_ad(id: int) -> dict:
++async def obtener_ad(id: int, request: Request) -> dict:
+     """Obtiene un anuncio por su ID."""
++    # Obtener el usuario desde el token
++    usuario_id = usuario_desde_token(request.headers.get("Authorization"))
++    
+     ad = obtener_anuncio(id)
+     if ad is None:
+         raise HTTPException(status_code=404, detail="Anuncio no encontrado")
+     return ad
+@@ -70,9 +73,9 @@
+     
+     return Response(status_code=200)
+ 
+ @router.delete("/ads/{id}")
+-async def eliminar_ad(id: int) -> Response:
++async def eliminar_ad(id: int, request: Request) -> Response:
+     """Elimina un anuncio si pertenece al usuario actual."""
+     # Obtener el usuario desde el token
+     usuario_id = usuario_desde_token(request.headers.get("Authorization"))
+     
+
+[0m
+Ahora voy a corregir el archivo de datos para usar las columnas correctas según el esquema:
+[0m← [0mEdit backend/app/datos/ads.py
+Index: /Users/jose/tests-T05/ejemplo-clasificados/backend/app/datos/ads.py
+===================================================================
+--- /Users/jose/tests-T05/ejemplo-clasificados/backend/app/datos/ads.py
++++ /Users/jose/tests-T05/ejemplo-clasificados/backend/app/datos/ads.py
+@@ -34,9 +34,9 @@
+ """
+ with conexion() as conn:
+     with conn.cursor() as cur:
+         cur.execute("""
+-            SELECT id, usuario_id, categoria_id, titulo, descripcion, precio_centavos, fecha_creacion
++            SELECT id, usuario_id, categoria_id, titulo, descripcion, precio_centavos
+             FROM anuncios 
+             WHERE id = %s
+         """, (ad_id,))
+         return cur.fetchone()
+
+[0m
+Voy a verificar el estado actual del proyecto y correr los tests nuevamente:
+[0m$ [0mcd /Users/jose/tests-T05/ejemplo-clasificados && bash scripts/correr-suite.sh backend/tests/test_ads_backend.py::TestAdsBackend
+F.FFFFFF                                                                 [100%]
+=================================== FAILURES ===================================
+______________________ TestAdsBackend.test_crear_ad_exito ______________________
+
+self = <tests.test_ads_backend.TestAdsBackend object at 0x10f3da690>
+
+    def test_crear_ad_exito(self):
+        """Prueba que se pueda crear un anuncio exitosamente."""
+        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
+            with patch('backend.app.datos.ads.insert_ad', return_value=123) as mock_insert:
+                client = TestClient(app)
+>               response = client.post(
+                    "/ads",
+                    json={
+                        "categoria_id": 1,
+                        "titulo": "Anuncio de prueba",
+                        "descripcion": "Descripción de prueba",
+                        "precio_centavos": 1000
+                    },
+                    headers={"Authorization": "Bearer cualquiera"}
+                )
+
+backend/tests/test_ads_backend.py:14: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:590: in post
+    return super().post(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:1157: in post
+    return self.request(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:465: in request
+    return super().request(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:837: in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:926: in send
+    response = self._send_handling_auth(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:954: in _send_handling_auth
+    response = self._send_handling_redirects(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:991: in _send_handling_redirects
+    response = self._send_single_request(request)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:1027: in _send_single_request
+    response = transport.handle_request(request)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:342: in handle_request
+    raise exc
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/testclient.py:339: in handle_request
+    portal.call(self.app, scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/anyio/from_thread.py:277: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+/usr/local/Cellar/python@3.12/3.12.3/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py:456: in result
+    return self.__get_result()
+/usr/local/Cellar/python@3.12/3.12.3/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/_base.py:401: in __get_result
+    raise self._exception
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/anyio/from_thread.py:217: in _call_func
+    retval = await retval
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/applications.py:1106: in __call__
+    await super().__call__(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/applications.py:122: in __call__
+    await self.middleware_stack(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:184: in __call__
+    raise exc
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py:162: in __call__
+    await self.app(scope, receive, _send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:79: in __call__
+    raise exc
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py:68: in __call__
+    await self.app(scope, receive, sender)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:20: in __call__
+    raise e
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py:17: in __call__
+    await self.app(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/routing.py:718: in __call__
+    await route.handle(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/routing.py:276: in handle
+    await self.app(scope, receive, send)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/starlette/routing.py:66: in app
+    response = await func(request)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/routing.py:274: in app
+    raw_response = await run_endpoint_function(
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/fastapi/routing.py:191: in run_endpoint_function
+    return await dependant.call(**values)
+backend/app/rutas/ads.py:23: in crear_ad
+    ad_id = crear_anuncio(
+backend/app/servicios/ads.py:17: in crear_anuncio
+    return insert_ad(usuario_id, categoria_id, titulo, descripcion, precio_centavos)
+backend/app/datos/ads.py:20: in insert_ad
+    cur.execute("""
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/cursors.py:153: in execute
+    result = self._query(query)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/cursors.py:322: in _query
+    conn.query(q)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/connections.py:558: in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/connections.py:822: in _read_query_result
+    result.read()
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/connections.py:1200: in read
+    first_packet = self.connection._read_packet()
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/connections.py:772: in _read_packet
+    packet.raise_for_error()
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/protocol.py:221: in raise_for_error
+    err.raise_mysql_exception(self._data)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+data = b"\xff\x18\x04#23000Column 'usuario_id' cannot be null"
+
+    def raise_mysql_exception(data):
+        errno = struct.unpack("<h", data[1:3])[0]
+        errval = data[9:].decode("utf-8", "replace")
+        errorclass = error_map.get(errno)
+        if errorclass is None:
+            errorclass = InternalError if errno < 1000 else OperationalError
+>       raise errorclass(errno, errval)
+E       pymysql.err.IntegrityError: (1048, "Column 'usuario_id' cannot be null")
+
+../../metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/pymysql/err.py:143: IntegrityError
+_____________________ TestAdsBackend.test_obtener_ad_exito _____________________
+
+self = <tests.test_ads_backend.TestAdsBackend object at 0x1112eb1d0>
+
+    def test_obtener_ad_exito(self):
+        """Prueba que se pueda obtener un anuncio existente."""
+        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
+            with patch('backend.app.datos.ads.get_ad_by_id', return_value={
+                "id": 123,
+                "usuario_id": 7,
+                "categoria_id": 1,
+                "titulo": "Anuncio de prueba",
+                "descripcion": "Descripción de prueba",
+                "precio_centavos": 1000,
+                "fecha_creacion": "2023-01-01"
+            }) as mock_get:
+                client = TestClient(app)
+                response = client.get("/ads/123", headers={"Authorization": "Bearer cualquiera"})
+    
+>               assert response.status_code == 200
+E               assert 404 == 200
+E                +  where 404 = <Response [404 Not Found]>.status_code
+
+backend/tests/test_ads_backend.py:67: AssertionError
+_________________ TestAdsBackend.test_obtener_ad_no_encontrado _________________
+
+self = <tests.test_ads_backend.TestAdsBackend object at 0x11133bcb0>
+
+    def test_obtener_ad_no_encontrado(self):
+        """Prueba que se devuelva 404 para un anuncio inexistente."""
+        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
+            with patch('backend.app.datos.ads.get_ad_by_id', return_value=None) as mock_get:
+                client = TestClient(app)
+                response = client.get("/ads/999", headers={"Authorization": "Bearer cualquiera"})
+    
+                assert response.status_code == 404
+                assert "Anuncio no encontrado" in response.json()["error"]
+>               mock_get.assert_called_once_with(999)
+
+backend/tests/test_ads_backend.py:80: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='get_ad_by_id' id='4584284880'>, args = (999,)
+kwargs = {}, msg = "Expected 'get_ad_by_id' to be called once. Called 0 times."
+
+    def assert_called_once_with(self, /, *args, **kwargs):
+        """assert that the mock was called exactly once and that that call was
+        with the specified arguments."""
+        if not self.call_count == 1:
+            msg = ("Expected '%s' to be called once. Called %s times.%s"
+                   % (self._mock_name or 'mock',
+                      self.call_count,
+                      self._calls_repr()))
+>           raise AssertionError(msg)
+E           AssertionError: Expected 'get_ad_by_id' to be called once. Called 0 times.
+
+/usr/local/Cellar/python@3.12/3.12.3/Frameworks/Python.framework/Versions/3.12/lib/python3.12/unittest/mock.py:955: AssertionError
+___________________ TestAdsBackend.test_actualizar_ad_exito ____________________
+
+self = <tests.test_ads_backend.TestAdsBackend object at 0x11133bb90>
+
+    def test_actualizar_ad_exito(self):
+        """Prueba que se pueda actualizar un anuncio exitosamente."""
+        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
+            with patch('backend.app.datos.ads.update_ad', return_value=True) as mock_update:
+                client = TestClient(app)
+                response = client.put(
+                    "/ads/123",
+                    json={
+                        "categoria_id": 2,
+                        "titulo": "Anuncio actualizado",
+                        "descripcion": "Descripción actualizada",
+                        "precio_centavos": 1500
+                    },
+                    headers={"Authorization": "Bearer cualquiera"}
+                )
+    
+>               assert response.status_code == 200
+E               assert 403 == 200
+E                +  where 403 = <Response [403 Forbidden]>.status_code
+
+backend/tests/test_ads_backend.py:98: AssertionError
+_______________ TestAdsBackend.test_actualizar_ad_no_autorizado ________________
+
+self = <tests.test_ads_backend.TestAdsBackend object at 0x11133b9b0>
+
+    def test_actualizar_ad_no_autorizado(self):
+        """Prueba que se rechace la actualización de un anuncio de otro usuario."""
+        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
+            with patch('backend.app.datos.ads.update_ad', return_value=False) as mock_update:
+                client = TestClient(app)
+                response = client.put(
+                    "/ads/123",
+                    json={
+                        "categoria_id": 2,
+                        "titulo": "Anuncio actualizado",
+                        "descripcion": "Descripción actualizada",
+                        "precio_centavos": 1500
+                    },
+                    headers={"Authorization": "Bearer cualquiera"}
+                )
+    
+                assert response.status_code == 403
+                assert "No tienes permiso para actualizar este anuncio" in response.json()["error"]
+>               mock_update.assert_called_once_with(
+                    ad_id=123,
+                    usuario_id=7,
+                    titulo="Anuncio actualizado",
+                    descripcion="Descripción actualizada",
+                    precio_centavos=1500
+                )
+
+backend/tests/test_ads_backend.py:125: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='update_ad' id='4584291120'>, args = ()
+kwargs = {'ad_id': 123, 'descripcion': 'Descripción actualizada', 'precio_centavos': 1500, 'titulo': 'Anuncio actualizado', ...}
+msg = "Expected 'update_ad' to be called once. Called 0 times."
+
+    def assert_called_once_with(self, /, *args, **kwargs):
+        """assert that the mock was called exactly once and that that call was
+        with the specified arguments."""
+        if not self.call_count == 1:
+            msg = ("Expected '%s' to be called once. Called %s times.%s"
+                   % (self._mock_name or 'mock',
+                      self.call_count,
+                      self._calls_repr()))
+>           raise AssertionError(msg)
+E           AssertionError: Expected 'update_ad' to be called once. Called 0 times.
+
+/usr/local/Cellar/python@3.12/3.12.3/Frameworks/Python.framework/Versions/3.12/lib/python3.12/unittest/mock.py:955: AssertionError
+____________________ TestAdsBackend.test_eliminar_ad_exito _____________________
+
+self = <tests.test_ads_backend.TestAdsBackend object at 0x11133b860>
+
+    def test_eliminar_ad_exito(self):
+        """Prueba que se pueda eliminar un anuncio exitosamente."""
+        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
+            with patch('backend.app.datos.ads.delete_ad', return_value=True) as mock_delete:
+                client = TestClient(app)
+                response = client.delete("/ads/123", headers={"Authorization": "Bearer cualquiera"})
+    
+>               assert response.status_code == 200
+E               assert 403 == 200
+E                +  where 403 = <Response [403 Forbidden]>.status_code
+
+backend/tests/test_ads_backend.py:140: AssertionError
+________________ TestAdsBackend.test_eliminar_ad_no_autorizado _________________
+
+self = <tests.test_ads_backend.TestAdsBackend object at 0x11133b650>
+
+    def test_eliminar_ad_no_autorizado(self):
+        """Prueba que se rechace la eliminación de un anuncio de otro usuario."""
+        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
+            with patch('backend.app.datos.ads.delete_ad', return_value=False) as mock_delete:
+                client = TestClient(app)
+                response = client.delete("/ads/123", headers={"Authorization": "Bearer cualquiera"})
+    
+                assert response.status_code == 403
+                assert "No tienes permiso para eliminar este anuncio" in response.json()["error"]
+>               mock_delete.assert_called_once_with(ad_id=123, usuario_id=7)
+
+backend/tests/test_ads_backend.py:152: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='delete_ad' id='4584724896'>, args = ()
+kwargs = {'ad_id': 123, 'usuario_id': 7}
+msg = "Expected 'delete_ad' to be called once. Called 0 times."
+
+    def assert_called_once_with(self, /, *args, **kwargs):
+        """assert that the mock was called exactly once and that that call was
+        with the specified arguments."""
+        if not self.call_count == 1:
+            msg = ("Expected '%s' to be called once. Called %s times.%s"
+                   % (self._mock_name or 'mock',
+                      self.call_count,
+                      self._calls_repr()))
+>           raise AssertionError(msg)
+E           AssertionError: Expected 'delete_ad' to be called once. Called 0 times.
+
+/usr/local/Cellar/python@3.12/3.12.3/Frameworks/Python.framework/Versions/3.12/lib/python3.12/unittest/mock.py:955: AssertionError
+=============================== warnings summary ===============================
+backend/tests/test_ads_backend.py::TestAdsBackend::test_crear_ad_exito
+backend/tests/test_ads_backend.py::TestAdsBackend::test_crear_ad_campos_faltantes
+backend/tests/test_ads_backend.py::TestAdsBackend::test_obtener_ad_exito
+backend/tests/test_ads_backend.py::TestAdsBackend::test_obtener_ad_no_encontrado
+backend/tests/test_ads_backend.py::TestAdsBackend::test_actualizar_ad_exito
+backend/tests/test_ads_backend.py::TestAdsBackend::test_actualizar_ad_no_autorizado
+backend/tests/test_ads_backend.py::TestAdsBackend::test_eliminar_ad_exito
+backend/tests/test_ads_backend.py::TestAdsBackend::test_eliminar_ad_no_autorizado
+  /Users/jose/metodo-agentes/ejemplo-clasificados/.venv/lib/python3.12/site-packages/httpx/_client.py:690: DeprecationWarning: The 'app' shortcut is now deprecated. Use the explicit style 'transport=WSGITransport(app=...)' instead.
+    warnings.warn(message, DeprecationWarning)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED backend/tests/test_ads_backend.py::TestAdsBackend::test_crear_ad_exito
+FAILED backend/tests/test_ads_backend.py::TestAdsBackend::test_obtener_ad_exito
+FAILED backend/tests/test_ads_backend.py::TestAdsBackend::test_obtener_ad_no_encontrado
+FAILED backend/tests/test_ads_backend.py::TestAdsBackend::test_actualizar_ad_exito
+FAILED backend/tests/test_ads_backend.py::TestAdsBackend::test_actualizar_ad_no_autorizado
+FAILED backend/tests/test_ads_backend.py::TestAdsBackend::test_eliminar_ad_exito
+FAILED backend/tests/test_ads_backend.py::TestAdsBackend::test_eliminar_ad_no_autorizado
+7 failed, 1 passed, 8 warnings in 0.70s
+[0m
+[91m[1mError: [0m{"message":"memory_delivery_unavailable","type":"api_error"}
+· MySQL del proyecto ya está arriba en 127.0.0.1:33306

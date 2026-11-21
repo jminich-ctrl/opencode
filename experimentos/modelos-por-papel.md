@@ -174,7 +174,7 @@ implementación defectuosa»— no tiene qué aplicar. Eso borra la primaria «l
 tester, la primaria 3 del arquitecto y la complementariedad entre papeles.
 
 **Novedad que cambia esto:** hay **16 intentos rechazados con código real** preservados en
-`/Users/jose/rechazados/` (22 carpetas en total —16 rojas, 3 verdes, 3 sin dato—, 3283 líneas,
+`experimentos/crudo/banco/` (22 carpetas en total —16 rojas, 3 verdes, 3 sin dato—, 3283 líneas,
 **5** modelos, tareas T04, T06c, T40, T41), rescatados de worktrees de experimento que estaban
 por borrarse. Traen el parche y el transcripto; **les falta el diagnóstico redactado**. Son el
 insumo para reconstruir la captura cruzada, y el único que existe.

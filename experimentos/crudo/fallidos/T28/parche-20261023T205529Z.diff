@@ -1,0 +1,110 @@
+diff --git a/ejemplo-clasificados/backend/app/datos/search_ads.py b/ejemplo-clasificados/backend/app/datos/search_ads.py
+new file mode 100644
+index 0000000..d6638a4
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/datos/search_ads.py
+@@ -0,0 +1,38 @@
++"""
++Datos de búsqueda de anuncios.
++"""
++
++from backend.app.datos.conexion import conexion
++
++
++def search_ads(texto: str, categoria: str | None = None) -> list[dict]:
++    """
++    Busca anuncios que coincidan con el texto y, opcionalmente, la categoría.
++    
++    Args:
++        texto: Texto a buscar en los anuncios
++        categoria: Categoría opcional para filtrar
++        
++    Returns:
++        Lista de diccionarios con los anuncios encontrados
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            # Construimos la consulta dinámica
++            if categoria is not None:
++                cur.execute("""
++                    SELECT id, usuario_id, titulo, descripcion, precio, categoria, fecha_creacion 
++                    FROM anuncios 
++                    WHERE titulo LIKE %s OR descripcion LIKE %s 
++                    AND categoria = %s
++                    ORDER BY fecha_creacion DESC
++                """, (f"%{texto}%", f"%{texto}%", categoria))
++            else:
++                cur.execute("""
++                    SELECT id, usuario_id, titulo, descripcion, precio, categoria, fecha_creacion 
++                    FROM anuncios 
++                    WHERE titulo LIKE %s OR descripcion LIKE %s 
++                    ORDER BY fecha_creacion DESC
++                """, (f"%{texto}%", f"%{texto}%"))
++            
++            return cur.fetchall()
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/rutas/search.py b/ejemplo-clasificados/backend/app/rutas/search.py
+new file mode 100644
+index 0000000..ccf86d3
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/search.py
+@@ -0,0 +1,32 @@
++"""
++Ruta de búsqueda de anuncios.
++"""
++
++from fastapi import APIRouter, Depends, HTTPException
++from typing import Optional
++
++from backend.app.servicios.search import buscar_anuncios as servicio_buscar_anuncios
++
++router = APIRouter()
++
++
++@router.get("/search")
++async def search(
++    q: str,
++    category: Optional[str] = None
++):
++    """
++    Busca anuncios por texto libre y/o categoría.
++    
++    Args:
++        q: Texto a buscar
++        category: Categoría opcional para filtrar
++        
++    Returns:
++        Lista de anuncios que coinciden con los criterios
++    """
++    try:
++        anuncios = servicio_buscar_anuncios(q, category)
++        return {"anuncios": anuncios}
++    except Exception as e:
++        raise HTTPException(status_code=500, detail=f"Error en la búsqueda: {str(e)}")
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/servicios/search.py b/ejemplo-clasificados/backend/app/servicios/search.py
+new file mode 100644
+index 0000000..03d2170
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/servicios/search.py
+@@ -0,0 +1,19 @@
++"""
++Servicio de búsqueda de anuncios.
++"""
++
++from backend.app.datos.search_ads import search_ads as datos_buscar_anuncios
++
++
++def buscar_anuncios(texto: str, categoria: str | None = None) -> list[dict]:
++    """
++    Devuelve anuncios que coinciden con el texto y, opcionalmente, la categoría.
++    
++    Args:
++        texto: Texto a buscar en los anuncios
++        categoria: Categoría opcional para filtrar
++        
++    Returns:
++        Lista de diccionarios con los anuncios encontrados
++    """
++    return datos_buscar_anuncios(texto, categoria)
+\ No newline at end of file

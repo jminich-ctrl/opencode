@@ -1,0 +1,76 @@
+el test parchea un lugar donde el patch no va a tener efecto
+  backend/tests/test_auth_backend.py:27  patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo,
+     así que backend.app.datos.read_user_by_email ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.datos.read_user_by_email')
+  backend/tests/test_auth_backend.py:27  patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo,
+     así que backend.app.servicios.auth.read_user_by_email ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.servicios.auth.read_user_by_email')
+  backend/tests/test_auth_backend.py:27  patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo,
+     así que backend.app.rutas.auth.read_user_by_email ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.rutas.auth.read_user_by_email')
+  backend/tests/test_auth_backend.py:45  patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo,
+     así que backend.app.datos.read_user_by_email ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.datos.read_user_by_email')
+  backend/tests/test_auth_backend.py:45  patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo,
+     así que backend.app.servicios.auth.read_user_by_email ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.servicios.auth.read_user_by_email')
+  backend/tests/test_auth_backend.py:45  patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo,
+     así que backend.app.rutas.auth.read_user_by_email ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.rutas.auth.read_user_by_email')
+  backend/tests/test_auth_backend.py:54  patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo,
+     así que backend.app.datos.read_user_by_email ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.datos.read_user_by_email')
+  backend/tests/test_auth_backend.py:54  patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo,
+     así que backend.app.servicios.auth.read_user_by_email ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.servicios.auth.read_user_by_email')
+  backend/tests/test_auth_backend.py:54  patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo,
+     así que backend.app.rutas.auth.read_user_by_email ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.rutas.auth.read_user_by_email')
+  backend/tests/test_auth_backend.py:74  patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo,
+     así que backend.app.datos.read_user_by_email ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.datos.read_user_by_email')
+  backend/tests/test_auth_backend.py:74  patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo,
+     así que backend.app.servicios.auth.read_user_by_email ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.servicios.auth.read_user_by_email')
+  backend/tests/test_auth_backend.py:74  patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo,
+     así que backend.app.rutas.auth.read_user_by_email ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.rutas.auth.read_user_by_email')
+  backend/tests/test_auth_backend.py:102  patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo,
+     así que backend.app.datos.read_user_by_email ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.datos.read_user_by_email')
+  backend/tests/test_auth_backend.py:102  patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo,
+     así que backend.app.servicios.auth.read_user_by_email ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.servicios.auth.read_user_by_email')
+  backend/tests/test_auth_backend.py:102  patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo,
+     así que backend.app.rutas.auth.read_user_by_email ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.rutas.auth.read_user_by_email')
+  backend/tests/test_auth_backend.py:121  patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo,
+     así que backend.app.datos.read_user_by_email ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.datos.read_user_by_email')
+  backend/tests/test_auth_backend.py:121  patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo,
+     así que backend.app.servicios.auth.read_user_by_email ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.servicios.auth.read_user_by_email')
+  backend/tests/test_auth_backend.py:121  patch('backend.app.datos.users.read_user_by_email') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users import read_user_by_email` a nivel de módulo,
+     así que backend.app.rutas.auth.read_user_by_email ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.rutas.auth.read_user_by_email')
+  inspeccionó: 6 patch(es) con objetivo literal contra el enunciado de la tarea
+  Un patch que no pega hace fallar al test contra la implementación correcta,
+  y el rojo lo paga el que implementa.

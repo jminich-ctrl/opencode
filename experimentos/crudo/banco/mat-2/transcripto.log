@@ -1,0 +1,13 @@
+[0m
+> build · cc2f4c65-54e9-48c3-b43c-5e3138bf384b
+[0m
+[0m✗ [0mRead tareas/T40-*.md failed
+[91m[1mError: [0mFile not found: /Users/jose/mat-2/ejemplo-pacman/tareas/T40-*.md
+[0m✱ [0mGlob "tests/*.py"[90m 8 matches[0m
+[0m✗ [0mRead backend/juego.py failed
+[91m[1mError: [0mFile not found: /Users/jose/mat-2/ejemplo-pacman/backend/juego.py
+[0m✗ [0mRead backend/lab.py failed
+[91m[1mError: [0mFile not found: /Users/jose/mat-2/ejemplo-pacman/backend/lab.py
+[0m✗ [0mRead backend/entidades.py failed
+[91m[1mError: [0mFile not found: /Users/jose/mat-2/ejemplo-pacman/backend/entidades.py
+[91m[1mError: [0m{"message":"upstream stream ended without a complete EOS handshake","type":"api_error"}

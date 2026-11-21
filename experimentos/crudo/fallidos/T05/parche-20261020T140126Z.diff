@@ -1,0 +1,413 @@
+diff --git a/ejemplo-clasificados/backend/app/datos/ads.py b/ejemplo-clasificados/backend/app/datos/ads.py
+new file mode 100644
+index 0000000..da3f04f
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/datos/ads.py
+@@ -0,0 +1,89 @@
++import pymysql
++from backend.app.datos.conexion import conexion
++
++def insert_ad(usuario_id: int, categoria_id: int, titulo: str, descripcion: str,
++              precio_centavos: int) -> int:
++    """Inserta un nuevo anuncio y devuelve su ID.
++    
++    Args:
++        usuario_id: ID del usuario dueño del anuncio
++        categoria_id: ID de la categoría del anuncio  
++        titulo: Título del anuncio
++        descripcion: Descripción del anuncio
++        precio_centavos: Precio en centavos
++        
++    Returns:
++        ID del nuevo anuncio creado
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute("""
++                INSERT INTO anuncios (usuario_id, categoria_id, titulo, descripcion, precio_centavos) 
++                VALUES (%s, %s, %s, %s, %s)
++            """, (usuario_id, categoria_id, titulo, descripcion, precio_centavos))
++            return cur.lastrowid
++
++def get_ad_by_id(ad_id: int) -> dict | None:
++    """Obtiene un anuncio por su ID.
++    
++    Args:
++        ad_id: ID del anuncio a buscar
++        
++    Returns:
++        Diccionario con los datos del anuncio o None si no existe
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute("""
++                SELECT id, usuario_id, categoria_id, titulo, descripcion, precio_centavos
++                FROM anuncios 
++                WHERE id = %s
++            """, (ad_id,))
++            return cur.fetchone()
++
++def update_ad(ad_id: int, usuario_id: int, titulo: str, descripcion: str,
++              precio_centavos: int) -> bool:
++    """Actualiza un anuncio si pertenece al usuario especificado.
++    
++    Args:
++        ad_id: ID del anuncio a actualizar
++        usuario_id: ID del usuario que intenta actualizar
++        titulo: Nuevo título del anuncio
++        descripcion: Nueva descripción del anuncio
++        precio_centavos: Nuevo precio en centavos
++        
++    Returns:
++        True si se actualizó correctamente, False si el anuncio no pertenece al usuario
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            # Primero verificar que el anuncio existe y pertenece al usuario
++            cur.execute("""
++                UPDATE anuncios 
++                SET titulo = %s, descripcion = %s, precio_centavos = %s
++                WHERE id = %s AND usuario_id = %s
++            """, (titulo, descripcion, precio_centavos, ad_id, usuario_id))
++            
++            # Devolver True si se actualizó al menos una fila
++            return cur.rowcount > 0
++
++def delete_ad(ad_id: int, usuario_id: int) -> bool:
++    """Elimina un anuncio si pertenece al usuario especificado.
++    
++    Args:
++        ad_id: ID del anuncio a eliminar
++        usuario_id: ID del usuario que intenta eliminar
++        
++    Returns:
++        True si se eliminó correctamente, False si el anuncio no pertenece al usuario
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            # Eliminar el anuncio solo si pertenece al usuario
++            cur.execute("""
++                DELETE FROM anuncios 
++                WHERE id = %s AND usuario_id = %s
++            """, (ad_id, usuario_id))
++            
++            # Devolver True si se eliminó al menos una fila
++            return cur.rowcount > 0
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/rutas/ads.py b/ejemplo-clasificados/backend/app/rutas/ads.py
+new file mode 100644
+index 0000000..560f617
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/ads.py
+@@ -0,0 +1,88 @@
++from fastapi import APIRouter, Request, Response, HTTPException
++from backend.app.servicios.ads import crear_anuncio, obtener_anuncio, actualizar_anuncio, eliminar_anuncio
++from backend.app.servicios.auth import usuario_desde_token
++
++router = APIRouter()
++
++@router.post("/ads")
++async def crear_ad(request: Request) -> Response:
++    """Crea un nuevo anuncio y devuelve su ID."""
++    # Obtener el usuario desde el token
++    usuario_id = usuario_desde_token(request.headers.get("Authorization"))
++    
++    # Leer los datos del cuerpo de la solicitud
++    data = await request.json()
++    
++    # Validar que los campos obligatorios estén presentes
++    required_fields = ['categoria_id', 'titulo', 'descripcion', 'precio_centavos']
++    for field in required_fields:
++        if field not in data:
++            raise HTTPException(status_code=400, detail=f"Campo requerido faltante: {field}")
++    
++    # Crear el anuncio usando el servicio
++    ad_id = crear_anuncio(
++        usuario_id=usuario_id,
++        categoria_id=data['categoria_id'],
++        titulo=data['titulo'],
++        descripcion=data['descripcion'],
++        precio_centavos=data['precio_centavos']
++    )
++    
++    # Devolver respuesta con el ID del anuncio creado
++    response = Response(status_code=201)
++    response.headers["Location"] = f"/ads/{ad_id}"
++    return response
++
++@router.get("/ads/{id}")
++async def obtener_ad(id: int, request: Request) -> dict:
++    """Obtiene un anuncio por su ID."""
++    # Obtener el usuario desde el token
++    usuario_id = usuario_desde_token(request.headers.get("Authorization"))
++    
++    ad = obtener_anuncio(id)
++    if ad is None:
++        raise HTTPException(status_code=404, detail="Anuncio no encontrado")
++    return ad
++
++@router.put("/ads/{id}")
++async def actualizar_ad(id: int, request: Request) -> Response:
++    """Actualiza un anuncio si pertenece al usuario actual."""
++    # Obtener el usuario desde el token
++    usuario_id = usuario_desde_token(request.headers.get("Authorization"))
++    
++    # Leer los datos del cuerpo de la solicitud
++    data = await request.json()
++    
++    # Validar que los campos obligatorios estén presentes
++    required_fields = ['categoria_id', 'titulo', 'descripcion', 'precio_centavos']
++    for field in required_fields:
++        if field not in data:
++            raise HTTPException(status_code=400, detail=f"Campo requerido faltante: {field}")
++    
++    # Actualizar el anuncio usando el servicio
++    success = actualizar_anuncio(
++        ad_id=id,
++        usuario_id=usuario_id,
++        titulo=data['titulo'],
++        descripcion=data['descripcion'],
++        precio_centavos=data['precio_centavos']
++    )
++    
++    if not success:
++        raise HTTPException(status_code=403, detail="No tienes permiso para actualizar este anuncio")
++    
++    return Response(status_code=200)
++
++@router.delete("/ads/{id}")
++async def eliminar_ad(id: int, request: Request) -> Response:
++    """Elimina un anuncio si pertenece al usuario actual."""
++    # Obtener el usuario desde el token
++    usuario_id = usuario_desde_token(request.headers.get("Authorization"))
++    
++    # Eliminar el anuncio usando el servicio
++    success = eliminar_anuncio(ad_id=id, usuario_id=usuario_id)
++    
++    if not success:
++        raise HTTPException(status_code=403, detail="No tienes permiso para eliminar este anuncio")
++    
++    return Response(status_code=200)
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/servicios/ads.py b/ejemplo-clasificados/backend/app/servicios/ads.py
+new file mode 100644
+index 0000000..c4f8666
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/servicios/ads.py
+@@ -0,0 +1,56 @@
++from backend.app.datos.ads import insert_ad, get_ad_by_id, update_ad, delete_ad
++
++def crear_anuncio(usuario_id: int, categoria_id: int, titulo: str, descripcion: str,
++                  precio_centavos: int) -> int:
++    """Crea un nuevo anuncio.
++    
++    Args:
++        usuario_id: ID del usuario dueño del anuncio
++        categoria_id: ID de la categoría del anuncio  
++        titulo: Título del anuncio
++        descripcion: Descripción del anuncio
++        precio_centavos: Precio en centavos
++        
++    Returns:
++        ID del nuevo anuncio creado
++    """
++    return insert_ad(usuario_id, categoria_id, titulo, descripcion, precio_centavos)
++
++def obtener_anuncio(ad_id: int) -> dict | None:
++    """Obtiene un anuncio por su ID.
++    
++    Args:
++        ad_id: ID del anuncio a buscar
++        
++    Returns:
++        Diccionario con los datos del anuncio o None si no existe
++    """
++    return get_ad_by_id(ad_id)
++
++def actualizar_anuncio(ad_id: int, usuario_id: int, titulo: str, descripcion: str,
++                       precio_centavos: int) -> bool:
++    """Actualiza un anuncio si pertenece al usuario especificado.
++    
++    Args:
++        ad_id: ID del anuncio a actualizar
++        usuario_id: ID del usuario que intenta actualizar
++        titulo: Nuevo título del anuncio
++        descripcion: Nueva descripción del anuncio
++        precio_centavos: Nuevo precio en centavos
++        
++    Returns:
++        True si se actualizó correctamente, False si el anuncio no pertenece al usuario
++    """
++    return update_ad(ad_id, usuario_id, titulo, descripcion, precio_centavos)
++
++def eliminar_anuncio(ad_id: int, usuario_id: int) -> bool:
++    """Elimina un anuncio si pertenece al usuario especificado.
++    
++    Args:
++        ad_id: ID del anuncio a eliminar
++        usuario_id: ID del usuario que intenta eliminar
++        
++    Returns:
++        True si se eliminó correctamente, False si el anuncio no pertenece al usuario
++    """
++    return delete_ad(ad_id, usuario_id)
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_ads_backend.py b/ejemplo-clasificados/backend/tests/test_ads_backend.py
+new file mode 100644
+index 0000000..c523e0b
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_ads_backend.py
+@@ -0,0 +1,152 @@
++import pytest
++from unittest.mock import patch
++from fastapi.testclient import TestClient
++from backend.app.main import app
++
++class TestAdsBackend:
++    """Tests para las operaciones CRUD de anuncios en el backend."""
++
++    def test_crear_ad_exito(self):
++        """Prueba que se pueda crear un anuncio exitosamente."""
++        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
++            with patch('backend.app.datos.ads.insert_ad', return_value=123) as mock_insert:
++                client = TestClient(app)
++                response = client.post(
++                    "/ads",
++                    json={
++                        "categoria_id": 1,
++                        "titulo": "Anuncio de prueba",
++                        "descripcion": "Descripción de prueba",
++                        "precio_centavos": 1000
++                    },
++                    headers={"Authorization": "Bearer cualquiera"}
++                )
++                
++                assert response.status_code == 201
++                assert response.headers["Location"] == "/ads/123"
++                mock_insert.assert_called_once_with(
++                    usuario_id=7,
++                    categoria_id=1,
++                    titulo="Anuncio de prueba",
++                    descripcion="Descripción de prueba",
++                    precio_centavos=1000
++                )
++
++    def test_crear_ad_campos_faltantes(self):
++        """Prueba que se rechacen anuncios con campos faltantes."""
++        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
++            client = TestClient(app)
++            response = client.post(
++                "/ads",
++                json={
++                    "categoria_id": 1,
++                    "titulo": "Anuncio de prueba"
++                    # Faltan descripcion y precio_centavos
++                },
++                headers={"Authorization": "Bearer cualquiera"}
++            )
++            
++            assert response.status_code == 400
++            assert "Campo requerido faltante" in response.json()["error"]
++
++    def test_obtener_ad_exito(self):
++        """Prueba que se pueda obtener un anuncio existente."""
++        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
++            with patch('backend.app.datos.ads.get_ad_by_id', return_value={
++                "id": 123,
++                "usuario_id": 7,
++                "categoria_id": 1,
++                "titulo": "Anuncio de prueba",
++                "descripcion": "Descripción de prueba",
++                "precio_centavos": 1000,
++                "fecha_creacion": "2023-01-01"
++            }) as mock_get:
++                client = TestClient(app)
++                response = client.get("/ads/123", headers={"Authorization": "Bearer cualquiera"})
++                
++                assert response.status_code == 200
++                assert response.json()["titulo"] == "Anuncio de prueba"
++                mock_get.assert_called_once_with(123)
++
++    def test_obtener_ad_no_encontrado(self):
++        """Prueba que se devuelva 404 para un anuncio inexistente."""
++        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
++            with patch('backend.app.datos.ads.get_ad_by_id', return_value=None) as mock_get:
++                client = TestClient(app)
++                response = client.get("/ads/999", headers={"Authorization": "Bearer cualquiera"})
++                
++                assert response.status_code == 404
++                assert "Anuncio no encontrado" in response.json()["error"]
++                mock_get.assert_called_once_with(999)
++
++    def test_actualizar_ad_exito(self):
++        """Prueba que se pueda actualizar un anuncio exitosamente."""
++        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
++            with patch('backend.app.datos.ads.update_ad', return_value=True) as mock_update:
++                client = TestClient(app)
++                response = client.put(
++                    "/ads/123",
++                    json={
++                        "categoria_id": 2,
++                        "titulo": "Anuncio actualizado",
++                        "descripcion": "Descripción actualizada",
++                        "precio_centavos": 1500
++                    },
++                    headers={"Authorization": "Bearer cualquiera"}
++                )
++                
++                assert response.status_code == 200
++                mock_update.assert_called_once_with(
++                    ad_id=123,
++                    usuario_id=7,
++                    titulo="Anuncio actualizado",
++                    descripcion="Descripción actualizada",
++                    precio_centavos=1500
++                )
++
++    def test_actualizar_ad_no_autorizado(self):
++        """Prueba que se rechace la actualización de un anuncio de otro usuario."""
++        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
++            with patch('backend.app.datos.ads.update_ad', return_value=False) as mock_update:
++                client = TestClient(app)
++                response = client.put(
++                    "/ads/123",
++                    json={
++                        "categoria_id": 2,
++                        "titulo": "Anuncio actualizado",
++                        "descripcion": "Descripción actualizada",
++                        "precio_centavos": 1500
++                    },
++                    headers={"Authorization": "Bearer cualquiera"}
++                )
++                
++                assert response.status_code == 403
++                assert "No tienes permiso para actualizar este anuncio" in response.json()["error"]
++                mock_update.assert_called_once_with(
++                    ad_id=123,
++                    usuario_id=7,
++                    titulo="Anuncio actualizado",
++                    descripcion="Descripción actualizada",
++                    precio_centavos=1500
++                )
++
++    def test_eliminar_ad_exito(self):
++        """Prueba que se pueda eliminar un anuncio exitosamente."""
++        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
++            with patch('backend.app.datos.ads.delete_ad', return_value=True) as mock_delete:
++                client = TestClient(app)
++                response = client.delete("/ads/123", headers={"Authorization": "Bearer cualquiera"})
++                
++                assert response.status_code == 200
++                mock_delete.assert_called_once_with(ad_id=123, usuario_id=7)
++
++    def test_eliminar_ad_no_autorizado(self):
++        """Prueba que se rechace la eliminación de un anuncio de otro usuario."""
++        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7):
++            with patch('backend.app.datos.ads.delete_ad', return_value=False) as mock_delete:
++                client = TestClient(app)
++                response = client.delete("/ads/123", headers={"Authorization": "Bearer cualquiera"})
++                
++                assert response.status_code == 403
++                assert "No tienes permiso para eliminar este anuncio" in response.json()["error"]
++                mock_delete.assert_called_once_with(ad_id=123, usuario_id=7)
+\ No newline at end of file

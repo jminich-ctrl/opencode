@@ -1,0 +1,334 @@
+diff --git a/ejemplo-clasificados/backend/app/rutas/ads.py b/ejemplo-clasificados/backend/app/rutas/ads.py
+new file mode 100644
+index 0000000..4eae9fb
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/ads.py
+@@ -0,0 +1,119 @@
++from fastapi import APIRouter, HTTPException, Header
++from typing import List
++from pydantic import BaseModel
++from backend.app.servicios.ads import crear_anuncio, obtener_anuncio, actualizar_anuncio, eliminar_anuncio
++from backend.app.servicios.auth import usuario_desde_token
++
++router = APIRouter(prefix="/ads", tags=["ads"])
++
++class AdCreate(BaseModel):
++    categoria_id: int
++    titulo: str
++    descripcion: str
++    precio_centavos: int
++
++class AdUpdate(BaseModel):
++    titulo: str
++    descripcion: str
++    precio_centavos: int
++
++class AdResponse(BaseModel):
++    id: int
++    usuario_id: int
++    categoria_id: int
++    titulo: str
++    descripcion: str
++    precio_centavos: int
++
++class AdListResponse(BaseModel):
++    id: int
++    usuario_id: int
++    categoria_id: int
++    titulo: str
++    descripcion: str
++    precio_centavos: int
++
++@router.post("/", response_model=dict, status_code=201)
++def crear_anuncio_endpoint(
++    ad_data: AdCreate,
++    authorization: str = Header(None)
++):
++    """Crea un nuevo anuncio."""
++    # Verificar autenticación
++    user_id = usuario_desde_token(authorization)
++    if user_id is None:
++        raise HTTPException(status_code=401, detail="Sesión no válida")
++    
++    try:
++        ad_id = crear_anuncio(
++            usuario_id=user_id,
++            categoria_id=ad_data.categoria_id,
++            titulo=ad_data.titulo,
++            descripcion=ad_data.descripcion,
++            precio_centavos=ad_data.precio_centavos
++        )
++        return {"id": ad_id}
++    except ValueError as e:
++        raise HTTPException(status_code=400, detail=str(e))
++
++@router.get("/", response_model=List[AdListResponse])
++def obtener_anuncios():
++    """Obtiene todos los anuncios."""
++    # Para esta implementación, simplemente devolvemos un error 501 ya que no hay implementación
++    # En una implementación real, necesitaríamos una función en el servicio para obtener todos los anuncios
++    raise HTTPException(status_code=501, detail="No implementado")
++
++@router.get("/{ad_id}", response_model=AdResponse)
++def obtener_anuncio_endpoint(ad_id: int):
++    """Obtiene un anuncio específico por ID."""
++    ad = obtener_anuncio(ad_id)
++    if ad is None:
++        raise HTTPException(status_code=404, detail="Anuncio no encontrado")
++    return ad
++
++@router.put("/{ad_id}")
++def actualizar_anuncio_endpoint(
++    ad_id: int,
++    ad_data: AdUpdate,
++    authorization: str = Header(None)
++):
++    """Actualiza un anuncio existente."""
++    # Verificar autenticación
++    user_id = usuario_desde_token(authorization)
++    if user_id is None:
++        raise HTTPException(status_code=401, detail="Sesión no válida")
++    
++    try:
++        success = actualizar_anuncio(
++            ad_id=ad_id,
++            usuario_id=user_id,
++            titulo=ad_data.titulo,
++            descripcion=ad_data.descripcion,
++            precio_centavos=ad_data.precio_centavos
++        )
++        if not success:
++            raise HTTPException(status_code=403, detail="No tienes permisos para actualizar este anuncio")
++        return {"status": "success"}
++    except ValueError as e:
++        raise HTTPException(status_code=400, detail=str(e))
++    except Exception as e:
++        raise HTTPException(status_code=404, detail="Anuncio no encontrado")
++
++@router.delete("/{ad_id}")
++def eliminar_anuncio_endpoint(
++    ad_id: int,
++    authorization: str = Header(None)
++):
++    """Elimina un anuncio existente."""
++    # Verificar autenticación
++    user_id = usuario_desde_token(authorization)
++    if user_id is None:
++        raise HTTPException(status_code=401, detail="Sesión no válida")
++    
++    try:
++        success = eliminar_anuncio(ad_id=ad_id, usuario_id=user_id)
++        if not success:
++            raise HTTPException(status_code=403, detail="No tienes permisos para eliminar este anuncio")
++        return {"status": "success"}
++    except Exception as e:
++        raise HTTPException(status_code=404, detail="Anuncio no encontrado")
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_ads_rutas.py b/ejemplo-clasificados/backend/tests/test_ads_rutas.py
+new file mode 100644
+index 0000000..b170947
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_ads_rutas.py
+@@ -0,0 +1,201 @@
++import pytest
++from unittest.mock import patch, MagicMock
++from fastapi.testclient import TestClient
++from backend.app.main import app
++
++# Creamos el cliente de prueba
++client = TestClient(app)
++
++class TestAdsRutas:
++    
++    def test_post_ads_success(self):
++        """Prueba que POST /ads cree un anuncio correctamente."""
++        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7), \
++             patch('backend.app.rutas.ads.crear_anuncio', return_value=123) as mock_crear:
++            
++            response = client.post("/ads", 
++                                 json={
++                                     "categoria_id": 1,
++                                     "titulo": "Titulo de prueba",
++                                     "descripcion": "Descripcion de prueba",
++                                     "precio_centavos": 1000
++                                 },
++                                 headers={"Authorization": "Bearer cualquiera"})
++            
++            assert response.status_code == 201
++            assert response.json() == {"id": 123}
++            mock_crear.assert_called_once_with(
++                usuario_id=7,
++                categoria_id=1,
++                titulo="Titulo de prueba",
++                descripcion="Descripcion de prueba",
++                precio_centavos=1000
++            )
++    
++    def test_post_ads_invalid_token(self):
++        """Prueba que POST /ads falle con 401 si el token es inválido."""
++        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=None):
++            response = client.post("/ads", 
++                                 json={
++                                     "categoria_id": 1,
++                                     "titulo": "Titulo de prueba",
++                                     "descripcion": "Descripcion de prueba",
++                                     "precio_centavos": 1000
++                                 },
++                                 headers={"Authorization": "Bearer cualquiera"})
++            
++            assert response.status_code == 401
++            assert response.json() == {"error": "Sesión no válida"}
++    
++    def test_post_ads_validation_error(self):
++        """Prueba que POST /ads falle con 400 si los datos son inválidos."""
++        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7), \
++             patch('backend.app.rutas.ads.crear_anuncio', side_effect=ValueError("Título no puede estar vacío")):
++            
++            response = client.post("/ads", 
++                                 json={
++                                     "categoria_id": 1,
++                                     "titulo": "",
++                                     "descripcion": "Descripcion de prueba",
++                                     "precio_centavos": 1000
++                                 },
++                                 headers={"Authorization": "Bearer cualquiera"})
++            
++            assert response.status_code == 400
++            assert response.json() == {"error": "Título no puede estar vacío"}
++    
++    def test_get_ads(self):
++        """Prueba que GET /ads funcione."""
++        # Esta prueba es más compleja ya que no tenemos implementación aún
++        # Pero vamos a verificar que se llame al endpoint
++        response = client.get("/ads")
++        assert response.status_code == 501  # No implementado
++    
++    def test_get_ads_by_id_success(self):
++        """Prueba que GET /ads/{id} devuelva un anuncio existente."""
++        with patch('backend.app.rutas.ads.obtener_anuncio', return_value={
++            "id": 1,
++            "usuario_id": 7,
++            "categoria_id": 1,
++            "titulo": "Titulo de prueba",
++            "descripcion": "Descripcion de prueba",
++            "precio_centavos": 1000
++        }):
++            response = client.get("/ads/1")
++            assert response.status_code == 200
++            assert response.json() == {
++                "id": 1,
++                "usuario_id": 7,
++                "categoria_id": 1,
++                "titulo": "Titulo de prueba",
++                "descripcion": "Descripcion de prueba",
++                "precio_centavos": 1000
++            }
++    
++    def test_get_ads_by_id_not_found(self):
++        """Prueba que GET /ads/{id} falle con 404 si el anuncio no existe."""
++        with patch('backend.app.rutas.ads.obtener_anuncio', return_value=None):
++            response = client.get("/ads/999")
++            assert response.status_code == 404
++            assert response.json() == {"error": "Anuncio no encontrado"}
++    
++    def test_put_ads_success(self):
++        """Prueba que PUT /ads/{id} actualice un anuncio correctamente."""
++        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7), \
++             patch('backend.app.rutas.ads.actualizar_anuncio', return_value=True) as mock_actualizar:
++            
++            response = client.put("/ads/1", 
++                                json={
++                                    "titulo": "Nuevo titulo",
++                                    "descripcion": "Nueva descripcion",
++                                    "precio_centavos": 2000
++                                },
++                                headers={"Authorization": "Bearer cualquiera"})
++            
++            assert response.status_code == 200
++            assert response.json() == {"status": "success"}
++            mock_actualizar.assert_called_once_with(
++                ad_id=1,
++                usuario_id=7,
++                titulo="Nuevo titulo",
++                descripcion="Nueva descripcion",
++                precio_centavos=2000
++            )
++    
++    def test_put_ads_invalid_token(self):
++        """Prueba que PUT /ads/{id} falle con 401 si el token es inválido."""
++        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=None):
++            response = client.put("/ads/1", 
++                                json={
++                                    "titulo": "Nuevo titulo",
++                                    "descripcion": "Nueva descripcion",
++                                    "precio_centavos": 2000
++                                },
++                                headers={"Authorization": "Bearer cualquiera"})
++            
++            assert response.status_code == 401
++            assert response.json() == {"error": "Sesión no válida"}
++    
++    def test_put_ads_forbidden(self):
++        """Prueba que PUT /ads/{id} falle con 403 si el usuario no es dueño del anuncio."""
++        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7), \
++             patch('backend.app.rutas.ads.actualizar_anuncio', return_value=False):
++            
++            response = client.put("/ads/1", 
++                                json={
++                                    "titulo": "Nuevo titulo",
++                                    "descripcion": "Nueva descripcion",
++                                    "precio_centavos": 2000
++                                },
++                                headers={"Authorization": "Bearer cualquiera"})
++            
++            assert response.status_code == 403
++            assert response.json() == {"error": "No tienes permisos para actualizar este anuncio"}
++    
++    def test_put_ads_validation_error(self):
++        """Prueba que PUT /ads/{id} falle con 400 si los datos son inválidos."""
++        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7), \
++             patch('backend.app.rutas.ads.actualizar_anuncio', side_effect=ValueError("Título no puede estar vacío")):
++            
++            response = client.put("/ads/1", 
++                                json={
++                                    "titulo": "",
++                                    "descripcion": "Nueva descripcion",
++                                    "precio_centavos": 2000
++                                },
++                                headers={"Authorization": "Bearer cualquiera"})
++            
++            assert response.status_code == 400
++            assert response.json() == {"error": "Título no puede estar vacío"}
++    
++    def test_delete_ads_success(self):
++        """Prueba que DELETE /ads/{id} elimine un anuncio correctamente."""
++        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7), \
++             patch('backend.app.rutas.ads.eliminar_anuncio', return_value=True) as mock_eliminar:
++            
++            response = client.delete("/ads/1", 
++                                   headers={"Authorization": "Bearer cualquiera"})
++            
++            assert response.status_code == 200
++            assert response.json() == {"status": "success"}
++            mock_eliminar.assert_called_once_with(ad_id=1, usuario_id=7)
++    
++    def test_delete_ads_invalid_token(self):
++        """Prueba que DELETE /ads/{id} falle con 401 si el token es inválido."""
++        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=None):
++            response = client.delete("/ads/1", 
++                                   headers={"Authorization": "Bearer cualquiera"})
++            
++            assert response.status_code == 401
++            assert response.json() == {"error": "Sesión no válida"}
++    
++    def test_delete_ads_forbidden(self):
++        """Prueba que DELETE /ads/{id} falle con 403 si el usuario no es dueño del anuncio."""
++        with patch('backend.app.rutas.ads.usuario_desde_token', return_value=7), \
++             patch('backend.app.rutas.ads.eliminar_anuncio', return_value=False):
++            
++            response = client.delete("/ads/1", 
++                                   headers={"Authorization": "Bearer cualquiera"})
++            
++            assert response.status_code == 403
++            assert response.json() == {"error": "No tienes permisos para eliminar este anuncio"}
+\ No newline at end of file

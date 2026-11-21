@@ -1,0 +1,208 @@
+diff --git a/.sucio-antes b/.sucio-antes
+new file mode 100644
+index 0000000..e69de29
+diff --git a/ejemplo-clasificados/backend/app/datos/search_ads.py b/ejemplo-clasificados/backend/app/datos/search_ads.py
+new file mode 100644
+index 0000000..0674e69
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/datos/search_ads.py
+@@ -0,0 +1,30 @@
++from backend.app.datos.conexion import conexion
++
++def buscar_anuncios_db(texto: str, categoria: str | None = None) -> list[dict]:
++    """Busca anuncios por texto libre y opcionalmente por categoría.
++    
++    Args:
++        texto: Texto a buscar en título o descripción
++        categoria: ID de categoría opcional
++        
++    Returns:
++        Lista de diccionarios con los anuncios encontrados
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            if categoria is None:
++                # Búsqueda sin filtro por categoría
++                cur.execute("""
++                    SELECT id, titulo, descripcion, categoria_id 
++                    FROM anuncios 
++                    WHERE titulo LIKE %s OR descripcion LIKE %s
++                """, (f"%{texto}%", f"%{texto}%"))
++            else:
++                # Búsqueda con filtro por categoría
++                cur.execute("""
++                    SELECT id, titulo, descripcion, categoria_id 
++                    FROM anuncios 
++                    WHERE (titulo LIKE %s OR descripcion LIKE %s) AND categoria_id = %s
++                """, (f"%{texto}%", f"%{texto}%", categoria))
++            
++            return cur.fetchall()
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/rutas/search.py b/ejemplo-clasificados/backend/app/rutas/search.py
+new file mode 100644
+index 0000000..2c944d0
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/search.py
+@@ -0,0 +1,22 @@
++from fastapi import APIRouter, Depends, HTTPException
++from typing import Optional
++from backend.app.servicios.search import buscar_anuncios
++
++router = APIRouter(prefix="/search", tags=["búsqueda"])
++
++@router.get("/")
++def buscar_anuncios_endpoint(q: str, category: Optional[str] = None):
++    """Endpoint para buscar anuncios por texto y categoría.
++    
++    Args:
++        q: Texto a buscar en título o descripción
++        category: ID de categoría opcional
++        
++    Returns:
++        Lista de anuncios que coinciden con los criterios de búsqueda
++    """
++    try:
++        resultados = buscar_anuncios(q, category)
++        return resultados
++    except Exception as e:
++        raise HTTPException(status_code=500, detail="Error en la búsqueda")
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/servicios/search.py b/ejemplo-clasificados/backend/app/servicios/search.py
+new file mode 100644
+index 0000000..29726ff
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/servicios/search.py
+@@ -0,0 +1,13 @@
++from backend.app.datos.search_ads import buscar_anuncios_db
++
++def buscar_anuncios(texto: str, categoria: str | None = None) -> list[dict]:
++    """Devuelve anuncios que coinciden con el texto y, opcionalmente, la categoría.
++    
++    Args:
++        texto: Texto a buscar en título o descripción
++        categoria: ID de categoría opcional
++        
++    Returns:
++        Lista de diccionarios con los anuncios encontrados
++    """
++    return buscar_anuncios_db(texto, categoria)
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_search_backend.py b/ejemplo-clasificados/backend/tests/test_search_backend.py
+new file mode 100644
+index 0000000..9780691
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_search_backend.py
+@@ -0,0 +1,112 @@
++import pytest
++from unittest.mock import patch, MagicMock
++from fastapi import HTTPException
++from backend.app.servicios.search import buscar_anuncios
++from backend.app.datos.search_ads import buscar_anuncios_db
++
++
++class TestSearchBackend:
++    
++    def test_buscar_anuncios_sin_filtro(self):
++        """Prueba búsqueda sin filtro por categoría"""
++        # Mock de la capa de datos
++        with patch('backend.app.datos.search_ads.buscar_anuncios_db') as mock_buscar:
++            mock_result = [
++                {"id": 1, "titulo": "Anuncio 1", "descripcion": "Descripción 1", "categoria_id": 1},
++                {"id": 2, "titulo": "Anuncio 2", "descripcion": "Descripción 2", "categoria_id": 2}
++            ]
++            mock_buscar.return_value = mock_result
++            
++            # Llamada al servicio
++            resultado = buscar_anuncios("texto")
++            
++            # Verificaciones
++            assert resultado == mock_result
++            mock_buscar.assert_called_once_with("texto", None)
++    
++    def test_buscar_anuncios_con_filtro(self):
++        """Prueba búsqueda con filtro por categoría"""
++        # Mock de la capa de datos
++        with patch('backend.app.datos.search_ads.buscar_anuncios_db') as mock_buscar:
++            mock_result = [
++                {"id": 1, "titulo": "Anuncio 1", "descripcion": "Descripción 1", "categoria_id": 1},
++                {"id": 2, "titulo": "Anuncio 2", "descripcion": "Descripción 2", "categoria_id": 1}
++            ]
++            mock_buscar.return_value = mock_result
++            
++            # Llamada al servicio
++            resultado = buscar_anuncios("texto", "categoria1")
++            
++            # Verificaciones
++            assert resultado == mock_result
++            mock_buscar.assert_called_once_with("texto", "categoria1")
++    
++    def test_buscar_anuncios_db_sin_resultados(self):
++        """Prueba búsqueda en base de datos sin resultados"""
++        # Mock de la conexión a base de datos
++        with patch('backend.app.datos.conexion') as mock_conexion:
++            mock_cursor = MagicMock()
++            mock_conn_instance = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn_instance
++            mock_conn_instance.cursor.return_value = mock_cursor
++            mock_cursor.fetchall.return_value = []
++            
++            # Llamada a la función de datos
++            resultado = buscar_anuncios_db("texto", None)
++            
++            # Verificaciones
++            assert resultado == []
++            mock_cursor.execute.assert_called_once_with(
++                "SELECT id, titulo, descripcion, categoria_id FROM anuncios WHERE titulo LIKE %s OR descripcion LIKE %s",
++                ("%texto%", "%texto%")
++            )
++    
++    def test_buscar_anuncios_db_con_resultados(self):
++        """Prueba búsqueda en base de datos con resultados"""
++        # Mock de la conexión a base de datos
++        with patch('backend.app.datos.conexion') as mock_conexion:
++            mock_cursor = MagicMock()
++            mock_conn_instance = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn_instance
++            mock_conn_instance.cursor.return_value = mock_cursor
++            mock_cursor.fetchall.return_value = [
++                {"id": 1, "titulo": "Anuncio 1", "descripcion": "Descripción 1", "categoria_id": 1},
++                {"id": 2, "titulo": "Anuncio 2", "descripcion": "Descripción 2", "categoria_id": 1}
++            ]
++            
++            # Llamada a la función de datos
++            resultado = buscar_anuncios_db("texto", None)
++            
++            # Verificaciones
++            assert len(resultado) == 2
++            assert resultado[0]["titulo"] == "Anuncio 1"
++            assert resultado[1]["titulo"] == "Anuncio 2"
++            mock_cursor.execute.assert_called_once_with(
++                "SELECT id, titulo, descripcion, categoria_id FROM anuncios WHERE titulo LIKE %s OR descripcion LIKE %s",
++                ("%texto%", "%texto%")
++            )
++    
++    def test_buscar_anuncios_db_con_filtro(self):
++        """Prueba búsqueda en base de datos con filtro por categoría"""
++        # Mock de la conexión a base de datos
++        with patch('backend.app.datos.conexion') as mock_conexion:
++            mock_cursor = MagicMock()
++            mock_conn_instance = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn_instance
++            mock_conn_instance.cursor.return_value = mock_cursor
++            mock_cursor.fetchall.return_value = [
++                {"id": 1,  "titulo": "Anuncio 1", "descripcion": "Descripción 1", "categoria_id": 1},
++                {"id": 2, "titulo": "Anuncio 2", "descripcion": "Descripción 2", "categoria_id": 1}
++            ]
++            
++            # Llamada a la función de datos
++            resultado = buscar_anuncios_db("texto", "categoria1")
++            
++            # Verificaciones
++            assert len(resultado) == 2
++            assert resultado[0]["titulo"] == "Anuncio 1"
++            assert resultado[1]["titulo"] == "Anuncio 2"
++            mock_cursor.execute.assert_called_once_with(
++                "SELECT id, titulo, descripcion, categoria_id FROM anuncios WHERE (titulo LIKE %s OR descripcion LIKE %s) AND categoria_id = %s",
++                ("%texto%", "%texto%", "categoria1")
++            )
+\ No newline at end of file

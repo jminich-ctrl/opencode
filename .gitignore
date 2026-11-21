@@ -23,3 +23,7 @@ colabhive/research/live/
 node_modules
 .entorno
 .mysql
+
+# El material crudo cosechado SÍ se versiona, aunque sean .log: es el producto, no ruido.
+# `*.log` de arriba lo excluía entero y lo dejaba fuera del commit en silencio.
+!experimentos/crudo/**/*.log

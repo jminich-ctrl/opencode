@@ -1,0 +1,207 @@
+diff --git a/.sucio-antes b/.sucio-antes
+new file mode 100644
+index 0000000..e69de29
+diff --git a/ejemplo-clasificados/backend/app/datos/search_ads.py b/ejemplo-clasificados/backend/app/datos/search_ads.py
+new file mode 100644
+index 0000000..94c5236
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/datos/search_ads.py
+@@ -0,0 +1,50 @@
++"""
++Módulo de datos para búsqueda de anuncios.
++Contiene funciones para acceder a la base de datos y obtener anuncios según criterios de búsqueda.
++"""
++
++from backend.app.datos.conexion import conexion
++
++
++def obtener_anuncios_buscados(texto: str, categoria: str | None = None) -> list[dict]:
++    """
++    Obtiene anuncios que coinciden con el texto de búsqueda y, opcionalmente, la categoría.
++    
++    Args:
++        texto: Texto a buscar en los campos de los anuncios
++        categoria: Categoría opcional para filtrar los resultados
++        
++    Returns:
++        Lista de diccionarios con los anuncios encontrados
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            if categoria is None:
++                # Búsqueda solo por texto
++                cur.execute("""
++                    SELECT id, titulo, descripcion, precio_centavos, categoria, usuario_id
++                    FROM anuncios 
++                    WHERE titulo LIKE %s OR descripcion LIKE %s
++                    ORDER BY id DESC
++                """, (f"%{texto}%", f"%{texto}%"))
++            else:
++                # Búsqueda por texto y categoría
++                cur.execute("""
++                    SELECT id, titulo, descripcion, precio_centavos, categoria, usuario_id
++                    FROM anuncios 
++                    WHERE (titulo LIKE %s OR descripcion LIKE %s) AND categoria = %s
++                    ORDER BY id DESC
++                """, (f"%{texto}%", f"%{texto}%", categoria))
++            
++            resultados = []
++            for row in cur.fetchall():
++                resultados.append({
++                    "id": row["id"],
++                    "titulo": row["titulo"],
++                    "descripcion": row["descripcion"],
++                    "precio": row["precio_centavos"],
++                    "categoria": row["categoria"],
++                    "usuario_id": row["usuario_id"]
++                })
++            
++            return resultados
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/rutas/search.py b/ejemplo-clasificados/backend/app/rutas/search.py
+new file mode 100644
+index 0000000..d3ed133
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/search.py
+@@ -0,0 +1,28 @@
++"""
++Ruta de búsqueda de anuncios.
++Define el endpoint GET /search para buscar anuncios por texto y categoría.
++"""
++
++from fastapi import APIRouter, Query
++from typing import Optional
++from backend.app.servicios.search import buscar_anuncios
++
++router = APIRouter()
++
++
++@router.get("/search")
++def buscar_anuncios_endpoint(
++    q: str = Query(..., description="Texto a buscar en los anuncios"),
++    category: Optional[str] = Query(None, description="Filtrar por categoría")
++):
++    """
++    Busca anuncios por texto libre y opcionalmente por categoría.
++    
++    Args:
++        q: Texto a buscar en los campos de los anuncios
++        category: Categoría opcional para filtrar los resultados
++        
++    Returns:
++        Lista de anuncios que coinciden con los criterios de búsqueda
++    """
++    return buscar_anuncios(q, category)
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/servicios/search.py b/ejemplo-clasificados/backend/app/servicios/search.py
+new file mode 100644
+index 0000000..4cba2da
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/servicios/search.py
+@@ -0,0 +1,20 @@
++"""
++Módulo de servicios para búsqueda de anuncios.
++Contiene la lógica de negocio para la búsqueda de anuncios.
++"""
++
++from backend.app.datos.search_ads import obtener_anuncios_buscados
++
++
++def buscar_anuncios(texto: str, categoria: str | None = None) -> list[dict]:
++    """
++    Devuelve anuncios que coinciden con el texto y, opcionalmente, la categoría.
++    
++    Args:
++        texto: Texto a buscar en los campos de los anuncios
++        categoria: Categoría opcional para filtrar los resultados
++        
++    Returns:
++        Lista de diccionarios con los anuncios encontrados
++    """
++    return obtener_anuncios_buscados(texto, categoria)
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_search_backend.py b/ejemplo-clasificados/backend/tests/test_search_backend.py
+new file mode 100644
+index 0000000..c631d0c
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_search_backend.py
+@@ -0,0 +1,78 @@
++import pytest
++from unittest.mock import patch, MagicMock
++from fastapi import HTTPException
++from backend.app.servicios.search import buscar_anuncios
++from backend.app.datos.search_ads import obtener_anuncios_buscados
++from backend.app.rutas.search import router
++
++
++class TestSearchBackend:
++    """Tests para la funcionalidad de búsqueda de anuncios."""
++    
++    def test_buscar_anuncios_por_texto(self):
++        """Test que busca anuncios por texto."""
++        # Mockeamos la función de datos
++        with patch('backend.app.datos.search_ads.obtener_anuncios_buscados') as mock_obtener:
++            # Configuramos el mock para devolver resultados
++            mock_obtener.return_value = [
++                {
++                    "id": 1,
++                    "titulo": "Anuncio de prueba",
++                    "descripcion": "Descripción del anuncio",
++                    "precio": 1000,
++                    "categoria": "Electrónica",
++                    "usuario_id": 1
++                }
++            ]
++            
++            # Llamamos a la función de servicio
++            resultado = buscar_anuncios("prueba")
++            
++            # Verificamos que se llamó a la función de datos con los parámetros correctos
++            mock_obtener.assert_called_once_with("prueba", None)
++            
++            # Verificamos que el resultado es el esperado
++            assert len(resultado) == 1
++            assert resultado[0]["titulo"] == "Anuncio de prueba"
++    
++    def test_buscar_anuncios_por_texto_y_categoria(self):
++        """Test que busca anuncios por texto y categoría."""
++        # Mockeamos la función de datos
++        with patch('backend.app.datos.search_ads.obtener_anuncios_buscados') as mock_obtener:
++            # Configuramos el mock para devolver resultados
++            mock_obtener.return_value = [
++                {
++                    "id": 1,
++                    "titulo": "Anuncio de prueba",
++                    "descripcion": "Descripción del anuncio",
++                    "precio": 1000,
++                    "categoria": "Electrónica",
++                    "usuario_id": 1
++                }
++            ]
++            
++            # Llamamos a la función de servicio
++            resultado = buscar_anuncios("prueba", "Electrónica")
++            
++            # Verificamos que se llamó a la función de datos con los parámetros correctos
++            mock_obtener.assert_called_once_with("prueba", "Electrónica")
++            
++            # Verificamos que el resultado es el esperado
++            assert len(resultado) == 1
++            assert resultado[0]["categoria"] == "Electrónica"
++    
++    def test_buscar_anuncios_sin_resultados(self):
++        """Test que busca anuncios sin encontrar resultados."""
++        # Mockeamos la función de datos
++        with patch('backend.app.datos.search_ads.obtener_anuncios_buscados') as mock_obtener:
++            # Configuramos el mock para devolver resultados vacíos
++            mock_obtener.return_value = []
++            
++            # Llamamos a la función de servicio
++            resultado = buscar_anuncios("prueba")
++            
++            # Verificamos que se llamó a la función de datos con los parámetros correctos
++            mock_obtener.assert_called_once_with("prueba", None)
++            
++            # Verificamos que el resultado es una lista vacía
++            assert resultado == []
+\ No newline at end of file

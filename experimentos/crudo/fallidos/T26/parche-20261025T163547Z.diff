@@ -1,0 +1,127 @@
+diff --git a/.sucio-antes b/.sucio-antes
+new file mode 100644
+index 0000000..e69de29
+diff --git a/ejemplo-clasificados/backend/app/datos/users_register.py b/ejemplo-clasificados/backend/app/datos/users_register.py
+new file mode 100644
+index 0000000..146f93c
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/datos/users_register.py
+@@ -0,0 +1,13 @@
++from backend.app.datos.conexion import conexion
++
++
++def insert_user(email: str, password_hash: str) -> int:
++    """Inserta la fila y devuelve el id nuevo. Lanza si el email ya existe.
++    Recibe el hash YA calculado: el hasheo es del servicio, no de la capa de datos."""
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "INSERT INTO usuarios (email, clave_hash) VALUES (%s, %s)",
++                (email, password_hash)
++            )
++            return cur.lastrowid
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/rutas/register.py b/ejemplo-clasificados/backend/app/rutas/register.py
+new file mode 100644
+index 0000000..ef61e12
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/register.py
+@@ -0,0 +1,19 @@
++from fastapi import APIRouter, HTTPException
++from backend.app.servicios.register import crear_usuario
++
++
++router = APIRouter()
++
++
++@router.post("/register")
++async def register(email: str, password: str):
++    try:
++        user_id = crear_usuario(email, password)
++        return {"id": user_id}
++    except ValueError as e:
++        raise HTTPException(status_code=400, detail=str(e))
++    except Exception as e:
++        # Manejo de casos especiales como emails duplicados
++        if "already exists" in str(e).lower():
++            raise HTTPException(status_code=409, detail="Email already registered")
++        raise HTTPException(status_code=500, detail="Internal server error")
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/servicios/register.py b/ejemplo-clasificados/backend/app/servicios/register.py
+new file mode 100644
+index 0000000..2b505e2
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/servicios/register.py
+@@ -0,0 +1,19 @@
++import hashlib
++from backend.app.datos.users_register import insert_user
++
++
++def crear_usuario(email: str, password: str) -> int:
++    """Valida, hashea con el mismo esquema que `auth.py` y delega en
++    `users_register.insert_user`. Devuelve el id."""
++    # Validar datos básicos
++    if not email or "@" not in email:
++        raise ValueError("Email inválido")
++    
++    if not password or len(password) < 6:
++        raise ValueError("Contraseña inválida")
++    
++    # Hashear contraseña con sha256 (igual que en auth.py)
++    password_hash = hashlib.sha256(password.encode()).hexdigest()
++    
++    # Insertar usuario
++    return insert_user(email, password_hash)
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_register_backend.py b/ejemplo-clasificados/backend/tests/test_register_backend.py
+new file mode 100644
+index 0000000..2768e15
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_register_backend.py
+@@ -0,0 +1,45 @@
++import hashlib
++import pytest
++from unittest.mock import patch
++from fastapi import HTTPException
++from backend.app.servicios.register import crear_usuario
++from backend.app.datos.users_register import insert_user
++
++
++class TestRegisterBackend:
++    def test_registro_usuario_ok(self):
++        """El usuario se registra correctamente con hash de contraseña"""
++        # Arrange
++        email = "test@example.com"
++        password = "password123"
++        
++        # Mockear la función de inserción en la base de datos
++        with patch('backend.app.datos.users_register.insert_user') as mock_insert:
++            mock_insert.return_value = 123
++            
++            # Act
++            result = crear_usuario(email, password)
++            
++            # Assert
++            assert result == 123
++            mock_insert.assert_called_once_with(
++                email, 
++                hashlib.sha256(password.encode()).hexdigest()
++            )
++    
++    def test_registro_usuario_email_repetido(self):
++        """Al registrar un email repetido, se lanza una excepción HTTP 409"""
++        # Arrange
++        email = "test@example.com"
++        password = "password123"
++        
++        # Mockear la función de inserción en la base de datos para lanzar excepción
++        with patch('backend.app.datos.users_register.insert_user') as mock_insert:
++            mock_insert.side_effect = Exception("Email already exists")
++            
++            # Act & Assert
++            with pytest.raises(HTTPException) as exc_info:
++                crear_usuario(email, password)
++            
++            # Assert
++            assert exc_info.value.status_code == 409
+\ No newline at end of file

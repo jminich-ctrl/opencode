@@ -1,0 +1,76 @@
+diff --git a/.sucio-antes b/.sucio-antes
+new file mode 100644
+index 0000000..e69de29
+diff --git a/ejemplo-clasificados/backend/app/rutas/favorites.py b/ejemplo-clasificados/backend/app/rutas/favorites.py
+new file mode 100644
+index 0000000..7fbca9d
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/favorites.py
+@@ -0,0 +1,16 @@
++from fastapi import APIRouter, Depends
++from ..datos.favorites import toggle_favorite, get_user_favorites
++
++router = APIRouter()
++
++@router.post("/favorites/toggle")
++async def toggle_favorite_endpoint(user_id: int, ad_id: int):
++    """Endpoint que delega al servicio para marcar/desmarcar favorito."""
++    is_favorite = toggle_favorite(user_id, ad_id)
++    return {"is_favorite": is_favorite}
++
++@router.get("/favorites/list/{user_id}")
++async def get_user_favorites_endpoint(user_id: int):
++    """Endpoint que devuelve la lista de anuncios favoritos de un usuario."""
++    favorites = get_user_favorites(user_id)
++    return {"favorites": favorites}
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_favorites_rutas.py b/ejemplo-clasificados/backend/tests/test_favorites_rutas.py
+new file mode 100644
+index 0000000..71afcc1
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_favorites_rutas.py
+@@ -0,0 +1,43 @@
++import pytest
++from unittest.mock import patch
++from fastapi.testclient import TestClient
++from backend.app.main import app
++
++# Creamos un cliente de prueba
++client = TestClient(app)
++
++class TestFavoritesRutas:
++    
++    def test_toggle_favorite_endpoint(self):
++        """Prueba que el endpoint toggle_favorite funcione correctamente."""
++        # Mockeamos la función toggle_favorite para evitar acceso a base de datos
++        with patch('backend.app.rutas.favorites.toggle_favorite') as mock_toggle:
++            mock_toggle.return_value = True
++            
++            # Hacemos la llamada al endpoint
++            response = client.post("/favorites/toggle", json={"user_id": 1, "ad_id": 2})
++            
++            # Verificamos que la respuesta sea correcta
++            assert response.status_code == 200
++            data = response.json()
++            assert data["is_favorite"] == True
++            
++            # Verificamos que se haya llamado a la función mockeada
++            mock_toggle.assert_called_once_with(1, 2)
++    
++    def test_get_user_favorites_endpoint(self):
++        """Prueba que el endpoint get_user_favorites funcione correctamente."""
++        # Mockeamos la función get_user_favorites para evitar acceso a base de datos
++        with patch('backend.app.rutas.favorites.get_user_favorites') as mock_get_favorites:
++            mock_get_favorites.return_value = [1, 2, 3]
++            
++            # Hacemos la llamada al endpoint
++            response = client.get("/favorites/list/1")
++            
++            # Verificamos que la respuesta sea correcta
++            assert response.status_code == 200
++            data = response.json()
++            assert data["favorites"] == [1, 2, 3]
++            
++            # Verificamos que se haya llamado a la función mockeada
++            mock_get_favorites.assert_called_once_with(1)
+\ No newline at end of file

@@ -1,0 +1,247 @@
+diff --git a/ejemplo-clasificados/backend/app/datos/ads.py b/ejemplo-clasificados/backend/app/datos/ads.py
+new file mode 100644
+index 0000000..2f06392
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/datos/ads.py
+@@ -0,0 +1,45 @@
++from .conexion import conexion
++
++def insert_ad(titulo: str, descripcion: str, precio: int) -> int:
++    """Inserta un nuevo anuncio en la base de datos y devuelve su ID."""
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute("""
++                INSERT INTO ads (title, description, price) 
++                VALUES (%s, %s, %s)
++            """, (titulo, descripcion, precio))
++            conn.commit()
++            # Obtener el ID del último registro insertado
++            cur.execute("SELECT LAST_INSERT_ID()")
++            result = cur.fetchone()
++            return result['LAST_INSERT_ID()'] if result else None
++
++def get_ad_by_id(ad_id: int) -> dict:
++    """Obtiene un anuncio por su ID."""
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute("""
++                SELECT id, title, description, price, created_at 
++                FROM ads 
++                WHERE id = %s
++            """, (ad_id,))
++            result = cur.fetchone()
++            return result
++
++def update_ad(ad_id: int, titulo: str, descripcion: str, precio: int) -> bool:
++    """Actualiza un anuncio existente."""
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute("""
++                UPDATE ads 
++                SET title = %s, description = %s, price = %s
++                WHERE id = %s
++            """, (titulo, descripcion, precio, ad_id))
++            return cur.rowcount > 0
++
++def delete_ad(ad_id: int) -> bool:
++    """Elimina un anuncio existente."""
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute("DELETE FROM ads WHERE id = %s", (ad_id,))
++            return cur.rowcount > 0
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/rutas/ads.py b/ejemplo-clasificados/backend/app/rutas/ads.py
+new file mode 100644
+index 0000000..20260ed
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/ads.py
+@@ -0,0 +1,102 @@
++from fastapi import APIRouter, Request, Response, HTTPException
++from ..servicios.ads import crear_anuncio, obtener_anuncio, actualizar_anuncio, eliminar_anuncio
++from ..servicios.auth import usuario_desde_token
++
++router = APIRouter()
++
++@router.post("/ads")
++async def crear_ad(request: Request) -> Response:
++    """Crea un nuevo anuncio y devuelve su ID."""
++    # Obtener el token del encabezado
++    token = request.headers.get("Authorization", "").replace("Bearer ", "")
++    
++    # Validar autenticación
++    try:
++        usuario = usuario_desde_token(token)
++    except Exception:
++        raise HTTPException(status_code=401, detail="Token inválido")
++    
++    # Parsear el cuerpo de la solicitud
++    body = await request.json()
++    
++    # Extraer datos del cuerpo
++    titulo = body.get("title")
++    descripcion = body.get("description")
++    precio = body.get("price")
++    
++    try:
++        # Crear el anuncio
++        ad_id = crear_anuncio(titulo, descripcion, precio)
++        
++        # Devolver respuesta con el ID del anuncio creado
++        response = Response(content=str(ad_id), status_code=201)
++        return response
++    except ValueError as e:
++        raise HTTPException(status_code=400, detail=str(e))
++
++@router.get("/ads/{id}")
++async def obtener_ad(id: int) -> dict:
++    """Obtiene un anuncio por su ID."""
++    ad = obtener_anuncio(id)
++    
++    if ad is None:
++        raise HTTPException(status_code=404, detail="Anuncio no encontrado")
++        
++    return {
++        "id": ad["id"],
++        "title": ad["title"],
++        "description": ad["description"],
++        "price": ad["price"],
++        "created_at": ad["created_at"]
++    }
++
++@router.put("/ads/{id}")
++async def actualizar_ad(id: int, request: Request) -> Response:
++    """Actualiza un anuncio existente."""
++    # Obtener el token del encabezado
++    token = request.headers.get("Authorization", "").replace("Bearer ", "")
++    
++    # Validar autenticación
++    try:
++        usuario = usuario_desde_token(token)
++    except Exception:
++        raise HTTPException(status_code=401, detail="Token inválido")
++    
++    # Parsear el cuerpo de la solicitud
++    body = await request.json()
++    
++    # Extraer datos del cuerpo
++    titulo = body.get("title")
++    descripcion = body.get("description")
++    precio = body.get("price")
++    
++    try:
++        # Actualizar el anuncio
++        success = actualizar_anuncio(id, titulo, descripcion, precio)
++        
++        if not success:
++            raise HTTPException(status_code=404, detail="Anuncio no encontrado")
++            
++        return Response(status_code=200)
++    except ValueError as e:
++        raise HTTPException(status_code=400, detail=str(e))
++
++@router.delete("/ads/{id}")
++async def eliminar_ad(id: int, request: Request) -> Response:
++    """Elimina un anuncio existente."""
++    # Obtener el token del encabezado
++    token = request.headers.get("Authorization", "").replace("Bearer ", "")
++    
++    # Validar autenticación
++    try:
++        usuario = usuario_desde_token(token)
++    except Exception:
++        raise HTTPException(status_code=401, detail="Token inválido")
++    
++    # Eliminar el anuncio
++    success = eliminar_anuncio(id)
++    
++    if not success:
++        raise HTTPException(status_code=404, detail="Anuncio no encontrado")
++        
++    return Response(status_code=200)
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/servicios/ads.py b/ejemplo-clasificados/backend/app/servicios/ads.py
+new file mode 100644
+index 0000000..80e6e88
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/servicios/ads.py
+@@ -0,0 +1,79 @@
++from ..datos.ads import insert_ad, get_ad_by_id, update_ad, delete_ad
++
++def crear_anuncio(titulo: str, descripcion: str, precio: int) -> int:
++    """
++    Crea un nuevo anuncio validando los datos.
++    
++    Args:
++        titulo (str): Título del anuncio
++        descripcion (str): Descripción del anuncio  
++        precio (int): Precio del anuncio en centavos
++        
++    Returns:
++        int: ID del nuevo anuncio
++        
++    Raises:
++        ValueError: Si los datos son inválidos
++    """
++    # Validaciones básicas
++    if not titulo or not isinstance(titulo, str) or len(titulo.strip()) == 0:
++        raise ValueError("Título inválido")
++        
++    if not descripcion or not isinstance(descripcion, str) or len(descripcion.strip()) == 0:
++        raise ValueError("Descripción inválida")
++        
++    if not isinstance(precio, int) or precio < 0:
++        raise ValueError("Precio inválido")
++        
++    # Crear el anuncio
++    return insert_ad(titulo.strip(), descripcion.strip(), precio)
++
++def obtener_anuncio(ad_id: int) -> dict:
++    """
++    Obtiene un anuncio por su ID.
++    
++    Args:
++        ad_id (int): ID del anuncio a obtener
++        
++    Returns:
++        dict: Datos del anuncio o None si no existe
++    """
++    return get_ad_by_id(ad_id)
++
++def actualizar_anuncio(ad_id: int, titulo: str, descripcion: str, precio: int) -> bool:
++    """
++    Actualiza un anuncio existente.
++    
++    Args:
++        ad_id (int): ID del anuncio a actualizar
++        titulo (str): Nuevo título del anuncio
++        descripcion (str): Nueva descripción del anuncio
++        precio (int): Nuevo precio del anuncio en centavos
++        
++    Returns:
++        bool: True si se actualizó correctamente, False si no existe
++    """
++    # Validaciones básicas
++    if not titulo or not isinstance(titulo, str) or len(titulo.strip()) == 0:
++        raise ValueError("Título inválido")
++        
++    if not descripcion or not isinstance(descripcion, str) or len(descripcion.strip()) == 0:
++        raise ValueError("Descripción inválida")
++        
++    if not isinstance(precio, int) or precio < 0:
++        raise ValueError("Precio inválido")
++        
++    # Actualizar el anuncio
++    return update_ad(ad_id, titulo.strip(), descripcion.strip(), precio)
++
++def eliminar_anuncio(ad_id: int) -> bool:
++    """
++    Elimina un anuncio existente.
++    
++    Args:
++        ad_id (int): ID del anuncio a eliminar
++        
++    Returns:
++        bool: True si se eliminó correctamente, False si no existe
++    """
++    return delete_ad(ad_id)
+\ No newline at end of file

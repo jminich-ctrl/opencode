@@ -1,0 +1,138 @@
+diff --git a/.sucio-antes b/.sucio-antes
+new file mode 100644
+index 0000000..e69de29
+diff --git a/ejemplo-clasificados/backend/app/datos/users_register.py b/ejemplo-clasificados/backend/app/datos/users_register.py
+new file mode 100644
+index 0000000..7ca9c41
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/datos/users_register.py
+@@ -0,0 +1,14 @@
++import hashlib
++from .conexion import conexion
++
++def insert_user(email: str, clave_hash: str, clave_salt: str = "") -> int:
++    """Inserta la fila y devuelve el id nuevo. Lanza si el email ya existe.
++    Recibe el hash YA calculado: el hasheo es del servicio, no de la capa de datos."""
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            # Insertar con clave_hash y clave_salt vacíos (como en el esquema)
++            cur.execute(
++                "INSERT INTO usuarios (email, clave_hash, clave_salt) VALUES (%s, %s, %s)",
++                (email, clave_hash, clave_salt)
++            )
++            return cur.lastrowid
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/rutas/register.py b/ejemplo-clasificados/backend/app/rutas/register.py
+new file mode 100644
+index 0000000..b279566
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/register.py
+@@ -0,0 +1,16 @@
++from fastapi import APIRouter, HTTPException
++from ..servicios.register import crear_usuario
++
++router = APIRouter()
++
++@router.post("/register")
++def register(email: str, password: str):
++    """Crea un nuevo usuario con los datos proporcionados."""
++    try:
++        user_id = crear_usuario(email, password)
++        return {"id": user_id}
++    except ValueError as e:
++        raise HTTPException(status_code=400, detail=str(e))
++    except Exception as e:
++        # Manejo genérico de errores de base de datos
++        raise HTTPException(status_code=500, detail="Error al crear usuario")
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/servicios/register.py b/ejemplo-clasificados/backend/app/servicios/register.py
+new file mode 100644
+index 0000000..61bfea8
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/servicios/register.py
+@@ -0,0 +1,18 @@
++import hashlib
++from ..datos.users_register import insert_user
++
++def crear_usuario(email: str, password: str) -> int:
++    """Valida, hashea con el mismo esquema que `auth.py` y delega en
++    `users_register.insert_user`. Devuelve el id."""
++    # Validación básica
++    if not email or not isinstance(email, str):
++        raise ValueError("Email inválido")
++    
++    if not password or not isinstance(password, str):
++        raise ValueError("Contraseña inválida")
++    
++    # Hashear contraseña usando el mismo esquema que auth.py
++    password_hash = hashlib.sha256(password.encode()).hexdigest()
++    
++    # Insertar usuario
++    return insert_user(email, password_hash)
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_register_backend.py b/ejemplo-clasificados/backend/tests/test_register_backend.py
+new file mode 100644
+index 0000000..dc74c44
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_register_backend.py
+@@ -0,0 +1,59 @@
++import hashlib
++from unittest.mock import patch
++from backend.app.servicios.register import crear_usuario
++from backend.app.datos.users_register import insert_user
++
++class TestRegisterBackend:
++    def test_crear_usuario_ok(self):
++        """Prueba que se pueda crear un usuario correctamente."""
++        # Mockear la función de inserción
++        with patch('backend.app.datos.users_register.insert_user') as mock_insert:
++            # Configurar el mock para devolver un ID
++            mock_insert.return_value = 123
++            
++            # Llamar a la función
++            result = crear_usuario("test@example.com", "password123")
++            
++            # Verificar que se llamó a la función con los parámetros correctos
++            # El mock espera 2 parámetros: email y password_hash (como en el test)
++            mock_insert.assert_called_once_with(
++                "test@example.com",
++                hashlib.sha256("password123".encode()).hexdigest()
++            )
++            
++            # Verificar que se devolvió el ID correcto
++            assert result == 123
++    
++    def test_crear_usuario_email_invalido(self):
++        """Prueba que se lance un error al crear un usuario con email inválido."""
++        # Intentar crear un usuario con email vacío
++        try:
++            crear_usuario("", "password123")
++            assert False, "Debería haber lanzado un ValueError"
++        except ValueError:
++            pass  # Esto está bien
++    
++    def test_crear_usuario_password_invalida(self):
++        """Prueba que se lance un error al crear un usuario con contraseña inválida."""
++        # Intentar crear un usuario con contraseña vacía
++        try:
++            crear_usuario("test@example.com", "")
++            assert False, "Debería haber lanzado un ValueError"
++        except ValueError:
++            pass  # Esto está bien
++    
++    def test_crear_usuario_hash_correcto(self):
++        """Prueba que se calcule correctamente el hash de la contraseña."""
++        # Mockear la función de inserción
++        with patch('backend.app.datos.users_register.insert_user') as mock_insert:
++            # Configurar el mock para devolver un ID
++            mock_insert.return_value = 123
++            
++            # Llamar a la función
++            crear_usuario("test@example.com", "password123")
++            
++            # Verificar que se llamó con el hash correcto
++            expected_hash = hashlib.sha256("password123".encode()).hexdigest()
++            mock_insert.assert_called_once()
++            args, kwargs = mock_insert.call_args
++            assert args[1] == expected_hash
+\ No newline at end of file

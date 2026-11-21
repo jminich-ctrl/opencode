@@ -1,0 +1,78 @@
+diff --git a/.sucio-antes b/.sucio-antes
+new file mode 100644
+index 0000000..e69de29
+diff --git a/ejemplo-clasificados/backend/app/rutas/favorites.py b/ejemplo-clasificados/backend/app/rutas/favorites.py
+new file mode 100644
+index 0000000..9ec6fee
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/favorites.py
+@@ -0,0 +1,13 @@
++from fastapi import APIRouter
++from backend.app.servicios.favorites import toggle_favorite_service
++
++router = APIRouter()
++
++@router.post("/favorites/toggle")
++async def toggle_favorite_endpoint(
++    user_id: int, 
++    ad_id: int
++):
++    """Endpoint que delega al servicio para marcar/desmarcar favorito."""
++    result = toggle_favorite_service(user_id, ad_id)
++    return {"status": "success" if result else "removed"}
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_favorites_rutas.py b/ejemplo-clasificados/backend/tests/test_favorites_rutas.py
+new file mode 100644
+index 0000000..0ed5c4a
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_favorites_rutas.py
+@@ -0,0 +1,48 @@
++import pytest
++from unittest.mock import patch, MagicMock
++from fastapi.testclient import TestClient
++from backend.app.main import app
++from backend.app.datos.conexion import conexion
++from backend.app.modelos import Usuario
++
++class TestFavoritesRutas:
++    
++    @pytest.fixture
++    def client(self):
++        return TestClient(app)
++    
++    @pytest.fixture
++    def mock_usuario(self):
++        return Usuario(id=1, email="test@example.com", hashed_password="hashed")
++    
++    def test_toggle_favorite_success(self, client, mock_usuario):
++        """Test que verifica el endpoint toggle_favorite"""
++        with patch('backend.app.datos.auth.get_current_user') as mock_auth, \
++             patch('backend.app.datos.favorites.toggle_favorite') as mock_toggle:
++            
++            mock_auth.return_value = mock_usuario
++            mock_toggle.return_value = {"status": "success"}
++            
++            response = client.post("/favorites/toggle", json={"user_id": 1, "ad_id": 1})
++            
++            assert response.status_code == 200
++            assert response.json() == {"status": "success"}
++            mock_toggle.assert_called_once_with(1, 1)
++    
++    def test_list_favorites_success(self, client, mock_usuario):
++        """Test que verifica el endpoint list_favorites"""
++        with patch('backend.app.datos.auth.get_current_user') as mock_auth, \
++             patch('backend.app.datos.favorites.get_user_favorites') as mock_get_favorites:
++            
++            mock_auth.return_value = mock_usuario
++            mock_get_favorites.return_value = [{"id": 1, "titulo": "Anuncio 1"}]
++            
++            response = client.get("/favorites/list")
++            
++            assert response.status_code == 200
++            assert response.json() == {
++                "favorites": [
++                    {"id": 1, "titulo": "Anuncio 1"}
++                ]
++            }
++            mock_get_favorites.assert_called_once_with(1)
+\ No newline at end of file

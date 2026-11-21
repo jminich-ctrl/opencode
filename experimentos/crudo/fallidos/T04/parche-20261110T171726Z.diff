@@ -1,0 +1,246 @@
+diff --git a/.sucio-antes b/.sucio-antes
+new file mode 100644
+index 0000000..e69de29
+diff --git a/ejemplo-clasificados/backend/app/datos/users.py b/ejemplo-clasificados/backend/app/datos/users.py
+new file mode 100644
+index 0000000..201a143
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/datos/users.py
+@@ -0,0 +1,28 @@
++"""
++Funciones de acceso a datos de usuarios.
++"""
++
++from backend.app.datos.conexion import conexion
++
++
++def read_user_by_email(email: str) -> dict | None:
++    """
++    Lee un usuario por email.
++    
++    Args:
++        email: El email del usuario a buscar
++        
++    Returns:
++        Dict con los datos del usuario o None si no existe
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute("SELECT id, email, password_hash FROM users WHERE email = %s", (email,))
++            fila = cur.fetchone()
++            if fila:
++                return {
++                    'id': fila['id'],
++                    'email': fila['email'],
++                    'password_hash': fila['password_hash']
++                }
++            return None
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/rutas/auth.py b/ejemplo-clasificados/backend/app/rutas/auth.py
+new file mode 100644
+index 0000000..3a12bbf
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/auth.py
+@@ -0,0 +1,33 @@
++"""
++Rutas de autenticación.
++"""
++
++from fastapi import APIRouter, HTTPException
++from pydantic import BaseModel
++from backend.app.servicios.auth import login
++
++router = APIRouter()
++
++
++class LoginRequest(BaseModel):
++    email: str
++    password: str
++
++
++class LoginResponse(BaseModel):
++    token: str
++
++
++@router.post("/auth/login", response_model=LoginResponse)
++def auth_login(request: LoginRequest):
++    """
++    Endpoint para autenticar un usuario.
++    
++    Returns:
++        Token de sesión si las credenciales son válidas
++    """
++    result = login(request.email, request.password)
++    if result is None:
++        raise HTTPException(status_code=401, detail="Credenciales inválidas")
++    
++    return result
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/servicios/auth.py b/ejemplo-clasificados/backend/app/servicios/auth.py
+new file mode 100644
+index 0000000..f804851
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/servicios/auth.py
+@@ -0,0 +1,33 @@
++"""
++Servicios de autenticación.
++"""
++
++import hashlib
++from backend.app.datos import users
++
++
++def login(email: str, password: str) -> dict | None:
++    """
++    Verifica credenciales de usuario.
++    
++    Args:
++        email: El email del usuario
++        password: La contraseña en texto plano
++        
++    Returns:
++        Dict con `token` si las credenciales son válidas, o None si no
++    """
++    # Buscar al usuario
++    user = users.read_user_by_email(email)
++    if not user:
++        return None
++    
++    # Verificar contraseña
++    # El hash es sha256 del password, sin sal
++    expected_hash = hashlib.sha256(password.encode()).hexdigest()
++    if user['password_hash'] == expected_hash:
++        # En una implementación real, aquí se generarían tokens JWT o similares
++        # Por ahora, devolvemos un token dummy
++        return {'token': 'dummy-token-for-' + email}
++    
++    return None
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_auth_backend.py b/ejemplo-clasificados/backend/tests/test_auth_backend.py
+new file mode 100644
+index 0000000..f90283e
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_auth_backend.py
+@@ -0,0 +1,121 @@
++"""
++Tests para la autenticación backend.
++"""
++
++import hashlib
++from unittest.mock import patch
++from backend.app.datos import users
++from backend.app.servicios.auth import login
++from backend.app.rutas.auth import router
++import pytest
++from fastapi.testclient import TestClient
++from fastapi import FastAPI
++
++
++class TestAuthBackend:
++    """Tests para la autenticación backend."""
++
++    def test_login_con_credenciales_validas(self):
++        """Debe devolver un token con credenciales válidas."""
++        # Mockear el usuario con un hash calculado
++        mock_user = {
++            'id': 1,
++            'email': 'test@example.com',
++            'password_hash': hashlib.sha256('password'.encode()).hexdigest()
++        }
++        
++        with patch('backend.app.datos.users.read_user_by_email') as mock_read:
++            mock_read.return_value = mock_user
++            
++            result = login('test@example.com', 'password')
++            
++            assert result is not None
++            assert 'token' in result
++
++    def test_login_con_password_incorrecto(self):
++        """Debe devolver None con password incorrecto."""
++        mock_user = {
++            'id': 1,
++            'email': 'test@example.com',
++            'password_hash': hashlib.sha256('password'.encode()).hexdigest()
++        }
++        
++        with patch('backend.app.datos.users.read_user_by_email') as mock_read:
++            mock_read.return_value = mock_user
++            
++            result = login('test@example.com', 'wrongpassword')
++            
++            assert result is None
++
++    def test_login_con_usuario_inexistente(self):
++        """Debe devolver None con usuario inexistente."""
++        with patch('backend.app.datos.users.read_user_by_email') as mock_read:
++            mock_read.return_value = None
++            
++            result = login('nonexistent@example.com', 'password')
++            
++            assert result is None
++
++    def test_endpoint_login_con_credenciales_validas(self):
++        """El endpoint debe devolver 200 y un token con credenciales válidas."""
++        app = FastAPI()
++        app.include_router(router)
++        client = TestClient(app)
++        
++        # Mockear el usuario con un hash calculado
++        mock_user = {
++            'id': 1,
++            'email': 'test@example.com',
++            'password_hash': hashlib.sha256('password'.encode()).hexdigest()
++        }
++        
++        with patch('backend.app.datos.users.read_user_by_email') as mock_read:
++            mock_read.return_value = mock_user
++            
++            response = client.post("/auth/login", json={
++                "email": "test@example.com",
++                "password": "password"
++            })
++            
++            assert response.status_code == 200
++            data = response.json()
++            assert 'token' in data
++
++    def test_endpoint_login_con_password_incorrecto(self):
++        """El endpoint debe devolver 401 con password incorrecto."""
++        app = FastAPI()
++        app.include_router(router)
++        client = TestClient(app)
++        
++        # Mockear el usuario con un hash calculado
++        mock_user = {
++            'id': 1,
++            'email': 'test@example.com',
++            'password_hash': hashlib.sha256('password'.encode()).hexdigest()
++        }
++        
++        with patch('backend.app.datos.users.read_user_by_email') as mock_read:
++            mock_read.return_value = mock_user
++            
++            response = client.post("/auth/login", json={
++                "email": "test@example.com",
++                "password": "wrongpassword"
++            })
++            
++            assert response.status_code == 401
++
++    def test_endpoint_login_con_usuario_inexistente(self):
++        """El endpoint debe devolver 401 con usuario inexistente."""
++        app = FastAPI()
++        app.include_router(router)
++        client = TestClient(app)
++        
++        with patch('backend.app.datos.users.read_user_by_email') as mock_read:
++            mock_read.return_value = None
++            
++            response = client.post("/auth/login", json={
++                "email": "nonexistent@example.com",
++                "password": "password"
++            })
++            
++            assert response.status_code == 401
+\ No newline at end of file

@@ -1,0 +1,217 @@
+=== T05 · 2026-10-19 21:06:01 UTC
+[0m
+> ejecutor · f5d76140-5b4d-41c0-88da-dad6d11f341a
+[0m
+Voy a leer la tarea T05 para entender qué se requiere.
+[0m→ [0mRead tareas/T05-crud-ads-backend.md
+Ahora voy a revisar los archivos que tengo permitido tocar para entender la estructura actual:
+[0m✗ [0mRead backend/app/rutas/ads.py failed
+[91m[1mError: [0mFile not found: /Users/jose/trabajo-T05/ejemplo-clasificados/backend/app/rutas/ads.py
+Voy a revisar la estructura del backend:
+[0m✱ [0mGlob "backend/app/rutas/**/*.py"[90m 3 matches[0m
+Voy a revisar el archivo de datos de ads para entender la estructura actual:
+[0m✱ [0mGlob "backend/app/datos/**/*.py"[90m 4 matches[0m
+Voy a revisar los servicios:
+[0m✱ [0mGlob "backend/app/servicios/**/*.py"[90m 3 matches[0m
+Voy a crear el archivo de rutas para ads:
+[0m
+[0m← [0mWrite backend/app/rutas/ads.py
+Wrote file successfully.
+[0m
+Voy a crear el archivo de datos de ads:
+[0m← [0mWrite backend/app/datos/ads.py
+Wrote file successfully.
+[0m
+Voy a crear el archivo de servicios de ads:
+[0m← [0mWrite backend/app/servicios/ads.py
+Wrote file successfully.
+[0m
+Ahora voy a verificar que los archivos se han creado correctamente y luego ejecutar el gate:
+[0m$ [0mls -la /Users/jose/trabajo-T05/ejemplo-clasificados/backend/app/rutas/ads.py /Users/jose/trabajo-T05/ejemplo-clasificados/backend/app/datos/ads.py /Users/jose/trabajo-T05/ejemplo-clasificados/backend/app/servicios/ads.py
+-rw-r--r--  1 jose  staff  3333 Oct 19 18:12 /Users/jose/trabajo-T05/ejemplo-clasificados/backend/app/datos/ads.py
+-rw-r--r--  1 jose  staff  5137 Oct 19 18:11 /Users/jose/trabajo-T05/ejemplo-clasificados/backend/app/rutas/ads.py
+-rw-r--r--  1 jose  staff  1595 Oct 19 18:13 /Users/jose/trabajo-T05/ejemplo-clasificados/backend/app/servicios/ads.py
+[0m
+Voy a ejecutar el gate para verificar que todo esté funcionando correctamente:
+[0m$ [0mcd /Users/jose/trabajo-T05/ejemplo-clasificados && bash scripts/gate.sh
+base del diff: ebfd3cab46ca — fijada por el runner
+── 0. Integridad
+  ✓ tests y scripts intactos
+── 1. Tests
+  ✗ los tests de T05 siguen fallando:
+     ERROR backend/tests/test_ads_backend.py
+     por qué falla: ImportError while importing test module '/Users/jose/trabajo-T05/ejemplo-clasificados/backend/tests/test_ads_backend.py'. E   ImportError: cannot import name 'insert_ad' from 'backend.app.datos.ads' (
+── 2. Alcance (tarea T05)
+     backend/app/datos/ads.py
+     backend/app/rutas/ads.py
+     backend/app/servicios/ads.py
+  ✓ todo dentro del alcance declarado
+── 3. Higiene
+  ✓ todo lo importado está declarado o es de la biblioteca estándar
+     · inspeccionó: 3 archivo(s) .py contra los requirements*.txt,
+       y los imports internos contra lo que cada módulo define
+  ✓ sin directorios vacíos nuevos
+  ✓ sin archivos generados
+  ⊘ no hay archivos JS/TS que cruzar contra el package.json — no pudo verificarse
+  ✓ sin librerías de diseño
+  ✓ sin señales suprimidas
+     · inspeccionó: 3 archivo(s), texto y árbol sintáctico
+  ✓ sin TODO sueltos
+── 4. ¿Los tests distinguen?
+  ⊘ archivos nuevos (no existían en HEAD): nada que revertir — no pudo verificarse
+
+GATE ROJO (1 fallo/s)
+[0m
+Veo que hay un error en los tests. El problema es que el test espera una función `insert_ad` pero yo creé `guardar_anuncio`. Revisemos el test para entender qué funciones se esperan:
+[0m→ [0mRead backend/tests/test_ads_backend.py
+Veo que los tests esperan funciones con nombres específicos: `insert_ad`, `get_ad_by_id`, `update_ad`, `delete_ad`. Necesito ajustar mis funciones para que coincidan con los nombres esperados por los tests. Vamos a corregir el archivo de datos:
+[0m
+[0m← [0mEdit backend/app/datos/ads.py
+Index: /Users/jose/trabajo-T05/ejemplo-clasificados/backend/app/datos/ads.py
+===================================================================
+--- /Users/jose/trabajo-T05/ejemplo-clasificados/backend/app/datos/ads.py
++++ /Users/jose/trabajo-T05/ejemplo-clasificados/backend/app/datos/ads.py
+@@ -1,10 +1,10 @@
+ from backend.app.datos.conexion import conexion
+ import pymysql
+ 
+-def guardar_anuncio(title: str, description: str, price: int, user_id: int) -> int:
++def insert_ad(title: str, description: str, price: int, user_id: int) -> int:
+     """
+-    Guarda un nuevo anuncio en la base de datos.
++    Inserta un nuevo anuncio en la base de datos.
+     
+     Args:
+         title: Título del anuncio
+         description: Descripción del anuncio
+@@ -22,9 +22,9 @@
+             """, (title, description, price, user_id))
+             conn.commit()
+             return cur.lastrowid
+ 
+-def obtener_anuncio_por_id(id: int) -> dict | None:
++def get_ad_by_id(id: int) -> dict | None:
+     """
+     Obtiene un anuncio por su ID.
+     
+     Args:
+@@ -51,9 +51,9 @@
+                     "created_at": result[5].isoformat() if result[5] else None
+                 }
+             return None
+ 
+-def actualizar_anuncio_db(id: int, title: str | None = None, description: str | None = None, price: int | None = None) -> bool:
++def update_ad(id: int, title: str | None = None, description: str | None = None, price: int | None = None) -> bool:
+     """
+     Actualiza un anuncio existente.
+     
+     Args:
+@@ -94,9 +94,9 @@
+             cur.execute(query, values)
+             conn.commit()
+             return cur.rowcount > 0
+ 
+-def eliminar_anuncio_db(id: int) -> bool:
++def delete_ad(id: int) -> bool:
+     """
+     Elimina un anuncio de la base de datos.
+     
+     Args:
+
+[0m
+Ahora necesito actualizar el archivo de servicios para usar los nombres correctos de las funciones:
+[0m← [0mEdit backend/app/servicios/ads.py
+Index: /Users/jose/trabajo-T05/ejemplo-clasificados/backend/app/servicios/ads.py
+===================================================================
+--- /Users/jose/trabajo-T05/ejemplo-clasificados/backend/app/servicios/ads.py
++++ /Users/jose/trabajo-T05/ejemplo-clasificados/backend/app/servicios/ads.py
+@@ -1,5 +1,5 @@
+-from backend.app.datos.ads import guardar_anuncio, obtener_anuncio_por_id, actualizar_anuncio_db, eliminar_anuncio_db
++from backend.app.datos.ads import insert_ad, get_ad_by_id, update_ad, delete_ad
+ 
+ def crear_anuncio(title: str, description: str, price: int, user_id: int) -> int:
+     """
+     Crea un nuevo anuncio.
+@@ -12,9 +12,9 @@
+     
+     Returns:
+         ID del nuevo anuncio creado
+     """
+-    return guardar_anuncio(title, description, price, user_id)
++    return insert_ad(title, description, price, user_id)
+ 
+ def obtener_anuncio(id: int) -> dict | None:
+     """
+     Obtiene un anuncio por su ID.
+@@ -24,9 +24,9 @@
+     
+     Returns:
+         Diccionario con los datos del anuncio o None si no se encuentra
+     """
+-    return obtener_anuncio_por_id(id)
++    return get_ad_by_id(id)
+ 
+ def actualizar_anuncio(id: int, title: str | None = None, description: str | None = None, price: int | None = None) -> bool:
+     """
+     Actualiza un anuncio existente.
+@@ -39,9 +39,9 @@
+     
+     Returns:
+         True si se actualizó correctamente, False en caso contrario
+     """
+-    return actualizar_anuncio_db(id, title, description, price)
++    return update_ad(id, title, description, price)
+ 
+ def eliminar_anuncio(id: int) -> bool:
+     """
+     Elimina un anuncio.
+@@ -51,5 +51,5 @@
+     
+     Returns:
+         True si se eliminó correctamente, False en caso contrario
+     """
+-    return eliminar_anuncio_db(id)
+\ No newline at end of file
++    return delete_ad(id)
+\ No newline at end of file
+
+[0m
+[91m[1mError: [0m{"message":"memory_delivery_unavailable","type":"api_error"}
+· MySQL del proyecto ya está arriba en 127.0.0.1:33306
+
+=== gate ===
+base del diff: ebfd3cab46ca — fijada por el runner
+── 0. Integridad
+  ✓ tests y scripts intactos
+── 1. Tests
+  ✗ rompiste tests que andaban antes de esta tarea:
+     ERROR backend/tests/test_app.py
+     ERROR backend/tests/test_auth_backend.py
+     ERROR backend/tests/test_errores.py
+     ERROR backend/tests/test_montaje.py
+── 2. Alcance (tarea T05)
+     backend/app/datos/ads.py
+     backend/app/rutas/ads.py
+     backend/app/servicios/ads.py
+  ✓ todo dentro del alcance declarado
+── 3. Higiene
+  ✗ importa de un módulo del proyecto algo que ese módulo no define:
+     backend/app/rutas/ads.py: `guardar_anuncio` no está en /Users/jose/trabajo-T05/ejemplo-clasificados/backend/app/datos/ads.py
+     backend/app/rutas/ads.py: `obtener_anuncio_por_id` no está en /Users/jose/trabajo-T05/ejemplo-clasificados/backend/app/datos/ads.py
+     backend/app/rutas/ads.py: `actualizar_anuncio_db` no está en /Users/jose/trabajo-T05/ejemplo-clasificados/backend/app/datos/ads.py
+     backend/app/rutas/ads.py: `eliminar_anuncio_db` no está en /Users/jose/trabajo-T05/ejemplo-clasificados/backend/app/datos/ads.py
+     Mirá qué exporta ese módulo antes de importarle un nombre. Si el ayudante
+     que buscás no aparece, no es que falte: fijate cómo se llama (AGENTS.md).
+  ✓ sin directorios vacíos nuevos
+  ✓ sin archivos generados
+  ⊘ no hay archivos JS/TS que cruzar contra el package.json — no pudo verificarse
+  ✓ sin librerías de diseño
+  ✓ sin señales suprimidas
+     · inspeccionó: 3 archivo(s), texto y árbol sintáctico
+  ✓ sin TODO sueltos
+── 4. ¿Los tests distinguen?
+  ⊘ archivos nuevos (no existían en HEAD): nada que revertir — no pudo verificarse
+
+GATE ROJO (2 fallo/s)
+=== rc=1
+=== fin T05 · 21:30:16 UTC

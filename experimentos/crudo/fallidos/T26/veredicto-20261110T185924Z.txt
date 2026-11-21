@@ -1,0 +1,12 @@
+el test NO EJECUTA las líneas de la implementación: no las está probando. Sobrevivió:      → backend/app/datos/users_register.py:6  [la línea NO se ejecuta]   with conexion() as conn:      → backend/app/datos/users_register.py:7  [la línea NO se ejecuta]   with conn.cursor() as cur:      → backend/app/datos/users_register.py:8  [la línea NO se ejecuta]   cur.execute( 
+  backend/tests/test_register_backend.py:14  patch('backend.app.datos.users_register.insert_user') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users_register import insert_user` a nivel de módulo,
+     así que backend.app.servicios.register.insert_user ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.servicios.register.insert_user')
+  backend/tests/test_register_backend.py:33  patch('backend.app.datos.users_register.insert_user') no va a tener efecto
+     el enunciado de la tarea manda traer el nombre con `from backend.app.datos.users_register import insert_user` a nivel de módulo,
+     así que backend.app.servicios.register.insert_user ya está ligado cuando el patch corre.
+     Parcheá donde se usa:  patch('backend.app.servicios.register.insert_user')
+  inspeccionó: 2 patch(es) con objetivo literal contra el enunciado de la tarea
+  Un patch que no pega hace fallar al test contra la implementación correcta,
+  y el rojo lo paga el que implementa.

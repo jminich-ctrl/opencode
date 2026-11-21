@@ -1,0 +1,58 @@
+diff --git a/ejemplo-clasificados/backend/app/datos/ads.py b/ejemplo-clasificados/backend/app/datos/ads.py
+new file mode 100644
+index 0000000..ff25c68
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/datos/ads.py
+@@ -0,0 +1,51 @@
++from backend.app.datos.conexion import conexion
++
++def insert_ad(usuario_id: int, categoria_id: int, titulo: str, descripcion: str,
++              precio_centavos: int) -> int:
++    """Inserta un anuncio y devuelve el id nuevo."""
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute("""
++                INSERT INTO anuncios (usuario_id, categoria_id, titulo, descripcion, precio_centavos) 
++                VALUES (%s, %s, %s, %s, %s)
++            """, (usuario_id, categoria_id, titulo, descripcion, precio_centavos))
++            return cur.lastrowid
++
++def get_ad_by_id(ad_id: int) -> dict | None:
++    """Devuelve el anuncio como dict o None si no existe."""
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute("""
++                SELECT id, usuario_id, categoria_id, titulo, descripcion, precio_centavos
++                FROM anuncios 
++                WHERE id = %s
++            """, (ad_id,))
++            return cur.fetchone()
++
++def update_ad(ad_id: int, usuario_id: int, titulo: str, descripcion: str,
++              precio_centavos: int) -> bool:
++    """Actualiza un anuncio y devuelve True si se modificó algún registro.
++    
++    Devuelve False si el anuncio no pertenece al usuario especificado.
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute("""
++                UPDATE anuncios 
++                SET titulo = %s, descripcion = %s, precio_centavos = %s
++                WHERE id = %s AND usuario_id = %s
++            """, (titulo, descripcion, precio_centavos, ad_id, usuario_id))
++            return cur.rowcount > 0
++
++def delete_ad(ad_id: int, usuario_id: int) -> bool:
++    """Elimina un anuncio y devuelve True si se eliminó algún registro.
++    
++    Devuelve False si el anuncio no pertenece al usuario especificado.
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute("""
++                DELETE FROM anuncios 
++                WHERE id = %s AND usuario_id = %s
++            """, (ad_id, usuario_id))
++            return cur.rowcount > 0
+\ No newline at end of file

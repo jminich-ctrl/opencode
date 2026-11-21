@@ -1,0 +1,126 @@
+diff --git a/ejemplo-clasificados/scripts/correr-suite.sh b/ejemplo-clasificados/scripts/correr-suite.sh
+index b30ca0d..4647887 100755
+--- a/ejemplo-clasificados/scripts/correr-suite.sh
++++ b/ejemplo-clasificados/scripts/correr-suite.sh
+@@ -53,7 +53,24 @@ correr_backend() {
+   # PYTHONPATH=backend: los tests importan `app.x`, y el paquete vive ahí. Sin esto el
+   # import falla y el diagnóstico que sale es "el test está mal".
+   local salida_pytest
+-  salida_pytest="$(PYTHONPATH="$PWD/backend" "$PY" -m pytest -q "$sel" 2>&1)"
++  # `--continue-on-collection-errors`: SIN esto, un solo error de colección hace que pytest
++  # no corra NINGÚN test, y la salida informa ese error y nada más.
++  #
++  # En un método tests-first eso no es un caso raro: es el caso NORMAL. Al empezar una etapa
++  # el tronco tiene los tests de todas sus tareas y la implementación de ninguna, así que al
++  # menos un archivo de test no se puede importar. Resultado: la LÍNEA BASE venía truncada
++  # en todas las etapas, siempre, y registraba una sola falla donde había cuatro.
++  #
++  # Cadáver del 2026-10-21, y es caro: la línea base de T05a decía
++  #     ERROR backend/tests/test_ads_datos.py
++  # y nada más. Cuando el agente implementó `ads.py` la colección pasó a funcionar y las 3
++  # fallas preexistentes aparecieron por PRIMERA vez, así que el gate las leyó como nuevas y
++  # acusó a la tarea de «rompiste tests que andaban antes» — tests de registro de usuarios,
++  # que T05a no toca. Dos intentos, punto muerto y el plan detenido.
++  #
++  # Verificado a mano: con un error de colección puesto, `--fallas` informaba 1 falla; sin
++  # él, 3. Mismo árbol, misma base de datos.
++  salida_pytest="$(PYTHONPATH="$PWD/backend" "$PY" -m pytest -q --continue-on-collection-errors "$sel" 2>&1)"
+   rc=$?
+   printf '%s\n' "$salida_pytest"
+   # Los códigos de pytest, traducidos al contrato. 5 es "no collected" = no corrió nada.
+diff --git a/ejemplo-clasificados/backend/app/datos/ads.py b/ejemplo-clasificados/backend/app/datos/ads.py
+new file mode 100644
+index 0000000..9dbb090
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/datos/ads.py
+@@ -0,0 +1,89 @@
++from backend.app.datos.conexion import conexion
++
++
++def insert_ad(usuario_id: int, categoria_id: int, titulo: str, descripcion: str,
++              precio_centavos: int) -> int:
++    """
++    Inserta un nuevo anuncio en la base de datos.
++    
++    Args:
++        usuario_id: ID del usuario dueño del anuncio
++        categoria_id: ID de la categoría del anuncio
++        titulo: Título del anuncio
++        descripcion: Descripción del anuncio
++        precio_centavos: Precio en centavos
++        
++    Returns:
++        El ID del nuevo anuncio insertado
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "INSERT INTO anuncios (usuario_id, categoria_id, titulo, descripcion, precio_centavos) VALUES (%s, %s, %s, %s, %s)",
++                (usuario_id, categoria_id, titulo, descripcion, precio_centavos)
++            )
++            return cur.lastrowid
++
++
++def get_ad_by_id(ad_id: int) -> dict | None:
++    """
++    Obtiene un anuncio por su ID.
++    
++    Args:
++        ad_id: ID del anuncio a buscar
++        
++    Returns:
++        Diccionario con los datos del anuncio o None si no existe
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "SELECT id, usuario_id, categoria_id, titulo, descripcion, precio_centavos FROM anuncios WHERE id = %s",
++                (ad_id,)
++            )
++            fila = cur.fetchone()
++            return fila
++
++
++def update_ad(ad_id: int, usuario_id: int, titulo: str, descripcion: str,
++              precio_centavos: int) -> bool:
++    """
++    Actualiza un anuncio si pertenece al usuario especificado.
++    
++    Args:
++        ad_id: ID del anuncio a actualizar
++        usuario_id: ID del usuario que intenta actualizar
++        titulo: Nuevo título del anuncio
++        descripcion: Nueva descripción del anuncio
++        precio_centavos: Nuevo precio en centavos
++        
++    Returns:
++        True si se actualizó el anuncio, False si no pertenece al usuario
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "UPDATE anuncios SET titulo = %s, descripcion = %s, precio_centavos = %s WHERE id = %s AND usuario_id = %s",
++                (titulo, descripcion, precio_centavos, ad_id, usuario_id)
++            )
++            return cur.rowcount > 0
++
++
++def delete_ad(ad_id: int, usuario_id: int) -> bool:
++    """
++    Elimina un anuncio si pertenece al usuario especificado.
++    
++    Args:
++        ad_id: ID del anuncio a eliminar
++        usuario_id: ID del usuario que intenta eliminar
++        
++    Returns:
++        True si se eliminó el anuncio, False si no pertenece al usuario
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "DELETE FROM anuncios WHERE id = %s AND usuario_id = %s",
++                (ad_id, usuario_id)
++            )
++            return cur.rowcount > 0
+\ No newline at end of file

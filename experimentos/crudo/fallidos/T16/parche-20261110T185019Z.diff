@@ -1,0 +1,147 @@
+diff --git a/.sucio-antes b/.sucio-antes
+new file mode 100644
+index 0000000..e69de29
+diff --git a/ejemplo-clasificados/backend/app/rutas/favorites.py b/ejemplo-clasificados/backend/app/rutas/favorites.py
+new file mode 100644
+index 0000000..f9e05b9
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/favorites.py
+@@ -0,0 +1,31 @@
++from fastapi import APIRouter, HTTPException
++from backend.app.datos.favorites import toggle_favorite, get_user_favorites
++from backend.app.datos.conexion import conexion
++
++router = APIRouter()
++
++@router.post("/favorites/toggle")
++async def toggle_favorite_endpoint(user_id: int, ad_id: int):
++    """Endpoint que delega al servicio para marcar/desmarcar favorito."""
++    # Verificar que el usuario exista
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute("SELECT id FROM users WHERE id = %s", (user_id,))
++            if not cur.fetchone():
++                raise HTTPException(status_code=404, detail="Usuario no encontrado")
++    
++    result = toggle_favorite(user_id, ad_id)
++    return {"status": "success", "favorited": result}
++
++@router.get("/favorites/list")
++async def list_user_favorites_endpoint(user_id: int):
++    """Endpoint que devuelve la lista de favoritos de un usuario."""
++    # Verificar que el usuario exista
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute("SELECT id FROM users WHERE id = %s", (user_id,))
++            if not cur.fetchone():
++                raise HTTPException(status_code=404, detail="Usuario no encontrado")
++    
++    favorites = get_user_favorites(user_id)
++    return {"favorites": favorites}
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_favorites_rutas.py b/ejemplo-clasificados/backend/tests/test_favorites_rutas.py
+new file mode 100644
+index 0000000..180abb4
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_favorites_rutas.py
+@@ -0,0 +1,99 @@
++import pytest
++from unittest.mock import patch, MagicMock
++from fastapi.testclient import TestClient
++from backend.app.main import app
++
++# Creamos un cliente de prueba
++client = TestClient(app)
++
++class TestFavoritesRutas:
++    
++    def test_toggle_favorite_endpoint_success(self):
++        """Prueba que el endpoint toggle_favorite funcione correctamente."""
++        # Mockeamos las funciones necesarias
++        with patch('backend.app.datos.favorites.toggle_favorite') as mock_toggle:
++            with patch('backend.app.datos.conexion') as mock_conexion:
++                # Configuramos el mock de la conexión
++                mock_conn = MagicMock()
++                mock_cur = MagicMock()
++                mock_conexion.return_value.__enter__.return_value = mock_conn
++                mock_conn.cursor.return_value.__enter__.return_value = mock_cur
++                
++                # Simulamos que el usuario existe
++                mock_cur.fetchone.return_value = True
++                
++                # Configuramos el mock de toggle_favorite para devolver True
++                mock_toggle.return_value = True
++                
++                # Hacemos la llamada al endpoint
++                response = client.post("/favorites/toggle", json={"user_id": 1, "ad_id": 1})
++                
++                # Verificamos que la respuesta sea correcta
++                assert response.status_code == 200
++                assert response.json()["status"] == "success"
++                assert response.json()["favorited"] == True
++    
++    def test_toggle_favorite_endpoint_user_not_found(self):
++        """Prueba que el endpoint toggle_favorite maneje correctamente el caso de usuario no encontrado."""
++        with patch('backend.app.datos.conexion') as mock_conexion:
++            # Configuramos el mock de la conexión
++            mock_conn = MagicMock()
++            mock_cur = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn
++            mock_conn.cursor.return_value.__enter__.return_value = mock_cur
++            
++            # Simulamos que el usuario no existe
++            mock_cur.fetchone.return_value = None
++            
++            # Hacemos la llamada al endpoint
++            response = client.post("/favorites/toggle", json={"user_id": 1, "ad_id": 1})
++            
++            # Verificamos que se devuelva un error 404
++            assert response.status_code == 404
++            assert "Usuario no encontrado" in response.json()["error"]
++    
++    def test_list_user_favorites_endpoint_success(self):
++        """Prueba que el endpoint list_user_favorites funcione correctamente."""
++        # Mockeamos las funciones necesarias
++        with patch('backend.app.datos.favorites.get_user_favorites') as mock_list:
++            with patch('backend.app.datos.conexion') as mock_conexion:
++                # Configuramos el mock de la conexión
++                mock_conn = MagicMock()
++                mock_cur = MagicMock()
++                mock_conexion.return_value.__enter__.return_value = mock_conn
++                mock_conn.cursor.return_value.__enter__.return_value = mock_cur
++                
++                # Simulamos que el usuario existe
++                mock_cur.fetchone.return_value = True
++                
++                # Configuramos el mock de get_user_favorites para devolver una lista
++                mock_list.return_value = [1, 2, 3]
++                
++                # Hacemos la llamada al endpoint
++                response = client.get("/favorites/list", params={"user_id": 1})
++                
++                # Verificamos que la respuesta sea correcta
++                assert response.status_code == 200
++                assert response.json()["favorites"] == [1, 2, 3]
++    
++    def test_list_user_favorites_endpoint_user_not_found(self):
++        """Prueba que el endpoint list_user_favorites maneje correctamente el caso de usuario no encontrado."""
++        with patch('backend.app.datos.conexion') as mock_conexion:
++            # Configuramos el mock de la conexión
++            mock_conn = MagicMock()
++            mock_cur = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn
++            mock_conn.cursor.return_value.__enter__.return_value = mock_cur
++            
++            # Simulamos que el usuario no existe
++            mock_cur.fetchone.return_value = None
++            
++            # Hacemos la llamada al endpoint
++            response = client.get("/favorites/list", params={"user_id": 1})
++            
++            # Verificamos que se devuelva un error 404
++            assert response.status_code == 404
++            assert "Usuario no encontrado" in response.json()["error"]
++
++if __name__ == "__main__":
++    pytest.main([__file__, "-v"])
+\ No newline at end of file

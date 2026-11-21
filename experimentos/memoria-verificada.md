@@ -49,7 +49,7 @@ media tarde de trabajo y es **prerrequisito**, no un experimento siguiente.
 | Registros con el formato de `recordar_falla` | **0** |
 | Transiciones rojo→verde en todo el historial (17 días) | **6**: pacman T02; clasificados T01, T02, T03, T06c, T08 |
 | Ítems E1 construibles (parche inverso aplica + rojo atribuible) | **9** (ver `modelos-por-papel.md` §0 B2) |
-| **Intentos RECHAZADOS con código real** | **16**, preservados en `/Users/jose/rechazados/` (22 carpetas: 16 rojas, 3 verdes, 3 sin dato) |
+| **Intentos RECHAZADOS con código real** | **16**, preservados en `experimentos/crudo/banco/` (cosechados desde `~/rechazados/`) (22 carpetas: 16 rojas, 3 verdes, 3 sin dato) |
 | Respuestas crudas guardadas de los bancos | **0** — ningún script escribe a disco |
 
 El diseño anterior presuponía 24 ítems, ~40 para calibrar al juez y 80 respuestas crudas ya

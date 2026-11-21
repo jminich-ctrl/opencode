@@ -1,0 +1,88 @@
+diff --git a/.sucio-antes b/.sucio-antes
+new file mode 100644
+index 0000000..e69de29
+diff --git a/ejemplo-clasificados/backend/app/rutas/favorites.py b/ejemplo-clasificados/backend/app/rutas/favorites.py
+new file mode 100644
+index 0000000..cc14305
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/favorites.py
+@@ -0,0 +1,35 @@
++from fastapi import APIRouter, Depends, HTTPException
++from backend.app.datos.favorites import toggle_favorite, get_user_favorites
++from backend.app.datos.auth import get_current_user
++from backend.app.modelos import Usuario
++
++router = APIRouter()
++
++@router.post("/favorites/toggle")
++async def toggle_favorite_endpoint(
++    user_id: int, 
++    ad_id: int,
++    current_user: Usuario = Depends(get_current_user)
++):
++    """
++    Endpoint que delega al servicio para marcar/desmarcar favorito.
++    """
++    # Verificar que el usuario actual sea el mismo que el user_id pasado
++    if current_user.id != user_id:
++        raise HTTPException(status_code=403, detail="No autorizado")
++    
++    return toggle_favorite(user_id, ad_id)
++
++@router.get("/favorites/list/{user_id}")
++async def list_user_favorites(
++    user_id: int,
++    current_user: Usuario = Depends(get_current_user)
++):
++    """
++    Endpoint que devuelve la lista de favoritos de un usuario.
++    """
++    # Verificar que el usuario actual sea el mismo que el user_id pasado
++    if current_user.id != user_id:
++        raise HTTPException(status_code=403, detail="No autorizado")
++    
++    return get_user_favorites(user_id)
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_favorites_rutas.py b/ejemplo-clasificados/backend/tests/test_favorites_rutas.py
+new file mode 100644
+index 0000000..a6c4122
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_favorites_rutas.py
+@@ -0,0 +1,36 @@
++import pytest
++from unittest.mock import patch, MagicMock
++from fastapi.testclient import TestClient
++from backend.app.main import app
++
++@pytest.fixture
++def client():
++    return TestClient(app)
++
++class TestFavoritesRutas:
++    
++    def test_toggle_favorite_endpoint_success(self, client):
++        """Test que verifica el endpoint toggle_favorite funciona correctamente"""
++        with patch('backend.app.datos.favorites.toggle_favorite') as mock_toggle:
++            mock_toggle.return_value = {"status": "success"}
++            
++            response = client.post("/favorites/toggle", json={
++                "user_id": 1,
++                "ad_id": 123
++            })
++            
++            assert response.status_code == 200
++            assert response.json() == {"status": "success"}
++    
++    def test_list_user_favorites_success(self, client):
++        """Test que verifica el endpoint list_user_favorites funciona correctamente"""
++        with patch('backend.app.datos.favorites.get_user_favorites') as mock_get_favorites:
++            mock_get_favorites.return_value = [
++                {"id": 1, "titulo": "Anuncio 1"},
++                {"id": 2, "titulo": "Anuncio 2"}
++            ]
++            
++            response = client.get("/favorites/list/1")
++            
++            assert response.status_code == 200
++            assert len(response.json()) == 2
+\ No newline at end of file

@@ -1,0 +1,264 @@
+diff --git a/ejemplo-clasificados/backend/app/datos/ads.py b/ejemplo-clasificados/backend/app/datos/ads.py
+new file mode 100644
+index 0000000..92cf363
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/datos/ads.py
+@@ -0,0 +1,78 @@
++from .conexion import conexion
++
++
++def insert_ad(usuario_id: int, categoria_id: int, titulo: str, descripcion: str,
++              precio_centavos: int) -> int:
++    """Inserta un nuevo anuncio en la base de datos y devuelve su ID.
++    
++    Args:
++        usuario_id: ID del usuario que crea el anuncio
++        categoria_id: ID de la categoría del anuncio
++        titulo: Título del anuncio
++        descripcion: Descripción del anuncio
++        precio_centavos: Precio en centavos
++        
++    Returns:
++        int: El ID del nuevo anuncio creado
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "INSERT INTO anuncios (usuario_id, categoria_id, titulo, descripcion, precio_centavos) VALUES (%s, %s, %s, %s, %s)",
++                (usuario_id, categoria_id, titulo, descripcion, precio_centavos)
++            )
++            return cur.lastrowid
++
++
++def get_ad_by_id(ad_id: int) -> dict | None:
++    """Obtiene un anuncio por su ID.
++    
++    Args:
++        ad_id: ID del anuncio a buscar
++        
++    Returns:
++        dict | None: El anuncio como diccionario si existe, None si no
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute("SELECT * FROM anuncios WHERE id = %s", (ad_id,))
++            return cur.fetchone()
++
++
++def update_ad(ad_id: int, usuario_id: int, titulo: str, descripcion: str,
++              precio_centavos: int) -> bool:
++    """Actualiza un anuncio si pertenece al usuario especificado.
++    
++    Args:
++        ad_id: ID del anuncio a actualizar
++        usuario_id: ID del usuario que intenta actualizar
++        titulo: Nuevo título del anuncio
++        descripcion: Nueva descripción del anuncio
++        precio_centavos: Nuevo precio en centavos
++        
++    Returns:
++        bool: True si se actualizó correctamente, False si el anuncio no pertenece al usuario
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "UPDATE anuncios SET titulo = %s, descripcion = %s, precio_centavos = %s WHERE id = %s AND usuario_id = %s",
++                (titulo, descripcion, precio_centavos, ad_id, usuario_id)
++            )
++            return cur.rowcount > 0
++
++
++def delete_ad(ad_id: int, usuario_id: int) -> bool:
++    """Elimina un anuncio si pertenece al usuario especificado.
++    
++    Args:
++        ad_id: ID del anuncio a eliminar
++        usuario_id: ID del usuario que intenta eliminar
++        
++    Returns:
++        bool: True si se eliminó correctamente, False si el anuncio no pertenece al usuario
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute("DELETE FROM anuncios WHERE id = %s AND usuario_id = %s", (ad_id, usuario_id))
++            return cur.rowcount > 0
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_ads_datos.py b/ejemplo-clasificados/backend/tests/test_ads_datos.py
+new file mode 100644
+index 0000000..f2f36c2
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_ads_datos.py
+@@ -0,0 +1,172 @@
++from unittest import TestCase
++from unittest.mock import patch, MagicMock
++import sys
++import os
++
++# Agregar el path para poder importar desde backend
++sys.path.insert(0, os.path.abspath('/Users/jose/tests-T05a/ejemplo-clasificados'))
++
++from backend.app.datos.ads import insert_ad, get_ad_by_id, update_ad, delete_ad
++
++
++class TestAdsDatos(TestCase):
++    
++    def setUp(self):
++        # Limpiar cualquier dato residual antes de cada test
++        pass
++    
++    def test_insert_ad(self):
++        """Prueba la inserción de un anuncio"""
++        # Usamos patch para evitar acceso real a la base de datos
++        with patch('backend.app.datos.ads.conexion') as mock_conexion:
++            mock_conn = MagicMock()
++            mock_cur = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn
++            mock_conn.cursor.return_value.__enter__.return_value = mock_cur
++            mock_cur.lastrowid = 42
++            
++            # Llamamos a la función
++            result = insert_ad(1, 2, "Titulo de prueba", "Descripción de prueba", 1000)
++            
++            # Verificamos que se haya llamado a execute con la consulta correcta
++            mock_cur.execute.assert_called_once_with(
++                "INSERT INTO anuncios (usuario_id, categoria_id, titulo, descripcion, precio_centavos) VALUES (%s, %s, %s, %s, %s)",
++                (1, 2, "Titulo de prueba", "Descripción de prueba", 1000)
++            )
++            
++            # Verificamos que se haya devuelto el ID correcto
++            self.assertEqual(result, 42)
++    
++    def test_get_ad_by_id_found(self):
++        """Prueba obtener un anuncio que existe"""
++        with patch('backend.app.datos.ads.conexion') as mock_conexion:
++            mock_conn = MagicMock()
++            mock_cur = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn
++            mock_conn.cursor.return_value.__enter__.return_value = mock_cur
++            mock_cur.fetchone.return_value = {
++                'id': 1, 
++                'usuario_id': 1, 
++                'categoria_id': 2, 
++                'titulo': 'Titulo de prueba',
++                'descripcion': 'Descripción de prueba',
++                'precio_centavos': 1000
++            }
++            
++            # Llamamos a la función
++            result = get_ad_by_id(1)
++            
++            # Verificamos que se haya llamado a execute con la consulta correcta
++            mock_cur.execute.assert_called_once_with(
++                "SELECT * FROM anuncios WHERE id = %s",
++                (1,)
++            )
++            
++            # Verificamos que se haya devuelto el anuncio correcto
++            self.assertEqual(result['id'], 1)
++            self.assertEqual(result['titulo'], 'Titulo de prueba')
++    
++    def test_get_ad_by_id_not_found(self):
++        """Prueba obtener un anuncio que no existe"""
++        with patch('backend.app.datos.ads.conexion') as mock_conexion:
++            mock_conn = MagicMock()
++            mock_cur = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn
++            mock_conn.cursor.return_value.__enter__.return_value = mock_cur
++            mock_cur.fetchone.return_value = None
++            
++            # Llamamos a la función
++            result = get_ad_by_id(999)
++            
++            # Verificamos que se haya llamado a execute con la consulta correcta
++            mock_cur.execute.assert_called_once_with(
++                "SELECT * FROM anuncios WHERE id = %s",
++                (999,)
++            )
++            
++            # Verificamos que se haya devuelto None
++            self.assertIsNone(result)
++    
++    def test_update_ad_success(self):
++        """Prueba actualizar un anuncio correctamente"""
++        with patch('backend.app.datos.ads.conexion') as mock_conexion:
++            mock_conn = MagicMock()
++            mock_cur = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn
++            mock_conn.cursor.return_value.__enter__.return_value = mock_cur
++            mock_cur.rowcount = 1  # Se afectó una fila
++            
++            # Llamamos a la función
++            result = update_ad(1, 1, "Nuevo titulo", "Nueva descripción", 2000)
++            
++            # Verificamos que se haya llamado a execute con la consulta correcta
++            mock_cur.execute.assert_called_once_with(
++                "UPDATE anuncios SET titulo = %s, descripcion = %s, precio_centavos = %s WHERE id = %s AND usuario_id = %s",
++                ("Nuevo titulo", "Nueva descripción", 2000, 1, 1)
++            )
++            
++            # Verificamos que se haya devuelto True (actualización exitosa)
++            self.assertTrue(result)
++    
++    def test_update_ad_fail_wrong_owner(self):
++        """Prueba actualizar un anuncio con propietario incorrecto"""
++        with patch('backend.app.datos.ads.conexion') as mock_conexion:
++            mock_conn = MagicMock()
++            mock_cur = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn
++            mock_conn.cursor.return_value.__enter__.return_value = mock_cur
++            mock_cur.rowcount = 0  # No se afectó ninguna fila
++            
++            # Llamamos a la función
++            result = update_ad(1, 2, "Nuevo titulo", "Nueva descripción", 2000)
++            
++            # Verificamos que se haya llamado a execute con la consulta correcta
++            mock_cur.execute.assert_called_once_with(
++                "UPDATE anuncios SET titulo = %s, descripcion = %s, precio_centavos = %s WHERE id = %s AND usuario_id = %s",
++                ("Nuevo titulo", "Nueva descripción", 2000, 1, 2)
++            )
++            
++            # Verificamos que se haya devuelto False (actualización fallida por propietario)
++            self.assertFalse(result)
++    
++    def test_delete_ad_success(self):
++        """Prueba eliminar un anuncio correctamente"""
++        with patch('backend.app.datos.ads.conexion') as mock_conexion:
++            mock_conn = MagicMock()
++            mock_cur = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn
++            mock_conn.cursor.return_value.__enter__.return_value = mock_cur
++            mock_cur.rowcount = 1  # Se eliminó una fila
++            
++            # Llamamos a la función
++            result = delete_ad(1, 1)
++            
++            # Verificamos que se haya llamado a execute con la consulta correcta
++            mock_cur.execute.assert_called_once_with(
++                "DELETE FROM anuncios WHERE id = %s AND usuario_id = %s",
++                (1, 1)
++            )
++            
++            # Verificamos que se haya devuelto True (eliminación exitosa)
++            self.assertTrue(result)
++    
++    def test_delete_ad_fail_wrong_owner(self):
++        """Prueba eliminar un anuncio con propietario incorrecto"""
++        with patch('backend.app.datos.ads.conexion') as mock_conexion:
++            mock_conn = MagicMock()
++            mock_cur = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn
++            mock_conn.cursor.return_value.__enter__.return_value = mock_cur
++            mock_cur.rowcount = 0  # No se eliminó ninguna fila
++            
++            # Llamamos a la función
++            result = delete_ad(1, 2)
++            
++            # Verificamos que se haya llamado a execute con la consulta correcta
++            mock_cur.execute.assert_called_once_with(
++                "DELETE FROM anuncios WHERE id = %s AND usuario_id = %s",
++                (1, 2)
++            )
++            
++            # Verificamos que se haya devuelto False (eliminación fallida por propietario)
++            self.assertFalse(result)
+\ No newline at end of file

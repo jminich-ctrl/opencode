@@ -1,0 +1,30 @@
+=== T20 · 2026-10-19 17:53:43 UTC
+[0m
+> ejecutor · f5d76140-5b4d-41c0-88da-dad6d11f341a
+[0m
+[91m[1mError: [0m{"message":"memory_delivery_unavailable","type":"api_error"}
+· MySQL del proyecto ya está arriba en 127.0.0.1:33306
+
+=== gate ===
+base del diff: 2313bf8bb537 — fijada por el runner
+── 0. Integridad
+  ✓ tests y scripts intactos
+── 1. Tests
+  ✓ los tests de T20 pasan; sigue fallando sólo lo de la línea base (tests-first)
+     · inspeccionó: 1 falla(s) de línea base, 0 nuevas, y backend/tests/test_messages_datos.py en verde
+── 2. Alcance (tarea T20)
+  ✗ no hay ningún cambio: la tarea no se hizo
+── 3. Higiene
+  ⊘ no hay archivos .py que cruzar contra los requirements — no pudo verificarse
+  ✓ sin directorios vacíos nuevos
+  ✓ sin archivos generados
+  ⊘ no hay archivos JS/TS que cruzar contra el package.json — no pudo verificarse
+  ✓ sin librerías de diseño
+  ⊘ no hay archivos que revisar por señales suprimidas — no pudo verificarse
+  ✓ sin TODO sueltos
+── 4. ¿Los tests distinguen?
+  ⊘ no hay implementación que revertir — no pudo verificarse
+
+GATE ROJO (1 fallo/s)
+=== rc=1
+=== fin T20 · 18:05:15 UTC

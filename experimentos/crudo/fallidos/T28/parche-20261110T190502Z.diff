@@ -1,0 +1,198 @@
+diff --git a/.sucio-antes b/.sucio-antes
+new file mode 100644
+index 0000000..e69de29
+diff --git a/ejemplo-clasificados/backend/app/datos/search_ads.py b/ejemplo-clasificados/backend/app/datos/search_ads.py
+new file mode 100644
+index 0000000..d354cb5
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/datos/search_ads.py
+@@ -0,0 +1,40 @@
++"""
++Módulo de datos para búsqueda de anuncios.
++"""
++from backend.app.datos.conexion import conexion
++from typing import Optional, List, Dict
++
++def buscar_anuncios_db(texto: str, categoria: Optional[str] = None) -> List[Dict]:
++    """
++    Busca anuncios por texto libre y opcionalmente por categoría.
++    
++    Args:
++        texto: Texto a buscar en los campos de los anuncios
++        categoria: ID de categoría opcional para filtrar
++        
++    Returns:
++        Lista de diccionarios con los anuncios encontrados
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            # Construimos la consulta dinámica
++            if categoria is not None:
++                # Si hay categoría, añadimos el filtro
++                cur.execute("""
++                    SELECT id, titulo, descripcion, precio, usuario_id, categoria_id
++                    FROM anuncios 
++                    WHERE titulo LIKE %s OR descripcion LIKE %s
++                    AND categoria_id = %s
++                    ORDER BY id DESC
++                """, (f"%{texto}%", f"%{texto}%", categoria))
++            else:
++                # Sin categoría, buscamos en todos los anuncios
++                cur.execute("""
++                    SELECT id, titulo, descripcion, precio, usuario_id, categoria_id
++                    FROM anuncios 
++                    WHERE titulo LIKE %s OR descripcion LIKE %s
++                    ORDER BY id DESC
++                """, (f"%{texto}%", f"%{texto}%"))
++            
++            # Devolvemos los resultados como diccionarios
++            return cur.fetchall()
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/rutas/search.py b/ejemplo-clasificados/backend/app/rutas/search.py
+new file mode 100644
+index 0000000..5bec54b
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/search.py
+@@ -0,0 +1,32 @@
++"""
++Ruta de búsqueda de anuncios.
++"""
++from fastapi import APIRouter, Depends, HTTPException
++from typing import Optional
++from backend.app.servicios.search import buscar_anuncios
++
++router = APIRouter(prefix="/search", tags=["búsqueda"])
++
++@router.get("/")
++def buscar_anuncios_endpoint(q: str, category: Optional[str] = None):
++    """
++    Busca anuncios por texto libre y opcionalmente por categoría.
++    
++    Args:
++        q: Texto a buscar en títulos y descripciones
++        category: ID de categoría opcional para filtrar
++        
++    Returns:
++        Lista de anuncios que coinciden con los criterios de búsqueda
++    """
++    # Validación básica de parámetros
++    if not q or len(q.strip()) == 0:
++        raise HTTPException(status_code=400, detail="El parámetro 'q' es requerido y no puede estar vacío")
++    
++    try:
++        # Llamamos al servicio de búsqueda
++        resultados = buscar_anuncios(q.strip(), category)
++        return resultados
++    except Exception as e:
++        # En caso de error en la búsqueda, lanzamos una excepción HTTP 500
++        raise HTTPException(status_code=500, detail=f"Error en la búsqueda: {str(e)}")
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/servicios/search.py b/ejemplo-clasificados/backend/app/servicios/search.py
+new file mode 100644
+index 0000000..12997d3
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/servicios/search.py
+@@ -0,0 +1,18 @@
++"""
++Módulo de servicios para búsqueda de anuncios.
++"""
++from backend.app.datos.search_ads import buscar_anuncios_db
++from typing import Optional, List, Dict
++
++def buscar_anuncios(texto: str, categoria: Optional[str] = None) -> List[Dict]:
++    """
++    Devuelve anuncios que coinciden con el texto y, opcionalmente, la categoría.
++    
++    Args:
++        texto: Texto a buscar en los títulos y descripciones
++        categoria: ID de categoría opcional para filtrar
++        
++    Returns:
++        Lista de diccionarios con los anuncios encontrados
++    """
++    return buscar_anuncios_db(texto, categoria)
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_search_backend.py b/ejemplo-clasificados/backend/tests/test_search_backend.py
+new file mode 100644
+index 0000000..7fa2343
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_search_backend.py
+@@ -0,0 +1,77 @@
++import pytest
++from unittest.mock import patch, MagicMock
++from fastapi.testclient import TestClient
++from backend.app.main import app
++
++# Creamos un cliente de prueba
++client = TestClient(app)
++
++class TestSearchBackend:
++    
++    def test_busqueda_por_texto(self):
++        """Prueba búsqueda por texto libre"""
++        with patch('backend.app.datos.search_ads.buscar_anuncios_db') as mock_buscar:
++            # Configuramos el mock para devolver resultados
++            mock_buscar.return_value = [
++                {
++                    "id": 1,
++                    "titulo": "Anuncio de prueba",
++                    "descripcion": "Descripción de prueba",
++                    "precio": 1000,
++                    "usuario_id": 1,
++                    "categoria_id": 1
++                }
++            ]
++            
++            # Hacemos la llamada a la ruta
++            response = client.get("/search?q=prueba")
++            
++            # Verificamos que la respuesta sea correcta
++            assert response.status_code == 200
++            data = response.json()
++            assert len(data) == 1
++            assert data[0]["titulo"] == "Anuncio de prueba"
++    
++    def test_busqueda_por_texto_y_categoria(self):
++        """Prueba búsqueda por texto libre y categoría"""
++        with patch('backend.app.datos.search_ads.buscar_anuncios_db') as mock_buscar:
++            # Configuramos el mock para devolver resultados
++            mock_buscar.return_value = [
++                {
++                    "id": 1,
++                    "titulo": "Anuncio de prueba",
++                    "descripcion": "Descripción de prueba",
++                    "precio": 1000,
++                    "usuario_id": 1,
++                    "categoria_id": 1
++                }
++            ]
++            
++            # Hacemos la llamada a la ruta
++            response = client.get("/search?q=prueba&category=1")
++            
++            # Verificamos que la respuesta sea correcta
++            assert response.status_code == 200
++            data = response.json()
++            assert len(data) == 1
++            assert data[0]["titulo"] == "Anuncio de prueba"
++    
++    def test_busqueda_sin_resultados(self):
++        """Prueba búsqueda sin resultados"""
++        with patch('backend.app.datos.search_ads.buscar_anuncios_db') as mock_buscar:
++            # Configuramos el mock para devolver resultados vacíos
++            mock_buscar.return_value = []
++            
++            # Hacemos la llamada a la ruta
++            response = client.get("/search?q=no_existe")
++            
++            # Verificamos que la respuesta sea correcta
++            assert response.status_code == 200
++            data = response.json()
++            assert len(data) == 0
++    
++    def test_busqueda_parametros_invalidos(self):
++        """Prueba búsqueda con parámetros inválidos"""
++        # Esta prueba debería fallar con un error 400
++        response = client.get("/search?q=")
++        assert response.status_code == 400
+\ No newline at end of file

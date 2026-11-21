@@ -1,0 +1,31 @@
+=== T04 · 2026-10-19 10:40:46 UTC
+[0m
+> ejecutor · f5d76140-5b4d-41c0-88da-dad6d11f341a
+[0m
+[91m[1mError: [0m{"message":"Failed to start inference server for da003b52-aa5c-4a90-b746-200556f72991: Failed to allocate GPU for da003b52-aa5c-4a90-b746-200556f72991: No se pudo alocar 2 GPU(s) de vendor 'nvidia' (19000MB c/u; weights=19000MB, startup medido=0MB). Motivo: VRAM insuficiente: pide 2 GPU(s) de 19000MB c/u — disponible: GPU0: 2571/24576MB free (10.5%), GPU1: 24123/24576MB free (98.2%)","type":"api_error"}
+· MySQL del proyecto ya está arriba en 127.0.0.1:33306
+
+=== gate ===
+base del diff: 0e6c57b9a968 — fijada por el runner
+── 0. Integridad
+  ✓ tests y scripts intactos
+── 1. Tests
+  ✗ los tests de T04 siguen fallando:
+     ERROR backend/tests/test_auth_backend.py
+     por qué falla: ImportError while importing test module '/Users/jose/trabajo-T04/ejemplo-clasificados/backend/tests/test_auth_backend.py'. E   ModuleNotFoundError: No module named 'backend.app.servicios.auth' 
+── 2. Alcance (tarea T04)
+  ✗ no hay ningún cambio: la tarea no se hizo
+── 3. Higiene
+  ⊘ no hay archivos .py que cruzar contra los requirements — no pudo verificarse
+  ✓ sin directorios vacíos nuevos
+  ✓ sin archivos generados
+  ⊘ no hay archivos JS/TS que cruzar contra el package.json — no pudo verificarse
+  ✓ sin librerías de diseño
+  ⊘ no hay archivos que revisar por señales suprimidas — no pudo verificarse
+  ✓ sin TODO sueltos
+── 4. ¿Los tests distinguen?
+  ⊘ no hay implementación que revertir — no pudo verificarse
+
+GATE ROJO (2 fallo/s)
+=== rc=1
+=== fin T04 · 10:46:18 UTC

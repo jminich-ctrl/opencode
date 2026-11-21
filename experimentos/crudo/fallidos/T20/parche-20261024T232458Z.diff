@@ -1,0 +1,194 @@
+diff --git a/.sucio-antes b/.sucio-antes
+new file mode 100644
+index 0000000..e69de29
+diff --git a/ejemplo-clasificados/backend/app/datos/messages.py b/ejemplo-clasificados/backend/app/datos/messages.py
+new file mode 100644
+index 0000000..32edda0
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/datos/messages.py
+@@ -0,0 +1,58 @@
++from backend.app.datos.conexion import conexion
++
++
++def send_message(sender_id: int, receiver_id: int, ad_id: int, content: str) -> dict:
++    """Inserta un mensaje y devuelve el registro creado."""
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "INSERT INTO mensajes (de_usuario_id, a_usuario_id, anuncio_id, cuerpo) VALUES (%s, %s, %s, %s)",
++                (sender_id, receiver_id, ad_id, content)
++            )
++            return {"id": cur.lastrowid}
++
++
++def list_messages(user_id: int) -> list:
++    """Devuelve las conversaciones del usuario."""
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute("""
++                SELECT m.id, m.de_usuario_id, m.a_usuario_id, m.anuncio_id, m.cuerpo, m.creado_en
++                FROM mensajes m
++                WHERE (m.de_usuario_id = %s AND m.a_usuario_id = %s) OR (m.de_usuario_id = %s AND m.a_usuario_id = %s)
++                ORDER BY m.creado_en ASC
++                """,
++                (user_id, user_id, user_id, user_id)
++            )
++            return [
++                {
++                    "id": row[0],
++                    "de_usuario_id": row[1],
++                    "a_usuario_id": row[2],
++                    "anuncio_id": row[3],
++                    "cuerpo": row[4],
++                    "creado_en": row[5]
++                }
++                for row in cur.fetchall()
++            ]
++
++
++def get_message(message_id: int) -> dict:
++    """Devuelve el detalle de un mensaje."""
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "SELECT id, de_usuario_id, a_usuario_id, anuncio_id, cuerpo, creado_en FROM mensajes WHERE id = %s",
++                (message_id,)
++            )
++            row = cur.fetchone()
++            if row:
++                return {
++                    "id": row[0],
++                    "de_usuario_id": row[1],
++                    "a_usuario_id": row[2],
++                    "anuncio_id": row[3],
++                    "cuerpo": row[4],
++                    "creado_en": row[5]
++                }
++            return {}
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_messages_datos.py b/ejemplo-clasificados/backend/tests/test_messages_datos.py
+new file mode 100644
+index 0000000..4974b6b
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_messages_datos.py
+@@ -0,0 +1,119 @@
++import pytest
++from unittest.mock import patch, MagicMock
++from backend.app.datos.messages import send_message, list_messages, get_message
++
++
++class TestMessagesDatos:
++    
++    @pytest.fixture(autouse=True)
++    def setup(self):
++        self.sender_id = 1
++        self.receiver_id = 2
++        self.ad_id = 3
++        self.content = "Hola, ¿cómo estás?"
++        
++    def test_send_message_success(self):
++        """Prueba que send_message inserte correctamente un mensaje"""
++        with patch('backend.app.datos.messages.conexion') as mock_conexion:
++            # Configurar el mock para simular la conexión
++            mock_conn = MagicMock()
++            mock_cursor = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn
++            mock_conn.cursor.return_value = mock_cursor
++            mock_cursor.lastrowid = 42
++            
++            result = send_message(self.sender_id, self.receiver_id, self.ad_id, self.content)
++            
++            # Verificar que se llamó a la consulta correcta
++            mock_cursor.execute.assert_called_once_with(
++                "INSERT INTO mensajes (de_usuario_id, a_usuario_id, anuncio_id, cuerpo) VALUES (%s, %s, %s, %s)",
++                (self.sender_id, self.receiver_id, self.ad_id, self.content)
++            )
++            
++            # Verificar que se devolvió el ID correcto
++            assert result == {"id": 42}
++    
++    def test_list_messages_success(self):
++        """Prueba que list_messages devuelva las conversaciones correctamente"""
++        with patch('backend.app.datos.messages.conexion') as mock_conexion:
++            # Configurar el mock para simular la conexión
++            mock_conn = MagicMock()
++            mock_cursor = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn
++            mock_conn.cursor.return_value = mock_cursor
++            
++            # Configurar resultados simulados
++            mock_cursor.fetchall.return_value = [
++                {
++                    "id": 1,
++                    "de_usuario_id": 1,
++                    "a_usuario_id": 2,
++                    "anuncio_id": 3,
++                    "cuerpo": "Hola",
++                    "creado_en": "2023-01-01 10:00:00"
++                }
++            ]
++            
++            result = list_messages(1)
++            
++            # Verificar que se llamó a la consulta correcta
++            mock_cursor.execute.assert_called_once_with(
++                """
++                SELECT m.id, m.de_usuario_id, m.a_usuario_id, m.anuncio_id, m.cuerpo, m.creado_en
++                FROM mensajes m
++                WHERE (m.de_usuario_id = %s AND m.a_usuario_id = %s) OR (m.de_usuario_id = %s AND m.a_usuario_id = %s)
++                ORDER BY m.creado_en ASC
++                """,
++                (1, 2, 2, 1)
++            )
++            
++            # Verificar que se devolvió el resultado esperado
++            expected = [
++                {
++                    "id": 1,
++                    "de_usuario_id": 1,
++                    "a_usuario_id": 2,
++                    "anuncio_id": 3,
++                    "cuerpo": "Hola",
++                    "creado_en": "2023-01-01 10:00:00"
++                }
++            ]
++            assert result == expected
++    
++    def test_get_message_success(self):
++        """Prueba que get_message devuelva correctamente un mensaje"""
++        with patch('backend.app.datos.messages.conexion') as mock_conexion:
++            # Configurar el mock para simular la conexión
++            mock_conn = MagicMock()
++            mock_cursor = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn
++            mock_conn.cursor.return_value = mock_cursor
++            
++            # Configurar resultado simulado
++            mock_cursor.fetchone.return_value = {
++                "id": 1,
++                "de_usuario_id": 1,
++                "a_usuario_id": 2,
++                "anuncio_id": 3,
++                "cuerpo": "Hola",
++                "creado_en": "2023-01-01 10:00:00"
++            }
++            
++            result = get_message(1)
++            
++            # Verificar que se llamó a la consulta correcta
++            mock_cursor.execute.assert_called_once_with(
++                "SELECT id, de_usuario_id, a_usuario_id, anuncio_id, cuerpo, creado_en FROM mensajes WHERE id = %s",
++                (1,)
++            )
++            
++            # Verificar que se devolvió el resultado esperado
++            expected = {
++                "id": 1,
++                "de_usuario_id": 1,
++                "a_usuario_id": 2,
++                "anuncio_id": 3,
++                "cuerpo": "Hola",
++                "creado_en": "2023-01-01 10:00:00"
++            }
++            assert result == expected
+\ No newline at end of file

@@ -1,0 +1,240 @@
+diff --git a/.sucio-antes b/.sucio-antes
+new file mode 100644
+index 0000000..e69de29
+diff --git a/ejemplo-clasificados/backend/app/datos/search_ads.py b/ejemplo-clasificados/backend/app/datos/search_ads.py
+new file mode 100644
+index 0000000..980f406
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/datos/search_ads.py
+@@ -0,0 +1,44 @@
++"""
++Datos de búsqueda de anuncios.
++"""
++
++from backend.app.datos.conexion import conexion
++
++
++def buscar_anuncios(texto: str, categoria: str | None = None) -> list[dict]:
++    """
++    Busca anuncios por texto y categoría.
++    
++    Args:
++        texto: Texto a buscar en los anuncios
++        categoria: ID de categoría opcional
++        
++    Returns:
++        Lista de diccionarios con los anuncios encontrados
++    """
++    with conexion() as conn:
++        with conn.cursor() as cur:
++            # Construimos la consulta dinámica
++            query = "SELECT id, titulo, descripcion, categoria_id FROM anuncios WHERE titulo LIKE %s OR descripcion LIKE %s"
++            params = [f"%{texto}%", f"%{texto}%"]
++            
++            # Si se especifica categoría, añadimos el filtro
++            if categoria is not None:
++                query += " AND categoria_id = %s"
++                params.append(categoria)
++                
++            cur.execute(query, params)
++            resultados = cur.fetchall()
++            
++            # Convertimos a lista de diccionarios
++            anuncios = []
++            for fila in resultados:
++                anuncio = {
++                    'id': fila['id'],
++                    'titulo': fila['titulo'],
++                    'descripcion': fila['descripcion'],
++                    'categoria_id': fila['categoria_id']
++                }
++                anuncios.append(anuncio)
++                
++            return anuncios
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/rutas/search.py b/ejemplo-clasificados/backend/app/rutas/search.py
+new file mode 100644
+index 0000000..60fc936
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/search.py
+@@ -0,0 +1,30 @@
++"""
++Ruta de búsqueda de anuncios.
++"""
++
++from fastapi import APIRouter, Depends, HTTPException
++from typing import Optional
++
++from backend.app.servicios.search import buscar_anuncios_servicio
++
++
++router = APIRouter(tags=["search"])
++
++
++@router.get("/search")
++def buscar_anuncios_ruta(q: str, category: Optional[str] = None):
++    """
++    Busca anuncios por texto libre y categoría.
++    
++    Args:
++        q: Texto a buscar
++        category: ID de categoría opcional
++        
++    Returns:
++        Lista de anuncios que coinciden con los criterios
++    """
++    try:
++        anuncios = buscar_anuncios_servicio(q, category)
++        return anuncios
++    except Exception as e:
++        raise HTTPException(status_code=500, detail="Error en la búsqueda")
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/app/servicios/search.py b/ejemplo-clasificados/backend/app/servicios/search.py
+new file mode 100644
+index 0000000..4c30b94
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/servicios/search.py
+@@ -0,0 +1,19 @@
++"""
++Servicio de búsqueda de anuncios.
++"""
++
++from backend.app.datos.search_ads import buscar_anuncios
++
++
++def buscar_anuncios_servicio(texto: str, categoria: str | None = None) -> list[dict]:
++    """
++    Servicio de búsqueda de anuncios por texto y categoría.
++    
++    Args:
++        texto: Texto a buscar en los anuncios
++        categoria: ID de categoría opcional
++        
++    Returns:
++        Lista de diccionarios con los anuncios encontrados
++    """
++    return buscar_anuncios(texto, categoria)
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_search_backend.py b/ejemplo-clasificados/backend/tests/test_search_backend.py
+new file mode 100644
+index 0000000..60ed805
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_search_backend.py
+@@ -0,0 +1,116 @@
++import pytest
++from unittest.mock import patch, MagicMock
++from backend.app.datos.search_ads import buscar_anuncios
++from backend.app.servicios.search import buscar_anuncios_servicio
++
++
++class TestSearchBackend:
++    """Tests para la funcionalidad de búsqueda de anuncios."""
++
++    def test_buscar_anuncios_datos_sin_categoria(self):
++        """Test de búsqueda en datos sin categoría."""
++        with patch('backend.app.datos.search_ads.conexion') as mock_conexion:
++            mock_conn = MagicMock()
++            mock_cur = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn
++            mock_conn.cursor.return_value.__enter__.return_value = mock_cur
++            
++            # Configurar el mock para devolver resultados
++            mock_cur.fetchall.return_value = [
++                {
++                    'id': 1,
++                    'titulo': 'Anuncio 1',
++                    'descripcion': 'Descripción 1',
++                    'categoria_id': 1
++                },
++                {
++                    'id': 2,
++                    'titulo': 'Anuncio 2',
++                    'descripcion': 'Descripción 2',
++                    'categoria_id': 1
++                }
++            ]
++            
++            # Llamar a la función
++            resultado = buscar_anuncios("texto", None)
++            
++            # Verificar que se llamó a execute con los parámetros correctos
++            mock_cur.execute.assert_called_once_with(
++                "SELECT id, titulo, descripcion, categoria_id FROM anuncios WHERE titulo LIKE %s OR descripcion LIKE %s",
++                ("%texto%", "%texto%")
++            )
++            
++            # Verificar resultado
++            assert len(resultado) == 2
++            assert resultado[0]['titulo'] == 'Anuncio 1'
++            assert resultado[1]['titulo'] == 'Anuncio 2'
++            # Verificar que los campos esperados estén presentes
++            assert 'id' in resultado[0]
++            assert 'titulo' in resultado[0]
++            assert 'descripcion' in resultado[0]
++            assert 'categoria_id' in resultado[0]
++
++    def test_buscar_anuncios_datos_con_categoria(self):
++        """Test de búsqueda en datos con categoría."""
++        with patch('backend.app.datos.search_ads.conexion') as mock_conexion:
++            mock_conn = MagicMock()
++            mock_cur = MagicMock()
++            mock_conexion.return_value.__enter__.return_value = mock_conn
++            mock_conn.cursor.return_return_value = mock_cur
++            
++            # Configurar el mock para devolver resultados
++            mock_cur.fetchall.return_value = [
++                {
++                    'id': 1,
++                    'titulo': 'Anuncio 1',
++                    'descripcion': 'Descripción 1',
++                    'categoria_id': 1
++                }
++            ]
++            
++            # Llamar a la función
++            resultado = buscar_anuncios("texto", "1")
++            
++            # Verificar que se llamó a execute con los parámetros correctos
++            mock_cur.execute.assert_called_once_with(
++                "SELECT id, titulo, descripcion, categoria_id FROM anuncios WHERE titulo LIKE %s OR descripcion LIKE %s AND categoria_id = %s",
++                ("%texto%", "%texto%", "1")
++            )
++            
++            # Verificar resultado
++            assert len(resultado) == 1
++            assert resultado[0]['titulo'] == 'Anuncio 1'
++            # Verificar que los campos esperados estén presentes
++            assert 'id' in resultado[0]
++            assert 'titulo' in resultado[0]
++            assert 'descripcion' in resultado[0]
++            assert 'categoria_id' in resultado[0]
++
++    def test_buscar_anuncios_servicio(self):
++        """Test de búsqueda en servicio."""
++        with patch('backend.app.datos.search_ads.buscar_anuncios') as mock_buscar:
++            mock_buscar.return_value = [
++                {
++                    'id': 1,
++                    'titulo': 'Anuncio 1',
++                    'descripcion': 'Descripción 1',
++                    'categoria_id': 1
++                },
++                {
++                    'id': 2,
++                    'titulo': 'Anuncio 2',
++                    'descripcion': 'Descripción 2',
++                    'categoria_id': 1
++                }
++            ]
++            
++            resultado = buscar_anuncios_servicio("texto", None)
++            
++            assert len(resultado) == 2
++            assert resultado[0]['titulo'] == 'Anuncio 1'
++            assert resultado[1]['titulo'] == 'Anuncio 2'
++            # Verificar que los campos esperados estén presentes
++            assert 'id' in resultado[0]
++            assert 'titulo' in resultado[0]
++            assert 'descripcion' in resultado[0]
++            assert 'categoria_id' in resultado[0]
+\ No newline at end of file

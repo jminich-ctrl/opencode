@@ -1,0 +1,46 @@
+=== T06c · modelo-b
+[91m[1mError: [0m{
+  "name": "UnknownError",
+  "data": {
+    "message": "Unexpected server error. Check server logs for details.",
+    "ref": "err_fac5c84f"
+  }
+}
+
+=== gate ===
+base del diff: 0e6c57b9a968 — deducida (no había .base-ref)
+── 0. Integridad
+  ✓ tests y scripts intactos
+── 1. Tests
+  ✗ la suite está en rojo
+     Another alternative is to use the "esbuild-wasm" package instead, which works
+     the same way on all platforms. But it comes with a heavy performance cost and
+     can sometimes be 10x slower than the "esbuild" package, so you may also not
+     want to do that.
+     
+         at generateBinPath (/Users/jose/metodo-agentes/ejemplo-clasificados/frontend/node_modules/esbuild/lib/main.js:1888:17)
+         at esbuildCommandAndArgs (/Users/jose/metodo-agentes/ejemplo-clasificados/frontend/node_modules/esbuild/lib/main.js:1969:33)
+         at ensureServiceIsRunning (/Users/jose/metodo-agentes/ejemplo-clasificados/frontend/node_modules/esbuild/lib/main.js:2133:25)
+         at build (/Users/jose/metodo-agentes/ejemplo-clasificados/frontend/node_modules/esbuild/lib/main.js:2025:26)
+         at bundleConfigFile (file:///Users/jose/metodo-agentes/ejemplo-clasificados/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:66529:26)
+         at loadConfigFromFile (file:///Users/jose/metodo-agentes/ejemplo-clasificados/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:66505:31)
+         at resolveConfig (file:///Users/jose/metodo-agentes/ejemplo-clasificados/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:66096:34)
+         at _createServer (file:///Users/jose/metodo-agentes/ejemplo-clasificados/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:65346:26)
+         at createServer (file:///Users/jose/metodo-agentes/ejemplo-clasificados/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:65343:12)
+         at createViteServer (file:///Users/jose/metodo-agentes/ejemplo-clasificados/frontend/node_modules/vitest/dist/vendor-node.a7c48fe1.js:10587:24)
+── 2. Alcance (tarea T06c)
+  ✗ no hay ningún cambio: la tarea no se hizo
+── 3. Higiene
+  ⊘ no hay archivos .py que cruzar contra los requirements — no pudo verificarse
+  ✓ sin directorios vacíos nuevos
+  ✓ sin archivos generados
+  ⊘ no hay archivos JS/TS que cruzar contra el package.json — no pudo verificarse
+  ✓ sin librerías de diseño
+  ⊘ no hay archivos que revisar por señales suprimidas — no pudo verificarse
+  ✓ sin TODO sueltos
+── 4. ¿Los tests distinguen?
+  ⊘ no hay implementación que revertir — no pudo verificarse
+
+GATE ROJO (2 fallo/s)
+=== rc=1
+=== fin T06c · 02:51:27 UTC
