@@ -10,7 +10,7 @@ Estado de cada fase acá abajo. Lo que ya está medido va a [`../MEDICION.md`](.
 | Fase | Qué | Estado |
 |---|---|---|
 | 0 | La etapa que más falla no entra al informe, y su registro no es comparable | **hecha** |
-| 1 | El arquitecto se corta a mitad del razonamiento | **⊘ tanda inválida** por el gateway. Pared medida, tope a 6000, lista para re-correr |
+| 1 | El arquitecto se corta a mitad del razonamiento | **hipótesis REFUTADA**. No es el presupuesto: el modelo gasta lo que le des y nunca ejecuta |
 | 2 | Contexto real contra el servidor, para local | diseñada |
 | 3 | Subir K con el plan de clasificados | bloqueada por 1 |
 
@@ -224,6 +224,60 @@ corto, mismas cuatro tareas, mismo criterio del script: escribió o no escribió
 | completó | 0–1 | el presupuesto era necesario y no suficiente. Ahí vuelve el prompt como candidato, con mi hipótesis vieja ya refutada una vez |
 | completó, truncado a mitad de palabra | — | 6000 tampoco alcanza, y el techo duro son 7320: **no hay tope que lo arregle**, y la respuesta es el modelo del papel |
 | **≥2 murieron por reloj o plataforma** | — | **⊘ tanda inválida otra vez.** No se lee el resultado: se arregla el instrumento. *Esta es la fila que no escribí la primera vez y que fue justo la que pasó.* |
+
+### Resultado de la segunda corrida: **la hipótesis del presupuesto queda REFUTADA**
+
+Tanda válida —3 de 4 completaron, uno murió con un 500 de plataforma— y la predicción falló:
+dije «escribe en ≥2 de 4» y escribió en **0 de 4**.
+
+| tarea | ≈ tokens emitidos | turnos | llamadas a `write` | cómo terminó |
+|---|---|---|---|---|
+| T04 | 6 154 | 1,0 | **0** | completó, truncado, no reescribió |
+| T16 | 12 978 | 2,2 | **0** | 500 de plataforma |
+| T26 | 17 982 | 3,0 | **0** | completó, truncado, no reescribió |
+| T28 | 14 538 | 2,4 | **0** | completó, truncado, no reescribió |
+
+Y los descartes, uno por uno, con el dato que los descarta:
+
+- **No es el presupuesto.** T26 emitió 17 982 tokens en tres turnos: el tope no corta el
+  intento, el modelo continúa. Le dimos 4096, 8192 y 6000 y el comportamiento es idéntico en
+  especie. **Gasta lo que le des.**
+- **No es un permiso denegado.** 0 rechazos en los cuatro transcripts.
+- **No es que le falte la herramienta.** `write` no está deshabilitada en `tools` y no hay
+  bloque `permission` en ningún nivel.
+- **No es que escriba el archivo como texto** —el modo de falla que `error_del_agente` ya
+  detecta para `<tool_call>`—. T04 y T28 no contienen ni una sección de enunciado.
+
+Lo que hace, medido: **sólo llama a `Read`.** Dos veces en T04, doce en T26. Lee, delibera
+entre 6 000 y 18 000 tokens en inglés dentro de `content`, toca el tope, sigue, y termina sin
+ejecutar nunca.
+
+**Eso es un perfil de modelo, no una configuración.** Tres intervenciones sobre sus entradas
+—el motivo que recibe, el tope de salida, el reloj— y cero cambio en especie.
+
+### Dos hipótesis mías, dos refutadas
+
+| # | hipótesis | el arreglo era real | era la causa |
+|---|---|---|---|
+| 1 | recibía la categoría en vez del veredicto del arnés | sí, `6edb4bd` | **no** |
+| 2 | se quedaba sin tokens a mitad del razonamiento | sí, el gateway existía | **no** |
+
+Las dos veces arreglé algo que estaba roto de verdad y las dos veces no era el cuello. Lo que
+tienen en común: **las dos eran hipótesis sobre lo que el arquitecto RECIBE.** Quedan dos
+candidatos y son sobre otra cosa — la forma del pedido, y el modelo.
+
+### El siguiente paso, que es de una sola variable
+
+`replanificar.sh` ya tiene `MODELO=` para esto, y su comentario dice por qué existe: *«el
+perfil del planificador —mucha deliberación, pocas herramientas— no se puede evaluar con un
+banco de seis preguntas, y la única prueba real es si replanifica una tarea que falló de
+verdad»*. Es exactamente este caso.
+
+Mismo prompt, mismas cuatro tareas, mismo criterio, **otro modelo**. Y la elección del
+candidato tiene un criterio nuevo que salió de acá: **el techo del gateway son 20 minutos, no
+tokens.** A 6,6 tok/s el 27B tiene 7 320 tokens; un modelo a 30 tok/s tendría 36 000 adentro
+del mismo reloj. Así que la pregunta para el papel de arquitecto no es sólo quién razona
+mejor: es **quién razona rápido**, y `modelos-por-papel.md` no se la estaba haciendo.
 
 ---
 
