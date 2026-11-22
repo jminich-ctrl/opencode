@@ -1566,6 +1566,129 @@ class TestElTopeDeSalidaYElRelojNoPuedenContradecirse(unittest.TestCase):
                         "chequea DESPUÉS de lanzar: para eso no chequea")
 
 
+class TestUnaReescrituraNoPuedeLlevarseLoQueElMetodoAprendio(unittest.TestCase):
+    """El 2026-11-22 una reescritura del arquitecto salió `✓ T26 replanificada y el plan
+    sigue validando` habiéndose llevado la prohibición «Cambiar el esquema de hash» con toda
+    su explicación — la que decía que el enunciado pedía `scrypt` mientras `login` comparaba
+    `sha256`, que las dos tareas pasaban sus tests y juntas rompían el login. Eso se aprendió
+    a los golpes y quedó escrito.
+
+    Un replay del camino midió el agujero: **de 15 reescrituras mutantes, 11 salían ✓** —
+    borrar `## Contrato`, borrar el campo `Prohibido tocar:`, canjear tres criterios reales
+    por tres triviales—. El único juez era CONTAR viñetas `- [ ]` de todo el archivo, así que
+    una viñeta agregada en `## Tests` compensaba una borrada del criterio.
+
+    Hasta ese día el agujero estaba DORMIDO: ningún modelo escribía, así que nadie podía
+    borrar nada. El momento en que uno escribió, se activó.
+
+    Las cuatro formas de debilitar una restricción salen de `arXiv 2608.24569`. La quinta
+    —la directiva en negrita— salió de que **mi primera versión de este chequeo daba ✓ sobre
+    la reescritura que lo motivó**: conservaba las nueve secciones, los tres criterios
+    idénticos y el campo intacto, y se había llevado dos líneas de prosa en negrita.
+    """
+
+    GUION = SCRIPTS / "preservar_criterios.py"
+
+    BASE = ("# T99 — Cosa\n\n**Estado:** pendiente\n"
+            "**Prohibido tocar:** Ninguno\n\n"
+            "## Alcance\n\n"
+            "- **No mockees la conexión.** El escritor de tests inventó un mock y el gate lo vio.\n"
+            "- **Cambiar el esquema de hash.** Toca registro Y login a la vez.\n\n"
+            "## Contrato\n\n`def cosa(a: int) -> int`\n\n"
+            "## Criterio de terminado\n\n"
+            "- [ ] `backend/app/cosa.py` existe y `cosa` devuelve el doble.\n"
+            "- [ ] `bash scripts/gate.sh` verde.\n")
+
+    def juzgar(self, despues, antes=None):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-pres-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        (d / "antes.md").write_text(antes if antes is not None else self.BASE)
+        (d / "despues.md").write_text(despues)
+        r = subprocess.run([sys.executable, str(self.GUION), str(d / "antes.md"),
+                            str(d / "despues.md")], capture_output=True, text=True)
+        return r.returncode, r.stdout + r.stderr
+
+    def test_el_mismo_enunciado_pasa(self):
+        """El brazo que no se tiene que mover. Un guardia que se queja de todo se apaga."""
+        rc, salida = self.juzgar(self.BASE)
+        self.assertEqual(0, rc, salida)
+
+    def test_agregar_NO_es_perder(self):
+        """El prompt dice «si hace falta, agregá». Castigar un agregado haría imposible la
+        única acción que el método le pide al arquitecto."""
+        rc, salida = self.juzgar(self.BASE + "\n- [ ] `cosa` valida que `a` sea positivo.\n")
+        self.assertEqual(0, rc, salida)
+
+    def test_un_reformato_equivalente_NO_es_perder(self):
+        """Si un cambio de comillas o de puntuación saliera rojo, el chequeo castigaría la
+        forma y no el contenido — y sería un falso rojo cada vez que el modelo reescribe."""
+        rc, salida = self.juzgar(self.BASE.replace("verde.", "verde"))
+        self.assertEqual(0, rc, salida)
+
+    def test_borrar_una_directiva_en_negrita_es_ROJO(self):
+        """La clase que de verdad pasó, y la que mi primera versión dejaba pasar."""
+        rc, salida = self.juzgar(self.BASE.replace(
+            "- **Cambiar el esquema de hash.** Toca registro Y login a la vez.\n", ""))
+        self.assertEqual(1, rc, f"se llevó una prohibición y pasó: {salida}")
+        self.assertIn("cambiar el esquema de hash", salida.lower())
+
+    def test_degradar_una_directiva_a_prosa_es_ROJO(self):
+        """«De bloqueante a consejo» es la forma del paper: la frase queda, el énfasis que la
+        marcaba como regla no."""
+        rc, salida = self.juzgar(self.BASE.replace(
+            "- **Cambiar el esquema de hash.**", "- Cambiar el esquema de hash."))
+        self.assertEqual(1, rc, salida)
+        self.assertIn("degradada", salida)
+
+    def test_borrar_un_criterio_es_ROJO(self):
+        rc, salida = self.juzgar(self.BASE.replace(
+            "- [ ] `bash scripts/gate.sh` verde.\n", ""))
+        self.assertEqual(1, rc, salida)
+        self.assertIn("borrado", salida)
+
+    def test_canjear_criterios_uno_a_uno_es_ROJO(self):
+        """El mutante que el replay midió verde: mismo CONTEO, criterios triviales. Contar no
+        alcanza, y era el único juez que había."""
+        rc, salida = self.juzgar(self.BASE.replace(
+            "- [ ] `backend/app/cosa.py` existe y `cosa` devuelve el doble.",
+            "- [ ] el archivo existe."))
+        self.assertEqual(1, rc, f"canjeó un criterio por uno trivial y pasó: {salida}")
+
+    def test_borrar_una_seccion_es_ROJO(self):
+        rc, salida = self.juzgar(self.BASE.replace("## Contrato\n\n`def cosa(a: int) -> int`\n\n", ""))
+        self.assertEqual(1, rc, salida)
+        self.assertIn("## Contrato", salida)
+
+    def test_borrar_el_campo_Prohibido_tocar_es_ROJO(self):
+        """`validar-plan.py` avisa si el campo está VACÍO, con `re.search`. Si desaparece no
+        avisa nadie, y es la degradación de «bloqueante» a «no existe»."""
+        rc, salida = self.juzgar(self.BASE.replace("**Prohibido tocar:** Ninguno\n", ""))
+        self.assertEqual(1, rc, salida)
+
+    def test_ablandar_un_criterio_con_una_palabra_de_escape_es_ROJO(self):
+        rc, salida = self.juzgar(self.BASE.replace(
+            "- [ ] `bash scripts/gate.sh` verde.",
+            "- [ ] `bash scripts/gate.sh` verde, si aplica."))
+        self.assertEqual(1, rc, salida)
+        self.assertIn("ablandado", salida)
+
+    def test_replanificar_LO_CORRE_y_contra_HEAD(self):
+        """Una cura que depende de que alguien se acuerde no es parte del método. Y el
+        baseline tiene que ser HEAD: comparar contra el árbol de trabajo deja que dos pasadas
+        sin commitear degraden el enunciado al hueso, con las dos diciendo ✓."""
+        s = codigo_de(SCRIPTS / "replanificar.sh")
+        self.assertIn("preservar_criterios.py", s,
+                      "replanificar.sh no corre el chequeo: existe y no lo llama nadie")
+        self.assertIn("coherencia.py", s,
+                      "no corre coherencia.py, que es el juez que atrapó el daño real del "
+                      "2026-11-22 y que su hermano replanificar-coherencia.sh sí corre")
+        self.assertRegex(s, r'git -C "\$BASE" show "HEAD:',
+                         "el baseline no sale de HEAD: dos pasadas sin commitear degradan el "
+                         "enunciado y las dos dicen ✓")
+        self.assertNotIn('"tareas/$(basename "$archivo")\\$" || true', s,
+                         "volvió el `|| true` que descarta la guarda de escrituras de más")
+
+
 class TestRetomarPorNumeroNoSaltaTrabajo(unittest.TestCase):
     """Los números de etapa NO son estables entre corridas, y retomar por número saltaba
     trabajo en silencio.

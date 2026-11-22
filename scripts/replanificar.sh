@@ -169,8 +169,12 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
     echo "  ✗ el arquitecto no respondió: $(motivo_del_corte "$LOG_VIGILADO")"
     mv "$archivo.previo" "$archivo"; continue
   fi
+  # Sin `|| true`: la guarda devuelve 1 cuando el arquitecto escribió fuera de su alcance, y
+  # el `|| true` lo descartaba. Una corrida podía imprimir «✗ escribió en el tronco 2
+  # archivo/s y tenía PROHIBIDO escribir» y DESPUÉS «✓ replanificada»: el veredicto que el
+  # operador lee es el último.
   revisar_escrituras_de_mas "$FOTO" "$id" "el arquitecto" \
-    "tareas/$(basename "$archivo")\$" || true
+    "tareas/$(basename "$archivo")\$" || FUERA_DE_ALCANCE=1
   # El patrón acepta marcas de markdown INTERCALADAS, y también la lista numerada. El
   # 2026-10-24 el diagnóstico de T05c dijo «- **HUECO**: No existe función para listar todos
   # los anuncios» y el regex viejo —`[*#>-]*` UNA sola vez antes de los espacios— no
@@ -203,6 +207,11 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
   fi
 
   mal=""
+  # La guarda de escrituras corre más arriba, antes de este `mal=""`, así que su resultado
+  # viaja en una bandera: asignarle `mal` allá lo borraba acá. Es el defecto que esta línea
+  # produce por existir, y por eso la bandera se limpia al final de cada tarea.
+  [ "${FUERA_DE_ALCANCE:-0}" = "1" ] && mal="escribió fuera de su alcance"
+  FUERA_DE_ALCANCE=0
   # ¿cambió algo? Los tres chequeos de abajo pasan trivialmente sobre un
   # archivo intacto, así que sin esto el script informa «replanificada» cuando el arquitecto
   # leyó, razonó y no escribió. Pasó con T04 y T26: cero líneas de diff, dos verdes.
@@ -235,11 +244,38 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
   done
   CRIT_DESPUES="$(grep -c '^- \[ \]' "$archivo" || true)"
   [ "${CRIT_DESPUES:-0}" -lt "${CRIT_ANTES:-0}" ] \
-    && mal="achicó los criterios de terminado: de $CRIT_ANTES a $CRIT_DESPUES"
+    && mal="${mal:+$mal; }achicó los criterios de terminado: de $CRIT_ANTES a $CRIT_DESPUES"
   TEST_DESPUES="$(grep -oE '`[a-zA-Z0-9_/.]*tests?/[a-zA-Z0-9_.]+`.*clase `[A-Za-z0-9_]+`' "$archivo" | head -1)"
   [ -n "$TEST_ANTES" ] && [ "$TEST_ANTES" != "$TEST_DESPUES" ] \
     && mal="${mal:+$mal; }cambió el archivo o la clase de test, que los declara el plan"
-  if ! (cd "$BASE" && PLAN=PLAN.md python3 "$AQUI/validar-plan.py" >/dev/null 2>&1); then
+  # Lo que la reescritura NO puede llevarse. El juez de esto era contar viñetas `- [ ]` de
+  # todo el archivo, y un replay midió el agujero: de 15 reescrituras mutantes, 11 salían ✓.
+  # El baseline es HEAD y no el `.previo`: comparar contra el árbol de trabajo deja que dos
+  # pasadas sin commitear degraden el enunciado al hueso, con las dos diciendo ✓.
+  if git -C "$BASE" show "HEAD:./tareas/$(basename "$archivo")" > "$BASE/.head-tarea.md" 2>/dev/null; then
+    if ! SALIDA_PRES="$(python3 "$AQUI/preservar_criterios.py" "$BASE/.head-tarea.md" "$archivo" 2>&1)"; then
+      printf '%s\n' "$SALIDA_PRES"
+      mal="${mal:+$mal; }se llevó criterios o directivas que no podía llevarse"
+    fi
+    rm -f "$BASE/.head-tarea.md"
+  else
+    echo "     ⊘ la tarea no está en HEAD: no pude comparar qué se perdió. NO es un pase."
+    mal="${mal:+$mal; }no pude verificar qué se perdió (la tarea no está commiteada)"
+  fi
+  # Y la coherencia ENTRE tareas, que es el juez que atrapó el daño real del 2026-11-22 —un
+  # import cruzado T26→T04 que la reescritura inventó— y que este camino no corría, mientras
+  # su hermano `replanificar-coherencia.sh` sí. El arreglo vivía en un hermano, otra vez.
+  # Desde la RAÍZ con PROYECTO, que es como `correr-todo.sh` lo corre. Corriéndolo desde
+  # `$BASE` devuelve 2 —«no pude»— y un 2 leído como rojo acusa al arquitecto de algo que no
+  # se midió; leído como pase, deja pasar la contradicción. Ninguna de las dos sirve.
+  if ! SALIDA_COH="$(cd "$RAIZ" && PROYECTO="$(basename "$BASE")" python3 "$AQUI/coherencia.py" 2>&1)"; then
+    printf '%s\n' "$SALIDA_COH" | grep '✗' | head -3
+    mal="${mal:+$mal; }el plan se contradice entre tareas"
+  fi
+  # La salida de `validar-plan.py` se IMPRIME: iba a /dev/null y con ella se perdían sus
+  # avisos. Hoy mismo uno decía «T26 no nombra su archivo de test: el agente no sabe dónde
+  # está» y nadie lo vio, porque el consumidor sólo leía el código de salida.
+  if ! (cd "$BASE" && PLAN=PLAN.md python3 "$AQUI/validar-plan.py" 2>&1 | grep -E '✗|aviso' | head -6; exit "${PIPESTATUS[0]}"); then
     mal="${mal:+$mal; }el plan dejó de validar"
   fi
 
