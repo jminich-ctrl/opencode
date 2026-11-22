@@ -1101,3 +1101,141 @@ Lo que nos falta es periferia: contenedores (resuelto por las imágenes oficiale
 diff (cosmic-ray) y **rigor estadístico sobre el control** — y ahí hay un detalle que vale: Intel
 publicó `dokimi` (Apache-2.0, octubre 2026), que hace comparaciones pareadas on/off **con p-valores
 por modelo**. Es la capa que a nuestro brazo nulo le falta. Leerlo, no depender de él.
+
+---
+
+# Vuelta 2026-11-22 — lo que encontramos hoy ya tiene nombre, y la mutación como gate está cuestionada
+
+## 0. Sobre las fuentes de esta vuelta
+
+Búsqueda disparada por dos hallazgos propios del mismo día: el arquitecto que **borra
+prohibiciones al reescribir un enunciado**, y la diferencia de 6× en techo de tokens entre dos
+modelos por culpa del reloj del gateway. La pregunta era «¿quién ya resolvió esto?».
+
+Las fuentes son de 2026 y casi todas preprints. Donde abajo digo «blog» es una fuente débil y
+el número no se adopta: se anota como hipótesis a medir.
+
+## 1. La erosión de restricciones tiene nombre, taxonomía y paper
+
+Lo que vimos hoy —el arquitecto reescribe T26 y se lleva la prohibición «cambiar el esquema de
+hash» con toda su explicación— es **«When "Must" Becomes "Maybe": Erosion of Workflow
+Constraints in LLM Agent Handoffs»** (arXiv 2608.24569). Encuentra que los traspasos entre
+etapas **arrastran la tarea y erosionan los juicios ya establecidos aguas arriba**, y que cinco
+transformaciones de coordinación debilitan restricciones que antes estaban bien identificadas.
+Su ejemplo: un bloqueante que deja de ser vinculante cuando se lo reformula como consejo.
+
+**Y la taxonomía nos corrige el chequeo que íbamos a escribir.** Una restricción se debilita de
+cuatro formas, no de una:
+
+| forma | nuestro plan la detectaba |
+|---|---|
+| **borrada** | sí — era lo único que íbamos a chequear |
+| **generalizada** | no |
+| **degradada de prioridad** (de «prohibido» a «preferible») | no |
+| **reescrita ambigua** | no |
+
+Un detector que sólo busca la línea que falta deja pasar tres de las cuatro. Y la peor para
+nosotros es la degradación: el formato de tarea tiene un campo **«Prohibido tocar»**, así que
+mover una prohibición de ese campo a la prosa es exactamente «de bloqueante a consejo» — y el
+validador de plan no mira ese campo.
+
+## 2. Dos cosas que hay que robar, y una es un cambio de prompt
+
+**Revisar sólo el ítem que falló, no reescribir todo.** La recomendación —de fuente débil, un
+blog, pero coincide con el mecanismo del paper— es que **revisar sólo los ítems que fallaron
+gana contra reescribir entero, porque las reescrituras amplias agregan violaciones nuevas**.
+Nuestro prompt dice textual «reescribí SOLO el archivo de tarea», que acota el ARCHIVO y no el
+alcance del cambio: le pedimos el archivo completo. Hoy T26 salió con 45 líneas agregadas y
+**60 borradas**, y T28 borró la sección `## Contrato` entera. Es el modo de falla descrito.
+
+**Que el que verifica no sea el agente.** `ContextCov` (arXiv 2603.00822) convierte las reglas
+de un archivo de instrucciones en **invariantes ejecutables**, y otro trabajo (arXiv 2601.08012)
+argumenta que la especificación la tiene que hacer cumplir una entidad **independiente del
+agente**, interceptando cada llamada a herramienta antes de ejecutarla. Eso es nuestro P2 —*el
+juez es un comando, no el modelo*— confirmado desde afuera. Lo que nos falta no es la idea: es
+tenerla aplicada al enunciado y no sólo al código.
+
+**Lo que nos falta para poder diffear restricciones: IDs atómicos.** La forma práctica que sale
+de estas fuentes es comparar el CONJUNTO de restricciones antes y después, con identificadores
+por requisito, y chequear el diff con un validador determinista. Nuestros enunciados no tienen
+IDs de requisito: las prohibiciones son prosa y viñetas. Sin IDs, un diff de texto no distingue
+«reformulado» de «eliminado».
+
+## 3. La mutación como aceptación dura: cuatro fuentes de 2026 la cuestionan
+
+Esto nos apunta directo al criterio 3 del gate, que **rechaza un test si sobrevive un mutante**.
+
+- Un estudio de 2026 sobre tests generados por LLM contra código generado por LLM concluye que
+  las métricas de adecuación —sentencia, rama y **mutación**— son **predictores débiles** de la
+  capacidad del suite para encontrar fallas (arXiv 2609.09315).
+- Un estudio de replicabilidad dice que evaluar tests de LLM principalmente por cobertura y
+  mutación **puede ser engañoso** (arXiv 2607.22880).
+- Una comparación de octubre 2026 reporta que la mutación supera a la cobertura **marginalmente**
+  y a mayor costo, y recomienda medir el valor incremental de detección **antes** de convertirla
+  en gate de release.
+- `SWE-Mutation` (2605.22175) baja la tasa de detección promedio de 71,04% a 39,81% con mutantes
+  agénticos, y **conserva un mutante sólo si sobrevive a ≥50% de los suites generados** — que es
+  un filtro de mutantes equivalentes que nosotros no tenemos.
+
+**Qué hacemos con esto, sin tirar lo que funciona.** Nuestra situación no es la de esos estudios
+—nosotros mutamos una implementación de REFERENCIA y exigimos que el test la note, no medimos un
+suite contra código ajeno— así que el resultado no se transfiere directo. Pero sí transfiere la
+advertencia: **nunca medimos el valor incremental de detección de nuestro criterio de mutación**,
+y es exactamente lo que §27 nos enseñó a preguntar cuando medimos bien el FPR de un pre-filtro y
+nunca medimos qué costaba lo que ahorraba. Queda como experimento con número propio: de los
+tests que el gate rechazó por mutantes vivos, cuántos habría rechazado igual otro criterio.
+
+Y lo adoptable ya: **filtrar mutantes equivalentes**. `gate_publico.py` descarta el mutante que
+no cambia el AST, que es la versión sintáctica; la semántica —un mutante que ningún test puede
+distinguir porque es equivalente— no la filtramos, y cada uno de esos es un rechazo injusto.
+
+## 4. El arnés pesa tanto como el modelo, y eso valida lo de hoy
+
+Cuatro fuentes independientes, y todas dicen lo mismo con números distintos:
+
+- **Blind Spots** (arXiv 2610.39006): cambiar de arnés movió a Qwen3.5-9B de **43,1 a 25,0**, y
+  **ningún arnés fue el mejor para todos los modelos**.
+- **Harness-Bench** (arXiv 2605.27922): los errores de llamada a herramienta dependen del arnés.
+  En una comparación con Qwen, un arnés hizo **69 llamadas a herramientas inexistentes** en 33
+  tareas y otro **ninguna**.
+- **Harness effects** (arXiv 2609.32459): los arneses complejos ayudan **más** a los modelos
+  débiles, y el beneficio se encoge a medida que el modelo mejora.
+- Un banco comunitario de 288 celdas: un modelo de 2B sacó **0,821 en un arnés y 0,017 en otro**.
+
+Esto es la lectura correcta de lo de hoy: no medimos «el 27B no sirve de arquitecto», medimos
+**«el 27B en ESTE arnés y contra ESTE gateway no sirve de arquitecto»**. Y la conclusión
+publicada —ningún arnés es el mejor para todos— dice que la elección de modelo por papel tiene
+que hacerse **adentro** de nuestro arnés, que es justo lo que `modelos-por-papel.md` sostiene y
+lo que hoy hicimos por primera vez con una tarea real.
+
+## 5. La cadena dependiente de herramientas es el modo de falla documentado
+
+**AgentFloor** (arXiv 2605.00334): un 2B alcanza para cadenas secuenciales de dos herramientas
+con una barra de 70% de confiabilidad, pero **ningún modelo open-weight llegó a 80%**. Y el banco
+en llama.cpp: **nadie manejó bien cadenas dependientes multi-paso** (≤3 de 8).
+
+El trabajo del arquitecto es exactamente eso: `Read` la tarea → `Read` PLAN.md → `write` el
+archivo. Una cadena dependiente de tres pasos donde el último depende de los dos primeros. Lo
+que vimos —9 a 12 `Read` y cero `write`— **es el modo de falla documentado de los modelos
+chicos**, no una rareza nuestra.
+
+Y hay un detalle del banco de llama.cpp que es nuestra lección de hoy escrita por otro: un
+Llama-3.2-1B sacó 0% en herramientas, y los autores aclaran que **eso refleja el par
+modelo–servidor y no el modelo**, porque falló el parser de llamadas del servidor. Es nuestro
+artefacto de parser, y es también por qué los 503 de los modelos fríos que medí hoy no se pueden
+leer como «ese modelo es lento».
+
+## 6. Lo que esta vuelta confirma que nadie publicó
+
+- **Un lazo de replanificación autónomo corriendo en producción.** Busqué específicamente. Hay
+  papers de arneses auto-evolutivos y de auto-mejora en horizonte largo, y descripciones del
+  patrón —planificar, reflexionar, releer, reintentar— pero **ningún reporte con tasas de falla,
+  costo o confiabilidad de un lazo que replanifica su propio enunciado**. Lo que estamos
+  intentando no lo tiene resuelto nadie en público: es research de verdad, y no hay receta.
+- **Nadie cruzó el techo del gateway con la velocidad del modelo.** El hallazgo de hoy —que el
+  presupuesto de salida usable no son tokens sino *tokens que caben en el reloj del borde*, y que
+  eso cambia 6× entre dos modelos del mismo tamaño— no aparece en ninguna de estas fuentes. Es
+  medible, es barato, y lo tenemos medido.
+- **El valor incremental de detección de un criterio de mutación usado como aceptación**, sobre
+  tests escritos por un agente contra una implementación de referencia. Las fuentes miden suites
+  contra código ajeno, que es otra cosa.
