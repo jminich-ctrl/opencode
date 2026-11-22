@@ -1063,8 +1063,10 @@ class TestUnPermisoDenegadoNoEsUnCorteDePlataforma(unittest.TestCase):
         self.assertIn("PERMISO_DENEGADO", texto,
                       "escribir-tests.sh no distingue el permiso denegado: lo sigue metiendo "
                       "en el mismo balde que un 503")
-        antes = texto.index("PERMISO_DENEGADO:-0")
-        despues = texto.index("PLATAFORMA_CORTO:-0")
+        # Las RAMAS, no la primera aparición de cada nombre: `emitir_veredicto` lee los dos
+        # más arriba y `str.index` devuelve la primera coincidencia.
+        antes = texto.index('if [ "${PERMISO_DENEGADO:-0}" = "1" ]; then')
+        despues = texto.index('if [ "${PLATAFORMA_CORTO:-0}" = "1" ]; then')
         self.assertLess(antes, despues,
                         "la rama del permiso tiene que mirarse ANTES que la del corte de "
                         "plataforma: si va después, el corte se la come y nunca se ejecuta")
@@ -9821,7 +9823,9 @@ class TestLaTerceraAuditoria(unittest.TestCase):
                       "la etapa de tests tiene que clasificar los errores de plataforma")
         # Y con el presupuesto generoso, no con el de «límite total», que es el único que
         # habla de la tarea.
-        i = s.index('PLATAFORMA_CORTO:-0')
+        # El ancla es la RAMA del bucle de reintentos, no la primera aparición del nombre:
+        # `emitir_veredicto` también lo lee ahora, y `str.index` devuelve la primera.
+        i = s.index('if [ "${PLATAFORMA_CORTO:-0}" = "1" ]; then')
         bloque = s[i:i + 900]
         self.assertIn("no cuenta contra la tarea", bloque,
                       "un corte de plataforma no puede gastar el presupuesto de la tarea")
@@ -16272,11 +16276,21 @@ class TestElRojoQueElAcusadoNoPodiaLeer(unittest.TestCase):
         medición perdida. Por eso el emisor va con `|| true` y el escritor se traga su propio
         error de E/S — es la única excepción a la regla de «ninguna limpieza borra en
         silencio», y está acá para que se vea."""
+        # La función ENTERA, no los primeros 400 caracteres: creció al sumarle el segundo
+        # registro y la ventana se quedó corta, así que el test reprobaba por el largo y no
+        # por el invariante. Y lo importante: hay DOS escrituras adentro y las dos tienen
+        # que estar protegidas — la segunda la agregué sin `|| true` y este test la atrapó.
         s = (SCRIPTS / "escribir-tests.sh").read_text()
         i = s.index("emitir_veredicto() {")
-        self.assertIn("|| true", s[i:i + 400],
-                      "el emisor puede tirar la corrida si el escritor falla")
-        self.assertIn("2>/dev/null", s[i:i + 400])
+        cuerpo = "\n".join(l for l in s[i:s.index("\n}\n", i)].splitlines()
+                           if not l.strip().startswith("#"))
+        escrituras = [l for l in cuerpo.splitlines()
+                      if "_veredicto.py" in l or "anotar_intento" in l]
+        self.assertTrue(escrituras, "la función ya no escribe ningún registro")
+        self.assertEqual(cuerpo.count("|| true"), len(escrituras),
+                         f"{len(escrituras)} escritura(s) de registro y "
+                         f"{cuerpo.count('|| true')} protección(es): una puede tirar la corrida")
+        self.assertIn("2>/dev/null", cuerpo)
 
     def test_el_borrador_contra_el_que_se_valido_queda_guardado(self):
         """Dos de los cinco pasos del validador —«pasa con la implementación» y «los mutantes
@@ -16461,8 +16475,14 @@ class TestElResumenDecia100PorCientoYContabaUnTercio(unittest.TestCase):
         (d / ".metricas").mkdir()
         (d / "scripts").mkdir()
         (d / "scripts" / "x.sh").write_text("echo 1\n")
-        enc = ("fecha,proyecto,tarea,veredicto,segundos,modelo,motivo,"
-               "concurrencia,instrumento")
+        # El encabezado se deriva de la fila más ancha: escrito a mano, en cuanto el
+        # registro gana una columna `csv.DictReader` manda el campo que sobra a la clave
+        # `None` y el test mide la rama de «ese campo no existe» creyendo que mide la otra.
+        # Es el defecto que `anotar_intento` documenta haber cometido con la columna `motivo`.
+        nombres = ("fecha,proyecto,tarea,veredicto,segundos,modelo,motivo,"
+                   "concurrencia,instrumento,contextos,etapa").split(",")
+        ancho = max((f.count(",") + 1 for f in filas), default=9)
+        enc = ",".join(nombres[:max(ancho, 9)])
         (d / ".metricas" / "intentos.csv").write_text("\n".join([enc, *filas]) + "\n")
         for cmd in (["init", "-q", "-b", "main"], ["add", "-A"],
                     ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"]):
@@ -16480,14 +16500,35 @@ class TestElResumenDecia100PorCientoYContabaUnTercio(unittest.TestCase):
                       f"el titular no dice de qué fase habla, y el registro no tiene la fase "
                       f"de tests:\n{linea[0]}")
 
-    def test_declara_que_la_fase_de_tests_no_esta_contada(self):
-        d = self.repo_con_registro([self.FILA])
+    def test_declara_que_fase_conto_y_cual_no(self):
+        """Antes esto exigía la línea «la fase de TESTS no está en este registro», y era
+        cierta: `escribir-tests.sh` no anotaba. Dejó de serlo el 2026-11-22 y la línea siguió
+        imprimiéndose — un informe que describe mal su propio alcance es peor que uno
+        incompleto, porque se le cree. Lo que se exige ahora es que declare qué contó.
+
+        El fixture lleva las dos etapas a propósito: con filas de una sola, la declaración
+        que hace falta es otra y el test mediría la rama equivocada."""
+        # Once campos: `etapa` es la ÚLTIMA columna y `contextos` la anterior. Con diez, la
+        # etapa caía en la columna de contextos y las dos filas salían «sin etapa» — el test
+        # medía la rama de las filas viejas creyendo que medía la de las dos etapas.
+        d = self.repo_con_registro([
+            self.FILA + ",ctx1,implementacion",
+            "2026-11-22T10:00:00Z,p,T01a,ROJO,41,m1,,0,abc123,ctx1,escribir-tests"])
         salida = correr(f'bash "{SCRIPTS}/metricas.sh"', d, PROYECTO="p").stdout
-        self.assertIn("fase de TESTS no está en este registro", salida,
-                      f"un hueco que no se declara se lee como cero:\n{salida}")
-        self.assertIn("ejecutor escribe", salida,
-                      "y tiene que traer el COMANDO que lo cuenta, no un número escrito a "
-                      "mano: un número en un mensaje envejece y después miente (regla P2)")
+        self.assertIn("implementación", salida,
+                      f"el titular no dice de qué fase habla:\n{salida}")
+        self.assertIn("NO entran en la tasa de arriba", salida,
+                      f"no declara que la fase de tests es otra población: un hueco que no "
+                      f"se declara se lee como cero:\n{salida}")
+        self.assertIn("escribir-tests", salida, "no nombra la etapa que dejó afuera")
+        # Antes acá se exigía el comando `grep -c '· ejecutor escribe' <log>`, porque el
+        # informe no tenía los datos de esa fase y lo único honesto era dar el comando en vez
+        # de un número escrito a mano. Ese principio —P2, un número en un mensaje envejece y
+        # después miente— ahora se cumple MEJOR: el número sale del registro. Así que se
+        # exige el número, no el comando.
+        self.assertRegex(salida, r"fase «escribir-tests»: \d+ intento",
+                         "no dice CUÁNTOS intentos tuvo la fase que dejó afuera: declarar que "
+                         "existe sin contarla la sigue leyendo como cero")
 
 
 class TestElRojoMandabaAReescribirUnTestQueNuncaSeEscribio(unittest.TestCase):

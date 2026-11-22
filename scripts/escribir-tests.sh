@@ -139,9 +139,12 @@ emitir_veredicto() {
   # La forma CORTA del id, igual que `correr-tarea.sh`: las 91 filas que ya existen dicen
   # `f5d76140`, y escribir el uuid completo partía el mismo modelo en dos baldes —
   # `Modelos usados: f5d76140 (91), f5d76140-5b4d-… (47)`— y rompía todo corte por modelo.
+  # `|| true` como el emisor de arriba: un registro perdido es un dato menos, una corrida
+  # caída por el registro es una medición perdida. Lo agregué sin esto y el test
+  # `test_el_veredicto_nunca_tira_la_corrida` lo atrapó — el invariante estaba escrito.
   anotar_intento "$id" "$_ver_reg" \
     "${SEGUNDOS_DEL_INTENTO:-0}" "$(modelo_del_agente "$AGENTE" 2>/dev/null | cut -c1-8)" \
-    "${log:-}" escribir-tests
+    "${log:-}" escribir-tests 2>/dev/null || true
 }
 
 
