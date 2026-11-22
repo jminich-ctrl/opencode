@@ -27,7 +27,17 @@ router = APIRouter()
 
 @router.post("/favorites/toggle")
 async def toggle_favorite_endpoint(user_id: int, ad_id: int):
-    """Endpoint que delega al servicio para marcar/desmarcar favorito."""
+    """Endpoint que delega al servicio para marcar/desmarcar favorito.
+    Devuelve 200 OK con cuerpo vacío si la operación es exitosa.
+    Si el usuario no existe, devuelve 404.
+    """
+
+@router.get("/favorites/list")
+async def list_favorites_endpoint(user_id: int):
+    """Endpoint que devuelve la lista de anuncios favoritos del usuario.
+    Devuelve 200 OK con un JSON que contiene una lista de objetos con las
+    claves: id, ad_id, favorited (bool) y status (str).
+    """
 ```
 
 ## Tests

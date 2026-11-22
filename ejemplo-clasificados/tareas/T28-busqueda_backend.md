@@ -24,6 +24,7 @@ No entra:
 ## Contrato
 
 ```python
+
 def buscar_anuncios(texto: str, categoria: str | None = None) -> list[dict]:
     """Devuelve anuncios que coinciden con el texto y, opcionalmente, la categoría.
     """
@@ -42,6 +43,8 @@ def buscar_anuncios(texto: str, categoria: str | None = None) -> list[dict]:
 > quien escribió los tests, y está acá sólo para que puedas leer contra qué te juzgan.
 
 Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando vos**. Archivo: `backend/tests/test_search_backend.py`, clase `TestSearchBackend`.
+
+> **Importante:** los tests deben **no** verificar la presencia de claves `fecha_creacion` ni `precio`, ya que no están declaradas en el contrato ni son columnas de la tabla `anuncios`. El test debe centrarse únicamente en los campos que el contrato garantiza.
 
 ## Criterio de terminado
 

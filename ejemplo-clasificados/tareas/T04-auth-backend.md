@@ -30,10 +30,14 @@ Tres archivos, y los tres los importa el test — no son opcionales:
 
 ```python
 # backend/app/datos/users.py
+
 def read_user_by_email(email: str) -> dict | None:
     """El usuario como dict con al menos `id`, `email` y `password_hash`, o None."""
 
 # backend/app/servicios/auth.py
+# El servicio importa el módulo users, no la función directamente
+import backend.app.datos.users as users
+
 def login(email: str, password: str) -> dict | None:
     """Verifica credenciales. Devuelve algo con `token` si son válidas, o None."""
 
@@ -52,6 +56,11 @@ router  # APIRouter con POST /auth/login — main.py lo monta solo si existe `ro
    `from backend.app.datos.users import read_user_by_email` el servicio se queda con su propia
    referencia, el `@patch` del test no aplica, la consulta va a la base de verdad y el test
    falla con 401 — un rojo que no se parece a su causa.
+   **Para que el patch funcione, el test debe usar**
+   ```python
+   patch('backend.app.servicios.auth.users.read_user_by_email')
+   ```
+   en lugar de `patch('backend.app.datos.users.read_user_by_email')`.
 
 ## Tests
 
@@ -85,4 +94,4 @@ la capa de datos de T04 no implementa nada: backend/app/datos/users.py tiene una
 
 Se reabrió con scripts/reabrir.sh el 2026-10-25 13:37 UTC. Su código anterior
 se sacó del tronco (copia en reabrir-T04+T04b-previo): esta tarea vuelve a pasar por tests-first,
-así que el test tiene que fallar antes de que exista la implementación.
+ así que el test tiene que fallar antes de que exista la implementación.
