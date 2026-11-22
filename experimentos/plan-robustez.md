@@ -379,6 +379,25 @@ Lo que cambia al mirar el contador real:
 
 ---
 
+## Corrección: el «5,5× de contexto sin usar» era de un instante, no un estado
+
+Medí que el ejecutor declaraba 32000 y la plataforma servía **176128** (`resident`), y lo
+anoté como 5,5× sin usar. Unas horas después, `/v1/models` dice **35221** (`resident`) para el
+mismo modelo: **la réplica rotó.**
+
+Así que el número era cierto en ese instante y falso como estado, y actuar sobre él —subir el
+contexto declarado a 176128— habría sido **declarar más de lo servido**: el defecto exacto que
+nos costó tres semanas y que mata cada tarea con un 400 que no se parece a su causa.
+
+Lo que esto enseña, y no es sobre el contexto: **una sola lectura de una plataforma compartida
+no es un estado, es una muestra.** `medir-tps.py` tiene esa regla escrita para la velocidad
+—«mediana de cinco, nunca una»— y no la apliqué al contexto, que es el campo donde el error es
+fatal en vez de ruidoso. Un drift medido una vez se vuelve a medir antes de escribirlo.
+
+Y para el camino local esto refuerza la fase 2: si el contexto servido ROTA, preguntárselo una
+vez no alcanza ni con un servidor que lo publica. La sonda que mide contra el servidor es lo
+único que sirve, y hay que correrla antes de cada corrida, no una vez.
+
 ## Fase 2 — Para que corra local, el contexto se mide, no se pregunta
 
 **El hecho medido por cinco harnesses distintos** (Aider, Cline, OpenCode, OpenHands, Zed):

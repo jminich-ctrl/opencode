@@ -1,6 +1,6 @@
 # Material crudo, cosechado al repo
 
-Generado por `scripts/cosechar.sh` el 2026-11-21 (UTC). **No se edita a mano.**
+Generado por `scripts/cosechar.sh` el 2026-11-22 (UTC). **No se edita a mano.**
 
 Esto es una COPIA. Los originales siguen donde el método los escribe
 (`../fallidos-TNN/`, `~/rechazados/`) porque el runner y `replanificar.sh` leen de ahí.
@@ -12,7 +12,7 @@ sistema limpió /tmp.
 
 | tarea | intentos | parches | veredictos del arnés |
 |---|---|---|---|
-| T04 | 6 | 4 | 2 |
+| T04 | 7 | 5 | 3 |
 | T04b | 2 | 0 | 0 |
 | T05 | 15 | 7 | 0 |
 | T05a | 22 | 6 | 0 |
