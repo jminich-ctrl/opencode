@@ -126,8 +126,21 @@ emitir_veredicto() {
   # NO en `.metricas/intentos.csv`. O sea que el informe del método no mostraba una sola
   # fila de la etapa que más falla: 19 rechazos el 2026-11-10 y el informe en blanco.
   # Son dos registros con dos propósitos, y el error era que uno de ellos no se escribía.
-  anotar_intento "$id" "$([ "$1" = aceptado ] && echo VERDE || echo ROJO)" \
-    "${SEGUNDOS_DEL_INTENTO:-0}" "$(modelo_del_agente "$AGENTE" 2>/dev/null)" \
+  # ERROR y no ROJO cuando la falla no es del modelo. `emitir_veredicto rechazado` corre
+  # DESPUÉS de que los chequeos pusieron `PLATAFORMA_CORTO`/`PERMISO_DENEGADO`, pero ANTES de
+  # la rama que dice «no cuenta contra la tarea»: con `aceptado ? VERDE : ROJO` un corte de
+  # plataforma dejaba una fila ROJO en el registro —hasta 12 por tarea con CORTES_MAX— y
+  # `metricas.sh` la contaba contra el modelo Y no la sumaba a «perdidas por plataforma»,
+  # que sólo cuenta ERROR. La contaminación que `error_del_agente` arregló por un lado,
+  # entrando por el otro. `correr-tarea.sh` no comete esto porque usa `veredicto_registrado`.
+  _ver_reg=ROJO
+  [ "$1" = aceptado ] && _ver_reg=VERDE
+  { [ "${PLATAFORMA_CORTO:-0}" = "1" ] || [ "${PERMISO_DENEGADO:-0}" = "1" ]; } && _ver_reg=ERROR
+  # La forma CORTA del id, igual que `correr-tarea.sh`: las 91 filas que ya existen dicen
+  # `f5d76140`, y escribir el uuid completo partía el mismo modelo en dos baldes —
+  # `Modelos usados: f5d76140 (91), f5d76140-5b4d-… (47)`— y rompía todo corte por modelo.
+  anotar_intento "$id" "$_ver_reg" \
+    "${SEGUNDOS_DEL_INTENTO:-0}" "$(modelo_del_agente "$AGENTE" 2>/dev/null | cut -c1-8)" \
     "${log:-}" escribir-tests
 }
 

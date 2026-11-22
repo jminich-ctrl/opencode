@@ -148,7 +148,18 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
     # Hace falta: el perfil del planificador —mucha deliberación, pocas herramientas— no se
     # puede evaluar con un banco de seis preguntas, y la única prueba real es si replanifica
     # una tarea que falló de verdad.
-    if [ -n "${MODELO:-}" ]; then COMO=(--model "colabhive/$MODELO"); else COMO=(--agent arquitecto); fi
+    # `--agent` SIEMPRE, y `--model` encima cuando se pide un candidato. Antes era un
+    # `if/else`: con `MODELO=` puesto se caía `--agent arquitecto` y opencode corría con su
+    # agente por omisión, `build`, cuyo prompt de sistema dice textual «Escribí primero,
+    # deliberá después. No razones en la respuesta: usá las herramientas».
+    #
+    # O sea que la variable que existe para «comparar candidatos en el papel de arquitecto
+    # sin tocar la config» cambiaba el PAPEL además del modelo, y de paso el tope de salida,
+    # las herramientas, la temperatura, los `steps` y el bloque de permisos. El 2026-11-22
+    # eso convirtió un experimento de una variable en uno de cuatro, y la cuarta era un
+    # prompt que ORDENA la conducta que el experimento estaba midiendo: conclusión inválida.
+    COMO=(--agent "${AGENTE_REPLAN:-arquitecto}")
+    [ -n "${MODELO:-}" ] && COMO+=(--model "colabhive/$MODELO")
     con_limite "${LIMITE_AGENTE:-3600}" opencode run "${COMO[@]}" \
       "Mirá SOLO el archivo de la tarea, PLAN.md y, si hace falta, los archivos que la tarea nombra. NO explores .venv, node_modules, .git ni ningún directorio de dependencias: no tienen nada que ver con el enunciado y hay decenas de miles de archivos ahí. La tarea tareas/$(basename \"$archivo\") falló al ejecutarse, y el motivo es cómo está escrita, no el agente que la intentó. Esto es lo que falló: $MOTIVO. Leé la tarea, leé PLAN.md, y reescribí SOLO el archivo de tarea con la herramienta write para que el defecto no pueda repetirse. Reglas que no podés romper: (1) no cambies el archivo de test ni el nombre de su clase, los declara el plan; (2) no saques ni ablandes ningún criterio de terminado — si hace falta, agregá; (3) si el problema es que la tarea necesita algo que ninguna tarea del plan entrega, decilo con la palabra HUECO y explicá qué falta, en vez de inventarlo. Lo que la tarea NO puede tocar va en el campo «Prohibido tocar», no en prosa, y NO expliques cómo hacer lo que prohibís: medido, el ejecutor hace lo que la receta dice aunque dos líneas antes diga que no le corresponde. Nombrar un archivo ajeno está bien para decir DÓNDE VIVE algo que la tarea importa, y mal si viene con instrucciones de cómo modificarlo. Lo más útil que podés hacer es decir DÓNDE vive cada cosa que la tarea nombra: archivo exacto, import exacto." 2>&1
   ) > "$LOG_VIGILADO" 2>&1

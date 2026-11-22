@@ -73,7 +73,34 @@ print("─" * 60)
 primera_verde = cerradas = 0
 delegables = []
 n_invalidas = sum(1 for f in filas if invalido(f))
-for tarea, intentos in sorted(por_tarea.items()):
+
+# La ETAPA separa dos poblaciones con dificultad distinta: escribir el test e implementar.
+# Promediarlas no mide ninguna de las dos, y hasta `f2ae880` este lector no sabía que la
+# columna existía: `escribir-tests.sh` empezó a anotar y el titular pasó a contar filas de
+# tests como si fueran de implementación, sin decirlo. Dos daños medidos: el «verde al
+# primer intento» caía porque la primera fila de una tarea pasó a ser el primer intento del
+# TESTER, y una tarea cuyos tests se aceptaron y cuya implementación nunca cerró entraba en
+# «cerradas».
+#
+# El campo vacío son las filas escritas ANTES de que la columna existiera. Esas sí son todas
+# de implementación, porque el único otro escritor no anotaba — pero se marcan `sin etapa` y
+# no `implementacion`: el número que vale es el que dice de dónde salió.
+def etapa_de(f):
+    return (f.get("etapa") or "").strip() or "sin etapa"
+
+
+def es_implementacion(f):
+    return etapa_de(f) in ("implementacion", "sin etapa", "humano")
+
+
+por_etapa = {}
+for f in filas:
+    por_etapa.setdefault(etapa_de(f), []).append(f)
+
+for tarea, todos_los_intentos in sorted(por_tarea.items()):
+    intentos = [i for i in todos_los_intentos if es_implementacion(i)]
+    if not intentos:
+        continue
     vers = [i["veredicto"] for i in intentos]
     final = vers[-1]
     # El primer intento es el primero que PUDO contar: ni inválido del método ni ajeno a un
@@ -121,10 +148,20 @@ if por_tarea:
     # que lo cuenta sobre el log de la corrida.
     print(f"Verde al PRIMER intento (fase de implementación): {primera_verde}/{n_deleg} ({pct}%)"
           + (f"  [{len(imposibles)} imposible/s fuera del denominador]" if imposibles else ""))
-    print("  ⊘ la fase de TESTS no está en este registro: `escribir-tests.sh` no anota, así")
-    print("     que estas filas son las llamadas de implementación y nada más. Para contar")
-    print("     las de la fase de tests, sobre el log de la corrida:")
-    print("       grep -c '· ejecutor escribe' <log>")
+    # Antes acá decía «la fase de TESTS no está en este registro: escribir-tests.sh no
+    # anota». Dejó de ser cierto el 2026-11-22 y la línea siguió imprimiéndose: un informe
+    # que describe mal su propio alcance es peor que uno incompleto, porque se le cree.
+    for et, fs in sorted(por_etapa.items()):
+        if et in ("implementacion", "sin etapa", "humano"):
+            continue
+        v = [f["veredicto"] for f in fs]
+        print(f"  · fase «{et}»: {len(fs)} intento(s) — "
+              + ", ".join(f"{v.count(x)} {x}" for x in ("VERDE", "ROJO", "ERROR") if v.count(x))
+              + ". NO entran en la tasa de arriba: es otra población.")
+    if "sin etapa" in por_etapa:
+        print(f"  ⊘ {len(por_etapa['sin etapa'])} fila(s) sin etapa: escritas antes de que la")
+        print("     columna existiera. Son de implementación —el otro escritor no anotaba—,")
+        print("     y se cuentan como tal, pero el campo dice «no se registró» y no «sí lo era».")
     fuera = len(por_tarea) - len(delegables)
     if fuera or n_invalidas:
         print(f"  ⊘ fuera de esa tasa: {fuera} tarea(s) sin ningún intento atribuible a un "

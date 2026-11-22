@@ -1,0 +1,18 @@
+[0m
+> build · 5d21e32a-3bbb-4040-9c34-3b06c4415b84
+[0m
+[0m✱ [0mGlob "T16-backend-rutas-favoritos.md"[90m in tareas · 1 match[0m
+[0m✗ [0mRead tasks/T16-backend-rutas-favoritos.md failed[90m [offset=1, limit=2000][0m
+[91m[1mError: [0mFile not found: /Users/jose/metodo-agentes/ejemplo-clasificados/tasks/T16-backend-rutas-favoritos.md
+[0m→ [0mRead tareas/T16-backend-rutas-favoritos.md[90m [offset=1, limit=2000][0m
+[0m✱ [0mGlob "test_favorites_rutas.py"[90m in backend/tests · 0 matches[0m
+[0m
+[0m← [0mWrite tareas/T16-backend-rutas-favoritos.md
+Wrote file successfully.
+[0m
+**Resumen**  
+- Se actualizó el archivo de la tarea `T16-backend-rutas-favoritos.md` para incluir el contrato que especifica las claves `favorited` y `status` en las respuestas, alineando el contrato con los tests que se escribirán.  
+- No se tocaron archivos de tests ni se introdujeron dependencias nuevas.  
+- Se añadió la importación de `HTTPException` (parte de FastAPI) para documentar posibles errores.  
+
+El archivo de la tarea ahora declara explícitamente el contrato esperado por los tests.

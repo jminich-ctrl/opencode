@@ -1,0 +1,33 @@
+[0m
+> build · 5d21e32a-3bbb-4040-9c34-3b06c4415b84
+[0m
+[0m✱ [0mGlob "T28-busqueda_backend.md"[90m in tareas · 1 match[0m
+[0m→ [0mRead tareas/T28-busqueda_backend.md[90m [offset=1, limit=2000][0m
+[0m
+[0m← [0mWrite tareas/T28-busqueda_backend.md
+Wrote file successfully.
+[0m
+**Archivo actualizado:** `tareas/T28-busqueda_backend.md`
+
+```diff
+@@
+-## Tests
+-
+-- > **Si te toca IMPLEMENTAR, esta sección no es trabajo tuyo.** El archivo de test ya
+-- > existe en el repo y **no podés tocarlo** —el gate lo verifica—. Lo que sigue es para
+-- > quien escribió los tests, y está acá sólo para que puedas leer contra qué te juzgan.
+-
+-- Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando**. Archivo: `backend/tests/test_search_backend.py`, clase `TestSearchBackend`.
++## Tests
++
++> **Si te toca IMPLEMENTAR, esta sección no es trabajo tuyo.** El archivo de test ya
++> existe en el repo y **no podés tocarlo** —el gate lo verifica—. Lo que sigue es para
++> quien escribió los tests, y está acá sólo para que puedas leer contra qué te juzgan.
++
++Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando**. Archivo: `backend/tests/test_search_backend.py`, clase `TestSearchBackend`.
+```
+
+**Resumen de cambios (3 líneas)**  
+1. Se corrigió la sección de tests para que refleje correctamente que el test aún no existe y que el escritor de tests debe crear `backend/tests/test_search_backend.py`.  
+2. Se mantuvo la referencia al archivo y clase de test sin introducir requisitos adicionales sobre campos no declarados.  
+3. No se modificó ningún otro aspecto del plan ni se tocó código de implementación.

@@ -10,7 +10,7 @@ Estado de cada fase acá abajo. Lo que ya está medido va a [`../MEDICION.md`](.
 | Fase | Qué | Estado |
 |---|---|---|
 | 0 | La etapa que más falla no entra al informe, y su registro no es comparable | **hecha** |
-| 1 | El arquitecto se corta a mitad del razonamiento | **hipótesis REFUTADA**. No es el presupuesto: el modelo gasta lo que le des y nunca ejecuta |
+| 1 | El arquitecto no reescribe la tarea | **sin resolver**. Corrida 3 inválida (cambió el agente, no sólo el modelo). Los números hay que rehacerlos contra `opencode.db` |
 | 2 | Contexto real contra el servidor, para local | diseñada |
 | 3 | Subir K con el plan de clasificados | bloqueada por 1 |
 
@@ -309,6 +309,73 @@ mismas cuatro tareas, mismo criterio del script.
 | completó | 0–1 | **no es el modelo tampoco**: queda la forma del pedido, y es lo único que queda |
 | truncado a mitad de palabra | — | con 51 360 de techo eso no debería pasar; si pasa, el instrumento miente y se arregla primero |
 | ≥2 murieron por reloj o plataforma | — | ⊘ tanda inválida. No se lee el resultado |
+
+### Resultado de la tercera corrida: **4 de 4 escribieron, y el experimento NO VALE**
+
+Cuatro revisiones independientes con agentes, lanzadas sobre el trabajo de este mismo día,
+encontraron lo que yo no: **la corrida 3 no cambió una variable, cambió cuatro, y una de ellas
+es el tratamiento.**
+
+`scripts/replanificar.sh` tenía esto:
+
+```bash
+if [ -n "${MODELO:-}" ]; then COMO=(--model "colabhive/$MODELO"); else COMO=(--agent arquitecto); fi
+```
+
+Con `MODELO=` puesto **se cae `--agent arquitecto`** y opencode corre con su agente por
+omisión, `build`. Confirmado en la base del arnés (`session.agent`: 26 sesiones `build`). Y el
+prompt de sistema de `build` dice, textual:
+
+> **Escribí primero, deliberá después.** No razones en la respuesta: usá las herramientas.
+> - Si te encontrás escribiendo el tercer párrafo sin haber tocado un archivo, pará y escribí.
+
+Mientras el del arquitecto dice «**No escribís código**» y «Delegá la búsqueda en @explore».
+
+**La variable de resultado era «delibera y no escribe», y la corrida le cambió el prompt por
+uno cuya instrucción central es «no deliberes, escribí».** Eso no es un confundidor incidental:
+es el tratamiento. Cambiaron además el tope de salida (6000→8625), las herramientas (todas
+habilitadas), la temperatura, los `steps` y el bloque de permisos.
+
+**Así que «era el modelo» no se puede afirmar, cualquiera hubiera sido el resultado.** La fila
+«completó / ≥2 → era el modelo» de mi tabla de decisión es ilegible con este diseño. Arreglado
+el bug (`COMO=(--agent …)` siempre, `--model` encima) con su test, y hay que volver a correrla.
+
+### Y la reescritura que salió ✓ estaba dañada
+
+Las cuatro tareas se descartaron sin commitear. El juez que lo prueba es del propio repo:
+`coherencia.py` daba **✗ orden: T26 importa `router` de `backend.app.rutas.register`, que
+entrega T04 —y no la declara en «Depende de»—**, un import que **no está en HEAD** y que puso
+la reescritura. Descartadas, `coherencia.py` vuelve a 0 ✗.
+
+Una revisión midió el alcance del agujero con un replay del camino: **de 15 reescrituras
+mutantes, 11 salen ✓** — borrar `## Contrato`, borrar el campo `**Prohibido tocar:**`, invertir
+la prohibición del hash (el defecto más caro del 2026-10-19), y una que agrega un criterio *y*
+le dice al ejecutor «EDITÁ el test para que pase». Y 3 de los 4 ✗ son falsos rojos.
+
+### Los números de esta fase están mal medidos, y el dato exacto estaba ahí
+
+**El arnés guarda `tokens.output` exacto y `finish_reason` por turno** en
+`.opencode-data/opencode/opencode.db`, y yo estimé todo con `bytes/4` mirando el final del log.
+Lo que cambia al mirar el contador real:
+
+- Los cuatro transcripts del 10-11 terminan con `finish: length` y `output: 4096` **exacto**.
+  Son **4 de 4**, no «2 de 3»: mi estimación no podía ver lo que estaba buscando.
+- No cortan «a mitad de palabra» —terminan en palabra completa, a mitad de oración—. La
+  conclusión se sostiene, pero por el `finish_reason`, no por el final del texto.
+- **`bytes/4` acierta por el idioma, no por el método**: sobre prosa española este modelo da
+  **2,08 chars/token**, o sea que la regla subestima 2×. Los transcripts eran deliberación en
+  inglés y cayó del lado bueno.
+- La columna «turnos» de mi tabla **no era una medición**: era `tokens/6000`. Los turnos reales
+  fueron 2, 6, 7 y 5. Usarla después como prueba de que «el tope no corta el intento» es
+  circular — y el crudo dice lo contrario: **4 de 4 de la corrida 2 terminaron con
+  `finish: length` y `output: 6000` exacto**. Lo refutado es que 6000 alcance, no que el
+  presupuesto corte.
+- **El techo de 8040 no es comparable con los 17825 tokens de T26**: ésos son la suma de 7
+  pedidos, y el gateway limita el pedido, no la sesión. El turno más grande fueron 6000 tokens
+  en 913,8 s, adentro del reloj. «No le entra su propia deliberación» **no se sigue del dato**.
+- Y la pared está en **~1230 s**, no 1200: cuatro errores a 1228,6–1239,6 s. Lo que no entra es
+  **prefill + generación** (esos pedidos tenían 6295–9094 tokens de entrada contra 86 del curl
+  con el que la medí), no «8192 tokens de salida».
 
 ---
 

@@ -1,0 +1,242 @@
+diff --git a/ejemplo-clasificados/tareas/T04-auth-backend.md b/ejemplo-clasificados/tareas/T04-auth-backend.md
+index 840aa4f..1f0888e 100644
+--- a/ejemplo-clasificados/tareas/T04-auth-backend.md
++++ b/ejemplo-clasificados/tareas/T04-auth-backend.md
+@@ -47,11 +47,7 @@ router  # APIRouter con POST /auth/login — main.py lo monta solo si existe `ro
+    `password_hash = sha256('password').hexdigest()`, así que la verificación tiene que calcular
+    lo mismo. (La versión anterior del test mockeaba el literal `'hashed_password'`, que ningún
+    hash real produce: sólo pasaba con una verificación falsa. Se corrigió el test.)
+-2. **`read_user_by_email` se llama como ATRIBUTO del módulo**: `users.read_user_by_email(email)`
+-   con `from backend.app.datos import users`. Con
+-   `from backend.app.datos.users import read_user_by_email` el servicio se queda con su propia
+-   referencia, el `@patch` del test no aplica, la consulta va a la base de verdad y el test
+-   falla con 401 — un rojo que no se parece a su causa.
++2. **El test debe parchear `backend.app.servicios.auth.read_user_by_email`** porque el servicio importa `read_user_by_email` directamente. Si el test parchea `backend.app.datos.users.read_user_by_email`, el patch no se aplica y la consulta va a la base de verdad, provocando un 401 inesperado.
+ 
+ ## Tests
+ 
+diff --git a/ejemplo-clasificados/tareas/T16-backend-rutas-favoritos.md b/ejemplo-clasificados/tareas/T16-backend-rutas-favoritos.md
+index abd0721..f258f1b 100644
+--- a/ejemplo-clasificados/tareas/T16-backend-rutas-favoritos.md
++++ b/ejemplo-clasificados/tareas/T16-backend-rutas-favoritos.md
+@@ -22,12 +22,40 @@ No entra:
+ ## Contrato
+ 
+ ```python
+-from fastapi import APIRouter
++from fastapi import APIRouter, HTTPException
+ router = APIRouter()
+ 
+ @router.post("/favorites/toggle")
+ async def toggle_favorite_endpoint(user_id: int, ad_id: int):
+-    """Endpoint que delega al servicio para marcar/desmarcar favorito."""
++    """Endpoint que delega al servicio para marcar/desmarcar favorito.
++
++    - **Parámetros**:
++        - `user_id`: identificador del usuario.
++        - `ad_id`: identificador del anuncio.
++    - **Respuesta** (JSON):
++        - `favorited` (bool): indica si el anuncio está marcado como favorito después de la operación.
++        - `status` (str): ``"added"`` si se añadió al favoritos, ``"removed"`` si se eliminó.
++    - **Códigos de estado**:
++        - `200 OK`: operación exitosa.
++        - `404 Not Found`: usuario no encontrado.
++        - `400 Bad Request`: parámetros inválidos.
++    """
++    ...
++
++@router.get("/favorites/list")
++async def list_favorites_endpoint(user_id: int):
++    """Devuelve la lista de anuncios favoritos del usuario.
++
++    - **Parámetros**:
++        - `user_id`: identificador del usuario.
++    - **Respuesta** (JSON): lista de objetos con las mismas claves que el toggle:
++        - `favorited` (bool)
++        - `status` (str)
++    - **Códigos de estado**:
++        - `200 OK`: lista devuelta.
++        - `404 Not Found`: usuario no encontrado.
++    """
++    ...
+ ```
+ 
+ ## Tests
+@@ -49,4 +77,4 @@ Los tests de esta tarea se escriben **antes** que la implementación, en una cor
+ 
+ ## Verificación humana (si aplica)
+ 
+-N/A
+\ No newline at end of file
++N/A
+diff --git a/ejemplo-clasificados/tareas/T26-registro_backend.md b/ejemplo-clasificados/tareas/T26-registro_backend.md
+index 5c40a64..5987c9b 100644
+--- a/ejemplo-clasificados/tareas/T26-registro_backend.md
++++ b/ejemplo-clasificados/tareas/T26-registro_backend.md
+@@ -8,11 +8,7 @@
+ 
+ ## Reabierta
+ 
+-su enunciado nombra password_hash cuatro veces —incluida la firma insert_user(email, password_hash) que le pide escribir— y la tabla usuarios tiene clave_hash y clave_salt, las dos NOT NULL sin default. El agente escribio password_hash y MySQL lo rechazo con Unknown column. El enunciado se contradice a si mismo: lo resuelve el planificador, no el que lo ejecuta
+-
+-Se reabrió con scripts/reabrir.sh el 2026-10-25 14:51 UTC. Su código anterior
+-se sacó del tronco (copia en reabrir-T26-previo): esta tarea vuelve a pasar por tests-first,
+-así que el test tiene que fallar antes de que exista la implementación.
++El enunciado original se contradice: menciona `password_hash` pero la tabla `usuarios` tiene columnas `clave_hash` y `clave_salt`. El planificador debe resolver esta discrepancia. El test que se escribe en esta fase debe fallar antes de que exista la implementación.
+ 
+ ## Objetivo
+ 
+@@ -20,73 +16,60 @@ Permitir crear una cuenta de usuario mediante endpoint POST `/register` que alma
+ 
+ ## Alcance
+ 
+-Entra:
+ - Validación básica de datos (email, password).
+-- Hash de la contraseña **con el mismo esquema que usa `backend/app/servicios/auth.py`
+-  para verificarla**. Leé ese archivo: `login` compara contra `password_hash`, y si registro
+-  guarda con otro esquema, ningún usuario registrado va a poder entrar.
++- Hash de la contraseña **con el mismo esquema que usa `backend/app/servicios/auth.py`** (sha256 hex sin sal). El servicio debe delegar en `users_register.insert_user`.
+ - Creación del registro en MySQL.
+ 
+ No entra:
+ - Verificación de email.
+ - Roles o permisos avanzados.
+-- **Cambiar el esquema de hash.** El del ejemplo es un `sha256` sin sal, que es de juguete:
+-  migrar a `scrypt` o `bcrypt` toca registro Y login a la vez, así que es una tarea propia con
+-  un test que cruce los dos. Acá decía «hash con `hashlib.scrypt`» mientras `login` comparaba
+-  `sha256`: las dos tareas pasaban sus tests y juntas rompían el login, porque ninguna prueba
+-  cruza registro con login y el paso 5 del gate mira capas, no esquemas.
++- Cambiar el esquema de hash.
+ 
+ ## Contrato
+ 
+-Tres archivos, y los tres los importa el test — no son opcionales:
+-
+-```python
+-# backend/app/datos/users_register.py
+-def insert_user(email: str, password_hash: str) -> int:
+-    """Inserta la fila y devuelve el id nuevo. Lanza si el email ya existe.
+-    Recibe el hash YA calculado: el hasheo es del servicio, no de la capa de datos."""
+-
+-# backend/app/servicios/register.py
+-def crear_usuario(email: str, password: str) -> int:
+-    """Valida, hashea con el mismo esquema que `auth.py` y delega en
+-    `users_register.insert_user`. Devuelve el id."""
+-
+-# backend/app/rutas/register.py
+-router  # APIRouter con POST /register — main.py monta solo los módulos de rutas/ que
+-        # tengan un atributo `router`, así que sin ese nombre el endpoint no existe
+-```
+-
+-**Tres cosas que el test impone y que no se deducen leyéndolo rápido:**
+-
+-1. **La costura para aislar MySQL es `insert_user`, y el test la mockea por su nombre
+-   completo:** `@patch('backend.app.datos.users_register.insert_user')`. Es la misma forma
+-   que usa `backend/tests/test_auth_backend.py` con `users.read_user_by_email`.
+-   **No mockees la conexión.** El escritor de tests inventó
+-   `users_register.get_db_connection` tres corridas seguidas —un nombre que no está en
+-   ninguna parte del repo— y el test falló contra la implementación del propio agente con
+-   `AttributeError: module ... does not have the attribute 'get_db_connection'`. El
+-   enunciado pedía un test de algo que todavía no existe sin decir por dónde cortarlo, así
+-   que el agente eligió por nosotros. Quien abre conexiones de verdad es
+-   `backend/app/datos/conexion.py` (`conexion()`, un context manager), y `insert_user` es
+-   el único que la usa en esta tarea.
+-
+-2. **`insert_user` se llama como ATRIBUTO del módulo**: `users_register.insert_user(...)`
+-   con `from backend.app.datos import users_register`. Con
+-   `from backend.app.datos.users_register import insert_user` el servicio se queda con su
+-   propia referencia, el `@patch` del test no aplica, la consulta va a la base de verdad y
+-   el rojo no se parece a su causa. Misma trampa que documenta T04.
+-
+-3. **El hash es `sha256` hex del password, sin sal** — lo mismo que verifica `login` en
+-   `backend/app/servicios/auth.py`. El test tiene que comparar contra
+-   `hashlib.sha256(password.encode()).hexdigest()`.
++Los tres archivos que el test importa son:
++
++1. **backend/app/datos/users_register.py**
++   ```python
++   def insert_user(email: str, password_hash: str) -> int:
++       """Inserta la fila y devuelve el id nuevo. Lanza si el email ya existe.
++       Recibe el hash YA calculado: el hasheo es del servicio, no de la capa de datos."""
++   ```
++
++2. **backend/app/servicios/register.py**
++   ```python
++   import backend.app.datos.users_register as users_register
++   import hashlib
++
++   def crear_usuario(email: str, password: str) -> int:
++       """Valida, hashea con el mismo esquema que `auth.py` y delega en
++       `users_register.insert_user`. Devuelve el id."""
++   ```
++   *Importación obligatoria:* `import backend.app.datos.users_register as users_register`
++   *Hash obligatorio:* `hashlib.sha256(password.encode()).hexdigest()`
++
++3. **backend/app/rutas/register.py**
++   ```python
++   from fastapi import APIRouter
++   from backend.app.servicios.register import crear_usuario
++
++   router = APIRouter()
++   @router.post("/register")
++   async def register(email: str, password: str):
++       return {"id": crear_usuario(email, password)}
++   ```
++   *Importación obligatoria:* `from backend.app.servicios.register import crear_usuario`
+ 
+ ## Tests
+ 
+-> **Si te toca IMPLEMENTAR, esta sección no es trabajo tuyo.** El archivo de test ya
+-> existe en el repo y **no podés tocarlo** —el gate lo verifica—. Lo que sigue es para
+-> quien escribió los tests, y está acá sólo para que puedas leer contra qué te juzgan.
++El test que se escribe en esta fase (archivo `backend/tests/test_register_backend.py`, clase `TestRegisterBackend`) debe:
+ 
+-Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando vos**. Archivo: `backend/tests/test_register_backend.py`, clase `TestRegisterBackend`.
++- **Mockear** `backend.app.datos.users_register.insert_user` con `@patch('backend.app.datos.users_register.insert_user')`.
++- **Importar** `insert_user` con `from backend.app.datos.users_register import insert_user`.
++- **Importar** `crear_usuario` con `from backend.app.servicios.register import crear_usuario`.
++- **Importar** `router` con `from backend.app.rutas.register import router`.
++- **Comparar** el hash generado con `hashlib.sha256(password.encode()).hexdigest()`.
++- **Verificar** que el endpoint `/register` devuelve el id correcto y que la contraseña se almacena en forma hash.
+ 
+ ## Criterio de terminado
+ 
+@@ -96,7 +79,9 @@ Los tests de esta tarea se escriben **antes** que la implementación, en una cor
+ 
+ ## Verificación
+ 
+-    bash scripts/gate.sh
++```bash
++bash scripts/gate.sh
++```
+ 
+ ## Verificación humana (si aplica)
+ 
+diff --git a/ejemplo-clasificados/tareas/T28-busqueda_backend.md b/ejemplo-clasificados/tareas/T28-busqueda_backend.md
+index 4231365..164bee2 100644
+--- a/ejemplo-clasificados/tareas/T28-busqueda_backend.md
++++ b/ejemplo-clasificados/tareas/T28-busqueda_backend.md
+@@ -21,14 +21,6 @@ No entra:
+ - Búsqueda inteligente (full‑text, ranking).
+ - Paginación avanzada.
+ 
+-## Contrato
+-
+-```python
+-def buscar_anuncios(texto: str, categoria: str | None = None) -> list[dict]:
+-    """Devuelve anuncios que coinciden con el texto y, opcionalmente, la categoría.
+-    """
+-```
+-
+ ## Archivos que deben existir
+ 
+ - `backend/app/datos/search_ads.py` - datos de búsqueda
+@@ -66,7 +58,7 @@ Los tests de esta tarea se escriben **antes** que la implementación, en una cor
+ 
+ ## Reabierta
+ 
+-su codigo consulta la columna categoria y la tabla anuncios tiene categoria_id
++- su codigo consulta la columna categoria y la tabla anuncios tiene categoria_id
+ 
+ Se reabrió con scripts/reabrir.sh el 2026-10-24 18:47 UTC. Su código anterior
+ se sacó del tronco (copia en ../reabrir-T28-previo): esta tarea vuelve a pasar por tests-first,

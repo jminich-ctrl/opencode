@@ -1,0 +1,18 @@
+[0m
+> build · 5d21e32a-3bbb-4040-9c34-3b06c4415b84
+[0m
+[0m→ [0mRead tareas/T26-registro_backend.md[90m [offset=1, limit=2000][0m
+[0m✗ [0mRead backend/tests/test_register_backend.py failed[90m [offset=1, limit=2000][0m
+[91m[1mError: [0mFile not found: /Users/jose/metodo-agentes/ejemplo-clasificados/backend/tests/test_register_backend.py
+[0m→ [0mRead tareas/T26-registro_backend.md[90m [offset=1, limit=2000][0m
+[0m→ [0mRead tareas/T26-registro_backend.md[90m [offset=44, limit=20][0m
+[0m
+[0m← [0mWrite tareas/T26-registro_backend.md
+Wrote file successfully.
+[0m
+Se reescribió el archivo de la tarea **T26-registro_backend.md** para indicar explícitamente dónde vive cada elemento que el test importa y cómo debe ser importado.  
+- Se añadió el código de referencia de los tres archivos (`users_register.py`, `register.py`, `rutas/register.py`) con las importaciones exactas y la firma esperada.  
+- Se describió el esquema de hash (`sha256` sin sal) y la forma de usar `hashlib`.  
+- Se mantuvo la estructura original del documento y no se introdujeron nuevas dependencias.  
+
+Con esto el test podrá mockear correctamente `insert_user` y la implementación seguirá el contrato esperado. No se tocaron archivos prohibidos ni se añadió código que no esté en el plan.

@@ -1410,7 +1410,9 @@ class TestElTopeDeSalidaYElRelojNoPuedenContradecirse(unittest.TestCase):
         self.assertIn("984", salida,
                       "no dice CUÁNTOS segundos tarda: sin el número, el que lee no puede "
                       "decidir si sube el reloj o baja el tope")
-        self.assertIn("600", salida, "ni contra qué límite lo comparó")
+        # "es 600s" y no "600": el fixture usa tope=6000, así que "600" es subcadena suya y
+        # la aserción se cumplía aunque el aviso informara el reloj equivocado.
+        self.assertIn("es 600s", salida, "ni contra qué límite lo comparó")
 
     def test_un_tope_que_SI_entra_no_molesta(self):
         """El brazo que no se tiene que mover. Un guardia que se queja siempre se apaga, y
@@ -1451,10 +1453,44 @@ class TestElTopeDeSalidaYElRelojNoPuedenContradecirse(unittest.TestCase):
                       "con el reloj nuestro holgado y el del gateway corto, dijo que sí: "
                       "es la configuración exacta que tiró cuatro intentos")
         salida = r.stdout + r.stderr
-        self.assertIn("gateway", salida, "no nombra cuál de los relojes es el que manda")
+        # "reloj del gateway" y no "gateway": la palabra sola aparece siempre en la línea de
+        # prosa fija del aviso, gane el reloj nuestro o el del gateway.
+        self.assertIn("reloj del gateway", salida,
+                      "no nombra cuál de los relojes es el que manda")
         self.assertIn("7320", salida,
                       "no dice cuál es el techo DURO. Sin ese número, el que lee no sabe si "
                       "bajar el tope alcanza o hay que cambiar el modelo del papel")
+
+    def test_MODELO_no_se_lleva_el_AGENTE_puesto(self):
+        """El bug que invalidó el experimento del 2026-11-22, y lo encontró una revisión, no yo.
+
+        `replanificar.sh` tenía:
+
+            if [ -n "$MODELO" ]; then COMO=(--model …); else COMO=(--agent arquitecto); fi
+
+        O sea que la variable documentada como «permite comparar candidatos en el papel de
+        arquitecto sin tocar la config» **se llevaba el papel puesto**: con `MODELO=` opencode
+        corría con su agente por omisión, `build`, cuyo prompt de sistema dice textual
+        «Escribí primero, deliberá después. No razones en la respuesta: usá las herramientas».
+
+        Eso cambió de una vez el modelo, el agente, el prompt de sistema, el tope de salida,
+        las herramientas, la temperatura, los `steps` y el bloque de permisos — y el prompt
+        **ordena la conducta que el experimento estaba midiendo**. Cuatro variables y una es
+        el tratamiento: la conclusión «era el modelo» no se podía leer, cualquiera fuera el
+        resultado.
+
+        Un comparador de modelos que cambia el papel no compara modelos."""
+        s = codigo_de(SCRIPTS / "replanificar.sh")
+        self.assertRegex(s, r"COMO=\(--agent",
+                         "no pasa `--agent` siempre: con MODELO= se cae el papel y corre el "
+                         "agente por omisión de opencode, con otro prompt de sistema")
+        self.assertNotRegex(
+            s, r"if \[ -n \"\$\{MODELO:-\}\" \]; then COMO=\(--model[^;]*; else COMO=\(--agent",
+            "volvió el if/else que descarta el agente cuando se pide un modelo")
+        # Y el modelo se AGREGA, no reemplaza: si no, no se puede comparar nada.
+        i_agent = s.index("COMO=(--agent")
+        self.assertIn("COMO+=(--model", s[i_agent:i_agent + 300],
+                      "el modelo no se suma al agente: o compara sin papel, o no compara")
 
     def test_la_velocidad_se_lee_POR_MODELO_y_no_de_un_piso_global(self):
         """Un piso global solo reprueba al brazo bueno, y lo vi apenas lo usé con un segundo
@@ -1515,7 +1551,14 @@ class TestElTopeDeSalidaYElRelojNoPuedenContradecirse(unittest.TestCase):
 
     def test_replanificar_LLAMA_a_la_guarda(self):
         """Una cura que depende de que alguien se acuerde no es parte del método."""
-        s = (SCRIPTS / "replanificar.sh").read_text()
+        # `codigo_de` y NO `read_text`: `str.index` devuelve la PRIMERA aparición, y la
+        # primera de «presupuesto_coherente» está en el comentario que documenta el defecto.
+        # Con el texto crudo, este test pasaba con el guardia BORRADO del todo y pasaba con
+        # el guardia movido DESPUÉS de `opencode run` — las dos cosas que su mensaje de error
+        # dice vigilar. Lo encontró una auditoría de vacuidad, no yo. Es el error que el
+        # docstring de `codigo_de` describe: «un invariante que busca una cadena en el texto
+        # crudo acusa a la PROSA que documenta el defecto».
+        s = codigo_de(SCRIPTS / "replanificar.sh")
         self.assertIn("presupuesto_coherente", s,
                       "replanificar.sh no chequea el presupuesto antes de lanzar: el guardia "
                       "existe y no lo llama nadie, que es la forma de no tenerlo")
