@@ -1456,6 +1456,52 @@ class TestElTopeDeSalidaYElRelojNoPuedenContradecirse(unittest.TestCase):
                       "no dice cuál es el techo DURO. Sin ese número, el que lee no sabe si "
                       "bajar el tope alcanza o hay que cambiar el modelo del papel")
 
+    def test_la_velocidad_se_lee_POR_MODELO_y_no_de_un_piso_global(self):
+        """Un piso global solo reprueba al brazo bueno, y lo vi apenas lo usé con un segundo
+        modelo: gpt-oss-20b hace 42,8 tok/s medidos, así que su tope de 8625 son 202 s. El
+        guardia, dividiendo por el piso de 6,1, calculaba 1414 s y lo RECHAZABA.
+
+        Un guardia que se queja del caso bueno se apaga, y apagado es peor que ninguno
+        porque figura en la lista. Así que la velocidad se lee por modelo de la config,
+        donde la escribe `medir-tps.py --escribir` con su fecha — un número escrito por el
+        que mide no se desactualiza a mano—, y el piso queda para los que nadie midió."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-tps-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        cfg = d / "opencode.json"
+        cfg.write_text(json.dumps({
+            "provider": {"colabhive": {"models": {
+                "m-rapido": {"limit": {"output": 8625}, "tok_s": 42.8},
+                "m-sin-medir": {"limit": {"output": 8625}}}}},
+            "agent": {"rapido": {"model": "colabhive/m-rapido"},
+                      "sinmedir": {"model": "colabhive/m-sin-medir"}}}))
+        base = (f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                f'CONFIG_OC={shlex.quote(str(cfg))}; ')
+        r = correr(base + 'presupuesto_coherente rapido 3600; echo "rc=$?"', d)
+        self.assertIn("rc=0", r.stdout + r.stderr,
+                      "rechazó a un modelo rápido porque usó el piso en vez de su velocidad "
+                      f"medida: {(r.stdout + r.stderr)[-400:]}")
+        # El brazo de control: sin medición, el piso manda y el guardia DICE que es el piso.
+        r2 = correr(base + 'presupuesto_coherente sinmedir 3600; echo "rc=$?"', d)
+        self.assertIn("rc=1", r2.stdout + r2.stderr,
+                      "sin medición tiene que usar el piso y rechazar: el error cómodo "
+                      "—creerlo rápido— deja pasar un tope que no entra")
+        self.assertIn("no está medido", r2.stdout + r2.stderr,
+                      "no dice que el número salió del piso. Un número sin procedencia no "
+                      "se puede volver a chequear, y acá además señala el arreglo: medirlo")
+
+    def test_medir_tps_escribe_en_las_DOS_copias_de_la_config(self):
+        """La que OpenCode carga es un symlink a una y el repo versiona la otra. Escribir
+        sólo la que nadie carga es el defecto exacto que tuvo `sync_limits.py`: informaba
+        «actualizado» y la corrida seguía leyendo el número viejo, tres semanas."""
+        s = (SCRIPTS / "medir-tps.py").read_text()
+        self.assertIn("CONFIGS", s, "no tiene las dos rutas: va a escribir una sola")
+        self.assertEqual(2, len([l for l in s.split("CONFIGS = (", 1)[1].split(")")[0].split(",")
+                                 if l.strip()]),
+                         "no son exactamente dos destinos")
+        self.assertIn("tok_s_medido", s,
+                      "escribe la velocidad sin fecha: un número sin fecha no se puede "
+                      "declarar viejo")
+
     def test_la_velocidad_esta_MEDIDA_y_con_fecha(self):
         """Un número mágico sin procedencia no se puede volver a chequear, y cuando el
         modelo o el servido cambien nadie va a saber que envejeció."""

@@ -23,6 +23,7 @@ despliegue en curso, los números describen el despliegue y no el modelo.
 import argparse
 import json
 import os
+import pathlib
 import statistics
 import sys
 import time
@@ -105,11 +106,45 @@ def una_corrida(modelo, max_tokens):
             trozos + trozos_raz, modo, trozos, trozos_raz)
 
 
+CONFIGS = ("/Users/jose/colabhive-opencode/config/opencode.json",
+           str(pathlib.Path(__file__).resolve().parent.parent / "colabhive/config/opencode.json"))
+
+
+def guardar_tok_s(modelo, tps):
+    """Escribe `tok_s` y `tok_s_medido` en las DOS copias de la config.
+
+    Las dos, porque la que OpenCode carga es un symlink a una y el repo versiona la otra.
+    Escribir sólo la que nadie carga es exactamente el defecto que `sync_limits.py` tuvo:
+    informaba «actualizado» y la corrida seguía leyendo el número viejo."""
+    hoy = time.strftime("%Y-%m-%d")
+    for ruta in CONFIGS:
+        r = pathlib.Path(ruta)
+        if not r.is_file():
+            print(f"  ⊘ no encontré {ruta}: no escribí ahí")
+            continue
+        cfg = json.loads(r.read_text())
+        m = (cfg.get("provider", {}).get("colabhive", {}).get("models", {}) or {}).get(modelo)
+        if m is None:
+            print(f"  ⊘ {modelo[:8]} no está declarado en {ruta}")
+            continue
+        m["tok_s"] = tps
+        m["tok_s_medido"] = hoy
+        r.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n")
+        print(f"  ✓ tok_s={tps} escrito en {ruta}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--corridas", type=int, default=5)
     ap.add_argument("--max-tokens", type=int, default=256)
     ap.add_argument("--modelo", action="append")
+    ap.add_argument("--escribir", action="store_true",
+                    help="guarda la velocidad medida en opencode.json, como `tok_s`, con la "
+                         "fecha. Lo lee `presupuesto_coherente` para saber si el tope de "
+                         "salida de un agente entra en los 20 minutos del gateway: con un "
+                         "piso global el guardia rechazaba a gpt-oss-20b, que hace 35 tok/s, "
+                         "porque dividía por 6,1. Un número medido vale más que un piso, y "
+                         "escrito por el que mide no se puede desactualizar a mano.")
     args = ap.parse_args()
 
     if not BASE or not CLAVE:
@@ -171,6 +206,13 @@ def main():
         if not exacto:
             print("  ⊘ la plataforma no informó `usage`: los tokens son trozos contados, "
                   "o sea una cota inferior")
+        if args.escribir:
+            # La MEDIANA, no el mínimo ni el promedio: es la que este script informa y la
+            # que la regla 2 de arriba defiende. Y se escribe en las dos copias de la
+            # config, porque la viva es un symlink a una y el repo tiene la otra: escribir
+            # sólo la que nadie carga es un defecto que este proyecto ya cometió con
+            # `sync_limits.py`.
+            guardar_tok_s(modelo, round(statistics.median(velocidades), 1))
         print()
 
 

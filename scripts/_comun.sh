@@ -1008,7 +1008,30 @@ clasificar_sin_tests() {
 # corridas. Se toma el piso, porque el que importa es el caso lento. Si cambia el modelo o
 # el servido hay que volver a medirla — y que esté acá, con fecha, es lo que hace que se
 # note que envejeció.
+# Piso GLOBAL, para un modelo que nadie midió. Es un piso y no un promedio a propósito: ante
+# la duda conviene creer que es lento, porque el error cómodo —creerlo rápido— deja pasar un
+# tope que no entra y mata la corrida.
+#
+# Pero un piso global solo NO alcanza, y lo vi apenas lo usé con un segundo modelo: gpt-oss-20b
+# hace 35 tok/s, así que su tope de 8625 son 246 s, y el guardia —dividiendo por 6,1— calculaba
+# 1414 s y lo habría RECHAZADO. Un guardia que reprueba al brazo bueno se apaga, y apagado es
+# peor que ninguno porque figura en la lista. Así que la velocidad se lee POR MODELO de la
+# config, donde la escribe `medir-tps.py --escribir` con su fecha, y el piso queda para los que
+# todavía no tienen medición.
 TOK_S_PISO="${TOK_S_PISO:-6.1}"
+
+# La velocidad medida de un modelo, si la config la tiene. Vacío si no.
+tok_s_de_modelo() {
+  local mid="$1" cfg="${CONFIG_OC:-$HOME/.config/opencode/opencode.json}"
+  [ -f "$cfg" ] || return 0
+  python3 - "$cfg" "$mid" <<'PYTPS' 2>/dev/null
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+m = (cfg.get("provider", {}).get("colabhive", {}).get("models", {}) or {}).get(sys.argv[2], {})
+v = m.get("tok_s")
+print(v if isinstance(v, (int, float)) and v > 0 else "")
+PYTPS
+}
 # El gateway corta CUALQUIER pedido a los 20 minutos, pase lo que pase del lado nuestro.
 # Está escrito en OPENCODE.md desde octubre —«timeout: false … el gateway corta igual a los
 # 20 min»— y el guardia no lo sabía: chequeaba sólo contra NUESTRO reloj. Por eso dejó pasar
@@ -1035,18 +1058,23 @@ print((m.get("limit") or {}).get("output") or "")
 PYTOPE
 )"
   [ -n "$tope" ] || return 0
-  segs="$(python3 -c "print(round($tope/$TOK_S_PISO))" 2>/dev/null)" || return 0
+  # Por modelo si está medida, el piso si no. Y se DICE cuál se usó: un número sin
+  # procedencia no se puede volver a chequear.
+  local tps fuente
+  tps="$(tok_s_de_modelo "$mid")"
+  if [ -n "$tps" ]; then fuente="medida"; else tps="$TOK_S_PISO"; fuente="piso (este modelo no está medido)"; fi
+  segs="$(python3 -c "print(round($tope/$tps))" 2>/dev/null)" || return 0
   # El que manda es el reloj MÁS CORTO, no el nuestro. Chequear sólo contra `LIMITE_AGENTE`
   # es lo que dejó pasar el tope de 8192: nuestro límite eran 3600 s y el gateway 1200.
   quien=nuestro
   if [ "$GATEWAY_TOPE_S" -lt "$limite" ]; then limite="$GATEWAY_TOPE_S"; quien="del gateway"; fi
   if [ "${segs:-0}" -gt "$limite" ]; then
     echo "  ⚠ el tope de salida de '$agente' no entra en el reloj $quien: $tope tokens a" >&2
-    echo "    ${TOK_S_PISO} tok/s son ${segs}s y el tope es ${limite}s. El agente va a morir por" >&2
+    echo "    ${tps} tok/s ($fuente) son ${segs}s y el tope es ${limite}s. El agente va a morir por" >&2
     echo "    reloj a mitad de la respuesta, con un diagnóstico que no se parece a la causa" >&2
     echo "    —el del gateway llega como «inference timed out», que apunta a la inferencia" >&2
     echo "    cuando la inferencia andaba bien—." >&2
-    echo "    Techo duro: $(python3 -c "print(int($limite*$TOK_S_PISO))") tokens. Bajá limit.output, o cambiá el modelo del papel." >&2
+    echo "    Techo duro a esa velocidad: $(python3 -c "print(int($limite*$tps))") tokens. Bajá limit.output, o cambiá el modelo del papel." >&2
     return 1
   fi
   return 0

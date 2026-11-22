@@ -20,7 +20,9 @@
           "limit": {
             "context": 117000,
             "output": 6000
-          }
+          },
+          "tok_s": 6.7,
+          "tok_s_medido": "2026-11-22"
         },
         "5d21e32a-3bbb-4040-9c34-3b06c4415b84": {
           "name": "gpt-oss-20b · orquestador",
@@ -30,7 +32,9 @@
           "limit": {
             "context": 120000,
             "output": 8625
-          }
+          },
+          "tok_s": 42.8,
+          "tok_s_medido": "2026-11-22"
         },
         "a9aa41f2-b238-4de1-8abf-c58b84eb0331": {
           "name": "Qwen3-8B · worker rápido",

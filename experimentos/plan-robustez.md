@@ -279,6 +279,37 @@ tokens.** A 6,6 tok/s el 27B tiene 7 320 tokens; un modelo a 30 tok/s tendría 3
 del mismo reloj. Así que la pregunta para el papel de arquitecto no es sólo quién razona
 mejor: es **quién razona rápido**, y `modelos-por-papel.md` no se la estaba haciendo.
 
+### Tercera corrida: cambia el MODELO, nada más. Predicción escrita antes
+
+Velocidades medidas con `scripts/medir-tps.py` —mediana de 5, generación separada del
+arranque, mismo protocolo—, no con la medición de una muestra que improvisé primero y que
+violaba las tres reglas que ese script ya obedecía:
+
+| modelo | primer token | generación | techo en los 20 min del gateway | razonamiento |
+|---|---|---|---|---|
+| Qwen3.8-27B FP8 (arquitecto hoy) | 2,6 s | **6,7 tok/s** | **8 040 tokens** | fundido en `content` |
+| gpt-oss-20b (candidato) | 5,8 s | **42,8 tok/s** | **51 360 tokens** | **campo aparte** (84% de los trozos) |
+
+**El 27B no le entra su propia deliberación.** Emitió 17 982 tokens en T26 y su techo son
+8 040. No es una preferencia: es aritmética contra una pared.
+
+Y el segundo dato pesa igual que el primero: gpt-oss-20b **manda el razonamiento en un campo
+aparte**, así que su `content` queda limpio y un tope de salida no se come la acción. El 27B
+lo funde —§26— y por eso cada corte le cortaba justo lo que todavía no había salido del
+razonamiento.
+
+**Intervención: una sola variable.** `MODELO=5d21e32a…` en `replanificar.sh`, mismo prompt,
+mismas cuatro tareas, mismo criterio del script.
+
+**Predicción:** el arquitecto escribe en **≥2 de 4**.
+
+| cómo terminó | escribió | lectura |
+|---|---|---|
+| completó | ≥2 | era el modelo. Las dos hipótesis sobre las entradas quedan descartadas y el papel cambia de modelo |
+| completó | 0–1 | **no es el modelo tampoco**: queda la forma del pedido, y es lo único que queda |
+| truncado a mitad de palabra | — | con 51 360 de techo eso no debería pasar; si pasa, el instrumento miente y se arregla primero |
+| ≥2 murieron por reloj o plataforma | — | ⊘ tanda inválida. No se lee el resultado |
+
 ---
 
 ## Fase 2 — Para que corra local, el contexto se mide, no se pregunta
