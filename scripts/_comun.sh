@@ -1431,9 +1431,29 @@ con_limite() {
             # el reloj del silencio. El límite total sigue siendo el techo, así que esto
             # no puede esperar para siempre.
             conex="$(conexiones_vivas "$pid")"
-            if [ "$conex" != "SIN_LSOF" ] && [ "${conex:-0}" -gt 0 ]; then
+            # …pero NO para siempre. Pasado el muro del gateway, una conexión abierta ya no
+            # puede significar «está esperando al modelo»: el gateway cortó la respuesta y lo
+            # que queda es un socket que nadie va a contestar.
+            #
+            # Medido el 2026-11-22 replanificando T16: el arquitecto escribió hasta los 956s
+            # y después nada. `opencode` siguió con la conexión abierta, así que esta rama
+            # reinició el reloj del silencio catorce minutos seguidos, y con LIMITE_AGENTE en
+            # 3600 habría esperado cuarenta más. Lo corté a mano, que es justo lo que un
+            # vigilante existe para no hacer falta.
+            #
+            # Esto NO baja `LIMITE_AGENTE`, y el principio que lo prohíbe sigue respetado: el
+            # vigilante tiene que perder la carrera contra el error que la herramienta sabe
+            # informar, y la ventana donde ese informe es posible termina en el muro del
+            # gateway. Después de ahí no hay informe que tapar. Lo único que se saca es el
+            # permiso de posponer indefinidamente, no la paciencia.
+            if [ "$conex" != "SIN_LSOF" ] && [ "${conex:-0}" -gt 0 ] \
+               && [ "$t" -lt "${GATEWAY_TOPE_S:-1200}" ]; then
               quieto=0
               continue
+            fi
+            if [ "$conex" != "SIN_LSOF" ] && [ "${conex:-0}" -gt 0 ]; then
+              echo "inactividad ${limite_quieto}s CON conexión abierta, pasado el muro del gateway (${GATEWAY_TOPE_S:-1200}s): a esta altura un socket abierto no es un modelo pensando, es una respuesta que el gateway ya cortó y que nadie va a contestar" > "$LOG_VIGILADO.corte"
+              break
             fi
             # Qué reloj cortó: el mensaje de un corte tiene que decirlo, o se informa "no
             # respondió en 1200s" cuando en realidad se lo cortó a los 90 por silencio, y

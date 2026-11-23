@@ -19593,3 +19593,77 @@ class TestElVeredictoDeAlcanceNoPuedeAcusarAlImputadoEquivocado(unittest.TestCas
             "un archivo que SÍ está en el tronco no es un HUECO: si los dos casos dicen lo "
             "mismo, el arquitecto declara huecos que no existen")
         self.assertLess(i, j)
+
+
+class TestLaConexionAbiertaNoPuedePosponerPasadoElMuroDelGateway(unittest.TestCase):
+    """`TestLaSeñalDeVidaNoEsElSilencio` estableció que callado-con-conexión-abierta es un
+    agente esperando al modelo y no un cuelgue, y por eso el vigilante le reinicia el reloj
+    del silencio. Correcto, y sin techo era un cheque en blanco.
+
+    Medido el 2026-11-22 replanificando T16. El arquitecto escribió hasta los 956s y después
+    nada más. `opencode` mantuvo la conexión abierta, así que esta rama reinició el reloj
+    catorce minutos seguidos; con `LIMITE_AGENTE=3600` —el que usa `replanificar.sh`— habría
+    esperado cuarenta más. Lo corté a mano, que es exactamente lo que un vigilante existe
+    para que no haga falta.
+
+    El techo correcto es el muro del gateway, que este repo ya tiene documentado en
+    `OPENCODE.md:57` y en `presupuesto_coherente`: pasado ese punto el gateway ya cortó la
+    respuesta, así que una conexión abierta no puede significar «está generando». Es un
+    socket que nadie va a contestar.
+
+    Lo que NO se hace, y el repo tiene escrito por qué: bajar `LIMITE_AGENTE`. Un vigilante
+    tiene que perder la carrera contra el error que la herramienta vigilada sabe informar, y
+    bajarlo taparía ese mensaje con un cuelgue sin causa —costó un día entero de diagnóstico
+    contra evidencia borrada por el propio vigilante—. La ventana donde ese informe es
+    posible termina en el muro; después no hay nada que tapar. Lo que se saca es el permiso
+    de posponer indefinidamente, no la paciencia.
+
+    Por eso los dos brazos de este test usan el MISMO proceso callado con la MISMA conexión
+    real abierta, y lo único que cambia es `GATEWAY_TOPE_S`. Si pasara por otra razón —que
+    el proceso murió solo, que no había conexión— los dos brazos darían igual.
+    """
+
+    CON_CONEXION = TestLaSeñalDeVidaNoEsElSilencio.CON_CONEXION
+
+    def correr(self, tope, total=70, inactividad=15):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-muro-"))
+        self.addCleanup(tirar_dir, d)
+        log = d / "vigilado.log"
+        log.write_text("x" * 2000)   # pasa el umbral de arranque: ventana larga
+        r = correr(
+            f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+            f'LOG_VIGILADO="{log}" INACTIVIDAD={inactividad} ARRANQUE={inactividad} '
+            f'GATEWAY_TOPE_S={tope} con_limite {total} {self.CON_CONEXION}; echo "rc=$?"',
+            RAIZ)
+        corte = log.with_suffix(log.suffix + ".corte")
+        return r, (corte.read_text() if corte.exists() else "")
+
+    def test_pasado_el_muro_la_conexion_abierta_ya_no_lo_salva(self):
+        r, corte = self.correr(tope=15)
+        self.assertIn("rc=142", r.stdout,
+                      "callado y con la conexión abierta, pero PASADO el muro del gateway: "
+                      "a esa altura el gateway ya cortó la respuesta y el socket no espera "
+                      "nada. Si no se corta, el método se queda esperando hasta "
+                      f"LIMITE_AGENTE —3600s en replanificar.sh—. Salida: {r.stdout!r}")
+
+    def test_el_corte_dice_que_reloj_fue(self):
+        """Un corte que no dice cuál reloj lo hizo manda al próximo a buscar un problema de
+        lentitud que no existe. Es la regla que `con_limite` ya tiene escrita para sus otros
+        dos cortes."""
+        r, corte = self.correr(tope=15)
+        self.assertIn("muro del gateway", corte,
+                      "el motivo del corte no nombra el muro del gateway, así que se lee "
+                      f"como «no respondió en 70s», que es falso. Decía: {corte!r}")
+        self.assertIn("conexión abierta", corte,
+                      "tampoco dice que la conexión SÍ estaba abierta, que es el dato que "
+                      "distingue este corte del cuelgue común")
+
+    def test_el_brazo_nulo_antes_del_muro_sigue_respetando_la_conexion(self):
+        """Mismo proceso, misma conexión, sólo cambia el muro. Sin esto el test de arriba
+        pasaría también si el vigilante hubiera vuelto a cortar por silencio a secas, que es
+        el defecto que costó un día."""
+        r, corte = self.correr(tope=600)
+        self.assertIn("rc=0", r.stdout,
+                      "antes del muro, callado con la conexión abierta es un agente "
+                      "esperando al modelo y NO se corta: si esto se rompe, volvió el "
+                      f"vigilante que fabrica cuelgues. Salida: {r.stdout!r} · corte: {corte!r}")
