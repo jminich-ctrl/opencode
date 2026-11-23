@@ -174,7 +174,7 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
     BRIEF=""
   fi
   if [ -n "$BRIEF" ]; then
-    QUE_LEER="Leé el brief $BRIEF: trae la tarea completa, el contrato de cada tarea de la que ésta depende, y los invariantes del plan. NO leas PLAN.md: lo que te sirve de ahí ya está en el brief, y lo que no está en el brief es porque no está en el plan."
+    QUE_LEER="Leé el brief $BRIEF: trae la tarea completa, el contrato de cada tarea de la que ésta depende, los invariantes del plan, y —verificado contra el disco— qué archivos existen hoy, qué define cada uno y el nombre EXACTO de cada archivo de tarea. NO leas PLAN.md ni los archivos de tarea de tus dependencias: lo que te sirve de ahí ya está en el brief, y lo que no está en el brief es porque no está. NO ADIVINES NINGÚN PATH: si no figura en el brief, no existe. Medido el 2026-11-23: el arquitecto de T16 adivinó dos veces un nombre de archivo, falló las dos, y a 5,9 tok/s cada adivinanza es un viaje que se le descuenta del reloj."
   else
     QUE_LEER="Leé la tarea y PLAN.md."
   fi

@@ -20470,3 +20470,174 @@ class TestElJuezQueSeAbstieneNombraDeQueSeAbstuvo(CasoBase):
                                 f"{nombre} informa un verde sin mirar las abstenciones")
                 self.assertNotIn('echo "✓ $id gate VERDE"', texto,
                                  f"{nombre} sigue aplanando el verde a una línea sin abstenciones")
+
+
+class TestElBriefTraeElDiscoYNoSoloElPlan(unittest.TestCase):
+    """El arquitecto tenía que contestar una pregunta sobre el disco sin tener el disco.
+
+    El prompt le pide, textual: «para cada cosa que la tarea nombra, DÓNDE vive: archivo
+    exacto e import exacto». Eso no se deduce del plan: se mira con `ls`. Medido el
+    2026-11-23 sobre el diagnóstico real de T16 (`.diagnostico-T16.md`, 8.759 bytes):
+
+      · llegó al diagnóstico CORRECTO en el byte 6.639, o sea al 76% — «T15 was supposed to
+        provide a list function in the service, but it only provided toggle_favorite_service»
+      · gastó el 24% restante re-verificándolo, con 17 anuncios de «let me read …»
+      · adivinó DOS paths y falló los dos: `tareas/T15-backend-servicio-favoritos.md`
+        —el archivo real dice `servicios`, en plural— y `backend/app/rutas/ads.py`, que no
+        existe porque ninguna ruta está escrita todavía
+      · recitó cuatro veces la restricción del prompt sobre qué podía leer, deliberando si
+        le estaba permitido leer lo que necesitaba
+      · murió con `SSE read timed out`
+
+    A 5,9 tok/s medidos, cada adivinanza fallada es un viaje de ida y vuelta. Un modelo
+    reconstruye un path por patrón; `ls` lo sabe. Es el reparto de siempre: el dato lo pone
+    el comando, el juicio lo pone el modelo.
+
+    La bibliografía coincide en la forma —DeepSeek-R1 llega temprano a la respuesta correcta
+    y después entra en autoduda y re-chequeos redundantes, y más de la mitad de las
+    respuestas correctas traen pasos innecesarios— y discrepa en el peso: un banco de
+    algoritmos de grafos reporta lo contrario, que los LRM casi no siguen generando después
+    de acertar, y que el costo real es la AUTOVERIFICACIÓN, con menos del 30% de los intentos
+    detectando algún error previo. Nuestro log se parece más a lo segundo: no divagaba,
+    verificaba. Por eso el arreglo que se mide acá es el del dato que faltaba y no el del
+    sermón: «pará cuando tengas la respuesta» no tiene ningún test en la literatura, y
+    medirlo con un conteo de tokens sería circular.
+    """
+
+    def proyecto(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-brief-disco-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        (d / "tareas").mkdir()
+        (d / "app" / "servicios").mkdir(parents=True)
+        (d / "app" / "rutas").mkdir(parents=True)
+        # El nombre en PLURAL, que es el que el arquitecto adivinó mal en la corrida real.
+        (d / "tareas" / "T15-backend-servicios-favoritos.md").write_text(
+            "# T15 — Servicio\n\n**Estado:** ✅ hecha\n"
+            "**Archivos que podés tocar:** app/servicios/fav.py\n\n"
+            "## Contrato\n\n```python\ndef toggle_service(u, a) -> bool: ...\n```\n")
+        (d / "tareas" / "T16-rutas.md").write_text(
+            "# T16 — Rutas\n\n**Estado:** pendiente\n**Depende de:** T15\n"
+            "**Archivos que podés tocar:** app/rutas/fav.py\n"
+            "**Prohibido tocar:** app/datos/fav.py\n\n"
+            "## Contrato\n\n```python\ndef listar(): ...\n```\n")
+        # El servicio EXISTE y entrega una sola cosa: ése es el hueco, y es un hecho del
+        # disco. Con la cola a medio escribir a propósito, ver el test del parser.
+        (d / "app" / "servicios" / "fav.py").write_text(
+            "def toggle_service(u, a):\n    return True\n\n\ndef a_medio_escribir(\n")
+        (d / "PLAN.md").write_text("## Arquitectura\n\nrutas → servicios\n")
+        return d, d / "tareas" / "T16-rutas.md"
+
+    def brief(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("bt", SCRIPTS / "brief_tarea.py")
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        d, tarea = self.proyecto()
+        return m, m.brief(tarea, d / "PLAN.md"), d
+
+    def test_un_archivo_que_existe_se_dice_y_se_dice_que_define(self):
+        """La línea que el arquitecto fue a buscar en trece lecturas. El hueco de T16 es
+        «el servicio entrega UNA sola función», y acá se lee de un tirón."""
+        _, b, _ = self.brief()
+        self.assertIn("`app/servicios/fav.py` **existe**", b,
+                      f"no dice que el archivo de la dependencia está en el disco:\n{b}")
+        self.assertIn("toggle_service", b, f"no dice qué define:\n{b}")
+
+    def test_un_archivo_que_no_existe_se_dice_con_el_simbolo(self):
+        """«No existe todavía» y «no te lo pasé» no pueden verse igual: es el defecto que el
+        brief entero existe para no cometer."""
+        _, b, _ = self.brief()
+        self.assertRegex(b, r"`app/rutas/fav\.py` ⊘ \*\*no existe todavía\*\*",
+                         f"un archivo ausente tiene que decirse ausente:\n{b}")
+
+    def test_el_directorio_vacio_dice_que_esta_vacio(self):
+        """`backend/app/rutas/` estaba vacío y el arquitecto adivinó `ads.py` adentro. Un
+        directorio que no se lista se llena de archivos imaginarios."""
+        _, b, _ = self.brief()
+        self.assertIn("`app/rutas/` contiene, hoy: **nada**", b,
+                      f"no dice que el directorio está vacío:\n{b}")
+        self.assertIn("`app/servicios/` contiene, hoy: `fav.py`", b,
+                      f"no lista lo que el directorio tiene de verdad:\n{b}")
+
+    def test_los_nombres_exactos_de_los_archivos_de_tarea_estan(self):
+        """El plural de `servicios`. El arquitecto pidió `T15-backend-servicio-favoritos.md`
+        y el archivo real es `T15-backend-servicios-favoritos.md`: una letra, un viaje
+        perdido a 5,9 tok/s, y lo volvió a intentar."""
+        _, b, _ = self.brief()
+        self.assertIn("`T15-backend-servicios-favoritos.md`", b,
+                      f"el nombre exacto de la dependencia no está en el brief:\n{b}")
+
+    def test_entra_el_archivo_de_la_dependencia_aunque_la_tarea_no_lo_nombre(self):
+        """T16 nombra `app/rutas/fav.py` y nada más; lo que decide el hueco es lo que entrega
+        T15. Si sólo mirara los campos de la tarea, el dato que importa no entraría."""
+        m, b, d = self.brief()
+        self.assertNotIn("app/servicios/fav.py",
+                         (d / "tareas" / "T16-rutas.md").read_text(),
+                         "el fixture dejó de medir lo que dice medir")
+        # DENTRO de la sección del disco, no en cualquier parte: el brief ya nombraba el
+        # archivo en la línea «Archivos que entrega» del contrato, así que buscarlo en todo
+        # el texto pasaba sin el arreglo puesto. Lo verifiqué sacándolo, que es cuando se ve.
+        disco = b.split("## Dónde vive cada cosa, verificado contra el disco", 1)
+        self.assertEqual(2, len(disco), f"no hay sección del disco:\n{b}")
+        disco = disco[1].split("\n## ", 1)[0]
+        self.assertIn("app/servicios/fav.py", disco,
+                      f"el archivo de la dependencia no entró al disco:\n{disco}")
+
+    def test_el_prohibido_tocar_tambien_se_ubica(self):
+        """Si no se dice dónde vive lo que está prohibido tocar, el arquitecto no puede
+        explicar por qué está prohibido ni comprobar que exista."""
+        _, b, _ = self.brief()
+        self.assertIn("app/datos/fav.py", b, f"el campo «Prohibido tocar» no se ubica:\n{b}")
+        self.assertIn("`app/datos/` ⊘ **el directorio no existe.**", b,
+                      f"un directorio ausente tiene que decirse ausente:\n{b}")
+
+    def test_lee_los_nombres_de_un_archivo_que_no_parsea(self):
+        """Con `ast` esto devolvería lista vacía y el brief diría «existe» sin decir qué
+        define, que es justo el silencio que vino a sacar. Y los archivos que una tarea
+        trabada tiene a mano son precisamente los que están a medio escribir."""
+        m, _, d = self.brief()
+        f = d / "app" / "servicios" / "fav.py"
+        with self.assertRaises(SyntaxError, msg="el fixture dejó de tener un archivo roto"):
+            ast.parse(f.read_text())
+        self.assertEqual(["toggle_service", "a_medio_escribir"], m.nombres_de_arriba(f),
+                         "un archivo a medio escribir tiene que dar sus nombres igual")
+
+    def test_el_brief_sigue_siendo_mas_chico_que_el_plan(self):
+        """El brief creció con el disco adentro, y sigue teniendo que ser más barato de leer
+        que `PLAN.md`: si no, el préstamo se perdió. Medido sobre T16 de verdad."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("bt", SCRIPTS / "brief_tarea.py")
+        m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+        proy = RAIZ / "ejemplo-clasificados"
+        plan = proy / "PLAN.md"
+        b = m.brief(proy / "tareas" / "T16-backend-rutas-favoritos.md", plan)
+        self.assertLess(len(b), len(plan.read_text()),
+                        f"el brief ({len(b)}) no puede ser más grande que PLAN.md "
+                        f"({len(plan.read_text())})")
+        # Y sigue sin traer lo que no sirve: la tabla entera de 34 tareas.
+        self.assertNotIn("| T20 |", b, "se colaron filas de tareas que no son de T16")
+
+    # ── Lo que el prompt le dice al arquitecto
+
+    def test_los_dos_replanificadores_prohiben_adivinar_un_path(self):
+        """La forma «el arreglo vive en un hermano y no en el otro», décima vez. Los dos
+        prompts arman el brief, así que los dos tienen que decir que el brief es la fuente."""
+        for n in ("replanificar.sh", "replanificar-relevo.sh"):
+            with self.subTest(guion=n):
+                texto = codigo_de(SCRIPTS / n)
+                self.assertIn("NO ADIVINES NINGÚN PATH", texto,
+                              f"{n} no le prohíbe adivinar un path")
+                self.assertIn("verificado contra el disco", texto,
+                              f"{n} no le dice que el brief trae el disco")
+
+    def test_la_senal_de_parada_viaja_con_la_linea_que_declara_el_veredicto(self):
+        """Una señal de parada sin una línea declarada donde parar no sirve de nada: el
+        agente no tiene con qué decidir que ya terminó. Van juntas o no van.
+
+        Es la única familia de intervención de parada que la literatura tiene medida
+        (SAGE: −24% de tokens con una señal explícita por paso). «Pará cuando tengas la
+        respuesta» a secas no tiene test publicado, así que queda anotado como no medido."""
+        texto = codigo_de(SCRIPTS / "replanificar-relevo.sh")
+        self.assertIn("VEREDICTO: HUECO", texto, "el relevo dejó de pedir la línea declarada")
+        self.assertIn("En cuanto PUEDAS escribir esa línea", texto,
+                      "pide la línea y no dice que se puede escribir en cuanto se sepa")

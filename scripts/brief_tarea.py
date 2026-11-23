@@ -87,6 +87,77 @@ def filas_de_la_tabla(cuerpo_tareas, ids):
     return (cab + filas) if filas else []
 
 
+def rutas_de_los_campos(texto_tarea):
+    """Los paths que la tarea nombra en sus campos de archivos, en orden y sin repetir."""
+    salida = []
+    for campo in ("Archivos que podés tocar", "Prohibido tocar"):
+        m = re.search(rf"^\*\*{campo}:\*\* *(.*)$", texto_tarea, re.M)
+        if not m:
+            continue
+        for x in re.split(r"[,;\s]+", m.group(1).strip()):
+            x = x.strip().strip("`")
+            if x and x not in ("—", "-", "N/A") and x not in salida:
+                salida.append(x)
+    return salida
+
+
+def nombres_de_arriba(ruta):
+    """Los `def` y `class` de nivel superior de un .py, que es el «import exacto».
+
+    Sin `ast`: un archivo a medio escribir no parsea, y justamente los archivos que una
+    tarea trabada tiene a mano son los que están a medio escribir. Una regex sobre la
+    columna cero da la respuesta en el único caso que importa.
+    """
+    try:
+        texto = ruta.read_text()
+    except OSError:
+        return []
+    return re.findall(r"^(?:async +)?(?:def|class) +([A-Za-z_][A-Za-z0-9_]*)", texto, re.M)
+
+
+def donde_vive(raiz, rutas, tope=40):
+    """Cada ruta contra el DISCO, y el contenido real del directorio de cada una.
+
+    Por qué existe, medido el 2026-11-23 en el diagnóstico de T16. El prompt le pide al
+    arquitecto, textual: «para cada cosa que la tarea nombra, DÓNDE vive: archivo exacto e
+    import exacto». Eso es una pregunta sobre el disco, y el arquitecto no tenía el disco:
+    tenía que adivinar. Adivinó dos veces y las dos fallaron —`tareas/T15-backend-servici
+    o-favoritos.md` cuando el archivo real dice `servicios` en plural, y `backend/app/rutas/
+    ads.py`, que no existe todavía—. A 5,9 tok/s medidos, cada adivinanza fallada es un
+    viaje de ida y vuelta, y se murió contra el muro del gateway con el diagnóstico correcto
+    ya escrito en su propio log.
+
+    Un modelo reconstruye un path por patrón; `ls` lo sabe. Es el reparto de siempre: el
+    dato lo pone el comando, el juicio lo pone el modelo.
+    """
+    out = []
+    dirs = []
+    for r in rutas:
+        f = raiz / r
+        if f.exists():
+            nombres = nombres_de_arriba(f) if f.suffix == ".py" else []
+            extra = f" — define: {', '.join(nombres)}" if nombres else ""
+            out.append(f"- `{r}` **existe**{extra}")
+        else:
+            out.append(f"- `{r}` ⊘ **no existe todavía** (si tu tarea lo crea, está bien; "
+                       f"si esperabas encontrarlo, no lo inventes: no está)")
+        d = (raiz / r).parent
+        if d not in dirs:
+            dirs.append(d)
+    for d in dirs:
+        rel = d.relative_to(raiz) if d.is_relative_to(raiz) else d
+        if not d.is_dir():
+            out += ["", f"`{rel}/` ⊘ **el directorio no existe.**"]
+            continue
+        hijos = sorted(x.name + ("/" if x.is_dir() else "")
+                       for x in d.iterdir() if not x.name.startswith((".", "__")))
+        if len(hijos) > tope:
+            hijos = hijos[:tope] + [f"(+{len(hijos) - tope} más)"]
+        out += ["", f"`{rel}/` contiene, hoy: " + (", ".join(f"`{h}`" for h in hijos)
+                                                   or "**nada**")]
+    return out
+
+
 def brief(ruta_tarea, ruta_plan):
     tarea = ruta_tarea.read_text()
     tid = ruta_tarea.name.split("-")[0]
@@ -125,6 +196,31 @@ def brief(ruta_tarea, ruta_plan):
                     f"entrega. No se puede saber desde acá si entrega lo que esta tarea "
                     f"necesita; si tu tarea lo necesita y nadie lo declara, eso es un HUECO.",
                     ""]
+
+    # El disco, antes de los invariantes del plan: lo que el plan DECLARA y lo que el
+    # disco TIENE es la comparación con la que se decide un HUECO, y hasta hoy el brief
+    # traía sólo la mitad declarada.
+    raiz_proy = ruta_tarea.parent.parent
+    rutas = rutas_de_los_campos(tarea)
+    for tid_dep in deps:
+        f = archivo_de_tarea(dir_tareas, tid_dep)
+        if f is None:
+            continue
+        m = re.search(r"^\*\*Archivos que podés tocar:\*\* *(.*)$", f.read_text(), re.M)
+        if m:
+            for x in re.split(r"[,;\s]+", m.group(1).strip()):
+                x = x.strip().strip("`")
+                if x and x not in ("—", "-", "N/A") and x not in rutas:
+                    rutas.append(x)
+    out += ["## Dónde vive cada cosa, verificado contra el disco", ""]
+    if rutas:
+        out += donde_vive(raiz_proy, rutas) + [""]
+    else:
+        out += ["⊘ la tarea no nombra ningún archivo en sus campos «Archivos que podés "
+                "tocar» / «Prohibido tocar». Eso ya es un defecto del enunciado.", ""]
+    out += ["Los archivos de tarea del plan, con su nombre EXACTO:", "",
+            ", ".join(f"`{f.name}`" for f in sorted(dir_tareas.glob("T*.md"))) or "⊘ ninguno",
+            ""]
 
     if ruta_plan is not None and ruta_plan.exists():
         plan = ruta_plan.read_text()

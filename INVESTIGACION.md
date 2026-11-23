@@ -1378,6 +1378,98 @@ versión —uno porque sin lista el bucle no itera, y dos porque sin la función
 existe para no emitir, cometida escribiendo el test que la persigue. Se arreglaron con control
 positivo.
 
+## 3ter. Medición del 2026-11-23: el arquitecto no se murió juntando contexto, se murió re-verificando
+
+Hasta hoy la explicación del lazo trabado de T16 era «hace trece lecturas para juntar el contexto y
+no le alcanza el reloj». La medición sobre el log real (`.diagnostico-T16.md`, 8.759 bytes) dice
+otra cosa, y es más accionable:
+
+| medida | valor |
+|---|---|
+| byte donde aparece el diagnóstico correcto | **6.639 de 8.759 — el 76%** |
+| anuncios de «let me read / let me check …» | **17** |
+| veces que recita la restricción del prompt sobre qué puede leer | **4** |
+| lecturas falladas por adivinar el path | **2 de 2 intentos** |
+| causa de muerte | `SSE read timed out` |
+
+El diagnóstico que escribió es correcto y está completo: *«T15 was supposed to provide a list
+function in the service, but it only provided `toggle_favorite_service`»*. Después de eso gastó el
+24% restante tratando de confirmarlo contra archivos que no encontraba:
+
+- pidió `tareas/T15-backend-servicio-favoritos.md` y el archivo real es
+  `T15-backend-servicios-favoritos.md` — **una letra**, un viaje perdido a 5,9 tok/s;
+- pidió `backend/app/rutas/ads.py`, que no existe porque ninguna ruta está escrita todavía.
+
+Y entre medio deliberó cuatro veces sobre si el prompt le permitía leer lo que necesitaba: la
+restricción era «mirá SOLO la tarea, PLAN.md y los archivos que la tarea nombra», y la pregunta que
+tenía que contestar —¿hay un HUECO?— **exige** saber qué entrega otra tarea. El enunciado hacía
+inalcanzable la respuesta dentro de sus propias reglas.
+
+### El dato que le faltaba era del disco, y se lo puede dar un comando
+
+El prompt le pide, textual: *«para cada cosa que la tarea nombra, DÓNDE vive: archivo exacto e
+import exacto»*. Eso no se deduce de ningún plan: se mira con `ls`. Un modelo reconstruye un path
+por patrón; `ls` lo sabe. Es el reparto del método, aplicado a algo que se nos había pasado.
+
+El brief ahora trae una sección **«Dónde vive cada cosa, verificado contra el disco»**: cada archivo
+que la tarea nombra (los suyos, los prohibidos y los de sus dependencias) con **existe / ⊘ no
+existe todavía**, qué define cada `.py` que existe, el contenido real de cada directorio
+involucrado, y la lista de nombres exactos de los archivos de tarea. Para T16 eso es:
+
+```
+- `backend/app/rutas/favorites.py` ⊘ no existe todavía
+- `backend/app/servicios/favorites.py` existe — define: toggle_favorite_service
+`backend/app/rutas/` contiene, hoy: nada
+```
+
+La segunda línea **es el hueco**. Es lo que el arquitecto fue a buscar en trece lecturas y 23.692
+bytes de deliberación. El brief quedó en 7.639 bytes contra los 12.523 de `PLAN.md`.
+
+Los nombres se sacan con una regex sobre la columna cero y no con `ast`, a propósito: un archivo a
+medio escribir no parsea, y los archivos que una tarea trabada tiene a mano son justamente los que
+están a medio escribir. Con `ast` el brief diría «existe» y se callaría qué define — el silencio que
+vino a sacar.
+
+### Lo que la bibliografía confirma, lo que contradice, y lo que no tiene medida
+
+Buscado sin sesgar, y los resultados no apuntan todos para el mismo lado:
+
+- **Confirma la forma.** [Un estudio sobre por qué los modelos de razonamiento piensan más allá de
+  la solución](https://the-decoder.com/study-shows-why-reasoning-models-often-think-far-beyond-the-solution/)
+  reporta que DeepSeek-R1 llega temprano a la respuesta correcta y después entra en autoduda,
+  re-chequeos redundantes y tangentes; más de la mitad de las respuestas correctas traen pasos
+  innecesarios en los tres modelos probados.
+  [«Thinking Past the Answer»](https://arxiv.org/pdf/2606.02835) define el presupuesto desperdiciado
+  como lo generado después del primer prefijo correcto y mide promedios de ~5 a ~18.
+- **Contradice el peso.** [Un banco de algoritmos de grafos](https://arxiv.org/pdf/2602.06319)
+  reporta lo contrario para su tarea: los LRM **casi no** siguen generando después de acertar, y el
+  costo real es la **autoverificación**, con **menos del 30%** de los intentos de autoverificación
+  detectando algún error previo. Nuestro log se parece más a esto: no divagaba, verificaba — y la
+  verificación es lo que lo mató.
+- **No tiene medida la intervención obvia.** Ninguna de las fuentes evalúa un «pará cuando tengas la
+  respuesta». Lo que sí está medido son señales de parada *estructuradas* (SAGE, −24% de tokens con
+  una señal explícita por paso) y la supresión de tokens de duda ([NOWAIT](https://lacuna.tiptreesystems.com/work/wait-we-dont-need-to-wait-removing-thinking-tokens-improves-reasoning-efficiency/wrk_43a9baedd810e42b2e164ea78a7a6d52),
+  −27% a −51% de longitud). Y hay una advertencia que nos aplica directo: un prompt que pide
+  brevedad **baja la métrica por construcción**, así que medir esto con un conteo de tokens sería
+  circular.
+- **El path adivinado no tiene estudio controlado, pero sí un caso idéntico.** El issue
+  [anthropics/claude-plugins-official#4693](https://github.com/anthropics/claude-plugins-official/issues/4693)
+  es literalmente nuestro defecto en otro repo: *«agentic reviewer prompt never states its working
+  directory, causing hallucinated absolute paths»*, y el arreglo propuesto es decirlo en el prompt.
+  Y [un estudio de fallas agénticas](https://arxiv.org/pdf/2512.07497) observa que el modelo que
+  **lista los directorios primero** acierta 29/30 donde otro no se recupera de un «Directory not
+  found». Observacional, no controlado: la ganancia habría que medirla acá.
+
+**Conclusión del reparto:** el arreglo que se lleva el peso es el del **dato que faltaba**, porque
+es un hecho del disco que un comando entrega con certeza y un modelo sólo puede adivinar. La señal
+de parada va también —«en cuanto PUEDAS escribir la línea del VEREDICTO, escribila y terminá»—
+pegada a la línea declarada que ya existía, que es la única familia de parada con medición
+publicada. Pero **queda anotada como no medida**, y no cuenta como el arreglo.
+
+Diez tests; nueve mueren con el arreglo sacado. El décimo es brazo nulo declarado: el brief creció
+con el disco adentro y tiene que seguir siendo más chico que `PLAN.md`, así que ese test pasa de los
+dos lados a propósito.
+
 ## 4. Dónde seguimos adelante
 
 - Su «verification-before-completion» es nuestro gate escrito como regla de conducta: *«si no
