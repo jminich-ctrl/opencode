@@ -1329,6 +1329,55 @@ Y hay que ser explícito sobre qué mide cada cosa, porque mezclarlas sería el 
   `.replan-*.log`, `.diagnostico-*.md` y ahora `.brief-*.md` en el directorio del proyecto que los
   agentes leen. Riesgo bajo, de la misma clase, y chequeable. **Pendiente.**
 
+## 3bis. El cuarto préstamo, hecho el 2026-11-23: «Declined to judge»
+
+`skills/requesting-code-review/code-reviewer.md` le pide al revisor una sección fija antes del
+veredicto: *«list every behavior you considered and set aside as outside the plan or spec, one line
+each, with the reason. […] nothing you set aside is dropped silently. An empty list means you set
+nothing aside.»*
+
+Nuestro gate ya distinguía «no pudo verificarse» de «pasó» —es la defensa publicada contra el pase
+vacío, y está porque cuatro bugs de rutas vivieron semanas detrás de un ✓—. Lo que no hacía era
+decir **cuáles**. El veredicto era `GATE VERDE — con 3 chequeo/s que no pudieron correr (⊘)` y los
+tres había que rastrearlos entre novecientas líneas de salida.
+
+Al ir a implementarlo apareció que el agujero era más grande que el enunciado. De los **cinco**
+caminos que declaraban un vacío, **cuatro sumaban al contador sin imprimir nada**:
+
+| camino | cómo sumaba | qué quedaba |
+|---|---|---|
+| `vacuo()` | `VACIOS+1` y un `⊘` impreso | el nombre, en el cuerpo de la salida |
+| corredor con código ≠ 0,1 | `VACIOS+1` pelado | nada |
+| `_imports.py` código 2 | `VACIOS+1` pelado | nada |
+| `_suprimidas.py` código 2 | `VACIOS+1` pelado | nada |
+| coherencia | `grep -c '⊘'` y sumaba el número | el número; el texto se tiraba |
+
+O sea que rastrear los tres vacíos entre las novecientas líneas tampoco servía: no estaban.
+
+Y una capa más arriba se perdía entero. `correr-tarea.sh` mira el **código** del gate, que es 0, y
+escribía `✓ TNN gate VERDE` a secas; `cerrar-tarea.sh` —el camino que corre una persona— lo mismo.
+Quien monitorea una campaña lee esa línea y no el gate, así que un verde con agujeros se leía como
+un verde. Es el patrón que este repo tiene escrito como «nombrar la cosa no alcanza», y van
+**nueve** veces.
+
+Lo que se hizo, en los tres gates: un único `declinado()` que suma y exige el nombre en la misma
+llamada, los cuatro caminos pelados pasando por ahí, la coherencia registrando la línea en vez de
+contarla, y el veredicto listando **exactamente una línea por vacío contado**. Si la cuenta no
+cierra, la línea que falta sale como `no juzgado: SIN NOMBRE — alguien suma a VACIOS sin pasar por
+declinado()`: su «an empty list means you set nothing aside» verificado por el comando y no pedido
+al modelo. Más `no_juzgado_por_el_gate` y `linea_de_verde` en `_comun.sh`, que es lo que cruza el
+límite hacia los dos caminos de cierre.
+
+La diferencia con ellos es la de toda esta vuelta: su lista la escribe un modelo al que se le
+pidió, y una lista corta se lee igual que una lista completa. Acá el nombre y el contador salen de
+la misma función y **no hay forma de contar sin nombrar**.
+
+Once tests, los once mueren con el arreglo sacado. Tres de ellos pasaban VACUAMENTE en la primera
+versión —uno porque sin lista el bucle no itera, y dos porque sin la función la salida es vacía y
+«no leyó la línea falsa» se cumple por no leer nada—: la clase de verde falso que este método
+existe para no emitir, cometida escribiendo el test que la persigue. Se arreglaron con control
+positivo.
+
 ## 4. Dónde seguimos adelante
 
 - Su «verification-before-completion» es nuestro gate escrito como regla de conducta: *«si no

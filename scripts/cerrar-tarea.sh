@@ -26,6 +26,12 @@ anotar_intento "$ID" "$(veredicto "$LOG")" 0 humano "$LOG"
 
 if [ "$rc" -eq 0 ]; then
   echo "✓ $ID gate VERDE — commiteada en la rama tarea/$ID"
+  # Las abstenciones del gate, acá abajo. Éste es el camino que corre una PERSONA para
+  # cerrar una tarea a mano, así que es el peor lugar donde esconderlas: el gate sale 0
+  # habiéndose abstenido en chequeos y esta línea decía VERDE a secas. Van en líneas
+  # aparte y no dentro de la línea del ✓ porque acá nadie lee en paralelo.
+  NO_JUZGADO="$(no_juzgado_por_el_gate "$LOG")"
+  [ -n "$NO_JUZGADO" ] && printf '%s\n' "$NO_JUZGADO" | sed 's/^/  ⊘ no juzgado: /'
 else
   echo "✗ $ID gate ROJO — mirá el detalle arriba; la tarea no está terminada"
 fi

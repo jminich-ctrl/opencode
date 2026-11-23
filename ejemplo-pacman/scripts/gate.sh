@@ -29,12 +29,21 @@ aux_del_metodo() {
 }
 
 VACIOS=0
+# Los NOMBRES de lo que no se pudo juzgar, uno por línea. El contador solo decía CUÁNTOS.
+VACIOS_LISTA=""
 rojo() { echo "  ✗ $1"; FALLOS=$((FALLOS+1)); }
 verde() { echo "  ✓ $1"; }
 # Un chequeo que no pudo correr NO es un chequeo que pasó. Marcarlo distinto es la defensa
 # publicada contra la clase de falla que más veces nos mordió: un pase vacío se ve igual que
 # un pase, y por eso cuatro bugs de rutas vivieron semanas detrás de un ✓.
-vacuo() { echo "  ⊘ $1 — no pudo verificarse"; VACIOS=$((VACIOS+1)); }
+# UN solo lugar que suma al contador, y suma SIEMPRE con un nombre. Antes había cinco
+# caminos que declaraban un vacío y cuatro sumaban sin imprimir nada: el veredicto decía
+# «con 3 chequeo/s que no pudieron correr» y no había forma de saber cuáles ni rastreando
+# las novecientas líneas de salida. Un juez que se abstiene tiene que decir DE QUÉ, porque
+# el que recibe el veredicto no puede distinguir «lo miré y está bien» de «no lo miré».
+declinado() { VACIOS=$((VACIOS+1)); VACIOS_LISTA="${VACIOS_LISTA}${VACIOS_LISTA:+
+}$1"; }
+vacuo() { echo "  ⊘ $1 — no pudo verificarse"; declinado "$1"; }
 # Lo que el chequeo miró. Sin esto, "no encontré nada" y "no miré nada" se ven igual.
 testigo() { echo "     · inspeccionó: $1"; }
 
@@ -81,7 +90,8 @@ else
   case "$RC_CORR" in
     0) ;;
     1) printf '%s\n' "$SAL_CORR"; FALLOS=$((FALLOS+1)) ;;
-    *) printf '%s\n' "$SAL_CORR"; VACIOS=$((VACIOS+1)) ;;
+    *) printf '%s\n' "$SAL_CORR"
+       declinado "el contrato del corredor: scripts/_corredor.sh no pudo decidir (código $RC_CORR)" ;;
   esac
 fi
 # El gate NO sabe cómo se corre la suite: lo sabe `scripts/correr-suite.sh`, y es el mismo
@@ -524,7 +534,7 @@ else
   echo "$SAL_IMP"
   case "$RC_IMP" in
     1) FALLOS=$((FALLOS+1)) ;;
-    2) VACIOS=$((VACIOS+1)) ;;
+    2) declinado "los imports: scripts/_imports.py no pudo decidir (código 2)" ;;
     # El 3 —«no se pudo verificar, y es del método o del entorno»— no contaba NADA: ni fallo
     # ni vacío, así que el gate imprimía el motivo y salía VERDE igual. Es el mismo fallo
     # abierto que el `if` sin `else` de veinte líneas más arriba, con otro mecanismo. Rojo y
@@ -645,7 +655,10 @@ else
   # que viven en el pacman desde siempre.
   SAL_SUP="$(BASE="$BASE_SUP" "${PY_PROYECTO:-python3}" "$(aux_del_metodo _suprimidas.py)" ${ARG_SUP} 2>&1)"; RC_SUP=$?
   echo "$SAL_SUP"
-  case "$RC_SUP" in 1) FALLOS=$((FALLOS+1)) ;; 2) VACIOS=$((VACIOS+1)) ;; esac
+  case "$RC_SUP" in
+    1) FALLOS=$((FALLOS+1)) ;;
+    2) declinado "las señales suprimidas: scripts/_suprimidas.py no pudo decidir (código 2)" ;;
+  esac
 fi
 
 # ── 4. ¿Los tests distinguen? (sólo en modo tarea)
@@ -804,8 +817,12 @@ if [ -z "${TAREA:-}" ]; then
     else echo "$OUT"; FALLOS=$((FALLOS+1)); fi
     # Los ⊘ que imprime el chequeo son vacíos del gate: si no se cuentan, el veredicto dice
     # "GATE VERDE" a secas cuando en realidad hubo cosas que no pudieron verificarse.
-    N_VACUOS_ARQ="$(printf '%s\n' "$OUT" | grep -c '⊘' || true)"
-    [ "${N_VACUOS_ARQ:-0}" -gt 0 ] && VACIOS=$((VACIOS+N_VACUOS_ARQ))
+    # Por LÍNEA y no por conteo. `grep -c` daba el número y tiraba el texto, que es
+    # justamente lo único que el veredicto necesita para nombrarlo. Una sola fuente para
+    # las dos cosas: el que cuenta es el que nombra.
+    while IFS= read -r _l_arq; do
+      declinado "coherencia: $(printf '%s' "$_l_arq" | sed 's/^[[:space:]]*⊘[[:space:]]*//')"
+    done < <(printf '%s\n' "$OUT" | grep '⊘' || true)
   else
     vacuo "no hay scripts/_arquitectura.py"
   fi
@@ -873,7 +890,27 @@ if [ "$FALLOS" -gt 0 ]; then
 elif [ "$VACIOS" -gt 0 ]; then
   # Verde, pero con constancia de qué no se pudo verificar. El código sigue siendo 0 porque
   # hay vacíos legítimos (un archivo nuevo no se puede revertir), pero quedan a la vista.
-  echo "GATE VERDE — con $VACIOS chequeo/s que no pudieron correr (⊘)"; exit 0
+  echo "GATE VERDE — con $VACIOS chequeo/s que no pudieron correr (⊘)"
+  # Los nombres, no sólo el número. El prefijo es estable porque lo lee un programa
+  # (`no_juzgado_por_el_gate` en _comun.sh): el runner aplanaba un verde con abstenciones a
+  # un «gate VERDE» a secas, que es el mismo defecto una capa más arriba.
+  #
+  # Y NO empieza con "  ⊘ ": ese prefijo es la marca de un chequeo y
+  # `TestContabilidadDelVeredicto` cuenta marcas. Una lista que se cuenta sola rompería el
+  # invariante que dice que el veredicto cuenta lo que el gate imprimió.
+  # EXACTAMENTE una línea por vacío contado, siempre. Si alguien vuelve a sumar al
+  # contador sin pasar por `declinado`, la línea que falta no desaparece: sale con el
+  # nombre SIN NOMBRE y se ve. Listar de menos es peor que no listar, porque una lista
+  # corta se lee como la lista completa — es el mismo defecto que este bloque arregla, una
+  # vuelta más adentro.
+  printf '%s\n' "$VACIOS_LISTA" | awk 'NF' | sed 's/^/    no juzgado: /'
+  N_NOMBRADOS="$(printf '%s\n' "$VACIOS_LISTA" | awk 'NF { n++ } END { print n + 0 }')"
+  FALTAN=$((VACIOS - N_NOMBRADOS))
+  while [ "$FALTAN" -gt 0 ]; do
+    echo "    no juzgado: SIN NOMBRE — alguien suma a VACIOS sin pasar por declinado()"
+    FALTAN=$((FALTAN - 1))
+  done
+  exit 0
 else
   echo "GATE VERDE"; exit 0
 fi

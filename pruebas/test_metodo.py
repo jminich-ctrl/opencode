@@ -2962,6 +2962,18 @@ class TestContabilidadDelVeredicto(CasoBase):
                         self.assertEqual(v_dicho, vacias,
                                          f"imprimió {vacias} ⊘ y el veredicto dice {v_dicho}"
                                          f"\n{r.stdout}")
+                        # Y lo que cuenta tiene que NOMBRARLO. El contador sin los
+                        # nombres obliga a rastrear los vacíos entre novecientas líneas, y
+                        # cuatro de los cinco caminos que sumaban no imprimían ni el ⊘. Acá
+                        # se mide en los cinco escenarios y no en uno.
+                        nombrados = [l for l in r.stdout.splitlines()
+                                     if l.startswith("    no juzgado: ")]
+                        self.assertEqual(v_dicho, len(nombrados),
+                                         f"contó {v_dicho} vacíos y nombró "
+                                         f"{len(nombrados)}\n{r.stdout}")
+                        self.assertNotIn("no juzgado: SIN NOMBRE", r.stdout,
+                                         f"alguien suma a VACIOS sin pasar por "
+                                         f"declinado()\n{r.stdout}")
                 finally:
                     self.tearDown()
 
@@ -20238,3 +20250,223 @@ class TestATresReescriturasElDefectoEsDelPlanYNoDeLaTarea(unittest.TestCase):
                     f'n="$(replanificaciones_de T40)"; [ "$n" -ge 3 ] && echo si || echo no', d)
         self.assertIn("no", r2.stdout,
                       f"la comparación numérica tiene que funcionar: {r2.stdout!r} {r2.stderr!r}")
+
+
+class TestElJuezQueSeAbstieneNombraDeQueSeAbstuvo(CasoBase):
+    """El gate contaba sus abstenciones y no las nombraba, y el runner ni las contaba.
+
+    El gate ya distinguía «no pudo verificarse» de «pasó» —es la defensa publicada contra
+    el pase vacío, y está porque cuatro bugs de rutas vivieron semanas detrás de un ✓—. Lo
+    que no hacía era decir CUÁLES: el veredicto era «GATE VERDE — con 3 chequeo/s que no
+    pudieron correr (⊘)» y había que rastrear los tres entre novecientas líneas de salida.
+
+    Peor: de los cinco caminos que declaraban un vacío, CUATRO sumaban al contador sin
+    imprimir un ⊘ —el corredor con código distinto de 0 y 1, `_imports.py` con código 2,
+    `_suprimidas.py` con código 2, y la coherencia, que contaba los ⊘ de su propia salida
+    con un `grep -c` y tiraba el texto—. Rastrearlos no servía de nada porque no estaban.
+
+    Y una capa más arriba se perdía entero: `correr-tarea.sh` mira el CÓDIGO del gate, que
+    es 0, y escribía «✓ TNN gate VERDE» a secas. Quien monitorea una campaña lee esa línea
+    y no las novecientas del gate, así que un verde con agujeros se leía como un verde. Es
+    el patrón que este repo tiene escrito como «nombrar la cosa no alcanza»: alguien declara
+    algo y el que tiene que recibirlo no lo recibe.
+
+    Lo toma de superpowers (MIT, Jesse Vincent), `skills/requesting-code-review/
+    code-reviewer.md`, sección «Declined to judge»: «list every behavior you considered and
+    set aside as outside the plan or spec, one line each, with the reason. […] nothing you
+    set aside is dropped silently. An empty list means you set nothing aside.»
+
+    La diferencia es la de siempre: ellos se lo PIDEN al modelo, y un modelo que no cumple
+    deja una lista corta que se lee igual que una lista completa. Acá el que se abstiene es
+    un comando, y no puede contar un vacío sin nombrarlo: el nombre y el contador salen de
+    la misma función, y si la cuenta no cierra el veredicto dice SIN NOMBRE.
+    """
+
+    GATES = ("plantillas/gate.sh", "ejemplo-pacman/scripts/gate.sh",
+             "ejemplo-clasificados/scripts/gate.sh")
+
+    # ── El veredicto del gate
+
+    def _verde_con_vacios(self):
+        """Una corrida verde que tenga al menos una abstención, o el test no mide nada."""
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertEqual(0, r.returncode, f"el escenario tiene que salir verde:\n{r.stdout}")
+        marcas = [l for l in r.stdout.splitlines() if l.startswith("  ⊘ ")]
+        self.assertTrue(marcas, f"escenario sin ninguna abstención: no mide nada\n{r.stdout}")
+        return r.stdout, marcas
+
+    def test_el_verde_con_abstenciones_nombra_cada_una(self):
+        salida, marcas = self._verde_con_vacios()
+        listadas = [l[len("    no juzgado: "):] for l in salida.splitlines()
+                    if l.startswith("    no juzgado: ")]
+        self.assertTrue(listadas,
+                        f"el veredicto contó abstenciones y no nombró ninguna:\n{salida}")
+        for m in marcas:
+            texto = m[len("  ⊘ "):].replace(" — no pudo verificarse", "")
+            self.assertIn(texto, listadas,
+                          f"imprimió «{texto}» como ⊘ y el veredicto no lo nombra.\n"
+                          f"nombrados: {listadas}\n{salida}")
+
+    def test_cada_vacio_contado_tiene_exactamente_una_linea(self):
+        """Listar de menos es peor que no listar: una lista corta se lee como la completa."""
+        salida, _ = self._verde_con_vacios()
+        dicho = [int(m.group(1)) for m in
+                 (re.match(r"GATE VERDE — con (\d+) chequeo", l) for l in salida.splitlines())
+                 if m]
+        self.assertEqual(1, len(dicho), f"una sola línea de veredicto verde:\n{salida}")
+        listadas = [l for l in salida.splitlines() if l.startswith("    no juzgado: ")]
+        self.assertEqual(dicho[0], len(listadas),
+                         f"contó {dicho[0]} y nombró {len(listadas)}:\n{salida}")
+
+    def test_la_lista_no_se_cuenta_a_si_misma_como_marca(self):
+        """`TestContabilidadDelVeredicto` cuenta las líneas que empiezan con «  ⊘ » y las
+        compara con el número del veredicto. Si la lista usara ese mismo prefijo, cada
+        abstención se contaría dos veces y el invariante de contabilidad —que es el que mata
+        la familia de mutantes del contador— se rompería por el arreglo, no por un defecto."""
+        salida, _ = self._verde_con_vacios()
+        lista = [l for l in salida.splitlines() if "no juzgado: " in l]
+        # Sin esta línea el test pasaba VACUAMENTE: sin lista, el bucle de abajo no itera y
+        # el assert no corre. Lo verifiqué sacando el arreglo, que es cuando se ve.
+        self.assertTrue(lista, f"no hay lista que revisar: el test no mide nada\n{salida}")
+        for l in lista:
+            self.assertFalse(l.startswith("  ⊘ "),
+                             f"la lista usa el prefijo de las marcas de chequeo: {l!r}")
+
+    def test_el_vacio_que_nadie_nombro_sale_como_SIN_NOMBRE(self):
+        """La guarda del propio gate, y se prueba que PUEDE dispararse.
+
+        Es la sexta guarda incapaz de dispararse que persigo en este repo, así que acá el
+        defecto se reintroduce de verdad: un `VACIOS=$((VACIOS+1))` suelto, como los cuatro
+        que había. El gate se commitea después de tocarlo porque el chequeo de alcance ve
+        `scripts/gate.sh` modificado y pone ROJO —lo cual está bien y es otro juez haciendo
+        su trabajo—."""
+        g = self.p.dir / "scripts" / "gate.sh"
+        s = g.read_text()
+        self.assertEqual(1, s.count('VACIOS_LISTA=""\n'), "cambió el ancla del fixture")
+        g.write_text(s.replace('VACIOS_LISTA=""\n', 'VACIOS_LISTA=""\nVACIOS=$((VACIOS+1))\n'))
+        self.p.git("add -A")
+        self.p.git('commit -qm "un sumador clandestino"')
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertEqual(0, r.returncode, f"el escenario sigue siendo verde:\n{r.stdout}")
+        self.assertIn("    no juzgado: SIN NOMBRE", r.stdout,
+                      f"contó un vacío que nadie nombró y no lo dijo:\n{r.stdout}")
+        listadas = [l for l in r.stdout.splitlines() if l.startswith("    no juzgado: ")]
+        dicho = int(re.search(r"GATE VERDE — con (\d+) chequeo", r.stdout).group(1))
+        self.assertEqual(dicho, len(listadas),
+                         f"con el defecto puesto la cuenta igual tiene que cerrar:\n{r.stdout}")
+
+    # ── La forma: un solo lugar suma al contador
+
+    def test_el_contador_se_toca_solo_desde_declinado(self):
+        """El invariante que mata la familia entera: cualquier chequeo nuevo que quiera
+        declarar un vacío tiene que pasar por `declinado`, que exige el nombre. Mientras el
+        `VACIOS=$((VACIOS+1))` esté al alcance de cualquiera, el próximo chequeo lo va a
+        usar y el veredicto va a volver a contar sin nombrar.
+
+        Búsqueda por cadena fija: el `grep` de BSD no trata `$((` como literal en una
+        expresión regular y devolvía cero coincidencias sobre un archivo que las tiene."""
+        for nombre in self.GATES:
+            with self.subTest(gate=nombre):
+                lineas = [l for l in codigo_de(RAIZ / nombre).split("\n")
+                          if "VACIOS=$((VACIOS+" in l]
+                self.assertEqual(1, len(lineas),
+                                 f"{nombre} suma al contador en {len(lineas)} lugares; "
+                                 f"tiene que ser sólo `declinado`:\n  " + "\n  ".join(lineas))
+                self.assertTrue(lineas[0].startswith("declinado()"),
+                                f"{nombre}: el único sumador no es `declinado`: {lineas[0]!r}")
+
+    def test_los_tres_gates_lo_hacen_igual(self):
+        """La forma «el arreglo vive en un hermano y no en el otro». `plantillas/gate.sh` es
+        el que se copia a cada proyecto nuevo: si el arreglo no está ahí, no existe."""
+        for nombre in self.GATES:
+            with self.subTest(gate=nombre):
+                texto = codigo_de(RAIZ / nombre)
+                for pieza in ("VACIOS_LISTA", "declinado()", "no juzgado: ", "SIN NOMBRE"):
+                    self.assertIn(pieza, texto, f"{nombre} no tiene «{pieza}»")
+                self.assertNotIn("N_VACUOS_ARQ", texto,
+                                 f"{nombre} sigue contando los ⊘ de la coherencia sin "
+                                 f"guardar su texto, que es lo único que sirve para nombrar")
+
+    # ── El límite con el runner, que es donde se perdía entero
+
+    def _log(self, cuerpo):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-nojuzgado-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        log = d / ".tarea.log"
+        log.write_text(cuerpo)
+        return d, log
+
+    def _en_comun(self, d, orden):
+        # `bash -c` explícito: `correr` usa /bin/sh y _comun.sh tiene `<(...)`.
+        return correr("bash -c " + shlex.quote(f'. "{SCRIPTS}/_comun.sh" >/dev/null 2>&1; {orden}'), d)
+
+    def test_el_runner_nombra_las_abstenciones_en_su_linea(self):
+        d, log = self._log("el agente habla\n=== gate ===\n"
+                           "GATE VERDE — con 2 chequeo/s que no pudieron correr (⊘)\n"
+                           "    no juzgado: archivos nuevos: nada que revertir\n"
+                           "    no juzgado: coherencia: no encuentro frontend/src\n"
+                           "=== rc=0\n")
+        r = self._en_comun(d, f'linea_de_verde T16 "{log}"')
+        self.assertIn("gate VERDE", r.stdout, f"sigue siendo un verde: {r.stdout!r}")
+        self.assertIn("2 chequeo/s no juzgaron", r.stdout,
+                      f"la línea del runner no dice cuántas abstenciones hubo: {r.stdout!r}")
+        self.assertIn("nada que revertir", r.stdout, f"ni las nombra: {r.stdout!r}")
+        self.assertIn("no encuentro frontend/src", r.stdout,
+                      f"nombra una y se come la otra: {r.stdout!r}")
+
+    def test_un_verde_sin_abstenciones_se_informa_igual_que_antes(self):
+        """El verde limpio no cambia de forma: `ensayo.sh` cuenta los verdes con un grep
+        sobre «gate VERDE» y PIPELINE.md documenta esa línea exacta. Lo llamé brazo nulo y
+        no lo es —sin el arreglo falla, porque la función no existe—: el brazo nulo de este
+        cambio es el verde sin abstenciones del gate, que sigue imprimiendo «GATE VERDE» a
+        secas y lo cubre `TestContabilidadDelVeredicto`."""
+        d, log = self._log("=== gate ===\nGATE VERDE\n=== rc=0\n")
+        r = self._en_comun(d, f'linea_de_verde T16 "{log}"')
+        self.assertEqual("✓ T16 gate VERDE", r.stdout.strip(),
+                         f"sin abstenciones la línea no cambia: {r.stdout!r}")
+
+    def test_la_linea_que_el_agente_falsifica_no_cuenta(self):
+        """El agente escribe en el mismo log, antes de la marca del runner, y puede imprimir
+        lo que quiera —incluido un veredicto—. La marca del runner es siempre la ÚLTIMA, que
+        es la misma regla que usa `parte_del_agente`."""
+        # Control POSITIVO primero. Sin él el test pasaba vacuamente: si la función no
+        # existe, la salida es vacía y «no leyó la línea falsa» se cumple por no leer nada.
+        # Es la misma clase de verde falso que este método existe para no emitir.
+        d, log = self._log("=== gate ===\n    no juzgado: la falsa del agente\n"
+                           "=== rc=0\n"
+                           "=== gate ===\nGATE VERDE — con 1 chequeo/s (⊘)\n"
+                           "    no juzgado: la verdadera del gate\n=== rc=0\n")
+        r = self._en_comun(d, f'no_juzgado_por_el_gate "{log}"')
+        self.assertEqual("la verdadera del gate", r.stdout.strip(),
+                         f"tenía que leer la del último veredicto y sólo ésa: {r.stdout!r}")
+        self.assertNotIn("la falsa del agente", r.stdout,
+                         f"tomó por veredicto lo que escribió el agente: {r.stdout!r}")
+
+    def test_sin_marca_del_gate_no_inventa_abstenciones(self):
+        """«No encontré el veredicto» no puede dar lo mismo que «el veredicto no tenía
+        abstenciones», así que el extractor exige la marca para mirar."""
+        # El control positivo es el mismo texto CON la marca: si la función no existiera,
+        # las dos corridas darían vacío y el test pasaría sin medir nada.
+        d, con = self._log("=== gate ===\n    no juzgado: dentro del veredicto\n")
+        r = self._en_comun(d, f'no_juzgado_por_el_gate "{con}"')
+        self.assertEqual("dentro del veredicto", r.stdout.strip(),
+                         f"el control positivo no leyó nada: {r.stdout!r}")
+        sin = d / "sin-marca.log"
+        sin.write_text("    no juzgado: suelto, sin ningún gate\n")
+        r2 = self._en_comun(d, f'no_juzgado_por_el_gate "{sin}"')
+        self.assertEqual("", r2.stdout.strip(),
+                         f"leyó una línea que no está dentro del veredicto: {r2.stdout!r}")
+
+    def test_los_dos_caminos_de_cierre_informan_las_abstenciones(self):
+        """Uno lo corre el runner y el otro una persona a mano. Si el arreglo está en uno
+        solo, basta cerrar por el otro para no enterarse — la forma «el arreglo vive en un
+        hermano y no en el otro», contada nueve veces en este repo."""
+        for nombre in ("correr-tarea.sh", "cerrar-tarea.sh"):
+            with self.subTest(guion=nombre):
+                texto = codigo_de(SCRIPTS / nombre)
+                self.assertTrue("linea_de_verde" in texto or "no_juzgado_por_el_gate" in texto,
+                                f"{nombre} informa un verde sin mirar las abstenciones")
+                self.assertNotIn('echo "✓ $id gate VERDE"', texto,
+                                 f"{nombre} sigue aplanando el verde a una línea sin abstenciones")

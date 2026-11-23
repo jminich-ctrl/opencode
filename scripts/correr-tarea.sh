@@ -247,7 +247,12 @@ lanzar() {
     # método predica que el juez es el comando—. El ruido del log es una nota, no un
     # veredicto.
     if [ "$rc" -eq 0 ]; then
-      echo "✓ $id gate VERDE"
+      # Y no `echo "✓ $id gate VERDE"`. El gate puede salir 0 habiéndose ABSTENIDO en
+      # chequeos: lo dice en su propia línea («con N chequeo/s que no pudieron correr») y
+      # desde hoy los nombra, pero acá se mira sólo el código de salida —que es 0— y la
+      # abstención se perdía en el límite. Quien monitorea una campaña lee ESTA línea, no
+      # las novecientas del gate, así que un verde con agujeros se leía como un verde.
+      linea_de_verde "$id" "$log"
       # El transcript del intento que SALIÓ BIEN. `conservar_intento` sólo se llamaba al
       # arrancar un reintento, así que de una tarea que cierra al primer intento no quedaba
       # NADA: la fábrica de dataset recogía los éxitos del camino de tests —`escribir-tests.sh`

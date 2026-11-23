@@ -151,6 +151,35 @@ parte_del_agente() {
        END { n = g ? g - 1 : NR; for (i = 1; i <= n; i++) print l[i] }' "$1"
 }
 
+# Lo que el gate NO juzgó, uno por línea, tal como lo dejó en el log.
+#
+# El gate ya decía «GATE VERDE — con 3 chequeo/s que no pudieron correr» y desde hoy los
+# nombra. El problema es la capa de arriba: el runner mira el CÓDIGO del gate, que es 0, y
+# escribía «✓ TNN gate VERDE» a secas. Las abstenciones se perdían en el límite entre los
+# dos, que es el patrón que este repo tiene escrito como «nombrar la cosa no alcanza»:
+# alguien declara algo y el que tiene que recibirlo no lo recibe.
+#
+# Desde la ÚLTIMA marca del runner, igual que `parte_del_agente`: el agente puede imprimir
+# una marca igual y líneas que parezcan el veredicto. Sin marca no devuelve nada, porque
+# «no encontré el veredicto» no puede dar lo mismo que «el veredicto no tenía abstenciones».
+no_juzgado_por_el_gate() {
+  [ -f "$1" ] || return 0
+  awk '{ l[NR] = $0; if ($0 == "=== gate ===") g = NR }
+       END { if (g) for (i = g + 1; i <= NR; i++)
+                if (substr(l[i], 1, 16) == "    no juzgado: ") print substr(l[i], 17) }' "$1"
+}
+
+# La línea del verde, con las abstenciones adentro. Es una función y no un `echo` en el
+# runner para que se pueda probar sin levantar un agente: el defecto que arregla es
+# justamente del renderizado.
+linea_de_verde() {   # <id> <log>
+  local nj n
+  nj="$(no_juzgado_por_el_gate "$2")"
+  if [ -z "$nj" ]; then echo "✓ $1 gate VERDE"; return 0; fi
+  n="$(printf '%s\n' "$nj" | awk 'END { print NR + 0 }')"
+  echo "✓ $1 gate VERDE — pero $n chequeo/s no juzgaron: $(printf '%s' "$nj" | tr '\n' '|' | sed 's/|/ · /g')"
+}
+
 # Una falla de la HERRAMIENTA, que es distinta de un error que el agente haya impreso al
 # correr un comando. El patrón decía `^Error: .*` y atrapaba la salida de npm o de vite:
 # T07 quedó informada como «ERROR del agente» con el gate en VERDE, que es exactamente lo
