@@ -109,6 +109,25 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
     continue
   fi
 
+  # EL TOPE DE RONDAS. Va acá: después de la guarda que puede abortar gratis y ANTES de la
+  # sonda, que cuesta un pedido. Es la regla de orden que este script ya tiene escrita.
+  #
+  # Si el enunciado se reescribió TOPE_REPLAN veces y la tarea sigue sin pasar, el defecto
+  # dejó de ser del enunciado. Reescribirlo una cuarta vez es gastar un agente en la hipótesis
+  # que ya se refutó tres veces, y el método tiene medido que el arquitecto no se queda
+  # quieto: inventa una causa. Así acumuló T05c sus tres replanificaciones.
+  RONDAS="$(replanificaciones_de "$id")"
+  if [ "${RONDAS:-0}" -ge "$TOPE_REPLAN" ]; then
+    echo "⃠ $id: $RONDAS reescrituras del enunciado y sigue sin pasar."
+    echo "   A esta altura el defecto NO es del enunciado: es del PLAN. Las rondas:"
+    motivos_de_replanificacion "$id"
+    echo "   Lo decide una persona, igual que un HUECO: o el plan parte la tarea, o entrega"
+    echo "   lo que le falta, o la tarea no es la que el plan creía. Para el caso de"
+    echo "   incoherencias entre tareas está \`replanificar-coherencia.sh\`."
+    echo "   Si igual querés otra ronda: TOPE_REPLAN=$((RONDAS + 1)) bash \$AGENTES/scripts/replanificar.sh $id"
+    continue
+  fi
+
   # Acá, y no antes del bucle: la sonda cuesta un pedido a la plataforma y no tiene sentido
   # gastarlo si la guarda de arriba —«no hay transcripts de fallo»— iba a frenar igual. Es la
   # misma regla de orden que el método ya tiene para el vigilante: lo caro va después de lo
@@ -132,6 +151,33 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
   CRIT_ANTES="$(grep -c '^- \[ \]' "$archivo" || true)"
   TEST_ANTES="$(grep -oE '`[a-zA-Z0-9_/.]*tests?/[a-zA-Z0-9_.]+`.*clase `[A-Za-z0-9_]+`' "$archivo" | head -1)"
   cp "$archivo" "$archivo.previo"
+
+  # EL BRIEF, y no PLAN.md. Medido el 2026-11-22 replanificando T16: el prompt decía «Leé la
+  # tarea, leé PLAN.md», PLAN.md son 12.523 bytes de los que 8.025 son dos secciones que el
+  # arquitecto no usa, y el arquitecto hizo TRECE lecturas para juntar a mano lo que
+  # necesitaba —la tarea, el plan, cuatro fuentes, las tareas T14 y T15, dos tests—. Llegó al
+  # diagnóstico correcto a los 23.692 bytes de deliberación y el pedido se cortó antes de que
+  # llamara a `write`.
+  #
+  # El brief trae la tarea, el `## Contrato` de cada dependencia declarada y los invariantes
+  # del plan: para T16 son 5.984 bytes y el hueco queda a la vista en UNA lectura —su
+  # contrato pide una lista de objetos con `id, ad_id, favorited, status` y T15, su
+  # dependencia, entrega sólo `toggle_favorite_service`—. La idea es de superpowers (MIT):
+  # «Never make a subagent read the whole plan file».
+  BRIEF="$BASE/.brief-$id.md"
+  if ! python3 "$AQUI/brief_tarea.py" "$archivo" --destino "$BRIEF" >/dev/null 2>&1; then
+    # Y si no se pudo armar, se DICE y se vuelve al plan entero. Un respaldo callado es el
+    # defecto que este repo tiene escrito nueve veces: el que lee no puede distinguir «el
+    # brief no traía eso» de «no hubo brief».
+    echo "     ⊘ no pude armar el brief de $id: el prompt va con PLAN.md entero, que es"
+    echo "        lo que hizo que el arquitecto gastara el pedido leyendo. No es un pase."
+    BRIEF=""
+  fi
+  if [ -n "$BRIEF" ]; then
+    QUE_LEER="Leé el brief $BRIEF: trae la tarea completa, el contrato de cada tarea de la que ésta depende, y los invariantes del plan. NO leas PLAN.md: lo que te sirve de ahí ya está en el brief, y lo que no está en el brief es porque no está en el plan."
+  else
+    QUE_LEER="Leé la tarea y PLAN.md."
+  fi
 
   echo "▶ $id · el arquitecto replanifica"
   echo "$MOTIVO" | sed 's/^/     /'
@@ -161,7 +207,7 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
     COMO=(--agent "${AGENTE_REPLAN:-arquitecto}")
     [ -n "${MODELO:-}" ] && COMO+=(--model "colabhive/$MODELO")
     con_limite "${LIMITE_AGENTE:-3600}" opencode run "${COMO[@]}" \
-      "Mirá SOLO el archivo de la tarea, PLAN.md y, si hace falta, los archivos que la tarea nombra. NO explores .venv, node_modules, .git ni ningún directorio de dependencias: no tienen nada que ver con el enunciado y hay decenas de miles de archivos ahí. La tarea tareas/$(basename \"$archivo\") falló al ejecutarse, y el motivo es cómo está escrita, no el agente que la intentó. Esto es lo que falló: $MOTIVO. Leé la tarea, leé PLAN.md, y reescribí SOLO el archivo de tarea con la herramienta write para que el defecto no pueda repetirse. Reglas que no podés romper: (1) no cambies el archivo de test ni el nombre de su clase, los declara el plan; (2) no saques ni ablandes ningún criterio de terminado — si hace falta, agregá; (3) si el problema es que la tarea necesita algo que ninguna tarea del plan entrega, decilo con la palabra HUECO y explicá qué falta, en vez de inventarlo. Lo que la tarea NO puede tocar va en el campo «Prohibido tocar», no en prosa, y NO expliques cómo hacer lo que prohibís: medido, el ejecutor hace lo que la receta dice aunque dos líneas antes diga que no le corresponde. Nombrar un archivo ajeno está bien para decir DÓNDE VIVE algo que la tarea importa, y mal si viene con instrucciones de cómo modificarlo. Lo más útil que podés hacer es decir DÓNDE vive cada cosa que la tarea nombra: archivo exacto, import exacto." 2>&1
+      "Mirá SOLO el brief de la tarea y, si hace falta, los archivos que la tarea nombra. NO explores .venv, node_modules, .git ni ningún directorio de dependencias: no tienen nada que ver con el enunciado y hay decenas de miles de archivos ahí. La tarea tareas/$(basename \"$archivo\") falló al ejecutarse, y el motivo es cómo está escrita, no el agente que la intentó. Esto es lo que falló: $MOTIVO. $QUE_LEER Reescribí SOLO el archivo de tarea con la herramienta write para que el defecto no pueda repetirse. Reglas que no podés romper: (1) no cambies el archivo de test ni el nombre de su clase, los declara el plan; (2) no saques ni ablandes ningún criterio de terminado — si hace falta, agregá; (3) si el problema es que la tarea necesita algo que ninguna tarea del plan entrega, decilo con la palabra HUECO y explicá qué falta, en vez de inventarlo. Lo que la tarea NO puede tocar va en el campo «Prohibido tocar», no en prosa, y NO expliques cómo hacer lo que prohibís: medido, el ejecutor hace lo que la receta dice aunque dos líneas antes diga que no le corresponde. Nombrar un archivo ajeno está bien para decir DÓNDE VIVE algo que la tarea importa, y mal si viene con instrucciones de cómo modificarlo. Lo más útil que podés hacer es decir DÓNDE vive cada cosa que la tarea nombra: archivo exacto, import exacto." 2>&1
   ) > "$LOG_VIGILADO" 2>&1
   RC=$?
 
@@ -190,6 +236,9 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
     echo "  ⃠ el arquitecto dice que falta algo que ninguna tarea entrega:"
     grep -A3 -E '^[0-9.)[:space:]*#>_-]*HUECO' "$LOG_VIGILADO" | head -6 | sed 's/^/     /'
     echo "     Eso lo decide una persona: es un hueco del plan, no de la tarea."
+    # Cuenta como ronda, y no es un castigo al arquitecto: un hueco declarado y NO resuelto
+    # es justamente el caso en que seguir reescribiendo el enunciado no puede servir.
+    anotar_replanificacion "$id" "$LO_QUE_FALLO" hueco
     mv "$archivo.previo" "$archivo"; continue
   fi
 
@@ -220,6 +269,7 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
   if cmp -s "$archivo" "$archivo.previo"; then
     echo "  ✗ el arquitecto no cambió nada: leyó la tarea y no la reescribió."
     echo "     No es una replanificación fallida, es una que no ocurrió. Log: $LOG_VIGILADO"
+    anotar_replanificacion "$id" "$LO_QUE_FALLO" "sin-cambios"
     mv "$archivo.previo" "$archivo"
     continue
   fi
@@ -281,8 +331,11 @@ esa frase—. Tu trabajo es que esa tarea se pueda ESCRIBIR como test."
 
   if [ -n "$mal" ]; then
     echo "  ✗ se descarta la replanificación: $mal"
+    # La ronda se gastó igual: lo que el tope cuenta son rondas, no éxitos.
+    anotar_replanificacion "$id" "$LO_QUE_FALLO" descartada
     mv "$archivo.previo" "$archivo"
   else
+    anotar_replanificacion "$id" "$LO_QUE_FALLO" reescrita
     echo "  ✓ $id replanificada y el plan sigue validando"
     diff -u "$archivo.previo" "$archivo" | grep -E '^[+-][^+-]' | head -12 | sed 's/^/     /'
     rm -f "$archivo.previo"

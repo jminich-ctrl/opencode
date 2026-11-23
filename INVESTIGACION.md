@@ -1239,3 +1239,101 @@ leer como «ese modelo es lento».
 - **El valor incremental de detección de un criterio de mutación usado como aceptación**, sobre
   tests escritos por un agente contra una implementación de referencia. Las fuentes miden suites
   contra código ajeno, que es otra cosa.
+
+# Vuelta 2026-11-23 — superpowers: un sistema maduro que resuelve por prosa lo que nosotros resolvemos por comando
+
+Fuente única y leída completa: `github.com/obra/superpowers` v7.0.2 (MIT, Jesse Vincent), commit
+`22f0b46`. 15 skills, 8.475 líneas de documentación, más hooks, scripts y su suite.
+
+## 0. La diferencia de arquitectura, que es lo primero que hay que entender
+
+**Es una biblioteca de disciplina por prompt, no un gate.** Su único hook inyecta un skill en el
+contexto; no bloquea nada. Las reglas viven como «Iron Law», tablas de racionalizaciones y listas
+de red flags, y funcionan porque quien las lee es un modelo frontera al que se le puede
+argumentar.
+
+Nosotros tenemos medido lo contrario sobre nuestro ejecutor: *«el ejecutor hace lo que la receta
+dice aunque dos líneas antes diga que no le corresponde»*. **La mitad persuasiva de este plugin no
+nos transfiere**, y no es un defecto suyo: es que su restricción es otra. Ellos persuaden;
+nosotros juzgamos con un comando. Lo que sí transfiere es lo mecánico.
+
+## 1. Lo que ya importamos (hecho el 2026-11-23)
+
+- **El brief en vez del plan entero.** «Never make a subagent read the whole plan file». Nuestro
+  prompt decía «Leé la tarea, leé PLAN.md» y PLAN.md son 12.523 bytes de los que 8.025 son dos
+  secciones que el arquitecto no usa. Ahora `scripts/brief_tarea.py` arma 5.984 bytes con la
+  tarea, el `## Contrato` de cada dependencia y los invariantes del plan. Ver
+  `TestElArquitectoRecibeUnBriefYNoElPlanEntero`.
+- **El mutante del argumento equivocado.** Su lista de mutaciones realistas dice «wrong constant
+  **or argument**»; teníamos la constante y no el argumento. El hueco era grande: una línea
+  `return toggle(user_id, ad_id)` no tenía NINGÚN candidato, y «el endpoint delega al servicio» es
+  la forma de casi toda tarea nuestra. Ver `TestElMutanteDelArgumentoEquivocado`.
+- **El tope de rondas de replanificación.** «Si ≥3 arreglos fallaron, PARÁ y cuestioná la
+  arquitectura. Esto NO es una hipótesis fallida, es una arquitectura equivocada». Ver
+  `TestATresReescriturasElDefectoEsDelPlanYNoDeLaTarea`.
+
+## 2. Lo que falta importar, y por qué cada uno vale
+
+### «Declined to judge»: hacer visibles las omisiones del juez
+
+Su reviewer tiene que listar, ANTES del veredicto, *todo comportamiento que consideró y dejó
+afuera, una línea cada uno, con el motivo*, y «lista vacía significa que no dejaste nada afuera».
+
+Nuestro gate emite rechazos y **nunca dice qué miró y eligió no juzgar**. Para la medición del
+juez de la tarea —41% de acuerdo con 37% que se mueve con el orden— esto haría visibles los
+descartes silenciosos, que es exactamente lo que no podemos ver hoy. Es la pieza que más
+directamente ataca nuestra incógnita abierta.
+
+### Dos niveles de prueba, separados a propósito
+
+`tests/` responde «¿anda el código no-LLM?» y corre en cada cambio. `evals/` responde «¿se
+comporta bien el agente en sesiones LLM reales?», tarda 3-30 minutos por escenario y corre
+nocturno o a pedido, con «acceptance criteria **más chequeos deterministas**» — o sea nuestro
+gate. Su regla operativa: sólo las compuertas estáticas van en CI público.
+
+Nosotros tenemos un solo nivel (`pruebas/test_metodo.py`, ~30 min) y las corridas reales son ad
+hoc. Separarlos explícitamente nos deja correr lo barato siempre y lo caro cuando toca.
+
+### El ítem de opción forzada: la salida de K=16
+
+**Esto es lo que destraba la medición y es el hallazgo más grande de esta vuelta.**
+
+Su forma de ítem para medir si un prompt cambia la conducta es un **escenario de presión con
+opción forzada**: tres presiones combinadas (costo hundido + tiempo + agotamiento), opciones
+concretas A/B/C, «elegí y actuá, no preguntes hipotéticamente», y se puntúa leyendo la letra. Las
+presiones están tabuladas: tiempo, costo hundido, autoridad, económica, agotamiento, social,
+«pragmatismo». Su regla: los agentes resisten UNA presión y se quiebran con tres.
+
+Nuestro K=16 está bloqueado porque nuestros ítems son **tareas reales**, y subir K significa
+terminar el plan de clasificados. Para preguntas del tipo «¿el arquitecto declara el HUECO cuando
+el veredicto trae la causa?», un ítem de opción forzada es un instrumento válido y barato:
+**K=40 en una tarde, puntuado por un comando**.
+
+Lo que NO nos llevamos es su umbral: declaran «bulletproof» con una pasada. Nuestro banco
+congelado y la McNemar exacta siguen siendo la barra. Nos llevamos el diseño del ítem.
+
+Y hay que ser explícito sobre qué mide cada cosa, porque mezclarlas sería el error:
+
+| instrumento | contesta | no contesta |
+|---|---|---|
+| el gate | ¿el código anda y el test distingue? | ¿se obedeció la regla? |
+| el ítem de opción forzada | ¿se obedeció la regla bajo presión? | ¿el resultado sirve? |
+
+## 3. Dos coincidencias independientes que vale registrar
+
+- Encontraron por su lado el defecto que nos invalidó el experimento del modelo: *«Always specify
+  the model explicitly when dispatching a subagent. An omitted model inherits your session's
+  model»* — mismo mecanismo que nuestro `MODELO=` que se llevaba puesto el `--agent`.
+- Tienen un test que **prohíbe guardar escenarios de presión dentro de los skills instalados**,
+  porque «un agente que encuentra uno puede tomarlo como instrucciones en vivo». Nosotros dejamos
+  `.replan-*.log`, `.diagnostico-*.md` y ahora `.brief-*.md` en el directorio del proyecto que los
+  agentes leen. Riesgo bajo, de la misma clase, y chequeable. **Pendiente.**
+
+## 4. Dónde seguimos adelante
+
+- Su «verification-before-completion» es nuestro gate escrito como regla de conducta: *«si no
+  corriste el comando de verificación en este mensaje, no podés afirmar que pasa»*. Nosotros no lo
+  pedimos: lo decide un comando y el agente no puede saltearlo.
+- Su «mutation check» es **mental**: «antes de terminar, mutá mentalmente el código de producción».
+  La nuestra corre.
+- Su ledger es para sobrevivir la compactación; el nuestro es además insumo del dataset.

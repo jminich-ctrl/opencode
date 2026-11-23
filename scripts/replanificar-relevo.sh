@@ -74,16 +74,41 @@ for id in "$@"; do
 
   # ── 1. DIAGNOSTICAR. No toca ningún archivo del plan: sólo escribe su análisis.
   DIAG="$BASE/.diagnostico-$id.md"; rm -f "$DIAG"
+  # EL MISMO TOPE que `replanificar.sh`, y acá no es un adorno: si sólo lo tuviera el
+  # hermano, la escalada se saltea corriendo este script, que es el defecto «el arreglo vive
+  # en un hermano y no en el otro» que este archivo ya tiene contado ocho veces.
+  RONDAS="$(replanificaciones_de "$id")"
+  if [ "${RONDAS:-0}" -ge "$TOPE_REPLAN" ]; then
+    echo "⃠ $id: $RONDAS reescrituras del enunciado y sigue sin pasar. Las rondas:"
+    motivos_de_replanificacion "$id"
+    echo "   El defecto ya no es del enunciado: es del PLAN, y lo decide una persona."
+    echo "   Otra ronda igual: TOPE_REPLAN=$((RONDAS + 1)) DIAGNOSTICA=$DIAGNOSTICA ESCRIBE=$ESCRIBE bash \$AGENTES/scripts/replanificar-relevo.sh $id"
+    continue
+  fi
+
   echo "▶ $id · paso 1: diagnostica $DIAGNOSTICA"
   export LOG_VIGILADO="$BASE/.relevo-$id-diag.log"
   # Este paso tiene la prohibición más explícita del método —«NO escribas ningún archivo: tu
   # respuesta ES el entregable»— y era el menos vigilado: su único chequeo posterior mira si
   # el transcript quedó vacío. Ver `revisar_escrituras_de_mas` en _comun.sh.
+  # El brief ANTES de la foto, porque lo escribe el arnés y no el agente: si la foto fuera
+  # primero, `revisar_escrituras_de_mas` se lo cobraría al que diagnostica, que es el
+  # veredicto-con-el-sujeto-equivocado que este mismo script ya documenta dos veces.
+  BRIEF="$BASE/.brief-$id.md"
+  if ! python3 "$AQUI/brief_tarea.py" "$archivo" --destino "$BRIEF" >/dev/null 2>&1; then
+    echo "  ⊘ no pude armar el brief de $id: el paso 1 va con PLAN.md entero. No es un pase."
+    BRIEF=""
+  fi
+  if [ -n "$BRIEF" ]; then
+    QUE_LEER="Leé el brief $BRIEF: trae la tarea completa, el contrato de cada tarea de la que ésta depende, y los invariantes del plan. NO leas PLAN.md: lo que te sirve de ahí ya está en el brief, y lo que no está en el brief es porque no está en el plan."
+  else
+    QUE_LEER="Leé la tarea y PLAN.md."
+  fi
   FOTO="$BASE/.relevo-$id-antes.log"; foto_proyecto "$FOTO"
   ( cd "$BASE" || exit 1
     export XDG_DATA_HOME="$BASE/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
     con_limite "${LIMITE_AGENTE:-1800}" opencode run --model "colabhive/$DIAGNOSTICA" \
-      "Mirá SOLO el archivo de la tarea, PLAN.md y, si hace falta, los archivos que la tarea nombra. NO explores .venv, node_modules, .git ni ningún directorio de dependencias: no tienen nada que ver con el enunciado y hay decenas de miles de archivos ahí. La tarea tareas/$(basename \"$archivo\") falló, y el motivo es cómo está escrita, no el agente que la intentó. $MOTIVO. Leé la tarea y PLAN.md. NO modifiques ningún archivo del plan ni de las tareas. NO escribas ningún archivo: tu respuesta ES el entregable. Decí: (1) qué le falta o le sobra al enunciado para que el defecto no pueda repetirse, (2) para cada cosa que la tarea nombra, DÓNDE vive: archivo exacto e import exacto, (3) si falta algo que ninguna tarea del plan entrega, escribí la palabra HUECO y qué falta. Sé concreto y breve." 2>&1
+      "Mirá SOLO el brief de la tarea y, si hace falta, los archivos que la tarea nombra. NO explores .venv, node_modules, .git ni ningún directorio de dependencias: no tienen nada que ver con el enunciado y hay decenas de miles de archivos ahí. La tarea tareas/$(basename \"$archivo\") falló, y el motivo es cómo está escrita, no el agente que la intentó. $MOTIVO. $QUE_LEER NO modifiques ningún archivo del plan ni de las tareas. NO escribas ningún archivo: tu respuesta ES el entregable. Decí: (1) qué le falta o le sobra al enunciado para que el defecto no pueda repetirse, (2) para cada cosa que la tarea nombra, DÓNDE vive: archivo exacto e import exacto, (3) si falta algo que ninguna tarea del plan entrega, decilo. Sé concreto y breve. TERMINÁ tu respuesta con una última línea que sea exactamente una de estas dos: 'VEREDICTO: HUECO — <qué falta y qué tarea debía entregarlo>' si falta algo que ninguna tarea del plan entrega, o 'VEREDICTO: REESCRIBIR' si el enunciado se puede arreglar solo. Esa línea la lee un programa: sin ella tu diagnóstico se descarta." 2>&1
   ) > "$LOG_VIGILADO" 2>&1
   E="$(error_del_agente "$LOG_VIGILADO" 2>/dev/null)"
   [ -n "$E" ] && { echo "  ✗ el diagnóstico no se pudo hacer: $E"; continue; }
@@ -107,11 +132,48 @@ for id in "$@"; do
   # Las dos apariciones llevan el MISMO patrón. En `replanificar.sh` arreglé el `grep -q` que
   # detecta y dejé el `grep -A3` que imprime con el viejo: el aviso se disparaba y no mostraba
   # el hueco. Un arreglo a medias dentro del mismo `if`, que es la forma que este repo repite.
-  if grep -qE '^[0-9.)[:space:]*#>_-]*HUECO' "$DIAG" 2>/dev/null; then
-    echo "  ⃠ dice que falta algo que ninguna tarea entrega — lo decide una persona:"
-    grep -A2 -E '^[0-9.)[:space:]*#>_-]*HUECO' "$DIAG" | head -4 | sed 's/^/     /'
-    continue
-  fi
+  # UN CAMPO DECLARADO, no un grep de la prosa. El 2026-11-22, diagnosticando T16, el
+  # diagnóstico dijo «So the list functionality is a **HUECO (hole)** — no task in the plan
+  # delivers a service function…» y «the list functionality is a HUECO»: acertó, y el regex
+  # ancla la palabra AL PRINCIPIO DE LÍNEA, así que no la vio ninguna de las dos veces. Era
+  # el tercer arreglo de este mismo extractor —el primero agregó los guiones y asteriscos de
+  # markdown— y aflojarlo una vez más no sirve: el modelo también REPITE su instrucción
+  # («write HUECO and what's missing»), así que un grep suelto se dispara con el enunciado
+  # del pedido y manda a una persona a decidir un hueco que nadie afirmó.
+  #
+  # La salida no es un regex mejor: es pedir un campo y leerlo. La última línea del
+  # diagnóstico declara el veredicto, y esto lo lee ahí. Y además tapa el otro agujero sin
+  # saber de él: un diagnóstico CORTADO no llega a escribir su última línea, así que la
+  # ausencia del campo es «incompleto» y no «seguí al paso 2» —que es exactamente lo que
+  # pasó: 8759 bytes cortados a mitad de frase informados como «✓», relevados al que escribe,
+  # y el enunciado salió con `## Tests` duplicado—.
+  VER_DIAG="$(grep -aoE 'VEREDICTO: *(HUECO|REESCRIBIR)' "$DIAG" | tail -1)"
+  case "$VER_DIAG" in
+    *HUECO*)
+      echo "  ⃠ dice que falta algo que ninguna tarea entrega — lo decide una persona:"
+      grep -a -A2 -E 'VEREDICTO: *HUECO' "$DIAG" | head -4 | sed 's/^/     /'
+      anotar_replanificacion "$id" "$LO_QUE_FALLO" hueco
+      continue
+      ;;
+    *REESCRIBIR*) : ;;
+    *)
+      # Sin el campo no se adivina. Y si la prosa NOMBRA un hueco, se cierra del lado seguro
+      # —una persona— y no gastando otro agente de 16 minutos en algo que puede ser una
+      # decisión de producto. La asimetría es a propósito: equivocarse hacia «que lo mire
+      # alguien» cuesta una consulta; hacia «reescribí» costó, medido, un agente entero.
+      if grep -aqE '(^|[^A-Za-z])HUECO([^A-Za-z]|$)' "$DIAG" 2>/dev/null; then
+        echo "  ⃠ el diagnóstico no declaró el campo VEREDICTO, pero su prosa nombra un HUECO:"
+        grep -a -m2 -B1 -A1 -E '(^|[^A-Za-z])HUECO([^A-Za-z]|$)' "$DIAG" | head -6 | sed 's/^/     /'
+        echo "     No se sigue al paso 2: un hueco del plan lo decide una persona."
+      else
+        echo "  ✗ el diagnóstico no termina con la línea 'VEREDICTO: …': está incompleto"
+        echo "     (cortado a mitad, o el modelo no siguió el formato). NO es un pase:"
+        echo "     relevar un diagnóstico cortado produce un enunciado roto. Log: $LOG_VIGILADO"
+        tail -2 "$DIAG" | sed 's/^/     … /'
+      fi
+      continue
+      ;;
+  esac
 
   # ── 2. ESCRIBIR, con el diagnóstico ya hecho. El que escribe no tiene que diagnosticar.
   CRIT_ANTES="$(grep -c '^- \[ \]' "$archivo" || true)"
@@ -181,8 +243,11 @@ PYR
   (cd "$BASE" && PLAN=PLAN.md python3 "$AQUI/validar-plan.py" >/dev/null 2>&1) || mal="${mal:+$mal; }el plan dejó de validar"
 
   if [ -n "$mal" ]; then
-    echo "  ✗ se descarta: $mal"; mv "$archivo.previo" "$archivo"
+    echo "  ✗ se descarta: $mal"
+    anotar_replanificacion "$id" "$LO_QUE_FALLO" "descartada-relevo"
+    mv "$archivo.previo" "$archivo"
   else
+    anotar_replanificacion "$id" "$LO_QUE_FALLO" "reescrita-relevo"
     echo "  ✓ $id replanificada por relevo ($DIAGNOSTICA → $ESCRIBE) y el plan valida"
     diff -u "$archivo.previo" "$archivo" | grep -E '^[+][^+]' | head -10 | sed 's/^/     /'
     rm -f "$archivo.previo"

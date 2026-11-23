@@ -10123,7 +10123,15 @@ class TestLaTerceraAuditoria(unittest.TestCase):
         contexto», dice «no se registró». No hay forma de recuperar hacia atrás con qué
         contexto corrió una fila que no lo anotó."""
         s = (SCRIPTS / "_comun.sh").read_text()
-        i = s.index('local ENCABEZADO="fecha,proyecto')
+        # DENTRO de `anotar_intento`, y no la primera aparición del encabezado en el archivo.
+        # El 2026-11-23 agregué `anotar_replanificacion` ARRIBA de `anotar_intento`, con su
+        # propio `local ENCABEZADO="fecha,proyecto,tarea,…"`, y este test empezó a medir el
+        # encabezado del registro equivocado: acusó a `anotar_intento` de no anotar los
+        # contextos cuando los anota. Sexta vez en el día con la misma forma —anclar en la
+        # primera aparición— y la única que me costó una corrida de 33 minutos para verla.
+        f = s.index("anotar_intento() {")
+        cuerpo = s[f:]
+        i = f + cuerpo.index('local ENCABEZADO="fecha,proyecto')
         encabezado = s[i:s.index("\n", i)]
         self.assertIn("contextos", encabezado,
                       f"el registro tiene que anotar los contextos:\n{encabezado}")
@@ -10776,7 +10784,13 @@ class TestElReplanificadorNoDejaEscribirEnElTronco(unittest.TestCase):
                        '> app/rutas/ads.py\n'
                        'printf "## Objetivo\\n\\nCuerpo nuevo con el diagnóstico aplicado.\\n" '
                        '> .replan-T40-cuerpo.md\n')
-    DIAGNOSTICO_OK = 'echo "al enunciado le falta decir donde vive cada cosa que nombra"\n'
+    # La última línea NO es decorado: desde el 2026-11-22 el paso 1 declara su veredicto en un
+    # campo y el arnés lo lee de ahí. Un diagnóstico sin esa línea se descarta —es la forma de
+    # detectar uno CORTADO sin tener que conocer el mensaje de corte de cada plataforma—, así
+    # que un fixture sin ella no llega al paso 2 y estos tests pasarían por el motivo
+    # equivocado.
+    DIAGNOSTICO_OK = ('echo "al enunciado le falta decir donde vive cada cosa que nombra"\n'
+                      'echo "VEREDICTO: REESCRIBIR"\n')
 
     def test_el_que_reescribe_el_enunciado_no_puede_implementar_la_tarea(self):
         d = self.proyecto()
@@ -10898,9 +10912,28 @@ class TestElMarcadorDeHuecoSobreviveAlMarkdown(unittest.TestCase):
         return hallados
 
     def test_los_dos_scripts_tienen_el_patron(self):
+        """Desde el 2026-11-22 son DOS mecanismos distintos a propósito, y el test tiene que
+        decirlo o pasa vacuamente para el que ya no grepea.
+
+        `replanificar-relevo.sh` dejó de buscar la palabra en la prosa: su paso 1 declara el
+        veredicto en una última línea y el arnés la LEE —ver
+        `TestElDiagnosticoDelRelevoDeclaraSuVeredictoYNoSeLoGrepea`—. El motivo es que el
+        regex falló tres veces: la tercera, el diagnóstico de T16 dijo «the list functionality
+        is a **HUECO (hole)**» en medio de una oración y el ancla de principio de línea no lo
+        vio. `replanificar.sh` sigue grepeando porque su agente no entrega un diagnóstico:
+        entrega el archivo reescrito, y el hueco aparece en su transcript.
+
+        Así que acá se exige lo que corresponde a cada uno: el que grepea, que tenga el
+        patrón; el que declara, que lea el campo."""
         nombres = {n for n, _ in self.patrones()}
-        self.assertEqual({"replanificar.sh", "replanificar-relevo.sh"}, nombres,
-                         f"falta el extractor en alguno: {self.patrones()}")
+        self.assertEqual({"replanificar.sh"}, nombres,
+                         f"el que todavía grepea la prosa es replanificar.sh y nadie más. "
+                         f"Si aparece el relevo, volvió al regex que falló tres veces; si "
+                         f"falta replanificar.sh, dejó de detectar el hueco: {self.patrones()}")
+        relevo = codigo_de(SCRIPTS / "replanificar-relevo.sh")
+        self.assertIn("VEREDICTO: *(HUECO|REESCRIBIR)", relevo,
+                      "el relevo no lee el campo declarado, así que no detecta el hueco de "
+                      "ninguna de las dos maneras")
 
     def test_cada_patron_ve_la_linea_que_el_27B_escribio(self):
         """Y TODAS las apariciones, no la primera: en `replanificar.sh` el `grep -q` que
@@ -12916,13 +12949,27 @@ class TestElRouterLePasaElMenuDelProblemaQueRecibe(unittest.TestCase):
     def test_el_patron_de_HUECO_es_el_mismo_que_en_los_hermanos(self):
         """Arreglé el patrón en `replanificar.sh` y `replanificar-relevo.sh` por la mañana y
         me salté ÉSTE, que es el que enruta. Tercera vez en el día con la misma forma: el
-        arreglo que vive en un hermano y no en el otro."""
-        patrones = set()
+        arreglo que vive en un hermano y no en el otro.
+
+        El 2026-11-22 `replanificar-relevo.sh` dejó de grepear la prosa: su paso 1 declara el
+        veredicto en una última línea y el arnés la lee —ver
+        `TestElDiagnosticoDelRelevoDeclaraSuVeredictoYNoSeLoGrepea`—. Así que ya no tiene
+        patrón, y este test tenía que decirlo: si no, pasa VACUAMENTE para ese script, que es
+        exactamente la forma de invariante que este archivo persigue. Los que SÍ grepean
+        siguen obligados a hacerlo igual entre sí."""
+        patrones, sin_patron = set(), set()
         for n in ("replanificar.sh", "replanificar-relevo.sh", "replanificar-coherencia.sh"):
             fuente = (SCRIPTS / n).read_text()
-            patrones |= set(re.findall(r"'(\^[^']*HUECO[^']*)'", fuente))
+            hallados = set(re.findall(r"'(\^[^']*HUECO[^']*)'", fuente))
+            patrones |= hallados
+            if not hallados:
+                sin_patron.add(n)
+        self.assertEqual({"replanificar-relevo.sh"}, sin_patron,
+                         "el único que puede NO tener patrón de prosa es el relevo, porque "
+                         "decide por campo declarado. Si otro aparece acá, dejó de buscar "
+                         f"HUECO y nadie se enteró; si el relevo no aparece, volvió al grep: {sin_patron}")
         self.assertEqual(1, len(patrones),
-                         f"los tres scripts tienen que buscar HUECO igual: {patrones}")
+                         f"los que todavía grepean tienen que buscar HUECO igual: {patrones}")
 
 
 class TestElEstadoQueQuedoNoSeLeCobraAlTest(unittest.TestCase):
@@ -19667,3 +19714,527 @@ class TestLaConexionAbiertaNoPuedePosponerPasadoElMuroDelGateway(unittest.TestCa
                       "antes del muro, callado con la conexión abierta es un agente "
                       "esperando al modelo y NO se corta: si esto se rompe, volvió el "
                       f"vigilante que fabrica cuelgues. Salida: {r.stdout!r} · corte: {corte!r}")
+
+
+class TestElErrorQueMataEsElUltimoYNoElPrimero(unittest.TestCase):
+    """`error_del_agente` pregunta «¿el intento TERMINÓ en este error?», que es el
+    discriminante correcto —lo estableció `opencode-error-recuperable.txt`: un `File not
+    found` de un `Read` sobre un archivo que el agente todavía va a escribir es ruido de
+    herramienta y no un corte—. Y lo estaba aplicando al error EQUIVOCADO.
+
+    Medido el 2026-11-22 diagnosticando T16. El log traía tres marcadores de error: dos
+    `File not found` benignos, con 68 líneas de trabajo después, y al final `SSE read timed
+    out`, el corte de la plataforma. `grep -m1` tomaba el primero, `cola` daba 68, la función
+    concluía «lo sobrevivió» y devolvía vacío. Resultado en cadena:
+    `replanificar-relevo.sh` imprimió «✓ diagnóstico de 8759 bytes» sobre un diagnóstico
+    cortado a mitad de la frase «Let me find the actual filenames.», se lo pasó al que
+    escribe, y el enunciado salió con la sección `## Tests` duplicada. Tres eslabones, y el
+    único que aguantó fue el último.
+
+    Mirar el último no afloja nada: si después del último error hay trabajo, el intento
+    siguió. El brazo nulo de este test es justamente el fixture recuperable.
+
+    Es la cuarta vez hoy que el defecto es anclar en la primera aparición. Las otras tres
+    fueron tests míos con `str.index`; ésta es la del instrumento, que es peor, porque un
+    test anclado mal da un rojo falso y un instrumento anclado mal da un VERDE falso.
+    """
+
+    CORTADO = RAIZ / "pruebas" / "registros" / "opencode-corte-despues-de-errores-de-herramienta.txt"
+    RECUPERABLE = RAIZ / "pruebas" / "registros" / "opencode-error-recuperable.txt"
+
+    def test_el_fixture_es_el_caso(self):
+        """Si alguien lo recorta, el test deja de ejercitar el defecto."""
+        self.assertTrue(self.CORTADO.exists(), "falta el fixture del corte real")
+        crudo = self.CORTADO.read_bytes()
+        marcas = crudo.count(b"\x1b[91m\x1b[1mError: ")
+        self.assertGreaterEqual(
+            marcas, 2,
+            f"el fixture tiene que traer MÁS DE UN marcador de error ({marcas} encontrado/s): "
+            "con uno solo, el primero y el último son el mismo y el test no distingue nada")
+        self.assertIn(b"File not found", crudo,
+                      "y los primeros tienen que ser los benignos de herramienta")
+        self.assertTrue(crudo.rstrip().endswith(b"SSE read timed out"),
+                        "y el corte real tiene que ser lo ÚLTIMO del log")
+
+    def test_informa_el_corte_que_esta_despues_de_los_errores_benignos(self):
+        r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                   f'error_del_agente "{self.CORTADO}"', RAIZ)
+        self.assertIn("SSE read timed out", r.stdout,
+                      "el log termina en un corte de la plataforma y la función no lo "
+                      "informa: quien la llama va a tratar un pedido cortado como una "
+                      f"respuesta completa. Devolvió: {r.stdout!r}")
+        self.assertNotIn("File not found", r.stdout,
+                         "y no puede informar el error benigno de herramienta, que es el "
+                         "primero: ése el agente lo sobrevivió")
+
+    def test_el_brazo_nulo_un_error_sobrevivido_sigue_siendo_ruido(self):
+        """El invariante que no se puede romper al arreglar lo de arriba."""
+        r = correr(f'. {SCRIPTS}/_comun.sh >/dev/null 2>&1; '
+                   f'error_del_agente "{self.RECUPERABLE}"', RAIZ)
+        self.assertEqual(r.stdout.strip(), "",
+                         "un error con trabajo después es ruido de herramienta: si esto se "
+                         "rompe, volvieron los 4 de 12 veredictos que eran rechazos falsos")
+
+    def test_el_patron_de_respaldo_tambien_conoce_el_corte(self):
+        """Para los logs que no traen el marcador de color."""
+        self.assertIn("SSE read timed out", codigo_de(SCRIPTS / "_comun.sh"),
+                      "la lista de errores de plataforma no conoce el corte de SSE, así que "
+                      "un log sin el canal de color lo informa como falla de la tarea")
+
+
+class TestElDiagnosticoDelRelevoDeclaraSuVeredictoYNoSeLoGrepea(unittest.TestCase):
+    """El paso 1 del relevo decidía si había un HUECO grepeando la PROSA del diagnóstico, con
+    la palabra anclada al principio de línea. Tercera versión de ese regex y tercera falla.
+
+    Medido el 2026-11-22 diagnosticando T16. El diagnóstico acertó —«So the list
+    functionality is a **HUECO (hole)** — no task in the plan delivers a service function…»—
+    y lo dijo DOS veces en medio de una oración, así que el ancla no lo vio ninguna. Y
+    aflojar el regex no era la salida: el propio modelo REPITE su instrucción («write HUECO
+    and what's missing»), así que un grep suelto se dispara con el enunciado del pedido y
+    manda a una persona a decidir un hueco que nadie afirmó.
+
+    La salida es pedir un campo y leerlo, que es lo que el método hace en todas las demás
+    decisiones: el juez es un comando. Y tapa un segundo agujero sin saber de él: un
+    diagnóstico CORTADO nunca llega a escribir su última línea, así que la ausencia del campo
+    significa «incompleto» y no «seguí al paso 2». Eso es exactamente lo que pasó: 8759 bytes
+    cortados a mitad de la frase «Let me find the actual filenames.» se informaron como «✓
+    diagnóstico de 8759 bytes», se relevaron al que escribe, y el enunciado salió con la
+    sección `## Tests` duplicada.
+
+    Los tres brazos están acá porque las tres salidas son distintas y ninguna es «seguir»:
+    HUECO va a una persona, REESCRIBIR sigue al paso 2, y sin campo se descarta.
+    """
+
+    def proyecto(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-veredicto-diag-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        repo = d / "repo"; (repo / "tareas").mkdir(parents=True)
+        (repo / "tareas" / "T40-listar-ads.md").write_text(
+            "# T40 — Listar ads\n\n"
+            "**Estado:** pendiente\n"
+            "**Archivos que podés tocar:** app/rutas/ads.py\n"
+            "**Prohibido tocar:** Ninguno\n\n"
+            "## Objetivo\n\nListar ads.\n\n"
+            "## Tests\n\nArchivo: `tests/test_ads.py`, clase `TestAds`.\n\n"
+            "## Criterio de terminado\n\n- [ ] Anda.\n")
+        for cmd in (["init", "-q", "-b", "main"], ["add", "-A"],
+                    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"]):
+            subprocess.run(["git", *cmd], cwd=repo, check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        (d / "fallidos-T40").mkdir()
+        (d / "fallidos-T40" / "intento-1.log").write_text(
+            "  ✗ la suite está en rojo\nE  ModuleNotFoundError: No module named 'app.x'\n")
+        return repo
+
+    def correr_con(self, diagnostico):
+        repo = self.proyecto()
+        bin_ = repo / ".bin"; bin_.mkdir()
+        (bin_ / "opencode").write_text(
+            "#!/usr/bin/env bash\n"
+            'if [ "$1" = agent ]; then echo "tester (primary)"; exit 0; fi\n'
+            f'case "$*" in *"tu respuesta ES el entregable"*) {diagnostico} ;; '
+            '*) echo "paso 2 CORRIO" ;; esac\n')
+        (bin_ / "opencode").chmod(0o755)
+        r = correr(f'PATH="{bin_}:$PATH" PROYECTO=. LIMITE_AGENTE=60 '
+                   f'DIAGNOSTICA=m1 ESCRIBE=m2 '
+                   f'bash "{SCRIPTS}/replanificar-relevo.sh" T40', repo)
+        return r.stdout + r.stderr
+
+    def test_HUECO_declarado_va_a_una_persona_y_no_al_paso_2(self):
+        salida = self.correr_con(
+            'echo "falta la funcion de servicio"; '
+            'echo "VEREDICTO: HUECO — ninguna tarea entrega listar_ads en el servicio"')
+        self.assertNotIn("paso 2: reescribe", salida,
+                         f"un hueco del plan no se arregla reescribiendo el enunciado:\n{salida}")
+        self.assertIn("decide una persona", salida, f"\n{salida}")
+        self.assertIn("listar_ads", salida,
+                      f"y tiene que mostrar QUÉ falta, no sólo que falta algo:\n{salida}")
+
+    def test_HUECO_en_la_prosa_sin_campo_tampoco_sigue(self):
+        """El regex viejo exigía la palabra al principio de línea. Acá va en medio de la
+        oración, que es la forma real en que el diagnóstico de T16 lo dijo."""
+        salida = self.correr_con(
+            'echo "So the list functionality is a **HUECO (hole)** — no task delivers it."')
+        self.assertNotIn("paso 2: reescribe", salida,
+                         "la prosa nombra un hueco: se cierra del lado de la persona, que "
+                         f"cuesta una consulta, y no del lado de gastar otro agente:\n{salida}")
+        self.assertIn("HUECO", salida, f"\n{salida}")
+
+    def test_sin_el_campo_se_descarta_y_lo_dice(self):
+        """El caso del diagnóstico cortado. Antes esto era un ✓."""
+        salida = self.correr_con('echo "Let me find the actual filenames."')
+        self.assertNotIn("paso 2: reescribe", salida,
+                         f"relevar un diagnóstico incompleto produce un enunciado roto:\n{salida}")
+        self.assertIn("incompleto", salida,
+                      f"y tiene que decir por qué se descartó, no callarse:\n{salida}")
+
+    def test_REESCRIBIR_declarado_SI_sigue(self):
+        """El brazo nulo: si esto no pasa, el arreglo frenó el camino entero en vez de
+        filtrarlo, que es la forma de «arreglo» que no arregla nada."""
+        salida = self.correr_con(
+            'echo "al enunciado le falta decir donde vive cada cosa"; '
+            'echo "VEREDICTO: REESCRIBIR"')
+        self.assertIn("paso 2: reescribe", salida,
+                      f"un diagnóstico completo que NO declara hueco tiene que seguir:\n{salida}")
+
+    def test_el_paso_1_pide_la_linea_del_veredicto(self):
+        """Un campo que nadie pidió es un campo que no va a venir."""
+        texto = codigo_de(SCRIPTS / "replanificar-relevo.sh")
+        self.assertIn("VEREDICTO: HUECO", texto)
+        self.assertIn("VEREDICTO: REESCRIBIR", texto)
+        self.assertIn("Esa línea la lee un programa", texto,
+                      "el prompt no le dice al modelo que la última línea es obligatoria ni "
+                      "qué pasa si falta, y un formato sin consecuencia declarada no se sigue")
+
+
+class TestElArquitectoRecibeUnBriefYNoElPlanEntero(unittest.TestCase):
+    """El prompt del replan decía «Leé la tarea, leé PLAN.md». Medido el 2026-11-22 sobre T16:
+    `PLAN.md` son 12.523 bytes de los que 8.025 son dos secciones que el arquitecto no usa
+    —la tabla completa de 34 tareas y la lista completa de tests—, y el arquitecto hizo TRECE
+    lecturas para juntar a mano lo que sí necesitaba. Llegó al diagnóstico correcto a los
+    23.692 bytes de deliberación y el pedido se cortó antes de que llamara a `write`.
+
+    El brief trae la tarea, el `## Contrato` de cada dependencia declarada y los invariantes
+    del plan: para T16 son 5.984 bytes y el hueco queda a la vista en una lectura. La idea es
+    de superpowers (MIT): «Never make a subagent read the whole plan file».
+
+    Lo que este test cuida sobre todo es que el brief NO SE CALLE. Un brief que omite en
+    silencio es peor que el plan entero, porque el que lo lee no puede distinguir «no está en
+    el plan» de «no te lo pasé» — el defecto que este repo tiene escrito como «nombrar la
+    cosa no alcanza»."""
+
+    def proyecto(self, contrato_t15=True, dep_inexistente=False):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-brief-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        (d / "tareas").mkdir()
+        dep = "T15, T99" if dep_inexistente else "T15"
+        (d / "tareas" / "T16-rutas.md").write_text(
+            "# T16 — Rutas\n\n**Estado:** pendiente\n"
+            f"**Depende de:** {dep}\n"
+            "**Archivos que podés tocar:** app/rutas/fav.py\n\n"
+            "## Contrato\n\n```python\ndef listar(): ...\n```\n\n"
+            "## Criterio de terminado\n\n- [ ] Anda.\n")
+        t15 = ("# T15 — Servicio\n\n**Estado:** ✅ hecha\n"
+               "**Archivos que podés tocar:** app/servicios/fav.py\n\n")
+        if contrato_t15:
+            t15 += "## Contrato\n\n```python\ndef toggle_service(u, a) -> bool: ...\n```\n"
+        else:
+            t15 += "## Objetivo\n\nHacer el servicio.\n"
+        (d / "tareas" / "T15-servicio.md").write_text(t15)
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n## Arquitectura\n\nrutas → servicios → datos. Las rutas NO tocan datos.\n\n"
+            "## Decisiones cerradas en G0\n\nEl esquema es el de abajo y no se discute.\n\n"
+            "## Tareas\n\n| # | Tarea | Depende de |\n|---|---|---|\n"
+            "| T15 | Servicio | T14 |\n| T16 | Rutas | T15 |\n"
+            "| T77 | Algo que no me toca | — |\n| T78 | Otra que no me toca | — |\n\n"
+            "## Tests que tenemos que escribir\n\nUna lista larguísima que no le sirve.\n")
+        return d
+
+    def brief_de(self, d, **kw):
+        r = correr(f'python3 "{SCRIPTS}/brief_tarea.py" "{d}/tareas/T16-rutas.md"', d)
+        self.assertEqual(0, r.returncode, f"{r.stdout}{r.stderr}")
+        return r.stdout
+
+    def test_trae_la_tarea_y_el_contrato_de_su_dependencia(self):
+        """Lo que contesta «¿alguien entrega esto?», que es con lo que se decide un HUECO."""
+        texto = self.brief_de(self.proyecto())
+        self.assertIn("def listar()", texto, "no trae la tarea")
+        self.assertIn("def toggle_service", texto,
+                      "no trae el contrato de T15: sin eso, decidir si falta algo exige otra "
+                      "lectura, que es el viaje de ida y vuelta que esto viene a evitar")
+        self.assertIn("app/servicios/fav.py", texto,
+                      "no dice qué archivos entrega la dependencia")
+
+    def test_trae_los_invariantes_del_plan_y_NO_la_tabla_entera(self):
+        texto = self.brief_de(self.proyecto())
+        self.assertIn("rutas → servicios", texto,
+                      "no trae la arquitectura, que es lo que el arquitecto de T16 citó para "
+                      "fundamentar su diagnóstico")
+        self.assertIn("El esquema es el de abajo", texto, "no trae las decisiones cerradas")
+        self.assertIn("| T16 |", texto, "no trae la fila de la tarea")
+        self.assertIn("| T15 |", texto, "ni la de su dependencia")
+        self.assertNotIn("T77", texto,
+                         "trajo filas de tareas que no son ésta ni sus dependencias: si entra "
+                         "la tabla entera, el brief es PLAN.md con otro nombre")
+        self.assertNotIn("larguísima", texto,
+                         "trajo la lista de tests, que es la otra sección grande que no usa")
+
+    def test_dice_cuando_la_dependencia_no_declara_que_entrega(self):
+        """El brazo que importa: una dependencia SIN `## Contrato` es justamente el caso en que
+        hay que decidir un hueco, y si el brief se lo saltea en silencio nadie puede."""
+        texto = self.brief_de(self.proyecto(contrato_t15=False))
+        self.assertIn("HUECO", texto,
+                      "T15 no declara contrato y el brief no lo dice: el que lee cree que la "
+                      "dependencia entrega lo que necesita")
+        self.assertIn("no tiene sección", texto, f"\n{texto}")
+
+    def test_dice_cuando_la_dependencia_declarada_NI_EXISTE(self):
+        texto = self.brief_de(self.proyecto(dep_inexistente=True))
+        self.assertIn("T99", texto)
+        self.assertIn("NO existe", texto,
+                      "depender de una tarea que el plan no tiene es un hueco del plan y "
+                      "tiene que leerse acá, no deducirse de un glob vacío")
+
+    def test_dice_cuando_NO_encuentra_el_plan(self):
+        d = self.proyecto()
+        (d / "PLAN.md").unlink()
+        texto = self.brief_de(d)
+        self.assertIn("no encontré el plan", texto,
+                      "sin plan el brief va sin arquitectura ni decisiones cerradas, y eso "
+                      "hay que decirlo: un brief incompleto que se presenta como completo es "
+                      "peor que no tener brief")
+
+    def test_los_dos_replanificadores_piden_el_brief_y_NO_PLAN_md(self):
+        for n in ("replanificar.sh", "replanificar-relevo.sh"):
+            texto = codigo_de(SCRIPTS / n)
+            self.assertIn("brief_tarea.py", texto, f"{n} no arma el brief")
+            self.assertIn("NO leas PLAN.md", texto,
+                          f"{n} no le dice al agente que no lea el plan entero, así que lo va "
+                          f"a leer igual: el prompt viejo decía explícitamente que lo leyera")
+            self.assertNotIn("Leé la tarea, leé PLAN.md", texto,
+                             f"{n} todavía manda a leer PLAN.md en el prompt")
+
+    def test_si_el_brief_no_se_puede_armar_se_AVISA(self):
+        """Un respaldo callado es el defecto que este repo tiene contado nueve veces."""
+        for n in ("replanificar.sh", "replanificar-relevo.sh"):
+            texto = codigo_de(SCRIPTS / n)
+            i = texto.index("brief_tarea.py")
+            rama = texto[i:i + 1200]
+            self.assertIn("⊘", rama,
+                          f"{n} cae al plan entero sin avisar: el que lee la corrida no puede "
+                          f"distinguir «el brief no lo traía» de «no hubo brief»")
+            self.assertIn("No es un pase", rama, f"\n{rama[:400]}")
+
+
+class TestElMutanteDelArgumentoEquivocado(unittest.TestCase):
+    """`mutar.py` tenía la constante y no el ARGUMENTO. La lista de mutaciones realistas de
+    superpowers (MIT) dice «wrong constant **or argument**», y comparada con nuestros
+    operadores —ROR, LCR, AOR, CRP, SBR y el centinela— ése era el único que faltaba.
+
+    No es un hueco teórico. Una línea `return toggle(user_id, ad_id)` NO TENÍA NINGÚN
+    candidato: SBR excluye `Return`, no hay comparación, ni booleano, ni aritmética, ni
+    constante, y encima `hojas_todas_return` marca árida toda función que es puro `return`.
+    Y «el endpoint delega al servicio» es la forma de casi todas las tareas de este método,
+    así que el paso de mutación salía ⊘ justo en la línea que ES el contrato de la tarea.
+
+    Qué separa: `mock.assert_called_once()` sobrevive al intercambio y
+    `assert_called_once_with(1, 2)` lo mata. Esa es exactamente la diferencia entre un test
+    que prueba el contrato y uno que prueba que no explotó.
+
+    Los dos brazos nulos están porque este operador, mal acotado, fabrica mutantes
+    INMATABLES —el defecto que `mutar.py` ya pagó tres veces con las anotaciones de tipo, los
+    valores por omisión y las cadenas—: una llamada simétrica (`max(a, b)`) y una con los dos
+    argumentos iguales (`f(x, x)`) no cambian de comportamiento al intercambiarlas, y acusar
+    a un test de no notarlo es acusarlo de no notar nada."""
+
+    FUENTE = ("from datos import toggle\n"
+              "\n\n"
+              "def ruta(user_id, ad_id):\n"
+              "    return toggle(user_id, ad_id)\n"
+              "\n\n"
+              "def simetrica(a, b):\n"
+              "    return max(a, b)\n"
+              "\n\n"
+              "def misma(x):\n"
+              "    return toggle(x, x)\n")
+
+    def candidatos(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-asr-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        f = d / "impl.py"
+        f.write_text(self.FUENTE)
+        sys.path.insert(0, str(SCRIPTS))
+        try:
+            import importlib
+            mutar = importlib.import_module("mutar")
+            importlib.reload(mutar)
+            return {linea: que for _, linea, _, que in
+                    mutar.candidatos(f, set(range(1, len(self.FUENTE.splitlines()) + 2)))}
+        finally:
+            sys.path.remove(str(SCRIPTS))
+
+    def test_la_delegacion_ahora_TIENE_candidato(self):
+        c = self.candidatos()
+        self.assertIn(5, c,
+                      "la línea `return toggle(user_id, ad_id)` sigue sin candidato: el paso "
+                      f"de mutación sale ⊘ en la línea que es el contrato. Candidatos: {c}")
+        self.assertIn("argumento", c[5], f"{c}")
+
+    def test_NO_propone_la_llamada_simetrica(self):
+        c = self.candidatos()
+        self.assertNotIn(9, c,
+                         "`max(a, b)` intercambiado es `max(b, a)`: mismo comportamiento, "
+                         f"mutante inmatable, test acusado de nada. Candidatos: {c}")
+
+    def test_NO_propone_la_llamada_con_los_dos_argumentos_iguales(self):
+        c = self.candidatos()
+        self.assertNotIn(13, c,
+                         "`toggle(x, x)` intercambiado es idéntico: inmatable. "
+                         f"Candidatos: {c}")
+
+    def _escenario(self, cuerpo_test):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-asr-e2e-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        (d / "src").mkdir(); (d / "tests").mkdir()
+        (d / "src" / "__init__.py").touch(); (d / "tests" / "__init__.py").touch()
+        (d / "src" / "datos.py").write_text("def toggle(user_id, ad_id):\n"
+                                            "    return (user_id, ad_id)\n")
+        for cmd in (["init", "-q", "-b", "main"], ["add", "-A"],
+                    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"]):
+            subprocess.run(["git", *cmd], cwd=d, check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        (d / "src" / "rutas.py").write_text(
+            "from src.datos import toggle\n\n\n"
+            "def ruta(user_id, ad_id):\n"
+            "    return toggle(user_id, ad_id)\n")
+        (d / "tests" / "test_x.py").write_text(cuerpo_test)
+        return correr(
+            f'BASE=HEAD CODIGO=src ARCHIVOS=src/rutas.py '
+            f'SUITE="python3 -m pytest tests/test_x.py -q" '
+            f'python3 "{SCRIPTS}/mutar.py"', d)
+
+    DEBIL = ("import unittest\nfrom unittest.mock import patch\n"
+             "import src.rutas as rutas\n\n\n"
+             "class TestX(unittest.TestCase):\n"
+             "    def test_llama(self):\n"
+             "        with patch('src.rutas.toggle') as m:\n"
+             "            rutas.ruta(1, 2)\n"
+             "            m.assert_called_once()\n")
+    FUERTE = DEBIL.replace("m.assert_called_once()", "m.assert_called_once_with(1, 2)")
+
+    def test_el_test_que_no_mira_CON_QUE_llamo_deja_vivo_el_mutante(self):
+        r = self._escenario(self.DEBIL)
+        self.assertIn("sobrevivieron", r.stdout,
+                      "`assert_called_once()` no verifica los argumentos y el gate lo "
+                      f"acepta: ése es el test vacuo que esto viene a rechazar.\n{r.stdout}")
+        self.assertIn("intercambiar dos argumentos", r.stdout, f"\n{r.stdout}")
+        self.assertNotEqual(0, r.returncode, "y tiene que salir con código distinto de 0")
+
+    def test_el_test_que_SI_lo_mira_lo_mata(self):
+        """El brazo nulo: si esto no pasa, el operador rechaza también a los tests buenos y
+        hay que sacarlo, no calibrarlo."""
+        r = self._escenario(self.FUERTE)
+        self.assertIn("todos los mutantes murieron", r.stdout,
+                      f"`assert_called_once_with(1, 2)` tiene que matarlo.\n{r.stdout}")
+        self.assertEqual(0, r.returncode, f"\n{r.stdout}{r.stderr}")
+
+
+class TestATresReescriturasElDefectoEsDelPlanYNoDeLaTarea(unittest.TestCase):
+    """El método reintenta una tarea dos veces y la deja en punto muerto, pero cuando una
+    persona corre `replanificar.sh` el contador vuelve a cero: nada contaba las RONDAS. T05c
+    acumuló tres replanificaciones y T16 lleva más, y las dos se siguen tratando como «tarea
+    difícil».
+
+    La regla es de superpowers (MIT), `skills/systematic-debugging`: «Si ≥3 arreglos
+    fallaron, PARÁ y cuestioná la arquitectura. Esto NO es una hipótesis fallida, es una
+    arquitectura equivocada». Y su otra mitad importa igual: «cada arreglo revela un problema
+    nuevo en otro lugar» ES la señal, así que el contador NO exige que el motivo se repita.
+    T16 falló por tres motivos distintos, y eso la hace más sospechosa, no menos.
+
+    Lo que NO cuenta es un corte de plataforma, porque el método ya tiene escrito que un
+    corte no cuenta contra la tarea: si contara, una réplica caída se come el tope y la tarea
+    queda bloqueada por un problema que no es suyo."""
+
+    def proyecto(self, rondas=0):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-tope-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        (d / "tareas").mkdir()
+        (d / "tareas" / "T40-algo.md").write_text(
+            "# T40 — Algo\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/x.py\n**Prohibido tocar:** Ninguno\n\n"
+            "## Objetivo\n\nHacer algo.\n\n"
+            "## Tests\n\nArchivo: `tests/test_x.py`, clase `TestX`.\n\n"
+            "## Criterio de terminado\n\n- [ ] Anda.\n")
+        (d / "PLAN.md").write_text("# Plan\n\n## Arquitectura\n\nx → y\n\n## Tareas\n\n"
+                                   "| # | Tarea |\n|---|---|\n| T40 | Algo |\n")
+        for cmd in (["init", "-q", "-b", "main"], ["add", "-A"],
+                    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"]):
+            subprocess.run(["git", *cmd], cwd=d, check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        (d.parent / f"fallidos-T40").mkdir(exist_ok=True)
+        (d / ".." / "fallidos-T40" / "intento-1.log").write_text(
+            "  ✗ la suite está en rojo\nE  ModuleNotFoundError: No module named 'app.x'\n")
+        if rondas:
+            m = d / ".metricas"; m.mkdir()
+            filas = ["fecha,proyecto,tarea,resultado,motivo,instrumento"]
+            for i in range(rondas):
+                filas.append(f"2026-11-2{i}T00:00:00Z,.,T40,descartada,"
+                             f"motivo numero {i} distinto de los otros,abc1234")
+            (m / "replanificaciones.csv").write_text("\n".join(filas) + "\n")
+        bin_ = d / ".bin"; bin_.mkdir()
+        (bin_ / "opencode").write_text(
+            "#!/usr/bin/env bash\n"
+            'if [ "$1" = agent ]; then echo "tester (primary)"; exit 0; fi\n'
+            'echo "EL AGENTE CORRIO"\n')
+        (bin_ / "opencode").chmod(0o755)
+        return d
+
+    def correr_replan(self, d, extra=""):
+        # SONDA_HECHA=1: la sonda de plataforma cuesta un pedido REAL y no mide nada de
+        # esta guarda. Un test que le pega a la plataforma para probar un contador es la
+        # forma de tener una suite que se cae cuando se cae una réplica.
+        r = correr(f'PATH="{d}/.bin:$PATH" PROYECTO=. SONDA_HECHA=1 {extra} '
+                   f'bash "{SCRIPTS}/replanificar.sh" T40', d)
+        return r.stdout + r.stderr
+
+    def test_a_las_tres_rondas_se_frena_y_el_veredicto_es_del_PLAN(self):
+        salida = self.correr_replan(self.proyecto(rondas=3))
+        # «el arquitecto replanifica» y NO el texto del agente falso: su salida va al
+        # LOG_VIGILADO y no a stdout, así que un assert sobre ella pasa SIEMPRE. Segunda vez
+        # hoy que cometo esta vacuidad, y la primera la encontró el brazo nulo igual que ésta.
+        self.assertNotIn("el arquitecto replanifica", salida,
+                         "gastó otro agente en la hipótesis que ya se refutó tres veces:\n"
+                         f"{salida}")
+        self.assertIn("del PLAN", salida,
+                      f"no dice de quién es el defecto ahora:\n{salida}")
+
+    def test_trae_las_rondas_anteriores_como_evidencia(self):
+        """Un veredicto sin el dato manda a buscar el problema equivocado. Tercera vez."""
+        salida = self.correr_replan(self.proyecto(rondas=3))
+        self.assertIn("motivo numero 0", salida,
+                      f"no muestra los motivos de las rondas anteriores:\n{salida}")
+        self.assertIn("motivo numero 2", salida, f"\n{salida}")
+
+    def test_dice_como_pedir_otra_ronda_a_proposito(self):
+        """Una guarda sin salida declarada se saltea editando el script, que es peor."""
+        salida = self.correr_replan(self.proyecto(rondas=3))
+        self.assertIn("TOPE_REPLAN=4", salida, f"\n{salida}")
+
+    def test_el_brazo_nulo_con_dos_rondas_SI_replanifica(self):
+        """Si esto no pasa, la guarda frenó el camino entero en vez de acotarlo."""
+        salida = self.correr_replan(self.proyecto(rondas=2))
+        self.assertIn("el arquitecto replanifica", salida,
+                      f"dos rondas todavía están por debajo del tope:\n{salida}")
+
+    def test_un_corte_de_plataforma_NO_consume_una_ronda(self):
+        """Si lo consumiera, una réplica caída bloquea la tarea por algo que no es suyo."""
+        texto = codigo_de(SCRIPTS / "replanificar.sh")
+        i = texto.index("ERR_PLAT")
+        rama = texto[i:texto.index("mal=\"\"")]
+        self.assertNotIn("anotar_replanificacion", rama,
+                         "el camino del corte de plataforma anota una ronda gastada:\n"
+                         f"{rama[:500]}")
+
+    def test_el_relevo_tiene_EL_MISMO_tope(self):
+        """Si sólo lo tuviera el hermano, la escalada se saltea corriendo el otro script. Es
+        la forma «el arreglo vive en un hermano y no en el otro», contada ocho veces acá."""
+        for n in ("replanificar.sh", "replanificar-relevo.sh"):
+            texto = codigo_de(SCRIPTS / n)
+            self.assertIn("TOPE_REPLAN", texto, f"{n} no mira el tope de rondas")
+            self.assertIn("replanificaciones_de", texto, f"{n} no cuenta las rondas")
+            self.assertIn("anotar_replanificacion", texto, f"{n} no anota la ronda que gastó")
+
+    def test_el_contador_imprime_UN_numero_aunque_no_haya_registro(self):
+        """`grep -c . || echo 0` imprimía dos líneas con cero filas, y
+        `[ "$RONDAS" -ge "$TOPE_REPLAN" ]` reventaba: la guarda no podía dispararse. Quinta
+        guarda incapaz de dispararse en este repo."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-cuenta-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        r = correr(f'. "{SCRIPTS}/_comun.sh" >/dev/null 2>&1; RAIZ="{d}"; '
+                   f'replanificaciones_de T40', d)
+        self.assertEqual("0", r.stdout.strip(),
+                         f"tiene que imprimir exactamente «0»: {r.stdout!r}")
+        r2 = correr(f'. "{SCRIPTS}/_comun.sh" >/dev/null 2>&1; RAIZ="{d}"; '
+                    f'n="$(replanificaciones_de T40)"; [ "$n" -ge 3 ] && echo si || echo no', d)
+        self.assertIn("no", r2.stdout,
+                      f"la comparación numérica tiene que funcionar: {r2.stdout!r} {r2.stderr!r}")

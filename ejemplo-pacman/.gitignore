@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+
+# Brief que el arnés le arma al arquitecto (scripts/brief_tarea.py): se regenera solo.
+.brief-*.md

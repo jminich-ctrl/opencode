@@ -224,9 +224,27 @@ error_del_agente() {
   # Cuarta vez que escribo un instrumento que reprueba al brazo bueno, y la segunda hoy.
   local agente_limpio canal nro_error cola
   agente_limpio="$(parte_del_agente "$1")"
+  # EL ÚLTIMO marcador de error, no el primero. `-m1` + `tail -1` y no `-m1` solo.
+  #
+  # El discriminante de abajo —«¿el intento TERMINÓ en ese error?»— es correcto y se estaba
+  # aplicando al error equivocado. Medido el 2026-11-22 diagnosticando T16: el log traía tres
+  # marcadores. Los dos primeros eran `File not found` de un `Read` sobre un archivo que
+  # todavía no existe —ruido de herramienta, el agente siguió 68 líneas más— y el tercero y
+  # último era `SSE read timed out`, el corte real de la plataforma. Con el primero, `cola`
+  # daba 68, la función concluía «lo sobrevivió» y devolvía vacío: `replanificar-relevo.sh`
+  # declaró «✓ diagnóstico de 8759 bytes» sobre un diagnóstico CORTADO a mitad de una frase,
+  # se lo pasó al que escribe y el enunciado salió duplicado.
+  #
+  # Mirar el ÚLTIMO no afloja el discriminante, lo aplica donde corresponde: si después del
+  # último error hay trabajo, el intento siguió y no hay nada que informar —el caso del
+  # fixture `opencode-error-recuperable.txt`, que sigue verde—. Si no hay nada después, ahí
+  # murió, y da igual cuántos errores benignos hubo antes.
+  #
+  # Cuarta vez HOY que el defecto es anclar en la primera aparición: tres fueron tests míos
+  # con `str.index` y esta es la del instrumento.
   nro_error="$(printf '%s\n' "$agente_limpio" \
-               | grep -a -n -m1 "$(printf '\033')\[91m$(printf '\033')\[1mError: " \
-               | cut -d: -f1)"
+               | grep -a -n "$(printf '\033')\[91m$(printf '\033')\[1mError: " \
+               | tail -1 | cut -d: -f1)"
   if [ -n "$nro_error" ]; then
     cola="$(printf '%s\n' "$agente_limpio" | tail -n "+$((nro_error + 1))" \
             | sed "s/$(printf '\033')\[[0-9;]*m//g" \
@@ -283,7 +301,7 @@ error_del_agente() {
   fi
 
   printf '%s\n' "$limpio" \
-    | grep -m1 -oE 'inference timed out[^"]*|database is locked|el agente no respondió[^"]*|upstream stream ended[^"]*|maximum context length is [0-9]*[^\"]*|Failed to allocate GPU|Failed to start inference server[^\"]*|Bad Gateway|Service Unavailable|Internal Server Error|50[0234] '
+    | grep -m1 -oE 'inference timed out[^"]*|SSE read timed out|database is locked|el agente no respondió[^"]*|upstream stream ended[^"]*|maximum context length is [0-9]*[^\"]*|Failed to allocate GPU|Failed to start inference server[^\"]*|Bad Gateway|Service Unavailable|Internal Server Error|50[0234] '
 }
 
 
@@ -1103,6 +1121,64 @@ huella_instrumento() {
 
 # Registro de intentos: una línea por corrida, para que las métricas lean datos y no
 # adivinen del texto de las tareas. Vive fuera del árbol versionado del proyecto.
+# Cuántas veces se replanificó una tarea, y con qué motivo cada vez.
+#
+# Por qué existe. El método reintenta una tarea dos veces y después la deja en punto muerto,
+# y cuando una persona corre `replanificar.sh` el contador vuelve a cero: nada cuenta las
+# RONDAS. Medido: T05c acumuló tres replanificaciones y T16 lleva más, y las dos se siguen
+# tratando como «tarea difícil». Si tres reescrituras del enunciado no la desbloquean, lo que
+# está mal no es el enunciado.
+#
+# La regla es de superpowers (MIT), `skills/systematic-debugging`: «Si ≥3 arreglos fallaron,
+# PARÁ y cuestioná la arquitectura. Esto NO es una hipótesis fallida, es una arquitectura
+# equivocada». Y el otro lado de la regla también importa: «cada arreglo revela un problema
+# nuevo en otro lugar» ES la señal, así que el contador NO exige que el motivo se repita.
+# T16 falló por tres motivos distintos, y eso la hace más sospechosa, no menos.
+#
+# Se anota DESPUÉS de que el agente corrió, aceptado o descartado: lo que se cuenta son
+# rondas gastadas, y una ronda descartada se gastó igual.
+anotar_replanificacion() {
+  local id="$1" motivo="${2:-}" resultado="${3:-}"
+  local reg="$RAIZ/.metricas/replanificaciones.csv"
+  local ENCABEZADO="fecha,proyecto,tarea,resultado,motivo,instrumento"
+  mkdir -p "$(dirname "$reg")"
+  if [ ! -f "$reg" ]; then
+    echo "$ENCABEZADO" > "$reg"
+  elif [ "$(head -1 "$reg")" != "$ENCABEZADO" ]; then
+    # No se migra en silencio: el que lo lea tiene que saber que las columnas no son las que
+    # cree. Es el mismo criterio que `anotar_intento`, sin su maquinaria, porque este
+    # registro es nuevo y no hay historia que convertir.
+    echo "⊘ $reg tiene otro encabezado que el de ahora: las columnas no se comparan" >&2
+  fi
+  printf '%s,%s,%s,%s,%s,%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${PROYECTO:-.}" "$id" \
+    "$resultado" "$(printf '%s' "$motivo" | tr ',;"\n\r' '     ' | cut -c1-120)" \
+    "$(huella_instrumento)" >> "$reg"
+}
+
+# Cuántas rondas de replanificación ya gastó esta tarea. 0 si no hay registro.
+replanificaciones_de() {
+  local id="$1" reg="$RAIZ/.metricas/replanificaciones.csv"
+  [ -f "$reg" ] || { echo 0; return 0; }
+  # `awk END{print n+0}` y NO `grep -c . || echo 0`: con cero filas, `grep -c` imprime 0 y
+  # ADEMÁS devuelve 1, así que el `|| echo 0` imprime otro 0 y la función devuelve dos
+  # líneas. `[ "$RONDAS" -ge "$TOPE_REPLAN" ]` con eso revienta —«integer expression
+  # expected»— y el tope no se aplica: una guarda que no puede dispararse, la quinta de este
+  # repo. Una función que cuenta imprime UN número y nada más.
+  awk -F, -v t="$id" 'NR>1 && $3==t {n++} END {print n+0}' "$reg" 2>/dev/null || echo 0
+}
+
+# Los motivos de las rondas anteriores, para que el aviso traiga la evidencia y no la
+# categoría. Tercera vez que este repo aprende que un veredicto sin el dato no sirve.
+motivos_de_replanificacion() {
+  local id="$1" reg="$RAIZ/.metricas/replanificaciones.csv"
+  [ -f "$reg" ] || return 0
+  awk -F, -v t="$id" 'NR>1 && $3==t {printf "     · %s  [%s]  %s\n", $1, $4, $5}' "$reg" 2>/dev/null
+}
+
+# El tope de rondas. 3 por la medición de superpowers y por T05c; se puede subir a mano
+# cuando una persona decide que vale la pena, y queda escrito en la corrida.
+TOPE_REPLAN="${TOPE_REPLAN:-3}"
+
 anotar_intento() {
   local id="$1" ver="$2" segs="$3" modelo="${4:-}" log="${5:-}" etapa="${6:-implementacion}"
   local reg="$RAIZ/.metricas/intentos.csv" motivo=""

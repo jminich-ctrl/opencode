@@ -182,7 +182,18 @@ class Mutador(ast.NodeTransformer):
             if isinstance(v, (int, float)):
                 return ast.Constant(value=v + 1)
             return nodo
+        if isinstance(nodo, ast.Call):             # ASR: dos argumentos se intercambian
+            nodo.args[0], nodo.args[1] = nodo.args[1], nodo.args[0]
+            return nodo
         return ast.Pass()                          # SBR: la sentencia se borra
+
+
+# Las llamadas donde intercambiar los dos primeros argumentos NO cambia el comportamiento.
+# Un mutante así es INMATABLE y acusa al test de no verificar algo que no se puede verificar
+# —el defecto que este archivo ya pagó tres veces con las anotaciones de tipo, los valores
+# por omisión y las cadenas—. La lista es corta a propósito: es más barato agregarle un
+# nombre cuando aparezca que apagar el operador por un falso positivo.
+SIMETRICAS = {"max", "min", "gcd", "lcm", "isclose", "allclose", "intersection", "union"}
 
 
 def candidatos(archivo, lineas_cambiadas):
@@ -306,7 +317,14 @@ def candidatos(archivo, lineas_cambiadas):
         #
         # Y es el caso NORMAL, no un borde: las tareas chicas —las que este método apunta—
         # son casi todas `return <literal>`.
-        if linea in aridos and not isinstance(nodo, ast.Constant):
+        #
+        # `ast.Call` entra por la MISMA razón que `ast.Constant`, y el argumento de arriba ya
+        # lo cubre sin cambiarlo: la aridez de `hojas_todas_return` es sobre BORRAR, y una
+        # delegación —`return toggle(user_id, ad_id)`, la forma de casi toda tarea de este
+        # método— es puro `return`, así que quedaba árida y SIN NINGÚN candidato. Intercambiar
+        # sus dos argumentos separa al test que verifica con qué llamó del que sólo verifica
+        # que llamó, que es la misma separación que CRP hace con el valor.
+        if linea in aridos and not isinstance(nodo, (ast.Constant, ast.Call)):
             continue
         if id(nodo) in sueltas:
             continue
@@ -345,6 +363,34 @@ def candidatos(archivo, lineas_cambiadas):
             # es la tercera cosa que este operador se llevó puesta por ser más ancho que su
             # defecto (anotaciones, valores por omisión, cadenas).
             por_linea.setdefault(linea, (4, nodo, "cambiar el valor de la constante"))
+        elif isinstance(nodo, ast.Call) and len(nodo.args) >= 2:
+            # ASR, prioridad 5: la ÚLTIMA, o sea que entra SÓLO donde no entró nada más. Esa
+            # colocación es el punto. Una línea `return servicio(user_id, ad_id)` hoy no
+            # tiene NINGÚN candidato: SBR excluye `Return`, no hay comparación, ni booleano,
+            # ni aritmética, ni constante. Y «el endpoint delega al servicio» es la forma de
+            # casi todas las tareas de este método, así que el paso de mutación salía ⊘ justo
+            # en las líneas que son el contrato de la tarea.
+            #
+            # Qué mata: un test que llama y no mira CON QUÉ llamó. `mock.assert_called_once()`
+            # sobrevive al intercambio; `assert_called_once_with(user_id, ad_id)` lo mata. Es
+            # exactamente la diferencia entre un test que prueba el contrato y uno que prueba
+            # que no explotó, que es la clase de test vacuo que el gate existe para rechazar.
+            #
+            # La idea viene de la lista de mutaciones de superpowers (MIT): «wrong constant or
+            # argument». Teníamos la constante y no el argumento.
+            #
+            # Dos guardas, y las dos son contra el mutante inmatable: la llamada no puede
+            # estar en SIMETRICAS, y los dos argumentos tienen que ser DISTINTOS en el árbol
+            # —`f(x, x)` intercambiado es `f(x, x)`, y acusar a un test de no notarlo es
+            # acusarlo de no notar nada—.
+            nombre = getattr(nodo.func, "id", None) or getattr(nodo.func, "attr", "")
+            try:
+                distintos = ast.dump(nodo.args[0]) != ast.dump(nodo.args[1])
+            except Exception:
+                distintos = False
+            if nombre not in SIMETRICAS and distintos \
+                    and not any(isinstance(a, ast.Starred) for a in nodo.args[:2]):
+                por_linea.setdefault(linea, (5, nodo, "intercambiar dos argumentos de la llamada"))
     return [(archivo, linea, nodo, que) for linea, (_, nodo, que) in sorted(por_linea.items())]
 
 

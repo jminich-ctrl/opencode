@@ -14,4 +14,7 @@ pytest-install/
 .diagnostico-*.md
 .replan-*.md
 .replan-*.log
+# El brief que `brief_tarea.py` le arma al arquitecto: andamio del arnés, se regenera
+# solo y cambia con cada corrida. Va al mismo balde que el log del replan.
+.brief-*.md
 .relevo-*.log
