@@ -19499,3 +19499,97 @@ class TestLaMuestraDelJuezEsMuestraYNoPrefijo(unittest.TestCase):
         r = self.correr_juez(f, "--tope 500 --semilla 1")
         self.assertNotIn("muestra AL AZAR", r.stdout,
                          f"pidió más de los que hay: usó todos\n{r.stdout}")
+
+
+class TestElVeredictoDeAlcanceNoPuedeAcusarAlImputadoEquivocado(unittest.TestCase):
+    """Un rechazo por alcance tiene que decir la CAUSA, no sólo el síntoma.
+
+    Medido en T16 el 2026-11-22. El enunciado reescrito por el arquitecto declaraba un solo
+    archivo tocable —`backend/app/rutas/favorites.py`— y en el contrato le agregó dos
+    requisitos: «si el usuario no existe, devuelve 404» y una lista de objetos con las claves
+    `id, ad_id, favorited, status`. En el tronco NO existe `backend/app/datos/users.py` y
+    `get_user_favorites` devuelve `list[int]`. El ejecutor hizo lo único que podía —creó
+    `datos/users.py` con el docstring «Función dummy para satisfacer el test» y le agregó 24
+    líneas a `datos/favorites.py`— y el arnés lo rechazó dos veces, correctamente.
+
+    El veredicto que volvía al arquitecto decía «tocó archivos que no le corresponden a esta
+    etapa». Es verdad y es el síntoma. La respuesta razonable a ese texto es apretar
+    «Prohibido tocar», que deja el requisito imposible donde estaba: la tarea se traba para
+    siempre y el arquitecto gasta una replanificación por vuelta. El prompt del replan ya
+    tiene la regla que lo arregla —decir HUECO en vez de inventar lo que falta— y no se
+    disparaba porque el veredicto no traía el dato que la activa.
+
+    El dato es decidible por comando y no por lectura: `git cat-file -e HEAD:<ruta>`. Un
+    archivo fuera de alcance que NO existe en el tronco hubo que crearlo, y crear algo que
+    ninguna tarea entrega es la definición de HUECO. Uno que sí existe es otra cosa —el
+    contrato le pide una forma que todavía no da— y por eso los dos casos se informan
+    distinto.
+
+    El brazo nulo importa: un archivo que existe no puede ser acusado de HUECO. Si el
+    mensaje fuera uno solo para los dos casos, el arquitecto declararía huecos inexistentes,
+    que es el defecto de este repo en su otra dirección —prosa más rica, dato igual de
+    pobre—.
+    """
+
+    def setUp(self):
+        self.codigo = codigo_de(SCRIPTS / "escribir-tests.sh")
+
+    def test_separa_el_creado_del_modificado_con_un_comando(self):
+        """Sin esto el veredicto no puede distinguir un HUECO de una desobediencia."""
+        self.assertIn("git cat-file -e", self.codigo,
+                      "el alcance no consulta el tronco: sin preguntarle a git si el archivo "
+                      "existía, «lo creó» y «lo modificó» son indistinguibles y el veredicto "
+                      "acusa igual a los dos")
+        self.assertIn("FUERA_NUEVOS", self.codigo,
+                      "no hay dónde juntar los archivos que hubo que crear")
+        self.assertIn("FUERA_VIEJOS", self.codigo,
+                      "no hay dónde juntar los que ya existían")
+
+    def test_el_creado_se_informa_como_HUECO_del_plan(self):
+        """La palabra tiene que ser la que el prompt del replan sabe recibir."""
+        i = self.codigo.index("FUERA_NUEVOS")
+        rama = self.codigo[i:]
+        self.assertIn("HUECO", rama,
+                      "el prompt de replanificar.sh pide la palabra HUECO para el caso de "
+                      "«la tarea necesita algo que ninguna tarea del plan entrega»; si el "
+                      "veredicto no la dice, esa regla no se dispara nunca")
+
+    def test_el_veredicto_dice_que_el_defecto_es_del_enunciado(self):
+        """El acusado. Sin esta frase el arquitecto lee «el ejecutor desobedeció»."""
+        self.assertIn("del enunciado, no del que lo intentó", self.codigo,
+                      "el veredicto no dice de quién es el defecto, y el que lo recibe es "
+                      "justamente el autor del enunciado")
+
+    def test_NO_le_propone_agregar_otra_prohibicion(self):
+        """El arreglo equivocado, nombrado para que no se elija."""
+        self.assertIn("NO agregando otra prohibición", self.codigo,
+                      "apretar «Prohibido tocar» deja el requisito imposible donde estaba: "
+                      "hay que decirlo, porque es la salida que el texto viejo sugería")
+
+    def test_la_causa_viaja_al_que_decide_y_no_solo_a_la_pantalla(self):
+        """Un `echo` no es un veredicto: `conservar_veredicto` escribe MOTIVO_TESTS y
+        DETALLE_TESTS, y `replanificar.sh` lee ESE archivo. Una explicación que sólo se
+        imprime se pierde con el log —el patrón de METODO.md: alguien declara algo y el que
+        lo tiene que recibir no lo recibe—."""
+        i = self.codigo.index("FUERA_NUEVOS")
+        j = self.codigo.index("sólo tocó el test y los archivos de la tarea")
+        rama = self.codigo[i:j]
+        self.assertIn("_porque", rama, "no se arma ninguna explicación")
+        self.assertRegex(
+            rama, r'malo "tocó archivos que no le corresponden[^\n]*\n\s*"?\$_porque',
+            "la explicación no se le pasa a `malo` como segundo argumento, así que no entra "
+            "en DETALLE_TESTS y `conservar_veredicto` no la escribe: el arquitecto sigue "
+            "recibiendo sólo el síntoma")
+
+    def test_el_que_existe_NO_se_declara_HUECO(self):
+        """El brazo nulo: un archivo del tronco no es algo que el plan no entregue."""
+        i = self.codigo.index("FUERA_VIEJOS=\"$FUERA_VIEJOS")
+        j = self.codigo.index('malo "tocó archivos')
+        rama_viejos = self.codigo[self.codigo.index("[ -n \"$FUERA_VIEJOS\" ]"):j]
+        self.assertIn("Existen en el tronco", rama_viejos,
+                      "el caso del archivo que ya existe no tiene mensaje propio")
+        self.assertNotIn(
+            "HUECO del plan", rama_viejos,
+            "un archivo que SÍ está en el tronco no es un HUECO: si los dos casos dicen lo "
+            "mismo, el arquitecto declara huecos que no existen")
+        self.assertLess(i, j)

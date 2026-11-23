@@ -453,8 +453,45 @@ for id in "$@"; do
   FUERA="$(echo "$TOCADOS" | grep -vE "$PATRON_OK" | grep . || true)"
   paso alcance
   if [ -n "$FUERA" ]; then
-    malo "tocó archivos que no le corresponden a esta etapa:$(echo " $FUERA" | tr '\n' ' ')"
+    # CREADO o MODIFICADO, y no es un detalle de presentación: decide QUIÉN es el acusado.
+    #
+    # Medido en T16 el 2026-11-22. El veredicto decía «tocó archivos que no le corresponden:
+    # backend/app/datos/favorites.py backend/app/datos/users.py» y era verdad, pero el
+    # ejecutor no estaba desobedeciendo: la reescritura del arquitecto le había agregado al
+    # contrato «si el usuario no existe, devuelve 404» y una lista de objetos con las claves
+    # `id, ad_id, favorited, status`. En el tronco NO existe `datos/users.py` y
+    # `get_user_favorites` devuelve `list[int]`. O sea: el contrato pedía algo que no se
+    # puede cumplir con el único archivo que la tarea declara en «Archivos que podés tocar».
+    # El ejecutor hizo lo único que podía y lo confesó por escrito —«Función dummy para
+    # satisfacer el test»—.
+    #
+    # Ese veredicto vuelve al arquitecto (`conservar_veredicto` → `replanificar.sh`), y con
+    # el texto viejo lo que leía era «el ejecutor tocó lo que no debía». La respuesta
+    # razonable a eso es apretar «Prohibido tocar», no sacar el requisito imposible: el
+    # enunciado queda igual de incumplible y la tarea se traba para siempre. Es el defecto
+    # que este repo ya tiene escrito tres veces —«la categoría en vez del dato»— pero peor,
+    # porque además acusa al imputado equivocado.
+    #
+    # El prompt del replan YA tiene la regla (3): si la tarea necesita algo que ninguna
+    # tarea del plan entrega, hay que decir HUECO en vez de inventarlo. Nadie se la estaba
+    # disparando porque el veredicto no traía el dato que la activa. Un archivo que no
+    # existe en HEAD y hubo que crear ES ese dato, y `git cat-file -e` lo decide: un comando,
+    # no una interpretación.
+    FUERA_NUEVOS=""; FUERA_VIEJOS=""
+    for _f in $FUERA; do
+      if git cat-file -e "HEAD:./$_f" 2>/dev/null; then
+        FUERA_VIEJOS="$FUERA_VIEJOS $_f"
+      else
+        FUERA_NUEVOS="$FUERA_NUEVOS $_f"
+      fi
+    done
+    _porque=""
+    [ -n "$FUERA_NUEVOS" ] && _porque="HUECO del plan:$FUERA_NUEVOS no existe(n) en el tronco y ninguna tarea del plan los entrega, así que para cumplir el contrato de ESTA tarea hubo que crearlos. El defecto es del enunciado, no del que lo intentó: el contrato exige algo que no se puede cumplir con los archivos que la tarea declara en «Archivos que podés tocar». Se arregla declarando el HUECO o ajustando el contrato a lo que el tronco ya entrega, NO agregando otra prohibición. "
+    [ -n "$FUERA_VIEJOS" ] && _porque="$_porque""Existen en el tronco:$FUERA_VIEJOS. El contrato de esta tarea les exige una forma que todavía no dan. O se declaran en «Archivos que podés tocar», o el contrato se ajusta a lo que ya entregan, o es un HUECO de la tarea que debía entregarlos. "
+    malo "tocó archivos que no le corresponden a esta etapa:$(echo " $FUERA" | tr '\n' ' ')" \
+         "$_porque"
     echo "     Puede tocar los archivos de la tarea y su archivo de test. Nada más."
+    printf '     %s\n' "$_porque" | fold -s -w 92 | sed '2,$s/^/     /'
   else
     echo "  ✓ sólo tocó el test y los archivos de la tarea"
     dim alcance ✓
