@@ -46,7 +46,7 @@ PROMPT = ("Escribí una función de Python que reciba una lista de enteros y dev
           "suma de los pares. Explicá en dos líneas por qué funciona.")
 
 
-def una_corrida(modelo, max_tokens):
+def una_corrida(modelo, max_tokens, tope_total=300):
     """Devuelve (segundos al primer token, segundos de generación, tokens generados)."""
     cuerpo = json.dumps({
         "model": modelo, "stream": True, "max_tokens": max_tokens, "temperature": 0,
@@ -62,8 +62,19 @@ def una_corrida(modelo, max_tokens):
     trozos = 0          # trozos con contenido
     trozos_raz = 0      # trozos con razonamiento
     modo = "?"
+    # `timeout=180` es por LECTURA del socket, no sobre el total: mientras el servidor
+    # mande algo cada menos de 180 s, este bucle no termina nunca. Es el mismo defecto que
+    # `con_limite` tenía en _comun.sh —la conexión viva posponía el vigilante para siempre— y
+    # acá vivía en otro script, sin techo. Medido el 2026-11-23: midiendo Qwen3.6-35B-A3B
+    # esto corrió 54 MINUTOS sin imprimir nada para una medición que a 5 tok/s tarda 4, y
+    # tuve que matarla a mano.
     with urllib.request.urlopen(pedido, timeout=180) as r:
         for linea in r:
+            if time.perf_counter() - t0 > tope_total:
+                raise CorteDeLaMedicion(
+                    f"la corrida pasó el tope de la medición ({tope_total}s) con "
+                    f"{trozos + trozos_raz} trozo(s) recibidos: no es velocidad del modelo "
+                    f"ni falla del modelo, es el instrumento cortando")
             linea = linea.decode("utf-8", "replace").strip()
             # La plataforma anuncia el modo en un comentario SSE: `: colabhive-stream-mode=...`
             if linea.startswith(":") and "stream-mode=" in linea:
@@ -106,6 +117,16 @@ def una_corrida(modelo, max_tokens):
             trozos + trozos_raz, modo, trozos, trozos_raz)
 
 
+class CorteDeLaMedicion(RuntimeError):
+    """La corrida excedió el tope de LA MEDICIÓN, no del modelo.
+
+    Es su propia clase porque no es ni un fallo del modelo ni una velocidad: es el
+    instrumento levantando la mano. Mezclarla con las fallas haría que una plataforma que
+    gotea bytes se informe como un modelo que falla, y mezclarla con las velocidades haría
+    que se informe la nuestra.
+    """
+
+
 CONFIGS = ("/Users/jose/colabhive-opencode/config/opencode.json",
            str(pathlib.Path(__file__).resolve().parent.parent / "colabhive/config/opencode.json"))
 
@@ -136,6 +157,11 @@ def guardar_tok_s(modelo, tps):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--corridas", type=int, default=5)
+    ap.add_argument("--tope-corrida", type=int, default=300, dest="tope_corrida",
+                    help="segundos máximos POR CORRIDA. Es el techo del instrumento, no del "
+                         "modelo: una corrida que lo pasa se informa aparte y no entra en "
+                         "la mediana. Sin él, un stream que gotea bytes cuelga la medición "
+                         "para siempre (pasó: 54 minutos).")
     ap.add_argument("--max-tokens", type=int, default=256)
     ap.add_argument("--modelo", action="append")
     ap.add_argument("--escribir", action="store_true",
@@ -158,13 +184,22 @@ def main():
         arranques, velocidades, fallas, sin_stream, modos = [], [], 0, 0, set()
         contenido, razonamiento = 0, 0
         exacto = True
+        # El encabezado ANTES de medir. Estaba después de las cinco corridas, así que
+        # mientras una se colgaba la salida no decía ni qué modelo estaba midiendo: 54
+        # minutos de silencio y ninguna forma de atribuirlos.
+        print(f"{modelo[:8]} · {papel}", flush=True)
+        cortadas = 0
         for _ in range(args.corridas):
             try:
                 (t_arr, t_gen, tokens, exacto, trozos, modo,
-                 n_cont, n_raz) = una_corrida(modelo, args.max_tokens)
+                 n_cont, n_raz) = una_corrida(modelo, args.max_tokens, args.tope_corrida)
+            except CorteDeLaMedicion as e:
+                cortadas += 1
+                print(f"  ⊘ {e}", flush=True)
+                continue
             except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError) as e:
                 fallas += 1
-                print(f"  ⊘ una corrida falló: {type(e).__name__} {e}")
+                print(f"  ⊘ una corrida falló: {type(e).__name__} {e}", flush=True)
                 continue
             modos.add(modo)
             contenido += n_cont
@@ -178,10 +213,15 @@ def main():
                 sin_stream += 1
                 continue
             velocidades.append(tokens / t_gen if t_gen > 0 else 0)
-        print(f"{modelo[:8]} · {papel}")
+        if cortadas:
+            print(f"  ⊘ la medición cortó {cortadas} de {args.corridas} corrida(s) a los "
+                  f"{args.tope_corrida}s. Eso NO es la velocidad del modelo ni una "
+                  f"falla suya: es que el stream seguía abierto cuando se nos acabó la "
+                  f"paciencia. Subí --tope-corrida si querés esperarlo.")
         if not velocidades:
             print(f"  ✗ ninguna corrida transmitió de verdad ({sin_stream} llegaron de "
-                  f"golpe, {fallas} fallaron): no hay velocidad que informar\n")
+                  f"golpe, {fallas} fallaron, {cortadas} las cortó la medición): no hay "
+                  f"velocidad que informar\n")
             continue
         print(f"  primer token   mediana {statistics.median(arranques):6.2f}s   "
               f"(mín {min(arranques):.2f} · máx {max(arranques):.2f})")

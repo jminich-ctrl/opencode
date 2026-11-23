@@ -1675,6 +1675,62 @@ El brazo que importa es el otro: una respuesta de 70 bytes **no** se acusa de ha
 6000 tokens. Un instrumento que acusa siempre no distingue nada, y es la quinta guarda de esa
 clase que este repo se encuentra.
 
+## 3septies. Fui a medir un modelo y encontré roto el instrumento de medir
+
+Corrección primero: dije «ColabHive **ya sirve** el reemplazo». Lo correcto es **`/models` lo
+lista**. Que esté listado y que se pueda usar son dos cosas distintas, y es justamente la
+trampa para la que está escrita la sonda del preflight en este repo: *«el 27B estuvo TRES
+HORAS caído mientras el ejecutor contestaba 200»*.
+
+La sonda, corrida sobre los dos candidatos:
+
+| candidato | qué contestó |
+|---|---|
+| `Qwen3.6-35B-A3B-NVFP4` | **no está declarado en `provider.*.models`** de `opencode.json`. La sonda lo dice y explica el síntoma: *«sin declarar, el pedido muere en ~2 segundos con un error genérico que parece de plataforma»* |
+| `Devstral-Small-2-24B` | **HTTP 000 ×3** — ni contestó en 240 s por intento. Réplica desalojada; la sonda avisa que este mismo pedido pudo haberla arrancado, así que vale un reintento |
+
+O sea: el A3B no se puede usar hasta declararlo en la config (tres líneas, en la máquina de
+Jose), y Devstral estaba frío.
+
+### Y el hallazgo real de este paso
+
+Antes de la sonda corrí `medir-tps.py` sobre el A3B. **Corrió 54 minutos sin imprimir nada**
+para una medición que a 5 tok/s tarda 4, y la tuve que matar a mano. La causa:
+
+```python
+with urllib.request.urlopen(pedido, timeout=180) as r:
+    for linea in r:
+```
+
+`timeout=180` es por **lectura del socket**, no sobre el total. Mientras el servidor mande
+algo cada menos de 180 s, ese bucle no termina nunca. **Es el mismo defecto que `con_limite`
+tenía en `_comun.sh`** —la conexión viva posponía al vigilante para siempre, arreglado esta
+misma mañana— viviendo en otro archivo, sin techo. La forma «el arreglo vive en un hermano y
+no en el otro», esta vez entre dos scripts distintos y con un día de diferencia.
+
+Y el cuelgue no se podía ni atribuir: el encabezado con el nombre del modelo se imprimía
+**después** de las cinco corridas.
+
+Lo que entra:
+
+- `--tope-corrida` (300 s por omisión): techo sobre el total de cada corrida.
+- `CorteDeLaMedicion`, **su propia clase de excepción**. No es una velocidad —informarla sería
+  informar la nuestra— ni una falla del modelo —sería acusarlo de algo que no hizo—. Tiene
+  categoría propia en la salida, por el mismo criterio que los ⊘ del gate.
+- el encabezado del modelo **antes** de medir, con `flush`.
+
+Cinco tests. La no vacuidad se probó de la forma más clara que se puede pedir: neutralizando
+sólo el chequeo del techo —dejando la bandera— el test del goteo **pasó los 600 segundos**,
+porque lo que el techo evita no es un fallo sino un cuelgue infinito. Con el techo puesto, los
+cinco corren en 16 s. Y el brazo que importa es el otro: un stream de 80 trozos en 0,08 s
+**no** se acusa de haber pasado un techo de 60 s. Sexta guarda de esta clase que este repo
+revisa.
+
+**Lo que esto deja anotado como método:** fui a medir un modelo para decidir un rol, y lo que
+encontré fue que el instrumento no podía medir. Es la tercera vez en el día que el defecto
+está en el que juzga y no en el juzgado —el gate que contaba sin nombrar, el extractor que
+leía el prompt, y ahora el medidor que cuelga—, y las tres veces el síntoma era silencio.
+
 ## 4. Dónde seguimos adelante
 
 - Su «verification-before-completion» es nuestro gate escrito como regla de conducta: *«si no

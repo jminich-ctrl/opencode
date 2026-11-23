@@ -20934,3 +20934,120 @@ class TestElCorteQueNoTraeErrorDiceDeQueFueYSalvaLoQueDecidio(unittest.TestCase)
         self.assertIn("TERMINÁ tu respuesta", texto, "dejó de pedir el que manda")
         self.assertIn("contexto_del_corte", texto, "no informa de qué fue el corte")
         self.assertIn("veredicto_provisorio", texto, "no rescata lo que decidió antes del corte")
+
+
+class TestLaMedicionTieneTechoYNoCuelgaParaSiempre(unittest.TestCase):
+    """`timeout=180` en `urlopen` es por LECTURA del socket, no sobre el total.
+
+    Mientras el servidor mande algo cada menos de 180 s, el bucle del stream no termina
+    nunca. Es **el mismo defecto que `con_limite` tenía en `_comun.sh`** —la conexión viva
+    posponía al vigilante para siempre, arreglado el 2026-11-23 a la mañana— viviendo en otro
+    script, sin techo. La forma «el arreglo vive en un hermano y no en el otro», esta vez
+    entre dos archivos distintos.
+
+    Medido el 2026-11-23: midiendo `Qwen3.6-35B-A3B-NVFP4` el script corrió **54 minutos sin
+    imprimir nada** para una medición que a 5 tok/s tarda 4, y la tuve que matar a mano. Y no
+    se podía ni atribuir el cuelgue: el encabezado con el nombre del modelo se imprimía
+    DESPUÉS de las cinco corridas.
+
+    Lo que se exige acá no es sólo que corte: es que una corrida cortada por NUESTRO techo se
+    informe como lo que es. No es la velocidad del modelo —sería informar la nuestra— ni una
+    falla del modelo —sería acusarlo de algo que no hizo—. Tiene su propia categoría y su
+    propia excepción, por el mismo criterio que los ⊘ del gate.
+    """
+
+    def servidor(self, por_trozo=0.05, trozos=100000):
+        """Un servidor SSE que gotea: manda `trozos` trozos con `por_trozo` de pausa.
+
+        Con los valores por omisión no termina nunca en el tiempo de un test, y cada trozo
+        llega mucho antes del `timeout=180` del socket: exactamente la forma que cuelga."""
+        import threading
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                largo = int(self.headers.get("Content-Length") or 0)
+                self.rfile.read(largo)
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                try:
+                    for i in range(trozos):
+                        self.wfile.write(
+                            b'data: {"choices":[{"delta":{"content":"x"}}]}\n\n')
+                        self.wfile.flush()
+                        time.sleep(por_trozo)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+
+            def log_message(self, *a):
+                pass
+
+        srv = ServidorFalso(("127.0.0.1", 0), H)
+        hilo = threading.Thread(target=srv.serve_forever, daemon=True)
+        hilo.start()
+        self.addCleanup(srv.shutdown)
+        return f"http://127.0.0.1:{srv.server_address[1]}/v1"
+
+    def medir(self, base, tope, corridas=1):
+        """Corre el script de verdad contra el servidor falso."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-medir-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        return correr(
+            f"python3 {SCRIPTS}/medir-tps.py --modelo m1 --corridas {corridas} "
+            f"--tope-corrida {tope} --max-tokens 64", d,
+            COLABHIVE_BASE_URL=base, COLABHIVE_API_KEY="de-juguete")
+
+    def test_un_stream_que_gotea_se_corta_al_techo_y_no_cuelga(self):
+        """La guarda, y se prueba que PUEDE dispararse: el servidor no termina nunca."""
+        base = self.servidor()
+        t0 = time.monotonic()
+        r = self.medir(base, tope=3)
+        tardo = time.monotonic() - t0
+        self.assertLess(tardo, 90,
+                        f"la medición no cortó: tardó {tardo:.0f}s con un techo de 3s")
+        self.assertIn("la medición cortó", r.stdout,
+                      f"cortó pero no dijo que fue el instrumento:\n{r.stdout}\n{r.stderr}")
+
+    def test_la_corrida_cortada_no_se_informa_como_velocidad_ni_como_falla(self):
+        """Las tres categorías tienen que quedar separadas, o el número informado es el
+        nuestro disfrazado de medición del modelo."""
+        base = self.servidor()
+        r = self.medir(base, tope=3)
+        self.assertNotIn("tok/s", r.stdout,
+                         f"informó una velocidad que es la de nuestro techo:\n{r.stdout}")
+        self.assertIn("no hay velocidad que informar", r.stdout,
+                      f"tiene que decir que no hay nada que informar:\n{r.stdout}")
+        self.assertIn("NO es la velocidad del modelo", r.stdout,
+                      f"no distingue el techo nuestro de una falla del modelo:\n{r.stdout}")
+
+    def test_el_encabezado_sale_ANTES_de_medir(self):
+        """Con el encabezado después, 54 minutos de silencio no se podían atribuir a nada."""
+        base = self.servidor()
+        r = self.medir(base, tope=3)
+        lineas = [l for l in r.stdout.splitlines() if l.strip()]
+        i_enc = next((i for i, l in enumerate(lineas) if l.startswith("m1 ·")), None)
+        i_corte = next((i for i, l in enumerate(lineas)
+                        if "pasó el tope de la medición" in l), None)
+        self.assertIsNotNone(i_enc, f"no imprimió el encabezado:\n{r.stdout}")
+        self.assertIsNotNone(i_corte, f"no imprimió el corte:\n{r.stdout}")
+        self.assertLess(i_enc, i_corte,
+                        f"el encabezado sale después del corte, así que un cuelgue no se "
+                        f"puede atribuir:\n{r.stdout}")
+
+    def test_un_stream_rapido_NO_se_acusa_de_pasar_el_techo(self):
+        """El brazo que importa: un instrumento que corta siempre no mide nada. Sexta guarda
+        de esta clase que este repo revisa."""
+        base = self.servidor(por_trozo=0.001, trozos=80)
+        r = self.medir(base, tope=60)
+        self.assertNotIn("la medición cortó", r.stdout,
+                         f"un stream de 80 trozos en 0,08s no pasó un techo de 60s:"
+                         f"\n{r.stdout}\n{r.stderr}")
+        self.assertNotIn("pasó el tope", r.stdout, f"acusó igual:\n{r.stdout}")
+        self.assertIn("tok/s", r.stdout,
+                      f"el camino bueno tiene que seguir informando velocidad:\n{r.stdout}")
+
+    def test_el_techo_es_configurable_y_se_nombra_en_el_mensaje(self):
+        """Un número que el mensaje no dice no se puede subir a conciencia."""
+        base = self.servidor()
+        r = self.medir(base, tope=4)
+        self.assertIn("4s", r.stdout, f"el mensaje no nombra el techo usado:\n{r.stdout}")
