@@ -147,7 +147,34 @@ for id in "$@"; do
   # ausencia del campo es «incompleto» y no «seguí al paso 2» —que es exactamente lo que
   # pasó: 8759 bytes cortados a mitad de frase informados como «✓», relevados al que escribe,
   # y el enunciado salió con `## Tests` duplicado—.
-  VER_DIAG="$(grep -aoE 'VEREDICTO: *(HUECO|REESCRIBIR)' "$DIAG" | tail -1)"
+  #
+  # Y esto lee LA ÚLTIMA LÍNEA, no el último match del archivo. El párrafo de arriba ya
+  # decía que el modelo repite su instrucción; el código que escribí debajo hacía
+  # `grep … | tail -1` sobre todo el archivo, o sea exactamente lo que el párrafo
+  # desaconseja. La prosa decía una cosa y el código otra, dentro del mismo bloque.
+  #
+  # Medido sobre la corrida real de T16 del 2026-11-23: el diagnóstico salió de 24.962
+  # bytes, se cortó a mitad de una frase —«re-raises with "Error al cargar el router '»—
+  # y NO declaró ningún veredicto. Sus únicas dos apariciones de la palabra eran las
+  # líneas 111 y 112: el prompt citado de vuelta, primero HUECO y después REESCRIBIR. El
+  # `tail -1` leyó la segunda y el paso 2 arrancó como si el arquitecto hubiera
+  # dictaminado que la tarea era arreglable sola. Un veredicto falso emitido por el
+  # instrumento, no por el modelo, y lo puse yo el día anterior.
+  #
+  # El corte además NO trae marcador: `error_del_agente` no encontró nada porque no hubo
+  # error de plataforma —ni SSE, ni api_error—. Un diagnóstico truncado en silencio es
+  # indistinguible de uno completo salvo por una cosa: no termina con su veredicto. Por eso
+  # el campo se lee donde se pidió y en ningún otro lado.
+  #
+  # La clase de caracteres NO incluye `-` ni comillas, a propósito: el prompt cita la línea
+  # como «- 'VEREDICTO: …'», y admitir el guión volvería a hacer matchear la cita.
+  #
+  # `sed -nE` y no `sed -n`: el `\|` de alternancia es una extensión de GNU y el sed de BSD
+  # —el de esta Mac— no lo tiene. Mi primera versión usaba `\(A\|B\)` y no matcheaba NUNCA,
+  # así que TODO diagnóstico habría salido «incompleto» y el relevo no habría llegado al
+  # paso 2 jamás. Una guarda que se dispara siempre es tan inútil como una que no se
+  # dispara: lo vi probando los cuatro casos a mano antes de commitear.
+  VER_DIAG="$(veredicto_declarado "$DIAG")"
   case "$VER_DIAG" in
     *HUECO*)
       echo "  ⃠ dice que falta algo que ninguna tarea entrega — lo decide una persona:"

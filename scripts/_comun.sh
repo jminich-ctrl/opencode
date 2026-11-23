@@ -169,6 +169,33 @@ no_juzgado_por_el_gate() {
                 if (substr(l[i], 1, 16) == "    no juzgado: ") print substr(l[i], 17) }' "$1"
 }
 
+# El campo VEREDICTO de un diagnóstico, leído DONDE SE PIDIÓ: la última línea no vacía.
+#
+# No es un `grep` del archivo entero. El prompt del relevo cita la línea que pide —«terminá
+# con 'VEREDICTO: HUECO — …' o 'VEREDICTO: REESCRIBIR'»— y el modelo recita su instrucción.
+# Medido en la corrida real de T16 del 2026-11-23: el diagnóstico salió de 24.962 bytes, se
+# cortó a mitad de frase, NO declaró veredicto, y sus únicas dos apariciones de la palabra
+# eran el prompt citado de vuelta —primero HUECO, después REESCRIBIR—. El extractor hacía
+# `grep -aoE … | tail -1`, leyó la segunda, y el paso 2 arrancó como si el arquitecto hubiera
+# dictaminado que la tarea era arreglable sola. Un veredicto falso emitido por el
+# instrumento y no por el modelo.
+#
+# Y el corte no trae marcador: `error_del_agente` no encontró nada porque no hubo error de
+# plataforma. Un diagnóstico truncado en silencio es indistinguible de uno completo salvo
+# por una cosa: no termina con su veredicto. Por eso se lee ahí y en ningún otro lado.
+#
+# La clase de caracteres admite markdown (`**VEREDICTO: …**`) y NO admite `-` ni comillas:
+# el prompt cita la línea como «- 'VEREDICTO: …'», y el guión volvería a hacerla matchear.
+#
+# `sed -nE` y no `sed -n`: `\|` es extensión de GNU y el sed de BSD no lo tiene. Con `\|` esto
+# no matchea NUNCA, así que todo diagnóstico sale «incompleto» y el relevo no llega al paso 2
+# jamás. Una guarda que se dispara siempre es tan inútil como una que no se dispara.
+veredicto_declarado() {
+  [ -f "$1" ] || return 0
+  grep -av '^[[:space:]]*$' "$1" | tail -1 \
+    | sed -nE 's/^[[:space:]*_`#>]*(VEREDICTO: *(HUECO|REESCRIBIR)).*/\1/p'
+}
+
 # La línea del verde, con las abstenciones adentro. Es una función y no un `echo` en el
 # runner para que se pueda probar sin levantar un agente: el defecto que arregla es
 # justamente del renderizado.

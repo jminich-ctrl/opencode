@@ -1470,6 +1470,84 @@ Diez tests; nueve mueren con el arreglo sacado. El décimo es brazo nulo declara
 con el disco adentro y tiene que seguir siendo más chico que `PLAN.md`, así que ese test pasa de los
 dos lados a propósito.
 
+## 3quater. La corrida con el brief puesto: dos aciertos, y un veredicto falso mío
+
+Primera corrida del relevo sobre T16 con las cuatro piezas (veredicto con la causa, brief con
+el disco, prohibición de adivinar paths, señal de parada). Mismo instrumento que la corrida
+anterior, para que los números se puedan comparar:
+
+| medida | antes (22/11) | con el brief (23/11) | |
+|---|---|---|---|
+| paths adivinados | 2 de 2 intentos | **0** | ✅ |
+| recita la restricción del prompt | 4 veces | **0** | ✅ |
+| anuncios de «let me …» | 17 | **31** | ✗ |
+| bytes de deliberación | 8.759 | **24.962** | ✗ |
+| llegó a declarar el veredicto | no | **no** | ✗ |
+| paso 2 llegó a escribir | no | sí, y salió mal | — |
+
+**Lo que el brief arregló está medido y es real:** cero paths adivinados y cero deliberación
+sobre si el prompt le permitía leer lo que necesitaba. Las dos causas que la medición del día
+había identificado desaparecieron.
+
+**Lo que no arregló, y hay que decirlo:** deliberó casi el doble de veces y produjo tres veces
+más texto. La señal de parada no mordió —consistente con que la literatura no tiene ninguna
+medición de esa intervención— y el pedido se cortó igual, a mitad de la frase «re-raises with
+"Error al cargar el router '». Hipótesis, no conclusión: el brief le dio más material sobre el
+que razonar, y la deliberación escala con la entrada. Habría que medirlo con el brief recortado.
+
+**Y el corte no trae marcador.** `error_del_agente` no encontró nada porque no hubo error de
+plataforma: ni `SSE read timed out`, ni `api_error`, ni `Cannot connect`. Un diagnóstico
+truncado en silencio es indistinguible de uno completo salvo por una cosa: **no termina con su
+veredicto.**
+
+### El veredicto falso, y es mío
+
+El prompt pide la línea **citándola**: «terminá con `'VEREDICTO: HUECO — <qué falta>'` … o
+`'VEREDICTO: REESCRIBIR'`». El modelo recitó su instrucción, así que el diagnóstico contiene
+las dos cadenas —en ese orden— y ningún veredicto propio. El extractor hacía
+`grep -aoE 'VEREDICTO: *(HUECO|REESCRIBIR)' | tail -1` **sobre el archivo entero**, leyó la
+segunda, y el relevo arrancó el paso 2 como si el arquitecto hubiera dictaminado REESCRIBIR.
+
+Un veredicto falso emitido por el instrumento, no por el modelo. Y el comentario que escribí
+arriba de esa línea, el día anterior, **ya decía el problema**: *«el modelo también REPITE su
+instrucción, así que un grep suelto se dispara con el enunciado del pedido»*. La prosa decía
+una cosa y el código hacía la otra, dentro del mismo bloque, a dos centímetros de su propia
+descripción.
+
+El arreglo es `veredicto_declarado()` en `_comun.sh`: la **última línea no vacía**, match de
+línea entera, con una clase de caracteres que admite markdown (`**VEREDICTO: …**`, `> VEREDICTO:
+…`) y **no** admite `-` ni comillas, porque así es como el prompt la cita. Y tapa el agujero
+del corte silencioso sin saber de él: un diagnóstico truncado no llega a su última línea, así
+que la ausencia del campo es «incompleto» y no «seguí al paso 2».
+
+### Dos trampas más en el camino, las dos mías
+
+1. **`\|` es extensión de GNU.** Mi primera versión del extractor usaba `sed -n 's/…\(A\|B\)…'`
+   y el sed de BSD —el de esta Mac— no tiene alternancia en BRE: **no matcheaba nunca.** Con eso
+   todo diagnóstico habría salido «incompleto» y el relevo no habría llegado al paso 2 jamás.
+   Una guarda que se dispara siempre es tan inútil como una que no se dispara, y las dos se ven
+   igual desde afuera si el test prueba un solo valor. Por eso el test prueba **las dos**
+   opciones. Lo encontré probando cuatro casos a mano antes de commitear.
+2. **Tres tests vacuos, por tercera vez en el día.** Las aserciones «tiene que dar vacío» pasan
+   solas cuando la función no existe. Esta vez la defensa no fue un control por test sino un
+   **control positivo dentro del ayudante** `leer()`: cada lectura verifica primero que un
+   diagnóstico sano devuelva su veredicto, y si no, falla nombrando el motivo. Imposible de
+   olvidar en el próximo test de esta clase.
+
+### Lo que sí aguantó
+
+El paso 2 produjo un enunciado con `## Tests` duplicado y **la guarda de duplicados lo
+descartó**. Ningún falso verde llegó al tronco. El gate sigue en cero falsos verdes; lo que
+falló fue un instrumento intermedio, y es el que se cierra acá.
+
+### El techo, de nuevo movido
+
+| vuelta | dónde se trababa |
+|---|---|
+| 22/11 | el arquitecto no sabía qué estaba mal |
+| 23/11 mañana | sabía y no llegaba a escribirlo (adivinaba paths, litigaba permisos) |
+| 23/11 tarde | no adivina ni litiga, **se corta por largo y el corte no se declara** |
+
 ## 4. Dónde seguimos adelante
 
 - Su «verification-before-completion» es nuestro gate escrito como regla de conducta: *«si no

@@ -10942,10 +10942,24 @@ class TestElMarcadorDeHuecoSobreviveAlMarkdown(unittest.TestCase):
                          f"el que todavía grepea la prosa es replanificar.sh y nadie más. "
                          f"Si aparece el relevo, volvió al regex que falló tres veces; si "
                          f"falta replanificar.sh, dejó de detectar el hueco: {self.patrones()}")
+        # El 2026-11-23 el patrón se mudó del relevo a `veredicto_declarado()` en _comun.sh,
+        # porque leerlo bien pide más que un regex: pide leerlo en la ÚLTIMA LÍNEA y no en
+        # cualquier parte del archivo —el prompt cita la línea y el modelo recita el prompt—.
+        # Este invariante sigue siendo el mismo: el relevo tiene que detectar el hueco de
+        # ALGUNA de las dos maneras. Lo que cambió es dónde vive la que usa.
         relevo = codigo_de(SCRIPTS / "replanificar-relevo.sh")
-        self.assertIn("VEREDICTO: *(HUECO|REESCRIBIR)", relevo,
+        self.assertIn("veredicto_declarado", relevo,
                       "el relevo no lee el campo declarado, así que no detecta el hueco de "
                       "ninguna de las dos maneras")
+        comun = codigo_de(SCRIPTS / "_comun.sh")
+        self.assertIn("VEREDICTO: *(HUECO|REESCRIBIR)", comun,
+                      "`veredicto_declarado` perdió el patrón: el campo no se reconoce")
+        # Y en UN solo lugar. Dos copias del patrón es cómo se arregla una y queda la otra,
+        # que es la forma que este repo repite.
+        copias = [n for n in ("replanificar.sh", "replanificar-relevo.sh", "_comun.sh")
+                  if "VEREDICTO: *(HUECO|REESCRIBIR)" in codigo_de(SCRIPTS / n)]
+        self.assertEqual(["_comun.sh"], copias,
+                         f"el patrón del veredicto tiene que vivir en un solo lugar: {copias}")
 
     def test_cada_patron_ve_la_linea_que_el_27B_escribio(self):
         """Y TODAS las apariciones, no la primera: en `replanificar.sh` el `grep -q` que
@@ -20641,3 +20655,139 @@ class TestElBriefTraeElDiscoYNoSoloElPlan(unittest.TestCase):
         self.assertIn("VEREDICTO: HUECO", texto, "el relevo dejó de pedir la línea declarada")
         self.assertIn("En cuanto PUEDAS escribir esa línea", texto,
                       "pide la línea y no dice que se puede escribir en cuanto se sepa")
+
+
+class TestElVeredictoSeLeeDondeSePidioYNoDondeElPromptLoCita(unittest.TestCase):
+    """El extractor leyó el prompt citado de vuelta y lo tomó por el veredicto del modelo.
+
+    Corrida real de T16 del 2026-11-23, con el brief ya puesto. Lo que el brief SÍ arregló,
+    medido con el mismo instrumento que la corrida anterior:
+
+      · paths adivinados:                 2 de 2 intentos  →  0
+      · veces que recita la restricción:  4                →  0
+
+    Lo que no arregló, y es honesto decirlo:
+
+      · anuncios de «let me …»:           17               →  31
+      · bytes de deliberación:            8.759            →  24.962
+      · y se cortó igual, a mitad de la frase «re-raises with "Error al cargar el router '»
+
+    El corte NO trae marcador: `error_del_agente` no encontró nada porque no hubo error de
+    plataforma —ni SSE, ni api_error, ni Cannot connect—. Un diagnóstico truncado en
+    silencio es indistinguible de uno completo salvo por una cosa: no termina con su
+    veredicto.
+
+    Y acá está el defecto que este test persigue. El prompt pide la línea citándola:
+    «terminá con 'VEREDICTO: HUECO — <qué falta>' … o 'VEREDICTO: REESCRIBIR'». El modelo
+    recitó su instrucción, así que el diagnóstico contiene las dos cadenas —en ese orden— y
+    NINGÚN veredicto propio. El extractor hacía `grep -aoE … | tail -1` sobre el archivo
+    entero, leyó la segunda, y el relevo arrancó el paso 2 como si el arquitecto hubiera
+    dictaminado REESCRIBIR. Un veredicto falso emitido por el instrumento, no por el modelo.
+
+    Lo peor es que el comentario que escribí arriba de esa línea, el día anterior, ya decía
+    el problema: «el modelo también REPITE su instrucción, así que un grep suelto se dispara
+    con el enunciado del pedido». La prosa decía una cosa y el código hacía la otra, dentro
+    del mismo bloque. Es la forma que este repo ya tiene catalogada, cometida por mí a dos
+    centímetros de su propia descripción.
+
+    El gate aguantó: el paso 2 produjo un enunciado con `## Tests` duplicado y la guarda de
+    duplicados lo descartó. Ningún falso verde llegó al tronco. Pero un instrumento
+    intermedio emitió un veredicto falso, y eso es lo que acá se cierra.
+    """
+
+    REGISTRO = RAIZ / "pruebas" / "registros" / "diagnostico-cortado-que-recita-el-veredicto.txt"
+
+    def _llamar(self, d, f):
+        # `bash -c` explícito: `correr` usa /bin/sh y _comun.sh tiene `<(...)`.
+        return correr("bash -c " + shlex.quote(
+            f'. "{SCRIPTS}/_comun.sh" >/dev/null 2>&1; veredicto_declarado "{f}"'), d).stdout.strip()
+
+    def leer(self, texto=None):
+        r"""Lee el campo, con un CONTROL POSITIVO antes de cada lectura.
+
+        Sin el control, las tres aserciones de esta clase que dicen «tiene que dar vacío»
+        pasaban vacuamente: si la función no existe —o existe y no matchea nunca, que es
+        exactamente lo que hacía mi primera versión con el `\|` de GNU en el sed de BSD— la
+        salida es vacía y «no leyó el prompt citado» se cumple por no leer nada. Es la
+        tercera vez en el día que me hago este verde falso, así que la defensa va en el
+        ayudante y no en cada test: un control por lectura, imposible de olvidar."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-veredicto-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        ctrl = d / "control.md"
+        ctrl.write_text("un diagnostico sano\n\nVEREDICTO: REESCRIBIR\n")
+        self.assertEqual("VEREDICTO: REESCRIBIR", self._llamar(d, ctrl),
+                         "el control positivo no lee nada: la función falta o no matchea "
+                         "nunca, así que todo lo demás de este test pasaría sin medir")
+        f = self.REGISTRO if texto is None else (d / "diag.md")
+        if texto is not None:
+            f.write_text(texto)
+        return self._llamar(d, f)
+
+    def test_el_registro_real_sigue_siendo_el_caso_que_dice_ser(self):
+        """Cuida el fixture: si alguien lo reemplaza por un diagnóstico sano, los tests de
+        abajo pasan sin medir nada."""
+        t = self.REGISTRO.read_text()
+        self.assertIn("'VEREDICTO: HUECO", t, "el registro ya no cita el prompt")
+        self.assertIn("'VEREDICTO: REESCRIBIR'", t, "el registro ya no cita las dos opciones")
+        ultima = [l for l in t.splitlines() if l.strip()][-1]
+        self.assertNotIn("VEREDICTO", ultima,
+                         f"el registro tiene que ser un diagnóstico SIN veredicto: {ultima!r}")
+        self.assertTrue(ultima.rstrip().endswith("'"),
+                        f"el registro tiene que estar cortado a mitad de frase: {ultima!r}")
+
+    def test_el_diagnostico_real_cortado_no_declara_nada(self):
+        """El caso que pasó. Antes devolvía REESCRIBIR y mandaba al paso 2."""
+        self.assertEqual("", self.leer(),
+                         "un diagnóstico cortado que recita el prompt NO declara veredicto")
+
+    def test_el_prompt_citado_a_secas_no_es_un_veredicto(self):
+        self.assertEqual("", self.leer(
+            "analicé la tarea\n"
+            "- 'VEREDICTO: HUECO — <qué falta y qué tarea debía entregarlo>'\n"
+            "- 'VEREDICTO: REESCRIBIR'\n"))
+
+    def test_el_veredicto_declarado_al_final_se_lee_aunque_antes_este_la_cita(self):
+        """El caso bueno: recita la instrucción y además la cumple."""
+        self.assertEqual("VEREDICTO: HUECO", self.leer(
+            "- 'VEREDICTO: HUECO — <qué falta>'\n- 'VEREDICTO: REESCRIBIR'\n"
+            "\nVEREDICTO: HUECO — T15 no entrega la función de listado\n"))
+
+    def test_las_DOS_opciones_se_reconocen(self):
+        """La trampa del sed de BSD. Mi primera versión usaba `\\(A\\|B\\)`, que es extensión de
+        GNU: en esta Mac no matcheaba NUNCA, así que todo diagnóstico habría salido
+        «incompleto» y el relevo no habría llegado al paso 2 jamás. Una guarda que se
+        dispara siempre es tan inútil como una que no se dispara, y las dos se ven igual
+        desde afuera si el test sólo prueba un valor."""
+        self.assertEqual("VEREDICTO: REESCRIBIR",
+                         self.leer("algo\n\nVEREDICTO: REESCRIBIR\n"))
+        self.assertEqual("VEREDICTO: HUECO",
+                         self.leer("algo\n\nVEREDICTO: HUECO — falta X\n"))
+
+    def test_acepta_el_markdown_que_los_modelos_ponen(self):
+        self.assertEqual("VEREDICTO: REESCRIBIR",
+                         self.leer("x\n\n**VEREDICTO: REESCRIBIR**\n"))
+        self.assertEqual("VEREDICTO: HUECO", self.leer("x\n\n> VEREDICTO: HUECO — y\n"))
+
+    def test_un_veredicto_que_no_es_la_ultima_linea_no_vale(self):
+        """Lo pedido es la ÚLTIMA línea. Si declara y después sigue hablando, no cumplió el
+        formato, y «declaró y siguió» es indistinguible de «se cortó después de declarar»:
+        las dos veces el texto de abajo puede contradecir lo de arriba."""
+        self.assertEqual("", self.leer(
+            "VEREDICTO: REESCRIBIR\ny después sigue y se corta a mitad de\n"))
+
+    def test_el_archivo_que_no_existe_no_inventa_un_veredicto(self):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-veredicto-no-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        r = correr("bash -c " + shlex.quote(
+            f'. "{SCRIPTS}/_comun.sh" >/dev/null 2>&1; veredicto_declarado "{d}/no-esta.md"; '
+            f'echo "rc=$?"'), d)
+        self.assertIn("rc=0", r.stdout, f"no puede fallar duro: {r.stdout!r} {r.stderr!r}")
+        self.assertNotIn("VEREDICTO", r.stdout, f"inventó un veredicto: {r.stdout!r}")
+
+    def test_el_relevo_ya_no_grepea_el_archivo_entero(self):
+        """La forma vieja no puede volver por la puerta de atrás."""
+        texto = codigo_de(SCRIPTS / "replanificar-relevo.sh")
+        self.assertIn("veredicto_declarado", texto,
+                      "el relevo dejó de usar la función que lee el campo donde se pidió")
+        self.assertNotIn("grep -aoE 'VEREDICTO", texto,
+                         "volvió el grep del archivo entero, que lee el prompt citado")
