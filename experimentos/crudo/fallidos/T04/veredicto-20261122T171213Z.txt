@@ -1,0 +1,6 @@
+el test obliga un contrato que el enunciado no declara
+  ✗ el test obliga 1 clave(s) que no declara el enunciado ni son columna de ninguna tabla:
+     error
+     El contrato lo está inventando el test, y una vez aceptado lo obliga para
+     siempre: toda implementación tiene que adivinar ese mapeo exacto. Lo declara
+     el enunciado (T04-auth-backend.md), no el que escribe el test.

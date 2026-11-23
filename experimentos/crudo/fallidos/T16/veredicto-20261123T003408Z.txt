@@ -1,0 +1,2 @@
+tocó archivos que no le corresponden a esta etapa: backend/app/servicios/favorites.py 
+Existen en el tronco: backend/app/servicios/favorites.py. El contrato de esta tarea les exige una forma que todavía no dan. O se declaran en «Archivos que podés tocar», o el contrato se ajusta a lo que ya entregan, o es un HUECO de la tarea que debía entregarlos. 

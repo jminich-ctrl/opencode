@@ -1,0 +1,1 @@
+el test no pasa ni con la implementación del propio agente. Falla así: E AssertionError: assert () == [{'descripcio... escritorio'}] E E Right contains 2 more items, first extra item: {'descripcion': 'Laptop de alto rendimiento', 'id': 1, 'titulo': 'Laptop gaming'} E Use -v to get more diff 

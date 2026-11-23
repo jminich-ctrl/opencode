@@ -1,6 +1,6 @@
 # Material crudo, cosechado al repo
 
-Generado por `scripts/cosechar.sh` el 2026-11-22 (UTC). **No se edita a mano.**
+Generado por `scripts/cosechar.sh` el 2026-11-23 (UTC). **No se edita a mano.**
 
 Esto es una COPIA. Los originales siguen donde el método los escribe
 (`../fallidos-TNN/`, `~/rechazados/`) porque el runner y `replanificar.sh` leen de ahí.
@@ -12,7 +12,7 @@ sistema limpió /tmp.
 
 | tarea | intentos | parches | veredictos del arnés |
 |---|---|---|---|
-| T04 | 7 | 5 | 3 |
+| T04 | 8 | 6 | 5 |
 | T04b | 2 | 0 | 0 |
 | T05 | 15 | 7 | 0 |
 | T05a | 22 | 6 | 0 |
@@ -27,11 +27,11 @@ sistema limpió /tmp.
 | T12 | 2 | 0 | 0 |
 | T14 | 1 | 0 | 0 |
 | T15 | 2 | 0 | 0 |
-| T16 | 5 | 5 | 2 |
+| T16 | 9 | 9 | 7 |
 | T20 | 7 | 1 | 0 |
 | T21 | 1 | 0 | 0 |
 | T26 | 27 | 15 | 2 |
-| T28 | 21 | 13 | 4 |
+| T28 | 22 | 14 | 6 |
 
 El **veredicto del arnés** es el dato nuevo y es el que vale: hasta el 2026-11-10 el
 motivo del rechazo sólo existía en stdout y moría con la corrida, así que de los

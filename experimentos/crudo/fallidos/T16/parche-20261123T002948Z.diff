@@ -1,0 +1,177 @@
+diff --git a/.sucio-antes b/.sucio-antes
+new file mode 100644
+index 0000000..e69de29
+diff --git a/ejemplo-clasificados/backend/app/rutas/favorites.py b/ejemplo-clasificados/backend/app/rutas/favorites.py
+new file mode 100644
+index 0000000..f5f1525
+--- /dev/null
++++ b/ejemplo-clasificados/backend/app/rutas/favorites.py
+@@ -0,0 +1,92 @@
++from fastapi import APIRouter, HTTPException
++from pydantic import BaseModel
++from backend.app.datos import conexion
++from backend.app.datos.favorites import toggle_favorite as datos_toggle_favorite, get_user_favorites
++from backend.app.datos.ads import get_ad_by_id
++
++router = APIRouter()
++
++class ToggleFavoriteRequest(BaseModel):
++    user_id: int
++    ad_id: int
++
++# Funciones que se van a mockear en los tests
++# Definimos estas funciones directamente en el módulo para que puedan ser mockeadas
++def toggle_favorite(user_id: int, ad_id: int) -> bool:
++    """Función que marca/desmarca favorito.
++    Devuelve True si quedó como favorito, False si se eliminó.
++    """
++    # Esta función será reemplazada por el mock en los tests
++    # En producción simplemente llama a la función real de datos
++    try:
++        # Llamamos a la función real de datos (usando alias para evitar conflicto)
++        result = datos_toggle_favorite(user_id, ad_id)
++        return result
++    except Exception as e:
++        if "not found" in str(e).lower():
++            raise HTTPException(status_code=404, detail="User not found")
++        raise HTTPException(status_code=500, detail="Internal server error")
++
++def list_favorites(user_id: int) -> list:
++    """Función que devuelve la lista de anuncios favoritos del usuario.
++    Devuelve una lista de objetos con las claves: id, ad_id, favorited (bool) y status (str).
++    """
++    # Esta función será reemplazada por el mock en los tests
++    # En producción simplemente llama a la función real
++    try:
++        # Obtener los IDs de los anuncios favoritos del usuario
++        favorite_ad_ids = get_user_favorites(user_id)
++        
++        # Construir la lista de favoritos con información completa
++        favorites = []
++        for ad_id in favorite_ad_ids:
++            ad_data = get_ad_by_id(ad_id)
++            if ad_data:  # Solo incluir si el anuncio existe
++                # Para el status, vamos a usar un valor fijo como "active" 
++                # ya que no tenemos información específica de estado en el esquema
++                favorites.append({
++                    "id": ad_data["id"],
++                    "ad_id": ad_data["id"],
++                    "favorited": True,
++                    "status": "active"
++                })
++        
++        return favorites
++    except Exception as e:
++        if "not found" in str(e).lower():
++            raise HTTPException(status_code=404, detail="User not found")
++        raise HTTPException(status_code=500, detail="Internal server error")
++
++@router.post("/favorites/toggle")
++async def toggle_favorite_endpoint(request: ToggleFavoriteRequest):
++    """Endpoint que marca/desmarca un anuncio como favorito.
++    Devuelve 200 OK con cuerpo vacío si la operación es exitosa.
++    Si el usuario no existe, devuelve 404.
++    """
++    try:
++        # Llamamos a la función auxiliar definida en este módulo
++        result = toggle_favorite(request.user_id, request.ad_id)
++        return {}
++    except HTTPException:
++        # Re-lanzamos HTTPExceptions para que sean manejadas por el manejador
++        raise
++    except Exception:
++        # Para cualquier otro error, devolvemos 500
++        raise HTTPException(status_code=500, detail="Internal server error")
++
++@router.get("/favorites/list")
++async def list_favorites_endpoint(user_id: int):
++    """Endpoint que devuelve la lista de anuncios favoritos del usuario.
++    Devuelve 200 OK con un JSON que contiene una lista de objetos con las
++    claves: id, ad_id, favorited (bool) y status (str).
++    """
++    try:
++        # Llamamos a la función auxiliar definida en este módulo
++        result = list_favorites(user_id)
++        return result
++    except HTTPException:
++        # Re-lanzamos HTTPExceptions para que sean manejadas por el manejador
++        raise
++    except Exception:
++        # Para cualquier otro error, devolvemos 500
++        raise HTTPException(status_code=500, detail="Internal server error")
+\ No newline at end of file
+diff --git a/ejemplo-clasificados/backend/tests/test_favorites_rutas.py b/ejemplo-clasificados/backend/tests/test_favorites_rutas.py
+new file mode 100644
+index 0000000..33217b5
+--- /dev/null
++++ b/ejemplo-clasificados/backend/tests/test_favorites_rutas.py
+@@ -0,0 +1,68 @@
++import pytest
++from unittest.mock import patch, MagicMock
++from fastapi.testclient import TestClient
++from backend.app.main import app
++from backend.app.datos import conexion
++
++
++class TestFavoritesRutas:
++    @pytest.fixture(autouse=True)
++    def setup(self):
++        self.client = TestClient(app)
++        # Mockeamos la conexión a la base de datos
++        self.mock_conexion = patch('backend.app.datos.conexion', return_value=MagicMock())
++        self.mock_conexion.start()
++        
++        # Mockeamos los servicios de favoritos
++        self.mock_toggle_favorite = patch('backend.app.rutas.favorites.toggle_favorite')
++        self.mock_list_favorites = patch('backend.app.rutas.favorites.list_favorites')
++        self.mock_toggle_favorite.start()
++        self.mock_list_favorites.start()
++
++    def teardown(self):
++        self.mock_conexion.stop()
++        self.mock_toggle_favorite.stop()
++        self.mock_list_favorites.stop()
++
++    def test_toggle_favorite_success(self):
++        """Prueba que el endpoint toggle_favorite funcione correctamente."""
++        # Configuramos el mock para que devuelva un resultado exitoso
++        self.mock_toggle_favorite.return_value = True
++        
++        response = self.client.post("/favorites/toggle", json={"user_id": 1, "ad_id": 2})
++        
++        assert response.status_code == 200
++        assert response.json() == {}
++
++    def test_toggle_favorite_user_not_found(self):
++        """Prueba que el endpoint toggle_favorite devuelva 404 si el usuario no existe."""
++        # Configuramos el mock para que lance una excepción de usuario no encontrado
++        self.mock_toggle_favorite.side_effect = Exception("User not found")
++        
++        response = self.client.post("/favorites/toggle", json={"user_id": 999, "ad_id": 2})
++        
++        assert response.status_code == 404
++
++    def test_list_favorites_success(self):
++        """Prueba que el endpoint list_favorites funcione correctamente."""
++        # Configuramos el mock para que devuelva una lista de favoritos
++        mock_favorites = [
++            {"id": 1, "ad_id": 2, "favorited": True, "status": "active"},
++            {"id": 2, "ad_id": 3, "favorited": True, "status": "inactive"}
++        ]
++        self.mock_list_favorites.return_value = mock_favorites
++        
++        response = self.client.get("/favorites/list", params={"user_id": 1})
++        
++        assert response.status_code == 200
++        assert response.json() == mock_favorites
++
++    def test_list_favorites_empty(self):
++        """Prueba que el endpoint list_favorites devuelva una lista vacía si no hay favoritos."""
++        # Configuramos el mock para que devuelva una lista vacía
++        self.mock_list_favorites.return_value = []
++        
++        response = self.client.get("/favorites/list", params={"user_id": 1})
++        
++        assert response.status_code == 200
++        assert response.json() == []
+\ No newline at end of file

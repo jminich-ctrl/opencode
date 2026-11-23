@@ -1,0 +1,1 @@
+el test NO EJECUTA las líneas de la implementación: no las está probando. Sobrevivió:      → backend/app/datos/search_ads.py:5  [la línea NO se ejecuta]   with conexion() as conn:      → backend/app/datos/search_ads.py:6  [la línea NO se ejecuta]   with conn.cursor() as cur:      → backend/app/datos/search_ads.py:8  [la línea NO se ejecuta]   if categoria is not None: 
