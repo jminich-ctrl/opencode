@@ -20791,3 +20791,146 @@ class TestElVeredictoSeLeeDondeSePidioYNoDondeElPromptLoCita(unittest.TestCase):
                       "el relevo dejó de usar la función que lee el campo donde se pidió")
         self.assertNotIn("grep -aoE 'VEREDICTO", texto,
                          "volvió el grep del archivo entero, que lee el prompt citado")
+
+
+class TestElCorteQueNoTraeErrorDiceDeQueFueYSalvaLoQueDecidio(unittest.TestCase):
+    """Una respuesta cortada por su tope de salida no trae error, y se leía como completa.
+
+    Dos corridas de T16, DOS causas distintas, y yo les puse el mismo nombre —«el reloj»—
+    las dos veces:
+
+      22/11 · 8.759 bytes  · murió con `SSE read timed out`. Ésa sí fue tiempo.
+      23/11 · 24.962 bytes · ningún marcador de error. 24.962/6000 = 4,16 bytes por token,
+              que es la relación normal de prosa con código: **gastó su tope de salida
+              entero**, el que nosotros le pusimos en `limit.output` de la config de
+              opencode. La plataforma devolvió 200 y la respuesta terminó a mitad de la
+              frase «re-raises with "Error al cargar el router '».
+
+    `error_del_agente` no encontró nada porque no había nada que encontrar, y el arnés
+    informó «✓ diagnóstico de 24.962 bytes» como si estuviera completo. Es la misma clase de
+    silencio que el gate tenía con sus abstenciones, en otro lugar: lo que no se declara se
+    lee como que no pasó.
+
+    Y la consecuencia estructural no es el tamaño, es §26: **Qwen3.8-27B funde el
+    razonamiento en `content`**, así que el tope se reparte entre pensar y contestar. Con un
+    tope duro y el razonamiento compartiendo presupuesto, lo que se pide al final es lo
+    primero que se pierde — y el veredicto se pedía en la última línea, o sea en el lugar
+    más frágil que había.
+
+    De ahí las dos cosas que se prueban acá: el arnés dice DE QUÉ fue el corte, y rescata el
+    veredicto provisorio de la primera línea, que es lo único que sobrevive. El provisorio
+    **no autoriza nada**: se emite antes de razonar, así que es evidencia para la persona que
+    va a mirar y no un permiso para seguir al paso 2. Es la asimetría que el repo ya usa:
+    equivocarse hacia «que lo mire alguien» cuesta una consulta, hacia «reescribí» costó un
+    agente entero.
+    """
+
+    REGISTRO = RAIZ / "pruebas" / "registros" / "diagnostico-cortado-que-recita-el-veredicto.txt"
+    MODELO = "11111111-2222-3333-4444-555555555555"
+
+    def entorno(self, tope=6000):
+        """Config de opencode PROPIA, no la del usuario. Un test que lee la config real mide
+        la máquina de quien lo corre y se rompe el día que alguien toca un tope."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-tope-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        cfg = d / "opencode.json"
+        modelos = {} if tope is None else {
+            self.MODELO: {"name": "modelo de juguete", "limit": {"output": tope,
+                                                                 "context": 100000}}}
+        cfg.write_text(json.dumps({"provider": {"colabhive": {"models": modelos}}}))
+        return d, cfg
+
+    def correr_fn(self, d, cfg, orden):
+        return correr("bash -c " + shlex.quote(
+            f'. "{SCRIPTS}/_comun.sh" >/dev/null 2>&1; CONFIG_OC="{cfg}"; {orden}'), d)
+
+    def test_lee_el_tope_de_la_config_y_no_lo_inventa(self):
+        d, cfg = self.entorno(6000)
+        r = self.correr_fn(d, cfg, f'tope_de_salida_de_modelo {self.MODELO}')
+        self.assertEqual("6000", r.stdout.strip(), f"{r.stdout!r} {r.stderr!r}")
+
+    def test_un_modelo_sin_tope_declarado_lo_dice_y_no_acusa(self):
+        """⊘ y no un no: sin el dato no se puede afirmar que el corte fue del tope."""
+        d, cfg = self.entorno(None)
+        r = self.correr_fn(d, cfg,
+                           f'contexto_del_corte "{self.REGISTRO}" {self.MODELO}')
+        self.assertIn("No hay tope de salida declarado", r.stdout, r.stdout)
+        self.assertNotIn("GASTÓ SU TOPE", r.stdout,
+                         "sin tope no puede afirmar que lo gastó")
+
+    def test_el_corte_real_de_T16_se_informa_como_corte_de_tope(self):
+        d, cfg = self.entorno(6000)
+        r = self.correr_fn(d, cfg, f'contexto_del_corte "{self.REGISTRO}" {self.MODELO}')
+        self.assertIn("GASTÓ SU TOPE", r.stdout,
+                      f"la respuesta real usó 5.956 de 6000 tokens y no lo dijo:\n{r.stdout}")
+        self.assertIn("6000", r.stdout, "no nombra el tope, así que no se puede chequear")
+        self.assertIn("§26", r.stdout,
+                      "no explica por qué el final es el lugar frágil")
+
+    def test_una_respuesta_corta_NO_se_acusa_de_gastar_el_tope(self):
+        """El brazo que impide el grito de lobo. Un instrumento que acusa siempre no
+        distingue nada, y es la quinta vez que este repo se encuentra una guarda así."""
+        d, cfg = self.entorno(6000)
+        corta = d / "corta.md"
+        corta.write_text("el enunciado le falta el import exacto.\n\nVEREDICTO: REESCRIBIR\n")
+        r = self.correr_fn(d, cfg, f'contexto_del_corte "{corta}" {self.MODELO}')
+        self.assertIn("6000", r.stdout, "igual tiene que informar el tope")
+        self.assertNotIn("GASTÓ SU TOPE", r.stdout,
+                         f"una respuesta de 70 bytes no gastó 6000 tokens:\n{r.stdout}")
+
+    def test_el_tope_justo_al_borde_cuenta_como_gastado(self):
+        """El 90% es el umbral, y está escrito: una respuesta que llegó al 90% de su tope se
+        cortó ahí, porque el modelo no apunta a terminar justo antes del límite."""
+        d, cfg = self.entorno(1000)   # 1000 tokens ≈ 4160 bytes
+        borde = d / "borde.md"
+        borde.write_text("x" * 3800 + "\n")   # ≈ 913 tokens, 91% de 1000
+        r = self.correr_fn(d, cfg, f'contexto_del_corte "{borde}" {self.MODELO}')
+        self.assertIn("GASTÓ SU TOPE", r.stdout, f"91% del tope es un corte:\n{r.stdout}")
+
+    # ── El veredicto provisorio: evidencia, no permiso
+
+    def test_el_provisorio_se_lee_de_la_primera_linea(self):
+        d, cfg = self.entorno()
+        f = d / "diag.md"
+        f.write_text("VEREDICTO PROVISORIO: HUECO\nanalizo\ny me corté a mitad de\n")
+        r = self.correr_fn(d, cfg, f'veredicto_provisorio "{f}"')
+        self.assertEqual("VEREDICTO PROVISORIO: HUECO", r.stdout.strip(), r.stdout)
+
+    def test_el_provisorio_NO_autoriza_el_paso_2(self):
+        """Lo central. Se emite ANTES de razonar: si autorizara, habríamos cambiado un
+        veredicto falso por otro."""
+        d, cfg = self.entorno()
+        f = d / "diag.md"
+        f.write_text("VEREDICTO PROVISORIO: REESCRIBIR\nanalizo\ny me corté\n")
+        r = self.correr_fn(d, cfg, f'veredicto_provisorio "{f}"; echo "---"; '
+                                   f'veredicto_declarado "{f}"')
+        prov, _, decl = r.stdout.partition("---")
+        self.assertIn("PROVISORIO", prov, f"no leyó el provisorio: {r.stdout!r}")
+        self.assertEqual("", decl.strip(),
+                         f"el provisorio pasó por veredicto que manda: {decl!r}")
+
+    def test_el_prompt_citado_no_cuenta_como_provisorio(self):
+        """Mismo defecto que ya cometí con el otro campo: el prompt cita la línea entre
+        comillas, así que la clase de caracteres no las admite."""
+        d, cfg = self.entorno()
+        # Control POSITIVO primero. Sin él este test pasaba vacuamente: si la función no
+        # existe, la salida es vacía y «no leyó el prompt citado» se cumple por no leer
+        # nada. Cuarta vez en el día que me hago este verde falso.
+        sano = d / "sano.md"
+        sano.write_text("VEREDICTO PROVISORIO: HUECO\nbla\n")
+        self.assertIn("PROVISORIO", self.correr_fn(d, cfg, f'veredicto_provisorio "{sano}"').stdout,
+                      "el control positivo no lee nada: la función falta y este test no mide")
+        f = d / "diag.md"
+        f.write_text("- 'VEREDICTO PROVISORIO: HUECO' o 'VEREDICTO PROVISORIO: REESCRIBIR'\n"
+                     "bla\n")
+        r = self.correr_fn(d, cfg, f'veredicto_provisorio "{f}"')
+        self.assertEqual("", r.stdout.strip(),
+                         f"leyó el prompt citado como si fuera la decisión: {r.stdout!r}")
+
+    def test_el_relevo_pide_las_dos_lineas_y_usa_las_dos_funciones(self):
+        texto = codigo_de(SCRIPTS / "replanificar-relevo.sh")
+        self.assertIn("VEREDICTO PROVISORIO", texto, "el prompt no pide el provisorio")
+        self.assertIn("EMPEZÁ tu respuesta", texto, "no pide que vaya primero")
+        self.assertIn("TERMINÁ tu respuesta", texto, "dejó de pedir el que manda")
+        self.assertIn("contexto_del_corte", texto, "no informa de qué fue el corte")
+        self.assertIn("veredicto_provisorio", texto, "no rescata lo que decidió antes del corte")

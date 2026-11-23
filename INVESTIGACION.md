@@ -1548,6 +1548,133 @@ falló fue un instrumento intermedio, y es el que se cierra acá.
 | 23/11 mañana | sabía y no llegaba a escribirlo (adivinaba paths, litigaba permisos) |
 | 23/11 tarde | no adivina ni litiga, **se corta por largo y el corte no se declara** |
 
+## 3quinquies. Modelos: el arquitecto es el único denso del pipeline, y el reemplazo ya está servido
+
+Buscado contra fuentes oficiales —la API de HuggingFace y los model cards de `Qwen/`—, no
+listicles.
+
+### Qué hay y qué no
+
+- **No hay Qwen4 con pesos abiertos.** Qwen4-Max salió el 16/11/2026 pero es hosted-only: sin
+  parámetros, sin pesos, sin licencia publicada. Alibaba prometió variantes chicas abiertas,
+  incluido un 27B, sin fecha. Verificado contra la API: el modelo de texto más nuevo de `Qwen/`
+  es **Qwen3.8-27B (05/08/2026)**, que ya usamos.
+- **«Qwen 2.8 7B» no existe.** Los chicos reales y nuevos son Qwen3.5-9B (9,7B denso),
+  Qwen3.5-4B y Qwen3.5-2B, todos Apache-2.0, de febrero de 2026.
+- **`Qwen3.8-Flash-Next` tiene 180B y licencia `other`.** El nombre engaña: no es un modelo
+  chico. Queda fuera por tamaño y por licencia.
+
+### La asimetría que no habíamos visto
+
+| rol | modelo | total / activos |
+|---|---|---|
+| ejecutor | Qwen3-Coder-30B-A3B | 30,5B / **3B** |
+| arquitecto | Qwen3.8-27B-FP8 | 27,8B / **27,8B — denso** |
+
+El ejecutor ya es un MoE que activa 3B por token. **El arquitecto es el único modelo denso del
+pipeline**, y activa nueve veces más parámetros por token que su compañero. Medido hoy con
+`medir-tps.py`, mediana de cinco: **5,8 tok/s** (primer token 1,64 s). Por eso muere contra el
+reloj, y no es un problema de capacidad: acertó el diagnóstico las dos veces.
+
+### Y el reemplazo ya está en la plataforma
+
+Pedí `/models` a ColabHive: 69 modelos expuestos, y tres que nunca probamos.
+
+| id | nombre | por qué |
+|---|---|---|
+| `23528908-…` | **Qwen3.6-35B-A3B-NVFP4** | 35B/**3B activos** — el perfil exacto que la medición pide |
+| `d7750d6c-…` | **Devstral-Small-2-24B-Instruct-2512** | agente de código de Mistral, 12/2025 |
+| `37bf8969-…` | **Ministral 3 14B** | Apache-2.0, function calling nativo |
+
+Los números del card oficial de Qwen —**vendor-reported**, lo digo porque importa— del A3B
+contra el 27B denso de la generación anterior:
+
+| benchmark | 27B denso | 35B-A3B |
+|---|---|---|
+| Terminal-Bench 2.0 | 41,6 | **51,5** |
+| QwenWebBench | 1068 | **1397** |
+| NL2Repo | 27,3 | **29,4** |
+| MCPMark | 36,3 | **37,0** |
+| MCP-Atlas | **68,4** | 62,8 |
+| Tool Decathlon | **31,5** | 26,9 |
+| SWE-bench Verified | **75,0** | 73,4 |
+
+Empatan en capacidad: el denso gana tres, el A3B gana cuatro, y ninguna diferencia pasa de
+cinco puntos salvo Terminal-Bench y Web, donde gana el A3B. Lo que no empata es cuántos
+parámetros activa. Cambiar dos o tres puntos de benchmark por el throughput de un A3B es
+exactamente el canje que nuestra medición pide, **y ninguno de esos números dice si el modelo
+llama a las herramientas o se queda deliberando**, que es nuestra pregunta. Eso lo contesta
+`comparar-modelos.sh`, que ya lo tiene escrito en su encabezado.
+
+### Dos anotados, no propuestos
+
+- **Qwen3-Coder-Next** (80B total / 3B activos, Apache-2.0, 01/2026): su card dice *«supports
+  only non-thinking mode and **does not generate `<think></think>` blocks**»*. El defecto §26 es
+  que el 27B fusiona el razonamiento en `content` y el tope de salida corta justo la acción. Un
+  modelo que no emite bloques de razonamiento **no puede** tener ese defecto. Son 80B de pesos en
+  VRAM y ColabHive no lo expone: es el argumento para pedirlo, no una opción de hoy.
+- **Qwen-AgentWorld-35B-A3B** (Apache-2.0, 06/2026) **no es un agente**: es un *language world
+  model* que simula entornos —MCP, Search, Terminal, SWE, Android, Web, OS— prediciendo el
+  siguiente estado del entorno dada una acción. Para correr el arquitecto no sirve. Para la
+  fábrica de dataset podría servir mucho: trayectorias de agente sin gastar pedidos de
+  ColabHive, que es nuestro recurso escaso. Queda anotado.
+
+## 3sexies. Corrección: eran DOS causas, y les puse el mismo nombre a las dos
+
+Me lo marcaron y tienen razón. Vine llamando «el reloj» a todo corte, y de las dos corridas
+de T16 sólo una fue tiempo:
+
+| corrida | tamaño | qué la cortó |
+|---|---|---|
+| 22/11 | 8.759 bytes | `SSE read timed out`. **Ésa sí fue tiempo.** |
+| 23/11 | 24.962 bytes | **ningún marcador de error.** 24.962/6000 = 4,16 bytes por token, la relación normal de prosa con código: gastó su **tope de salida** entero |
+
+El tope es `limit.output` en `~/.config/opencode/opencode.json`, y para el modelo del
+arquitecto vale **6000**. O sea: la plataforma devolvió 200, la respuesta terminó a mitad de
+la frase «re-raises with "Error al cargar el router '», y paró **donde nosotros le dijimos que
+pare**. `error_del_agente` no encontró nada porque no había nada que encontrar, y el arnés
+informó «✓ diagnóstico de 24.962 bytes» como si estuviera completo.
+
+Es la misma clase de silencio que el gate tenía con sus abstenciones, en otro lugar del
+sistema: **lo que no se declara se lee como que no pasó.**
+
+### La consecuencia no es el tamaño: es §26
+
+Qwen3.8-27B **funde el razonamiento en `content`**. El tope de salida se reparte entonces
+entre pensar y contestar, y con un tope duro eso tiene una consecuencia estructural:
+
+> **lo que se pide al final es lo primero que se pierde.**
+
+Y el veredicto se pedía en la última línea. O sea en el lugar más frágil que había, por diseño
+mío, el día anterior.
+
+### Lo que se hizo
+
+1. **`contexto_del_corte`**: cuando un diagnóstico no declara su veredicto, el arnés dice de
+   qué fue el corte —el tope del modelo, los bytes, la estimación en tokens, y si llegó al 90%
+   del tope, que «GASTÓ SU TOPE»—. No adivina un umbral escondido: imprime la cuenta y la
+   decisión queda con quien lee, que es lo honesto cuando bytes/token depende del texto.
+2. **`veredicto_provisorio`**: el prompt ahora pide una PRIMERA línea `VEREDICTO PROVISORIO:
+   HUECO|REESCRIBIR`, antes de analizar. **No autoriza nada** —se emite antes de razonar— y el
+   que manda sigue siendo el de la última línea. Existe para que un corte deje algo en vez de
+   nada: hoy, cuando se cortaba, se perdía entero lo que el modelo había decidido y el arnés
+   sólo podía decir «está incompleto». La asimetría es la que el repo ya usa: equivocarse hacia
+   «que lo mire alguien» cuesta una consulta; hacia «reescribí» costó un agente entero.
+
+### Lo que NO se hizo, y es decisión de quien firma
+
+**Subir el tope de 6000.** Es un archivo de la máquina de Jose, fuera del repo, y
+`presupuesto_coherente` existe justamente para frenar un tope que después no se puede
+entregar. El dato para decidir está: el arquitecto gastó 6000 tokens razonando y no llegó al
+veredicto. En la misma config, gpt-oss-120b tiene 8192 y GLM-4.7-Flash tiene 12250.
+
+### Un umbral que sí está escrito
+
+El 90% del tope cuenta como gastado, y hay un test con una respuesta al 91% que lo exige.
+El brazo que importa es el otro: una respuesta de 70 bytes **no** se acusa de haber gastado
+6000 tokens. Un instrumento que acusa siempre no distingue nada, y es la quinta guarda de esa
+clase que este repo se encuentra.
+
 ## 4. Dónde seguimos adelante
 
 - Su «verification-before-completion» es nuestro gate escrito como regla de conducta: *«si no

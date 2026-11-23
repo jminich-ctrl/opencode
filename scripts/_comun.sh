@@ -169,6 +169,77 @@ no_juzgado_por_el_gate() {
                 if (substr(l[i], 1, 16) == "    no juzgado: ") print substr(l[i], 17) }' "$1"
 }
 
+# El tope de salida que le pusimos a un modelo, de la config de opencode. Vacío si no hay.
+tope_de_salida_de_modelo() {
+  local cfg="${CONFIG_OC:-$HOME/.config/opencode/opencode.json}"
+  [ -f "$cfg" ] || return 0
+  python3 -I - "$cfg" "$1" <<'PYTOPE' 2>/dev/null
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+m = (cfg.get("provider", {}).get("colabhive", {}).get("models", {}) or {}).get(sys.argv[2], {})
+print((m.get("limit") or {}).get("output") or "")
+PYTOPE
+}
+
+# El veredicto PROVISORIO, que se pide en la PRIMERA línea.
+#
+# No autoriza nada. El que manda sigue siendo el de la última línea —`veredicto_declarado`—
+# porque es el que salió después de razonar. Éste existe sólo para el caso en que la
+# respuesta se corte: hoy, cuando se corta, se pierde TODO lo que el modelo había decidido, y
+# el arnés sólo puede decir «está incompleto». Con la primera línea al menos queda en qué se
+# estaba inclinando, y eso es evidencia para la persona que va a mirar.
+#
+# La asimetría es a propósito y es la que el repo ya usa: equivocarse hacia «que lo mire
+# alguien» cuesta una consulta; hacia «reescribí» costó, medido, un agente entero. Un
+# veredicto emitido ANTES de razonar no puede mandar.
+veredicto_provisorio() {
+  [ -f "$1" ] || return 0
+  grep -av '^[[:space:]]*$' "$1" | head -1 \
+    | sed -nE 's/^[[:space:]*_`#>]*(VEREDICTO PROVISORIO: *(HUECO|REESCRIBIR)).*/\1/p'
+}
+
+# Por qué puede haberse cortado una respuesta que NO trae error.
+#
+# Un corte por tope de salida no es una falla: la plataforma devuelve 200 y la respuesta
+# termina a mitad de una frase. `error_del_agente` no encuentra nada porque no hay nada que
+# encontrar, y el arnés informaba «✓ diagnóstico de 24.962 bytes» como si estuviera completo.
+# Es la misma clase de silencio que el gate tenía con sus abstenciones: lo que no se declara
+# se lee como que no pasó.
+#
+# Medido el 2026-11-23 en el diagnóstico de T16: 24.962 bytes de transcript contra un tope de
+# 6000 tokens son 4,16 bytes por token, que es la relación normal de prosa con código. La
+# respuesta gastó su tope ENTERO y el veredicto —que el prompt pide en la última línea— quedó
+# del otro lado del corte.
+#
+# Y acá está lo que importa, que no es el tamaño: Qwen3.8-27B funde el razonamiento en
+# `content` (§26), así que el tope se reparte entre pensar y contestar. Con un tope duro y el
+# razonamiento compartiendo presupuesto, **lo que se pone al final es lo primero que se
+# pierde.** Pedir el veredicto como última línea es pedirlo en el lugar más frágil.
+#
+# No se adivina un umbral. Se imprime la cuenta —el tope, los bytes, la estimación— y la
+# decisión queda con quien lee, que es lo honesto cuando la relación bytes/token depende del
+# texto.
+contexto_del_corte() {   # <archivo de la respuesta> <id de modelo>
+  local bytes tope est
+  [ -f "$1" ] || return 0
+  bytes="$(wc -c < "$1" | tr -d ' ')"
+  tope="$(tope_de_salida_de_modelo "$2")"
+  if [ -z "$tope" ]; then
+    echo "     No hay tope de salida declarado para este modelo en la config de opencode,"
+    echo "     así que no puedo decir si se cortó contra el suyo. Son $bytes bytes."
+    return 0
+  fi
+  est="$(python3 -I -c "print(round($bytes/4.16))" 2>/dev/null)" || est="?"
+  echo "     Tope de salida de este modelo: $tope tokens. La respuesta son $bytes bytes,"
+  echo "     que a 4,16 bytes por token —la relación medida acá— son unos $est tokens."
+  if [ "${est:-0}" -ge "$(python3 -I -c "print(int($tope*0.9))" 2>/dev/null || echo 999999)" ]; then
+    echo "     GASTÓ SU TOPE: el corte es del tope, no de la plataforma ni del modelo. El"
+    echo "     veredicto se pide en la ÚLTIMA línea y el razonamiento comparte el mismo"
+    echo "     presupuesto (§26: este modelo funde el razonamiento en content), así que lo"
+    echo "     último es lo primero que se pierde. Subir el tope o pedir el campo antes."
+  fi
+}
+
 # El campo VEREDICTO de un diagnóstico, leído DONDE SE PIDIÓ: la última línea no vacía.
 #
 # No es un `grep` del archivo entero. El prompt del relevo cita la línea que pide —«terminá
