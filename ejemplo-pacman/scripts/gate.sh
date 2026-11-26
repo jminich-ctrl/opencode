@@ -73,6 +73,82 @@ if [ -n "${TAREA:-}" ]; then
   else
     verde "tests y scripts intactos"
   fi
+
+  # ── UNA TAREA, UN DOCUMENTO.
+  #
+  # `archivos_de_la_tarea()` imprimía TODAS las líneas que matchean el campo y las unía. Un
+  # enunciado con el campo dos veces no confundía al paso 2: lo ENSANCHABA, y el paso 2 es el
+  # que decide qué puede tocar el agente. Y `validar-plan.py` lee el MISMO campo con
+  # `re.search` —la primera— en cuatro lugares: los dos jueces leían distinto la misma línea.
+  # El guardia de `replanificar.sh` ya cuenta `^# T`, `^**Estado:` y `^## Tests`, pero corre
+  # sólo cuando replanifica el arquitecto, y el campo de archivos no está en su lista.
+  #
+  # Medido el 2026-11-26: 0 de 53 enunciados reales tiene un campo repetido, así que esto no
+  # arregla un rojo de hoy. Cierra el camino por el que el 2026-10-23 el relevo duplicó T28
+  # entera —dos `# T28`, dos `**Estado:**`, dos `## Tests`— y los cuatro jueces la aprobaron,
+  # porque todos miraban propiedades del contenido y ninguno preguntaba si el documento
+  # seguía siendo UNO.
+  #
+  # El lector de un campo se ancla donde el campo VIVE, no en cualquier línea que se le
+  # parezca. La idea es de karpathy-llm-wiki (MIT), que cierra el mismo defecto en
+  # `raw_links_of()` —«los links salen sólo de la cabecera; una línea igual en el cuerpo o
+  # dentro de un fence es contenido, no el campo»— y la defiende con siete tests.
+  ENUNCIADOS=( tareas/"$TAREA"-*.md )
+  if [ "${#ENUNCIADOS[@]}" -eq 0 ] || [ ! -f "${ENUNCIADOS[0]}" ]; then
+    vacuo "la integridad del enunciado: no hay tareas/$TAREA-*.md para leer"
+  elif [ "${#ENUNCIADOS[@]}" -gt 1 ]; then
+    rojo "hay ${#ENUNCIADOS[@]} enunciados para $TAREA, y los lectores del gate los unen:"
+    printf '     %s\n' "${ENUNCIADOS[@]}"
+  else
+    # CERO NO ES «UNA SOLA VEZ». La primera versión de este chequeo preguntaba `-le 1`, así
+    # que un enunciado SIN NINGUNA cabecera imprimía «✓ declara cada campo una sola vez» y un
+    # testigo que decía «5 campo(s) contados» cuando lo que contó fueron cinco ceros. Un
+    # chequeo vacuo dentro del chequeo que se agregó para cerrar un lector vacuo, el mismo día.
+    # Lo encontró la auditoría del 2026-11-26, no yo.
+    #
+    # Los cuatro primeros campos están en 53 de 53 enunciados reales: exigirlos es un chequeo,
+    # no una política nueva. `## Tests` NO: está en 36 de 53 —las 17 de pacman T01–T17
+    # declaran su test en una línea de prosa— así que exigirla pondría rojo a 17 tareas sanas.
+    # Medido antes de escribir la condición, que es el único orden que no inventa un rojo.
+    DUPLICADOS=""
+    CAMPOS_FALTAN=""
+    CUENTAS=""
+    for CAMPO in '^# T[0-9]' '^\*\*Estado:' '^\*\*Depende de:' '^\*\*Archivos que podés tocar:'; do
+      N_CAMPO="$(grep -c "$CAMPO" "${ENUNCIADOS[0]}" || true)"
+      CUENTAS="${CUENTAS:+$CUENTAS · }$CAMPO=${N_CAMPO:-0}"
+      if [ "${N_CAMPO:-0}" -eq 0 ]; then
+        CAMPOS_FALTAN="${CAMPOS_FALTAN:+$CAMPOS_FALTAN; }$CAMPO"
+      elif [ "${N_CAMPO:-0}" -gt 1 ]; then
+        DUPLICADOS="${DUPLICADOS:+$DUPLICADOS; }$N_CAMPO veces $CAMPO"
+      fi
+    done
+    N_TESTS="$(grep -c '^## Tests' "${ENUNCIADOS[0]}" || true)"
+    [ "${N_TESTS:-0}" -le 1 ] \
+      || DUPLICADOS="${DUPLICADOS:+$DUPLICADOS; }$N_TESTS veces ^## Tests"
+    if [ -n "$DUPLICADOS" ]; then
+      rojo "el enunciado no es UN enunciado: $DUPLICADOS"
+      echo "     Un campo repetido no se lee mal: se UNE, y ensancha el alcance del paso 2."
+    elif [ -n "$CAMPOS_FALTAN" ]; then
+      rojo "el enunciado no declara cabecera que el método necesita: $CAMPOS_FALTAN"
+      echo "     Sin esos campos los lectores del gate devuelven vacío y los pasos que"
+      echo "     dependen de ellos se abstienen: un ⊘ en cadena se lee como verde."
+    else
+      verde "cada campo de cabecera está declarado exactamente una vez"
+      # Las cuentas REALES, no el número de patrones probados: es lo que distingue
+      # «conté cinco campos» de «conté cinco ceros».
+      testigo "$CUENTAS · ^## Tests=${N_TESTS:-0} (opcional) en ${ENUNCIADOS[0]}"
+    fi
+    # La declaración del test es prosa, no un marcador de sección: dos no son necesariamente
+    # un documento roto, pero `test_de_la_tarea()` se queda con la PRIMERA y el paso 4 acota
+    # la suite con eso. Con más de una, el gate no puede saber si eligió la que declara el
+    # plan, y eso es un ⊘ con nombre, no un verde.
+    N_DECL="$(grep -cE '`[^`]*`, *clase `[A-Za-z0-9_]*`' "${ENUNCIADOS[0]}" || true)"
+    if [ "${N_DECL:-0}" -le 1 ]; then
+      testigo "${N_DECL:-0} declaración(es) de test en el enunciado"
+    else
+      vacuo "cuál de las $N_DECL declaraciones de test vale: el paso 4 usa la primera"
+    fi
+  fi
 fi
 
 echo "── 1. Tests"
@@ -122,8 +198,13 @@ SALIDA="$(bash scripts/correr-suite.sh 2>&1)"; RC=$?
 # `test_de_la_tarea`: el paso 2 y el paso 4 leían la misma línea del archivo de tarea con dos
 # parsers distintos, y el del paso 4 era una lista de extensiones que envejeció.
 archivos_de_la_tarea() {
+  # `awk NR==1`: UNA línea, la del campo. Antes imprimía todas las que matchean y las unía,
+  # así que un campo repetido ENSANCHABA el alcance en vez de romper. El paso 0 ahora da rojo
+  # por eso, y este lector no depende de que el paso 0 haya corrido. Es `awk` y no `head -1`
+  # porque `head` cierra el pipe y con `pipefail` la función volvería con el rc de un `sed`
+  # muerto por SIGPIPE: el arreglo no puede traer su propio modo de falla.
   sed -n 's/^\*\*Archivos que podés tocar:\*\* *//p' "tareas/${TAREA:-}"-*.md 2>/dev/null \
-    | tr ',' '\n' | grep -oE '[A-Za-z0-9_./-]+(\.[A-Za-z0-9]+|/)' | sort -u
+    | awk 'NR == 1' | tr ',' '\n' | grep -oE '[A-Za-z0-9_./-]+(\.[A-Za-z0-9]+|/)' | sort -u
 }
 
 # ¿Este archivo está dentro de lo que la tarea declara? Mismo criterio que el paso 2: un
@@ -470,8 +551,16 @@ else
   echo "$CAMBIADOS" | sed 's/^/     /' | sort -u
   # El alcance sale del archivo de la tarea, no de reglas hardcodeadas acá: una regla
   # escrita a mano queda vieja en cuanto el plan crece (nos pasó con render.py y T12).
-  PERMITIDOS="$(sed -n 's/^\*\*Archivos que podés tocar:\*\* *//p' "tareas/${TAREA:-}"-*.md 2>/dev/null \
-                | tr ',' '\n' | grep -oE '[A-Za-z0-9_./-]+(\.[A-Za-z0-9]+|/)' | sort -u)"
+  # UN SOLO LECTOR, de verdad. Acá vivía una copia LITERAL del pipeline de
+  # `archivos_de_la_tarea()`, y el comentario de esa función dice desde el 2026-10 que el
+  # paso 2 y el paso 4 ya no leen la misma línea con dos parsers: era cierto para el paso 4 y
+  # falso para éste, que es el que decide. La prosa decía una cosa y el código otra, en el
+  # chequeo que define qué puede tocar el agente.
+  #
+  # Se vio el 2026-11-26 arreglando el lector para que no una campos repetidos: el arreglo no
+  # cambió nada porque el paso 2 nunca lo había usado. Un arreglo que vive en un hermano y no
+  # en el otro — por sexta vez en este repo.
+  PERMITIDOS="$(archivos_de_la_tarea)"
   if [ -n "${TAREA:-}" ] && [ -z "$PERMITIDOS" ]; then
     rojo "la tarea $TAREA no declara \"Archivos que podés tocar\": sin alcance no hay gate"
   elif [ -z "${TAREA:-}" ]; then

@@ -6555,6 +6555,13 @@ class TestElGateNoCastigaNadaQueElAgenteNoHayaLeido(unittest.TestCase):
         # así que no va en AGENTS.md. Es la contracara exacta de «rompiste tests que andaban»,
         # que sí es del agente y sí está escrito donde lo lee.
         "el rojo es de un ⊘ anotado antes",
+        # Quinta vez que el canario atrapa un rojo mío sin clasificar, y esta vez el mismo día
+        # que escribí el chequeo. Los tres son del ENUNCIADO, que escribe el arquitecto o una
+        # persona: el agente que ejecuta la tarea no puede quitar un campo duplicado, ni borrar
+        # el segundo archivo de tarea, ni agregar la cabecera que falta. No van en AGENTS.md.
+        "el enunciado no es UN enunciado",
+        "enunciados para",
+        "el enunciado no declara cabecera",
     )
 
     # Rojos que SÍ le cobran algo al agente → tiene que estar escrito donde el agente lee.
@@ -21051,3 +21058,278 @@ class TestLaMedicionTieneTechoYNoCuelgaParaSiempre(unittest.TestCase):
         base = self.servidor()
         r = self.medir(base, tope=4)
         self.assertIn("4s", r.stdout, f"el mensaje no nombra el techo usado:\n{r.stdout}")
+
+
+class TestUnaTareaUnDocumento(CasoBase):
+    """Un campo del enunciado se lee de UN lugar, y un enunciado duplicado no se une.
+
+    El agujero, encontrado el 2026-11-26 mirando `karpathy-llm-wiki` (MIT): su
+    `raw_links_of()` lee los links de evidencia SÓLO de la cabecera del documento, porque una
+    línea idéntica en el cuerpo o dentro de un fence es contenido y no el campo — y lo
+    defiende con siete tests. Nuestros dos lectores del mismo campo hacían lo contrario:
+
+      · `archivos_de_la_tarea()` del gate imprimía TODAS las líneas que matchean y las unía,
+        así que un campo repetido ENSANCHABA el alcance permitido — y el alcance es lo que
+        decide qué puede tocar el agente.
+      · `validar-plan.py` lee el MISMO campo con `re.search` —la primera— en cuatro lugares.
+
+    O sea que los dos jueces leían distinto la misma línea, y el que leía de más era el que
+    manda. El guardia de `replanificar.sh` ya cuenta `^# T`, `^**Estado:` y `^## Tests`, pero
+    corre sólo cuando replanifica el arquitecto y el campo de archivos no está en su lista.
+
+    Medido antes de tocar nada: 0 de 53 enunciados reales tiene un campo repetido. Esto no
+    arregla un rojo de hoy; cierra el camino por el que el 2026-10-23 el relevo duplicó T28
+    entera y los cuatro jueces la aprobaron.
+    """
+
+    GATES = sorted([PLANTILLAS / "gate.sh"] + list(RAIZ.glob("ejemplo-*/scripts/gate.sh")))
+    CAMPOS = ["'^# T[0-9]'", "'^\\*\\*Estado:'", "'^\\*\\*Depende de:'",
+              "'^\\*\\*Archivos que podés tocar:'", "'^## Tests'"]
+
+    def enunciado(self, texto):
+        """Escribe el enunciado de T01 y lo commitea.
+
+        El commit no es decoración: el archivo de tarea es de la etapa anterior, no del
+        agente, y sin commitear aparece en su propio diff y el rojo que sale es otro."""
+        (self.p.dir / "tareas" / "T01-cosa.md").write_text(texto)
+        self.p.git("add -A")
+        self.p.git('commit -qm enunciado')
+
+    def leer_enunciado(self):
+        return (self.p.dir / "tareas" / "T01-cosa.md").read_text()
+
+    def cuerpo_del_lector(self, gate):
+        """El cuerpo de `archivos_de_la_tarea()`, y nada más.
+
+        Scopeado a la función a propósito: `head -1` es legítimo en otros lectores del mismo
+        archivo, y un test que lo busque en todo el gate daría rojo por una línea sana."""
+        t = gate.read_text()
+        i = t.index("archivos_de_la_tarea() {")
+        cuerpo = t[i:t.index("\n}", i)]
+        # Sin los comentarios: el comentario de la función NOMBRA `head -1` para explicar por
+        # qué no se usa, y la primera versión de este test lo leyó como si fuera el código.
+        # Un test que confunde la prosa con la implementación es el defecto que este repo
+        # persigue, cometido por el test que lo persigue.
+        return "\n".join(l for l in cuerpo.splitlines() if not l.lstrip().startswith("#"))
+
+    # ── el campo repetido
+
+    def test_campo_de_archivos_duplicado_da_rojo(self):
+        """Repetido con el MISMO valor: el único defecto posible es la integridad."""
+        self.enunciado(self.leer_enunciado().replace(
+            "**Archivos que podés tocar:** src/cosa.py",
+            "**Archivos que podés tocar:** src/cosa.py\n**Archivos que podés tocar:** src/cosa.py"))
+        self.p.implementar()
+        self.assertRojo(self.p.gate("T01"), "el enunciado declara el campo dos veces",
+                        motivo="no es UN enunciado")
+
+    def test_el_campo_duplicado_no_ensancha_el_alcance(self):
+        """El test del lector, no del guardia: con DOS campos y un archivo que sólo el
+        segundo permite, el alcance tiene que dar rojo igual.
+
+        Es el que falla si se saca el `awk 'NR == 1'` y se deja el guardia puesto: el gate
+        seguiría rojo por integridad y el ensanche pasaría escondido detrás de ese rojo."""
+        self.enunciado(self.leer_enunciado().replace(
+            "**Archivos que podés tocar:** src/cosa.py",
+            "**Archivos que podés tocar:** src/cosa.py\n"
+            "**Archivos que podés tocar:** src/cosa.py, src/colado.py"))
+        self.p.implementar()
+        (self.p.dir / "src" / "colado.py").write_text("# sólo lo permite el segundo campo\n")
+        r = self.p.gate("T01")
+        self.assertRojo(r, "src/colado.py sólo está en el segundo campo",
+                        motivo="fuera del alcance")
+        self.assertIn("src/colado.py", r.stdout,
+                      f"dio rojo de alcance pero no nombró el archivo colado:\n{r.stdout[-800:]}")
+
+    def test_otro_campo_duplicado_tambien_da_rojo(self):
+        """La lista es una lista: si sólo mirara el campo de archivos, sería un chequeo
+        con la forma de una lista y el alcance de una línea."""
+        self.enunciado(self.leer_enunciado().replace(
+            "**Estado:** pendiente", "**Estado:** pendiente\n**Estado:** pendiente"))
+        self.p.implementar()
+        self.assertRojo(self.p.gate("T01"), "**Estado:** aparece dos veces",
+                        motivo="no es UN enunciado")
+
+    def test_el_rojo_dice_cuantas_veces_y_cual_campo(self):
+        """«el enunciado está mal» no se puede arreglar sin leer el enunciado entero."""
+        self.enunciado(self.leer_enunciado().replace(
+            "## Tests (ya escritos, fallando)",
+            "## Tests (ya escritos, fallando)\n\n## Tests (otra vez)"))
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertRojo(r, "## Tests dos veces", motivo="no es UN enunciado")
+        marcadas = [l for l in r.stdout.splitlines() if l.startswith("  ✗ ")]
+        self.assertTrue(any("2 veces" in l and "## Tests" in l for l in marcadas),
+                        f"el rojo no dice cuántas veces ni cuál campo:\n{marcadas}")
+
+    # ── dos enunciados para la misma tarea
+
+    def test_dos_enunciados_para_la_misma_tarea_dan_rojo(self):
+        """El glob `tareas/T01-*.md` matchea los dos y `sed` los lee a los dos: el alcance
+        vuelve a ser una unión, un archivo más arriba."""
+        (self.p.dir / "tareas" / "T01-otra-version.md").write_text(self.leer_enunciado())
+        self.p.git("add -A")
+        self.p.git('commit -qm "dos enunciados"')
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertRojo(r, "hay dos archivos de tarea para T01", motivo="enunciados para T01")
+        self.assertIn("T01-otra-version.md", r.stdout,
+                      f"dio rojo sin nombrar los enunciados que encontró:\n{r.stdout[-800:]}")
+
+    # ── lo que no se puede juzgar, con nombre
+
+    def test_sin_enunciado_el_chequeo_se_abstiene_con_nombre(self):
+        """Sin el archivo no hay nada que contar, y eso es ⊘ con nombre — no un ✓ callado."""
+        (self.p.dir / "tareas" / "T01-cosa.md").unlink()
+        self.p.git("add -A")
+        self.p.git('commit -qm "sin enunciado"')
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertIn("⊘ la integridad del enunciado", r.stdout,
+                      f"no se abstuvo con nombre:\n{r.stdout[-900:]}")
+        marcadas = [l for l in r.stdout.splitlines() if l.startswith("  ✗ ")]
+        self.assertFalse(any("integridad del enunciado" in l for l in marcadas),
+                         f"la abstención salió como falla, que es acusar al sujeto "
+                         f"equivocado:\n{marcadas}")
+
+    def test_dos_declaraciones_de_test_no_pasan_calladas(self):
+        """La declaración del test es prosa, no un marcador de sección: dos no rompen el
+        documento, pero `test_de_la_tarea()` se queda con la primera y el paso 4 acota la
+        suite con eso. El gate no puede saber si eligió la del plan, y lo dice.
+
+        La segunda va al FINAL para que la primera siga siendo la buena: así el escenario
+        prueba lo que dice —una abstención en un gate verde— y no un rojo del paso 4."""
+        self.enunciado(self.leer_enunciado()
+                       + "\n## Nota\n\nNo confundir con `tests/test_otro.py`, clase `TestOtro`.\n")
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertVerde(r, "dos declaraciones no rompen el documento")
+        self.assertIn("⊘ cuál de las 2 declaraciones de test vale", r.stdout,
+                      f"no avisó que eligió una entre dos:\n{r.stdout[-900:]}")
+        self.assertIn("no juzgado: cuál de las 2 declaraciones", r.stdout,
+                      f"la abstención no llegó a la lista del veredicto, que es la que lee "
+                      f"el runner:\n{r.stdout[-900:]}")
+
+    # ── que no dé rojo donde no lo hay
+
+    def test_el_enunciado_sano_sigue_dando_verde(self):
+        """El brazo nulo del chequeo nuevo: un guardia que siempre dispara no es un guardia.
+        Cuarta vez en este repo que un chequeo se agrega sin este brazo y pone rojo a todos."""
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertVerde(r, "el enunciado de juguete declara cada campo una sola vez")
+        self.assertIn("cada campo de cabecera está declarado exactamente una vez", r.stdout,
+                      f"dio verde pero el chequeo no corrió:\n{r.stdout[-800:]}")
+
+    def test_un_enunciado_sin_cabecera_no_puede_dar_verde(self):
+        """El brazo nulo que no escribí la primera vez, y el defecto que dejó entrar.
+
+        La condición era `-le 1`, y cero también es «como máximo una vez»: un archivo de tarea
+        sin ninguna cabecera imprimía «✓ declara cada campo una sola vez» más un testigo que
+        decía «5 campo(s) de cabecera contados» cuando lo que había contado eran cinco ceros.
+        Un chequeo vacuo adentro del chequeo que escribí para cerrar un lector vacuo, el mismo
+        día. Lo encontró la auditoría, no yo."""
+        self.enunciado("# una línea cualquiera, sin ninguna cabecera\n")
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertRojo(r, "el enunciado no tiene cabecera", motivo="no declara cabecera")
+        self.assertNotIn("declarado exactamente una vez", r.stdout,
+                         f"afirmó que cada campo está una vez sobre un archivo que no tiene "
+                         f"ninguno:\n{r.stdout[-700:]}")
+
+    def test_el_testigo_dice_las_cuentas_y_no_los_patrones_probados(self):
+        """«conté cinco campos» y «conté cinco ceros» tienen que verse distinto. El testigo
+        viejo no los distinguía, y por eso el verde falso era invisible en el log."""
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertVerde(r)
+        self.assertIn("Estado:=1", r.stdout,
+                      f"el testigo no trae la cuenta real de cada campo:\n{r.stdout[-700:]}")
+
+    def test_la_seccion_de_tests_es_opcional(self):
+        """17 de 53 enunciados reales no tienen `## Tests` —las de pacman declaran su test en
+        una línea de prosa— así que exigirla sería un rojo inventado sobre tareas sanas.
+        Medido antes de escribir la condición."""
+        self.enunciado(self.leer_enunciado().replace(
+            "## Tests (ya escritos, fallando)", "### Los tests ya están escritos"))
+        self.p.implementar()
+        r = self.p.gate("T01")
+        self.assertVerde(r, "sin `## Tests` el enunciado sigue siendo válido")
+        self.assertIn("^## Tests=0 (opcional)", r.stdout,
+                      f"el testigo no dice que la sección falta y es opcional:"
+                      f"\n{r.stdout[-700:]}")
+
+    def test_los_enunciados_reales_pasan_la_integridad(self):
+        """Los 53 enunciados de los dos ejemplos, contados uno por uno.
+
+        Es el control positivo sobre contenido real, al estilo del `test_examples_have_zero_
+        suspects` de karpathy-llm-wiki: si mañana alguien suma un campo a la lista y pone
+        rojo a los 53 proyectos reales, lo dice este test y no una corrida de agentes."""
+        import re as _re
+        patrones = {
+            "# T": _re.compile(r"^# T[0-9]", _re.M),
+            "**Estado:": _re.compile(r"^\*\*Estado:", _re.M),
+            "**Depende de:": _re.compile(r"^\*\*Depende de:", _re.M),
+            "**Archivos que podés tocar:": _re.compile(r"^\*\*Archivos que podés tocar:", _re.M),
+            "## Tests": _re.compile(r"^## Tests", _re.M),
+        }
+        reales = sorted(RAIZ.glob("ejemplo-*/tareas/*.md"))
+        self.assertGreaterEqual(len(reales), 50,
+                                f"el corpus de enunciados reales se encogió a {len(reales)}: "
+                                f"este control deja de controlar algo")
+        for f in reales:
+            texto = f.read_text()
+            for nombre, patron in patrones.items():
+                n = len(patron.findall(texto))
+                self.assertLessEqual(n, 1, f"{f.relative_to(RAIZ)} declara «{nombre}» {n} "
+                                           f"veces: el gate le daría rojo")
+
+    # ── que el arreglo esté en los tres gates, y en UN solo lugar
+
+    def test_el_chequeo_esta_en_los_tres_gates_con_la_misma_lista(self):
+        """El defecto recurrente de este repo es que el arreglo vive en un hermano y no en el
+        otro. La lista de campos se compara literal: una lista más corta en un ejemplo es un
+        gate que no mira lo mismo y nadie se enteraría."""
+        for gate in self.GATES:
+            t = gate.read_text()
+            self.assertEqual(t.count("UNA TAREA, UN DOCUMENTO"), 1,
+                             f"{gate.relative_to(RAIZ)}: el chequeo de integridad del "
+                             f"enunciado aparece {t.count('UNA TAREA, UN DOCUMENTO')} veces")
+            for campo in self.CAMPOS:
+                self.assertIn(campo, t, f"{gate.relative_to(RAIZ)} no cuenta el campo {campo}")
+            self.assertEqual(t.count("no es UN enunciado"), 1,
+                             f"{gate.relative_to(RAIZ)}: el rojo no está una sola vez")
+
+    def test_el_lector_del_campo_lee_una_sola_linea(self):
+        """Y no con `head`, y se mide sobre el código y no sobre el comentario: `head -1` cierra el pipe, y con `pipefail` la función volvería con
+        el rc de un `sed` muerto por SIGPIPE. Un arreglo no puede traer su propio modo de
+        falla, que es el defecto que este repo documenta seis veces."""
+        for gate in self.GATES:
+            cuerpo = self.cuerpo_del_lector(gate)
+            self.assertIn("awk 'NR == 1'", cuerpo,
+                          f"{gate.relative_to(RAIZ)}: archivos_de_la_tarea() no acota a una "
+                          f"línea:\n{cuerpo}")
+            self.assertNotIn("head -1", cuerpo,
+                             f"{gate.relative_to(RAIZ)}: volvió el `head -1` con su SIGPIPE:"
+                             f"\n{cuerpo}")
+
+    def test_el_campo_se_lee_en_un_solo_lugar_de_cada_gate(self):
+        """El invariante que faltaba, y que habría atrapado esto sin una corrida de agentes.
+
+        El 2026-11-26, arreglar `archivos_de_la_tarea()` para que no uniera campos repetidos
+        no cambió NADA: el paso 2 —el que decide qué puede tocar el agente— tenía una copia
+        literal del mismo pipeline y nunca había llamado a la función. El comentario de la
+        función decía desde octubre que el paso 2 y el paso 4 ya no leían la misma línea con
+        dos parsers distintos; era cierto del paso 4 y falso del paso 2.
+
+        Un chequeo del CÓDIGO y no de la prosa: mientras el pipeline exista una sola vez, el
+        arreglo del lector llega a los dos lugares por construcción."""
+        pipeline = r"Archivos que podés tocar:\*\* *//p"
+        for gate in self.GATES:
+            t = gate.read_text()
+            self.assertEqual(t.count(pipeline), 1,
+                             f"{gate.relative_to(RAIZ)}: el pipeline que lee el campo "
+                             f"aparece {t.count(pipeline)} veces. Dos lectores del mismo "
+                             f"campo se arreglan de a uno y nadie se entera.")
+            self.assertIn('PERMITIDOS="$(archivos_de_la_tarea)"', t,
+                          f"{gate.relative_to(RAIZ)}: el paso 2 no usa el lector único")
