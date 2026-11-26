@@ -121,3 +121,48 @@ Si el `8 caracteres` del 1.7B y la intermitencia del `tool_call` son del modelo 
 servido. Es la misma pregunta que ya resolvieron una vez hoy —el token repetido del
 `30B-A3B` resultó ser presión de memoria, no cuantización— y la resolvieron mirando las
 placas, que es algo que nosotros no podemos hacer.
+
+---
+
+# 2026-11-26 — dos candidatos a ejecutor que la API lista y no sirve
+
+Medición con `scripts/medir-tps.py` (mediana, no promedio; el techo por corrida es del
+**instrumento** y se informa aparte, así que un corte no se puede confundir con lentitud del
+modelo).
+
+| Modelo | id | Qué pasó | Corridas |
+|---|---|---|---|
+| **Qwen3.6-35B-A3B-NVFP4** | `23528908-…` | **el stream queda abierto y no llega un solo trozo** | 3 × 240 s + 1 × 600 s |
+| Devstral-Small-2-24B | `d7750d6c-…` | HTTP 000 — ni contestó en 240 s | 3 (2026-11-23) |
+
+## Qwen3.6-35B-A3B: cero trozos en diez minutos
+
+Cuatro corridas, dos techos distintos. En todas: la conexión se abre, el stream no se cierra,
+y **no llega ningún trozo**. No es arranque en frío que tarda —lo reintentamos con el techo en
+600 s justamente por eso— ni es lentitud: una respuesta lenta gotea, y esto no gotea.
+
+`/models` lo lista. Desde afuera, un cliente no puede distinguir «este modelo está disponible»
+de «este modelo abre la conexión y no genera».
+
+**Por qué nos importa más que un modelo caído.** Nuestro arquitecto es el único denso del
+pipeline: 6,7 tok/s de mediana y 4,1 en la corrida más lenta de cinco, medido hoy. Con los
+1200 s que el gateway nos da, eso son **4920 tokens de techo duro**, y un diagnóstico de
+replanificación necesitó más de 6000. O sea que el tope no alcanza y **no hay valor del tope
+que lo arregle**: la palanca es la velocidad. Un A3B de 3B activos es exactamente el reemplazo
+que íbamos a medir, y no lo podemos ni comparar.
+
+## Lo que pedimos
+
+1. Que `/models` no liste lo que no genera, o que el pedido falle rápido y con motivo. Un
+   stream abierto y mudo es el peor de los tres modos de falla, porque no se puede atribuir:
+   no hay error que mostrar ni latencia que medir.
+2. Si el A3B está desalojado o sin placa, que lo diga. `scripts/_comun.sh` ya separa
+   «plataforma caída» de «tarea mal» y no acusa al agente, pero necesita una señal para
+   hacerlo.
+3. Reintentar Devstral-Small-2-24B, que quedó en HTTP 000 ×3 el 2026-11-23 y sigue igual.
+
+## Lo que no podemos distinguir desde afuera
+
+Si el stream mudo es réplica desalojada, placa sin memoria, o plantilla de chat que no produce
+ni un token. Es la misma pregunta que el «8 caracteres» del 1.7B, y se contesta mirando las
+placas.

@@ -1166,14 +1166,19 @@ clasificar_sin_tests() {
 TOK_S_PISO="${TOK_S_PISO:-6.1}"
 
 # La velocidad medida de un modelo, si la config la tiene. Vacío si no.
+#
+# El SEGUNDO argumento es qué campo: `tok_s` (la mediana, por omisión) o `tok_s_min` (la
+# corrida más lenta de la medición). Un solo lector con un parámetro, y no dos funciones con
+# el mismo heredoc: la copia byte-idéntica de este heredoc en otra función es uno de los
+# hallazgos de la auditoría del 2026-11-26.
 tok_s_de_modelo() {
-  local mid="$1" cfg="${CONFIG_OC:-$HOME/.config/opencode/opencode.json}"
+  local mid="$1" campo="${2:-tok_s}" cfg="${CONFIG_OC:-$HOME/.config/opencode/opencode.json}"
   [ -f "$cfg" ] || return 0
-  python3 - "$cfg" "$mid" <<'PYTPS' 2>/dev/null
+  python3 - "$cfg" "$mid" "$campo" <<'PYTPS' 2>/dev/null
 import json, sys
 cfg = json.load(open(sys.argv[1]))
 m = (cfg.get("provider", {}).get("colabhive", {}).get("models", {}) or {}).get(sys.argv[2], {})
-v = m.get("tok_s")
+v = m.get(sys.argv[3])
 print(v if isinstance(v, (int, float)) and v > 0 else "")
 PYTPS
 }
@@ -1205,9 +1210,25 @@ PYTOPE
   [ -n "$tope" ] || return 0
   # Por modelo si está medida, el piso si no. Y se DICE cuál se usó: un número sin
   # procedencia no se puede volver a chequear.
+  # La MÁS LENTA conocida, no la mediana. «¿Puede morir por reloj?» es una pregunta de peor
+  # caso, y con la mediana este guardia aprobaba un tope que una corrida lenta ya se pasa:
+  # medido el 2026-11-26 sobre el arquitecto, mediana 6,6 tok/s y la más lenta de tres 4,7.
+  # A 6,6 los 6000 tokens son 909 s y entran en los 1200 del gateway; a 4,7 son 1277 s y no.
+  # O sea que el tope que el guardia bendecía hoy ya puede morir por reloj, y el error que
+  # llega es «inference timed out», que acusa a la inferencia cuando la inferencia andaba
+  # bien. Un guardia que divide por la mediana es un guardia que no dispara cuando debería.
   local tps fuente
-  tps="$(tok_s_de_modelo "$mid")"
-  if [ -n "$tps" ]; then fuente="medida"; else tps="$TOK_S_PISO"; fuente="piso (este modelo no está medido)"; fi
+  tps="$(tok_s_de_modelo "$mid" tok_s_min)"
+  if [ -n "$tps" ]; then
+    fuente="la corrida más lenta medida"
+  else
+    tps="$(tok_s_de_modelo "$mid")"
+    if [ -n "$tps" ]; then
+      fuente="la mediana medida (no hay mínimo registrado: remedí con medir-tps.py --escribir)"
+    else
+      tps="$TOK_S_PISO"; fuente="piso (este modelo no está medido)"
+    fi
+  fi
   segs="$(python3 -c "print(round($tope/$tps))" 2>/dev/null)" || return 0
   # El que manda es el reloj MÁS CORTO, no el nuestro. Chequear sólo contra `LIMITE_AGENTE`
   # es lo que dejó pasar el tope de 8192: nuestro límite eran 3600 s y el gateway 1200.

@@ -19,10 +19,12 @@
           "temperature": true,
           "limit": {
             "context": 117000,
-            "output": 6000
+            "output": 4600
           },
           "tok_s": 6.7,
-          "tok_s_medido": "2026-11-22"
+          "tok_s_medido": "2026-11-26",
+          "tok_s_min": 4.1,
+          "nota_tope": "limit.output derivado del reloj, no elegido: el gateway corta a los 1200 s medidos y la corrida mas lenta de cinco del 2026-11-26 fue 4.1 tok/s, o sea 4920 tokens de techo duro. 4600 deja 78 s de margen. Subirlo cambia un truncado que el metodo declara por un 'inference timed out' que acusa a la inferencia. Ojo: tok_s_min sale de corridas de 200 tokens, y una generacion larga promedia la lentitud transitoria, asi que 4.1 es pesimista como tasa sostenida: es el peor caso, no el esperado."
         },
         "5d21e32a-3bbb-4040-9c34-3b06c4415b84": {
           "name": "gpt-oss-20b · orquestador",

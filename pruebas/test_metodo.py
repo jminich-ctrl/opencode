@@ -1527,6 +1527,68 @@ class TestElTopeDeSalidaYElRelojNoPuedenContradecirse(unittest.TestCase):
                       "no dice que el número salió del piso. Un número sin procedencia no "
                       "se puede volver a chequear, y acá además señala el arreglo: medirlo")
 
+    def test_presupuesta_con_la_corrida_mas_lenta_y_no_con_la_mediana(self):
+        """«¿Puede morir por reloj?» es una pregunta de peor caso, y el guardia la contestaba
+        con la mediana.
+
+        Medido el 2026-11-26 sobre el arquitecto, tres corridas: mediana 6,6 tok/s y la más
+        lenta 4,7. A 6,6 los 6000 tokens del tope vigente son 909 s y entran en los 1200 del
+        gateway; a 4,7 son 1277 s y no entran. O sea que el guardia bendecía un tope que una
+        corrida lenta ya se pasa, y lo que llega cuando eso ocurre es «inference timed out»,
+        que acusa a la inferencia cuando la inferencia andaba bien."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-lento-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        cfg = d / "opencode.json"
+        cfg.write_text(json.dumps({
+            "provider": {"colabhive": {"models": {
+                "m": {"limit": {"output": 6000}, "tok_s": 6.6, "tok_s_min": 4.7}}}},
+            "agent": {"arquitecto": {"model": "colabhive/m"}}}))
+        r = self.correr_guarda(1200, cfg=cfg)
+        salida = r.stdout + r.stderr
+        self.assertIn("rc=1", salida,
+                      f"aprobó con la mediana un tope que la corrida lenta no alcanza a "
+                      f"escribir: {salida[-400:]}")
+        self.assertIn("1277", salida,
+                      f"no dice los segundos del peor caso, que son el número con el que se "
+                      f"decide: {salida[-400:]}")
+        self.assertIn("más lenta", salida,
+                      f"no dice de dónde salió la velocidad que usó. Un número sin "
+                      f"procedencia no se puede volver a chequear: {salida[-400:]}")
+
+    def test_sin_minimo_registrado_usa_la_mediana_y_lo_DICE(self):
+        """El brazo nulo del test de arriba: con el mismo tope y la misma mediana, pero sin
+        mínimo, el guardia aprueba. Eso prueba que lo que cambió el veredicto fue el mínimo y
+        no otra cosa del fixture. Y tiene que decir que le falta, porque el arreglo es
+        remedir y no bajar el tope a ciegas."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-sinmin-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        cfg = d / "opencode.json"
+        cfg.write_text(json.dumps({
+            "provider": {"colabhive": {"models": {
+                "m": {"limit": {"output": 6000}, "tok_s": 6.6}}}},
+            "agent": {"arquitecto": {"model": "colabhive/m"}}}))
+        r = self.correr_guarda(1200, cfg=cfg)
+        salida = r.stdout + r.stderr
+        self.assertIn("rc=0", salida,
+                      f"con la mediana sola el tope entra: si esto da rojo, el test de "
+                      f"arriba no prueba lo que dice: {salida[-400:]}")
+
+    def test_el_que_mide_guarda_el_minimo_y_no_solo_la_mediana(self):
+        """`medir-tps.py` calculaba la corrida más lenta, la imprimía y la tiraba. El que
+        presupuesta contra un reloj necesita el peor caso, así que el que mide lo escribe: un
+        número que alguien tiene que copiar a mano es un número que va a quedar viejo."""
+        s = (SCRIPTS / "medir-tps.py").read_text()
+        self.assertIn('m["tok_s_min"]', s,
+                      "no guarda el mínimo en la config, así que el guardia del presupuesto "
+                      "no lo puede leer")
+        self.assertIn("min(velocidades)", s,
+                      "guarda un campo que no sale de la medición")
+        c = (SCRIPTS / "_comun.sh").read_text()
+        self.assertIn("tok_s_min", c,
+                      "el lector del presupuesto no conoce el campo que el medidor escribe: "
+                      "el escritor y el lector del mismo dato tienen que estar en el mismo "
+                      "contrato")
+
     def test_medir_tps_escribe_en_las_DOS_copias_de_la_config(self):
         """La que OpenCode carga es un symlink a una y el repo versiona la otra. Escribir
         sólo la que nadie carga es el defecto exacto que tuvo `sync_limits.py`: informaba

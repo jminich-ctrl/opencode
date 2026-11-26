@@ -131,8 +131,13 @@ CONFIGS = ("/Users/jose/colabhive-opencode/config/opencode.json",
            str(pathlib.Path(__file__).resolve().parent.parent / "colabhive/config/opencode.json"))
 
 
-def guardar_tok_s(modelo, tps):
-    """Escribe `tok_s` y `tok_s_medido` en las DOS copias de la config.
+def guardar_tok_s(modelo, tps, tps_min):
+    """Escribe `tok_s`, `tok_s_min` y `tok_s_medido` en las DOS copias de la config.
+
+    El mínimo también, porque el que presupuesta contra el reloj del gateway necesita el peor
+    caso y no el típico: este script ya calculaba la corrida más lenta, la imprimía y la
+    tiraba. Medido el 2026-11-26: mediana 6,6 tok/s y mínimo 4,7 en tres corridas del mismo
+    modelo, y con el mínimo el tope vigente deja de entrar en los 1200 s.
 
     Las dos, porque la que OpenCode carga es un symlink a una y el repo versiona la otra.
     Escribir sólo la que nadie carga es exactamente el defecto que `sync_limits.py` tuvo:
@@ -149,9 +154,10 @@ def guardar_tok_s(modelo, tps):
             print(f"  ⊘ {modelo[:8]} no está declarado en {ruta}")
             continue
         m["tok_s"] = tps
+        m["tok_s_min"] = tps_min
         m["tok_s_medido"] = hoy
         r.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n")
-        print(f"  ✓ tok_s={tps} escrito en {ruta}")
+        print(f"  ✓ tok_s={tps} · tok_s_min={tps_min} escrito en {ruta}")
 
 
 def main():
@@ -247,12 +253,16 @@ def main():
             print("  ⊘ la plataforma no informó `usage`: los tokens son trozos contados, "
                   "o sea una cota inferior")
         if args.escribir:
-            # La MEDIANA, no el mínimo ni el promedio: es la que este script informa y la
-            # que la regla 2 de arriba defiende. Y se escribe en las dos copias de la
-            # config, porque la viva es un symlink a una y el repo tiene la otra: escribir
-            # sólo la que nadie carga es un defecto que este proyecto ya cometió con
-            # `sync_limits.py`.
-            guardar_tok_s(modelo, round(statistics.median(velocidades), 1))
+            # La mediana PARA INFORMAR y el mínimo PARA PRESUPUESTAR: son dos preguntas
+            # distintas. «Qué tan rápido es» se contesta con la mediana, que es la que este
+            # script informa y la que la regla 2 de arriba defiende; «puede morir por reloj»
+            # se contesta con el peor caso, y con la mediana el guardia del presupuesto
+            # aprobaba un tope que una corrida lenta ya se pasa.
+            # Y se escribe en las dos copias de la config, porque la viva es un symlink a
+            # una y el repo tiene la otra: escribir sólo la que nadie carga es un defecto
+            # que este proyecto ya cometió con `sync_limits.py`.
+            guardar_tok_s(modelo, round(statistics.median(velocidades), 1),
+                          round(min(velocidades), 1))
         print()
 
 

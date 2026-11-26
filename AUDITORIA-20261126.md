@@ -250,6 +250,30 @@ verificación que `METODO.md` descarta por escrito: «es leer la prosa otra vez,
 Ocho de los nueve «el arreglo vive en un hermano» abiertos son copias de texto, no de código.
 
 ## Lo que queda abierto de esta auditoría
-- **Ninguna de las olas cambia la decisión de fondo que sigue siendo tuya**: el tope de salida
-  del arquitecto (6000, y los gastó razonando sin llegar al veredicto) y declarar
-  `Qwen3.6-35B-A3B-NVFP4` en `provider.colabhive.models`. Las dos son archivos de tu máquina.
+- **Las dos decisiones que estaban abiertas se cerraron el mismo día, y las dos al revés de
+  lo que esperábamos.**
+
+  **El tope del arquitecto bajó de 6000 a 4600, no subió.** Cinco corridas medidas el
+  2026-11-26: mediana 6,7 tok/s y **4,1 en la más lenta**. El gateway corta a los 1200 s, así
+  que el techo duro en el peor caso son 4920 tokens — y 6000 tardan 1463 s, o sea que el tope
+  vigente ya estaba 263 s pasado del reloj. No se veía porque `presupuesto_coherente` dividía
+  por la mediana: un guardia que contesta una pregunta de peor caso con el caso típico. Ahora
+  presupuesta con la corrida más lenta conocida, dice de dónde salió el número, y
+  `medir-tps.py` guarda `tok_s_min` —que ya calculaba, imprimía y tiraba—.
+
+  Subirlo a 8192 habría cambiado un truncado que el método **declara** (`contexto_del_corte()`
+  dice «gastó su tope» y explica §26) por un «inference timed out», que según nuestro propio
+  comentario «apunta a la inferencia cuando la inferencia andaba bien». Peor diagnóstico por el
+  mismo resultado.
+
+  **El A3B no se declara: no transmite.** Cuatro corridas, techos de 240 s y 600 s, y en todas
+  cero trozos recibidos con el stream abierto. No es arranque en frío ni lentitud. Declararlo
+  sería poner en la config un modelo que los agentes pueden elegir y que nunca contesta.
+  Anotado en `colabhive/modelos-nuevos-feedback.md`.
+
+  **Y queda el hallazgo que ninguna de las dos arregla:** a 4,1 tok/s el reloj permite 4920
+  tokens y el diagnóstico necesitó más de 6000. **No hay valor del tope que cierre eso.** La
+  palanca es la velocidad del modelo, y hoy no tenemos reemplazo que la plataforma sirva. Lo
+  que sí queda en nuestras manos es que el veredicto se pida en la PRIMERA línea —ya está
+  hecho— y la hipótesis sin probar de que el brief hace deliberar más (31 anuncios contra 17,
+  medido el 2026-11-23).
