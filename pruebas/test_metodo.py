@@ -5043,6 +5043,121 @@ class TestValidarPlan(CasoBase):
         t.write_text(t.read_text() + "\nEl laberinto tiene un hueco en la pared de arriba.\n")
         self.assertVerde(self.validar())
 
+class TestLoQueSeSeparaAlgunoLoTieneQueJuntar(CasoBase):
+    """Medido el 2026-11-26 levantando `ejemplo-clasificados` desde cero: base nueva con sus
+    6 tablas, el backend arranca, y el `/openapi.json` publica UNA ruta —`/salud`—. El
+    frontend no se puede ni construir («Could not resolve entry module "index.html"») y
+    `App.jsx` entero es un `<h1>`: `Login.jsx`, `Register.jsx`, `AdsList.jsx`, `AdDetail.jsx`
+    y `SearchBar.jsx` existen, con su lógica, y nadie los importa. 19 de 34 tareas en «✅
+    hecha», 46 tests de backend y 27 de frontend en verde, `smoke.sh` en 0.
+
+    El backend tenía su tarea de montaje (T06b) y por eso cualquier `rutas/*.py` queda
+    montado; el frontend no tenía el equivalente, así que cinco tareas cerraron bien cada una
+    y el sitio siguió mostrando un `<h1>`. No es de los agentes: es de la descomposición, y
+    ninguna de las dos suites lo podía ver.
+
+    El chequeo es del PLAN y no del código: una tarea de la que nadie depende y cuyos archivos
+    ninguna otra tarea vuelve a nombrar."""
+
+    AVISO = "entregan algo que en el plan no usa nadie"
+
+    def validar(self):
+        return correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py", self.p.dir)
+
+    def agregar(self, tid, archivo, depende="T01", mas_filas=""):
+        """Una tarea en la tabla Y su archivo: el validador cruza los dos, así que declarar
+        sólo uno mide el cruce y no lo que quiero medir."""
+        p = self.p.dir / "PLAN.md"
+        fila = f"| {tid} | Otra cosa | {depende} | {archivo} | pendiente |\n"
+        p.write_text(p.read_text().replace(
+            "| T01 | Una cosa | — | src/cosa.py | pendiente |\n",
+            "| T01 | Una cosa | — | src/cosa.py | pendiente |\n" + fila + mas_filas))
+        (self.p.dir / "tareas" / f"{tid}-cosa.md").write_text(
+            f"# {tid} — Otra cosa\n\n**Estado:** pendiente\n**Depende de:** {depende}\n"
+            f"**Archivos que podés tocar:** {archivo}\n**Prohibido tocar:** tests/\n\n"
+            f"## Objetivo\n\nQue haya otra cosa.\n")
+
+    def test_una_tarea_que_nadie_usa_sale_nombrada_en_el_aviso(self):
+        self.agregar("T02", "src/otra.py")
+        r = self.validar()
+        self.assertIn(self.AVISO, r.stdout, f"no avisó nada:\n{r.stdout}")
+        self.assertIn("T02", r.stdout.split(self.AVISO)[1][:40],
+                      f"avisó sin decir cuál:\n{r.stdout}")
+
+    def test_brazo_nulo_si_otra_tarea_vuelve_a_nombrar_el_archivo_no_avisa(self):
+        """El brazo nulo del chequeo: el MISMO plan, con una tarea más que toca el archivo de
+        T02. Si avisara igual, estaría marcando «hoja» y no «nadie la junta»."""
+        self.agregar("T02", "src/otra.py",
+                     mas_filas="| T03 | La que junta | T02 | src/otra.py | pendiente |\n")
+        (self.p.dir / "tareas" / "T03-cosa.md").write_text(
+            "# T03 — La que junta\n\n**Estado:** pendiente\n**Depende de:** T02\n"
+            "**Archivos que podés tocar:** src/otra.py\n**Prohibido tocar:** tests/\n\n"
+            "## Objetivo\n\nJuntar.\n")
+        r = self.validar()
+        self.assertNotIn(self.AVISO, r.stdout,
+                         f"el archivo lo toca otra tarea: ahí no falta nadie\n{r.stdout}")
+
+    def test_el_montaje_declarado_la_exime(self):
+        """El precedente es el `SIN_ARRANQUE=\"\"` de `smoke.sh`: lo legítimo se puede DECIR
+        en vez de dejar el chequeo prendido para siempre o borrarlo. Sin esto, un cargador que
+        monta un directorio entero obligaría a inventar una dependencia falsa."""
+        self.agregar("T02", "src/plugins/uno.py")
+        p = self.p.dir / "PLAN.md"
+        p.write_text(p.read_text().replace(
+            "## Tareas",
+            "**Montajes automáticos:** src/plugins/*.py — los monta src/cosa.py (T01)\n\n"
+            "## Tareas"))
+        r = self.validar()
+        self.assertNotIn(self.AVISO, r.stdout, f"la declaración no lo eximió:\n{r.stdout}")
+
+    def test_una_tarea_sola_no_se_marca(self):
+        """Una tarea que no depende de nada y de la que nada depende es una tarea sola, no una
+        parte de algo que haya que juntar. Sin esta exención el chequeo marcaría cualquier plan
+        de una tarea —y dejaría en aviso a los andamios de esta suite, que miden otra cosa."""
+        r = self.validar()
+        self.assertNotIn(self.AVISO, r.stdout, f"marcó un plan de una tarea:\n{r.stdout}")
+
+    def test_es_aviso_y_no_detiene_el_plan(self):
+        """Exigirlo en ✗ obliga al arquitecto a arreglar algo que el plan no siempre puede
+        probar: el montaje dinámico es indistinguible de la tarea que falta. El precedente es
+        el de G3 —intentar exigirlo rompió 18 fixtures, y eso es señal de que el chequeo está
+        en el lugar equivocado, no de que los fixtures estén mal."""
+        self.agregar("T02", "src/otra.py")
+        r = self.validar()
+        self.assertIn(self.AVISO, r.stdout)
+        self.assertEqual(r.returncode, 0,
+                         f"un aviso no puede frenar el plan:\n{r.stdout[-400:]}")
+
+
+class TestElPlanSanoNoDaFalsasAlarmas(unittest.TestCase):
+    """El canario del chequeo nuevo: el pacman es el proyecto que efectivamente CORRE —se
+    juega— y sus 19 tareas tienen que dar cero. Medido el 2026-11-26: pacman 0 de 19,
+    clasificados 7 de 34. Si algún día el pacman empieza a marcar, el chequeo se volvió
+    ruido y hay que sacarlo: cero falsas alarmas en el proyecto sano es toda su licencia."""
+
+    def test_el_plan_del_pacman_no_marca_ninguna_tarea_suelta(self):
+        proy = RAIZ / "ejemplo-pacman"
+        if not (proy / "PLAN.md").exists():
+            self.skipTest("no está el ejemplo del pacman")
+        r = correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py", proy)
+        self.assertNotIn("entregan algo que en el plan no usa nadie", r.stdout,
+                         f"falsa alarma en el proyecto que sí corre:\n{r.stdout}")
+
+    def test_el_validador_la_plantilla_y_la_descomposicion_nombran_el_MISMO_campo(self):
+        """Tres declaraciones del mismo campo y tres lectores. Si la plantilla ofrece un
+        nombre que el validador no lee, la línea no exime nada y el aviso queda prendido
+        para siempre: es el defecto de este repo —la prosa decía una cosa y el código otra."""
+        campo = "**Montajes automáticos:**"
+        self.assertIn(campo, (SCRIPTS / "validar-plan.py").read_text(),
+                      "el validador no lee el campo que la plantilla ofrece")
+        self.assertIn(campo, (PLANTILLAS / "PLAN.md").read_text(),
+                      "la plantilla no ofrece el campo que el validador lee")
+        desc = (RAIZ / "DESCOMPOSICION.md").read_text()
+        self.assertIn(campo, desc, "DESCOMPOSICION.md no documenta el campo")
+        self.assertIn("5b", desc, "falta la sección que el aviso cita")
+
+
+
 class TestCobertura(CasoBase):
     def cobertura(self):
         return correr(f"ENCARGO=OBJETIVO.md PLAN=PLAN.md python3 {SCRIPTS}/cobertura.py", self.p.dir)

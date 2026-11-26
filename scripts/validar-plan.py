@@ -22,6 +22,7 @@ huérfanos los informa y no los borra: borrar es del humano.
 Nace de haber hecho esas dos cosas a mano. Un método con mínima interacción humana no
 puede pedirle a una persona que deduplique filas de una tabla.
 """
+import fnmatch
 import os
 import pathlib
 import re
@@ -153,6 +154,14 @@ def cubierto(ruta, otros):
     return any(ruta == o or o.rsplit("/", 1)[-1] == base for o in otros)
 
 
+def rutas(txt):
+    """Las rutas de una lista declarada, en la tabla o en el enunciado. UN lector: hasta el
+    2026-11-26 esto estaba escrito dos veces —una acá adentro del bucle de tareas y otra
+    inline— y el chequeo nuevo habría sido la tercera copia del mismo criterio."""
+    return {a.strip().strip("`") for a in re.split(r"[,\s]+", txt)
+            if a.strip().strip("`") and ("." in a or a.strip().endswith("/"))}
+
+
 # ── Cada archivo de tarea: las cabeceras que el gate y el runner leen de verdad
 vacios = []
 CABECERAS = ["**Estado:**", "**Depende de:**", "**Archivos que podés tocar:**"]
@@ -247,9 +256,6 @@ for tid in sorted(set(tareas) & set(en_disco)):
     # paralelizaba tareas que sí chocan y el gate juzgaba otro alcance que el planificado.
     m_alc = re.search(r"^\*\*Archivos que podés tocar:\*\* *(.*)$", cuerpo, re.M)
     if m_alc:
-        def rutas(txt):
-            return {a.strip().strip("`") for a in re.split(r"[,\s]+", txt)
-                    if a.strip().strip("`") and ("." in a or a.strip().endswith("/"))}
         del_archivo = rutas(m_alc.group(1))
         de_la_tabla = rutas(tareas[tid]["archivos"])
 
@@ -277,6 +283,76 @@ for tid in sorted(set(tareas) & set(en_disco)):
     if n_archivos > 3:
         avisos.append(f"{tid} toca {n_archivos} archivos: candidata a partirse "
                       f"(ver DESCOMPOSICION.md §4)")
+
+# ── Lo que el plan SEPARA, algo lo tiene que JUNTAR.
+#
+# Una tarea puede cerrar bien —su test pasa, su alcance es el declarado, el gate le da verde—
+# y entregar un archivo que nada del producto usa. Son todas verdes y el producto no existe.
+#
+# Medido el 2026-11-26 levantando `ejemplo-clasificados` desde cero: base nueva, migración
+# aplicada, 6 tablas, el backend arranca. Y el `/openapi.json` publica UNA ruta, `/salud`.
+# El frontend no se puede ni construir —«Could not resolve entry module "index.html"»— y
+# `App.jsx` entero es `<h1>Clasificados App</h1>`. `Login.jsx`, `Register.jsx`, `AdsList.jsx`,
+# `AdDetail.jsx` y `SearchBar.jsx` existen, con su lógica y sus servicios, y
+# `grep -rn "pages/\|components/" src/` no devuelve NADA: nadie los monta. 19 de 34 tareas
+# marcadas «✅ hecha», 46 tests de backend y 27 de frontend en verde, `smoke.sh` en 0.
+#
+# Las rutas que faltan son tareas pendientes y eso es honesto. Lo que no estaba en ninguna
+# parte es la tarea que JUNTA: el backend tiene su T06b «montaje de routers» y por eso
+# cualquier `rutas/*.py` queda montado; el frontend no tiene el equivalente, así que T07, T08,
+# T12, T27 y T29 cerraron cada una bien y el sitio sigue mostrando un `<h1>`. Es un agujero de
+# descomposición, no de los agentes.
+#
+# La señal, medida sobre los dos planes reales y sin una línea de React ni de FastAPI: una
+# tarea de la que NADIE depende y cuyos archivos NINGUNA otra tarea vuelve a nombrar.
+#   · ejemplo-pacman:        0 de 19  (el juego que efectivamente corre)
+#   · ejemplo-clasificados:  7 de 34  (T13 T19 T24 T25 T26 T27 T29)
+# Cero falsas alarmas en el proyecto sano es lo que hace que valga la pena mirarlo.
+#
+# Va como AVISO y no como ✗, y la razón es que la señal no distingue dos casos: el archivo
+# que nadie junta porque falta la tarea, y el archivo que SÍ se junta por un montaje dinámico
+# que el plan no puede ver. En clasificados, T26 escribe `backend/app/rutas/register.py` y
+# `main.py` lo monta solo con importlib: marcarla en rojo obligaría al arquitecto a inventar
+# una dependencia falsa para apagar el chequeo. Para eso está la declaración —el mismo
+# precedente que el `SIN_ARRANQUE=""` de `smoke.sh`: lo que es legítimo se puede DECIR en vez
+# de dejar el chequeo en rojo para siempre o borrarlo:
+#
+#   **Montajes automáticos:** backend/app/rutas/*.py — los monta backend/app/main.py (T06b)
+#
+# Y una tarea que no depende de nada y de la que nada depende está exenta: es una tarea sola,
+# no una parte de algo que haya que juntar.
+MONTAJES = [p.strip().strip("`")
+            for linea in re.findall(r"^\*\*Montajes automáticos:\*\* *(.*)$", texto, re.M)
+            for p in re.split(r"[,;]| — | - ", linea)
+            if ("/" in p or "*" in p) and "." in p]
+
+
+def montado(ruta):
+    return any(fnmatch.fnmatch(ruta, pat) or fnmatch.fnmatch(ruta, "*/" + pat.lstrip("*/"))
+               for pat in MONTAJES)
+
+
+_por_archivo = {}
+for _tid, _t in tareas.items():
+    for _a in rutas(_t["archivos"]):
+        _por_archivo.setdefault(_a, set()).add(_tid)
+_consumidas = set().union(*(v["deps"] for v in tareas.values())) if tareas else set()
+sueltas = []
+for tid in sorted(tareas, key=lambda x: (len(x), x)):
+    _arch = rutas(tareas[tid]["archivos"])
+    if not _arch or tid in _consumidas or not tareas[tid]["deps"]:
+        continue
+    if all(len(_por_archivo[a]) == 1 and not montado(a) for a in _arch):
+        sueltas.append(tid)
+if sueltas:
+    avisos.append(
+        f"{len(sueltas)} tarea(s) entregan algo que en el plan no usa nadie: "
+        f"{' '.join(sueltas)}. Ninguna otra tarea depende de ellas ni vuelve a nombrar sus "
+        f"archivos, así que pueden cerrar todas en verde y el producto no se arma. O falta la "
+        f"tarea que las junta —el montaje, el punto de entrada, la pantalla que las usa— o el "
+        f"plan tiene que DECIR quién las monta con «**Montajes automáticos:** <patrón> — lo "
+        f"monta <archivo>». Medido: pacman 0 de 19, clasificados 7 de 34 "
+        f"(ver DESCOMPOSICION.md §5b)")
 
 # ── Ninguna tarea puede declarar un archivo que el gate considera intocable.
 # Es un cruce entre dos componentes que nadie hacía, y produce tareas INSATISFACIBLES: el

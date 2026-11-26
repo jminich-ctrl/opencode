@@ -16,6 +16,17 @@ Las que el agente no debe volver a discutir. Una línea cada una, con el porqué
 
 Módulos, qué hace cada uno y quién depende de quién. Un diagrama de texto alcanza.
 
+> **Si hay un montaje automático, declaralo acá.** Un cargador que recorre un directorio y
+> monta lo que encuentre no lo nombra ninguna tarea, y **desde el plan no se ve**: sin la
+> línea, el validador avisa que esas tareas entregan algo que nadie usa — con razón, porque
+> es indistinguible de que falte la tarea que las junta (DESCOMPOSICION.md §5b). La línea,
+> entera y lista para copiar:
+>
+> `**Montajes automáticos:** backend/app/rutas/*.py — los monta backend/app/main.py (T06b)`
+>
+> No la dejes a medias: va con el patrón real o no va. Y si no hay montaje automático, no
+> hace falta — lo normal es que cada parte la junte otra tarea.
+
 ## Tareas
 
 | # | Tarea | Depende de | Archivos | Estado |

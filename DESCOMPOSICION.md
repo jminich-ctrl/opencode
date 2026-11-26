@@ -140,6 +140,57 @@ latencia se dispare, y no pases de ahí. Tareas que esperan en cola no son paral
 
 ---
 
+## 5b. Lo que separás, algo lo tiene que juntar
+
+Cortar bien no alcanza. **Por cada cosa que separás en partes, tiene que existir la tarea que
+las junta** —el montaje, el punto de entrada, la pantalla que las usa— y esa tarea tiene que
+estar en el plan como cualquier otra. Si no está, nadie la hace: las partes cierran todas en
+verde y el producto no existe.
+
+Es el defecto más caro que medimos, porque no se ve en ningún test. El 2026-11-26 levantamos
+`ejemplo-clasificados` desde cero:
+
+| | |
+|---|---|
+| Base de datos | nueva, migración aplicada, 6 tablas |
+| Backend | arranca; `/openapi.json` publica **una** ruta: `/salud` |
+| Frontend | `vite build` → `Could not resolve entry module "index.html"` |
+| `App.jsx` | `<h1>Clasificados App</h1>`, y nada más |
+| `pages/Login.jsx`, `Register.jsx`, `AdsList.jsx`, `AdDetail.jsx`, `SearchBar.jsx` | existen, con su lógica y sus servicios, y **nadie los importa** |
+| Tareas marcadas «✅ hecha» | 19 de 34 |
+| Tests | 46 backend + 27 frontend, todos verdes; `smoke.sh` en 0 |
+
+Las rutas que faltaban eran tareas pendientes, y eso es honesto. Lo que no estaba en ninguna
+parte era la tarea que junta. El backend sí la tenía —T06b, «montaje de routers»— y por eso
+cualquier `rutas/*.py` queda montado solo. El frontend no tenía el equivalente, así que T07,
+T08, T12, T27 y T29 cerraron bien cada una y el sitio siguió mostrando un `<h1>`.
+
+**La pregunta que hay que hacerse por cada tarea, antes de firmar el plan: ¿quién usa lo que
+esta tarea entrega?** Si la respuesta no es otra tarea del plan ni un montaje que ya existe,
+falta una tarea.
+
+Hay dos respuestas legítimas, y las dos se escriben:
+
+- **Otra tarea la junta.** Entonces esa tarea la nombra: aparece en su columna «Archivos» o
+  depende de ella. El grafo lo muestra.
+- **Un montaje automático la junta**, sin tarea: un cargador que recorre un directorio, un
+  descubrimiento por convención. Eso **se declara en el plan**, porque desde el plan no se ve:
+
+  ```
+  **Montajes automáticos:** backend/app/rutas/*.py — los monta backend/app/main.py (T06b)
+  ```
+
+`validar-plan.py` avisa cuáles quedaron sueltas —ninguna otra tarea depende de ellas ni
+vuelve a nombrar sus archivos— y la declaración las exime. Medido sobre los dos planes
+reales: **pacman 0 de 19** y **clasificados 7 de 34**. Cero falsas alarmas en el proyecto que
+efectivamente corre es lo que hace que el aviso valga la pena mirarlo.
+
+Y una cosa más que se olvida igual: **el punto de entrada es una tarea**. El archivo que el
+proyecto ejecuta —el `index.html`, el `__main__.py`, el `main.py`— no aparece porque sí.
+Si ninguna tarea lo declara, no existe, y el proyecto no se puede ni construir.
+
+---
+
 ## 6. Qué va en el plan y qué va en la tarea
 
 Es la distinción que más ordena, y la que más se hace mal.
