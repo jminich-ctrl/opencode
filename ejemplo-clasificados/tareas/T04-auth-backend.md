@@ -32,7 +32,7 @@ Tres archivos, y los tres los importa el test — no son opcionales:
 # backend/app/datos/users.py
 
 def read_user_by_email(email: str) -> dict | None:
-    """El usuario como dict con al menos `id`, `email` y `password_hash`, o None."""
+    """El usuario como dict con al menos `id`, `email`, `clave_hash` y `clave_salt`, o None."""
 
 # backend/app/servicios/auth.py
 # El servicio importa el módulo users, no la función directamente
@@ -47,10 +47,12 @@ router  # APIRouter con POST /auth/login — main.py lo monta solo si existe `ro
 
 **Dos cosas que el test impone y que no se deducen leyéndolo rápido:**
 
-1. **El hash es `sha256` hex del password, sin sal.** El test mockea el usuario con
-   `password_hash = sha256('password').hexdigest()`, así que la verificación tiene que calcular
-   lo mismo. (La versión anterior del test mockeaba el literal `'hashed_password'`, que ningún
-   hash real produce: sólo pasaba con una verificación falsa. Se corrigió el test.)
+1. **El hash almacenado es `hashlib.scrypt` del password con la sal por usuario guardada en
+   `clave_salt`.** La verificación recalcula el hash con esa misma sal y lo compara contra
+   `clave_hash`. El test mockea el usuario con `clave_hash` y `clave_salt` coherentes, así que
+   la verificación tiene que recomputar el scrypt con la sal del usuario. (La versión anterior
+   del test mockeaba el literal `'hashed_password'`, que ningún hash real produce: sólo pasaba
+   con una verificación falsa. Se corrigió el test.)
 2. **`read_user_by_email` se llama como ATRIBUTO del módulo**: `users.read_user_by_email(email)`
    con `from backend.app.datos import users`. Con
    `from backend.app.datos.users import read_user_by_email` el servicio se queda con su propia
