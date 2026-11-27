@@ -115,8 +115,31 @@ dim() { DIMS="${DIMS:-}$1=$2"$'\n'; }
 # ⊘: el ⊘ del método significa «no se pudo determinar y no cuenta como pase», y acá el intento
 # quedó rechazado de verdad. El motivo en prosa dice cuál de las dos cosas fue.
 paso() { PASO="$1"; }
+# ¿Alguno de los rojos de ESTE intento ya había salido antes en esta tarea?
+#
+# Compara conjuntos y no cadenas: un intento con varios rojos está representado por todos,
+# no por el último que se imprimió. Si cualquiera vuelve, el agente no lo está arreglando.
+ya_fallo_por_esto() {
+  local r
+  [ -n "${MOTIVOS_VISTOS:-}" ] || return 1
+  printf '%s\n' "${ROJOS_DEL_INTENTO:-}" | grep -v '^$' | while IFS= read -r r; do
+    printf '%s\n' "$MOTIVOS_VISTOS" | grep -qxF "$r" && echo SI
+  done | grep -q SI
+}
+
 malo() {
   echo "  ✗ $1"; MOTIVO_TESTS="$1"; [ -n "${2:-}" ] && DETALLE_TESTS="$2"; fallos=1
+  # TODOS los rojos del intento, no sólo el último. `MOTIVO_TESTS` se sobrescribe con cada
+  # llamada, y el detector de ciclos comparaba ESE valor: un intento con varios rojos quedaba
+  # representado por el que salió al final, que es arbitrario.
+  #
+  # Medido el 2026-11-27 en T16: el error de alcance —`favorites.py` fuera de la etapa— salió
+  # en los TRES intentos, y en el tercero un rojo de contrato lo sobrescribió. Resultado: tres
+  # cadenas distintas en la historia, ciclo invisible, tres corridas de agente gastadas en un
+  # defecto que no se estaba arreglando. Acá es un solo punto porque `malo` es el único lugar
+  # del script que emite un rojo.
+  ROJOS_DEL_INTENTO="${ROJOS_DEL_INTENTO:+$ROJOS_DEL_INTENTO
+}$1"
   dim "${PASO:-sin_paso_declarado}" ✗
   PASO=""
 }
@@ -428,6 +451,9 @@ for id in "$@"; do
 
   cd "$wt/$PROYECTO" || break
   fallos=0
+  # Los rojos de ESTE intento, vacíos al empezar: acumularlos entre intentos haría que todo
+  # pareciera repetido y el ciclo cortaría en el segundo, siempre.
+  ROJOS_DEL_INTENTO=""
   DIMS=""
   PASO=""
   # 142 = SIGALRM: el agente no respondió en el límite. Es un intento fallido con motivo
@@ -1150,9 +1176,31 @@ for id in "$@"; do
   # el plan ni en la plataforma: está en la config de permisos de esta máquina.
   if [ "${PERMISO_DENEGADO:-0}" = "1" ]; then
     PERMISO_DENEGADO=0
-    echo "  ✗ $id: el arnés le negó permiso a una herramienta que el agente necesita."
+    echo "  ✗ $id: el arnés le negó permiso a una herramienta."
     echo "     No es la plataforma ni la tarea, y NO cuenta como corte de plataforma."
-    echo "     Reintentar vuelve a negar lo mismo: arreglá el permiso y retomá. Log: $log"
+    # QUÉ pidió, y si existe. Hasta el 2026-11-27 este rojo decía «una herramienta que el
+    # agente NECESITA» y mandaba a «arreglá el permiso», y eso acusaba al sujeto equivocado
+    # la mitad de las veces. Medido ese día en T04: el agente trabajaba en el worktree
+    # `tests-T04` y pidió leer `/…/tests-T00/…/users.py` —se inventó el número del worktree,
+    # y esa ruta no existe—. El sandbox lo negó bien y no había ningún permiso que arreglar.
+    #
+    # Con la ruta a la vista las dos lecturas se distinguen solas: un directorio real que
+    # hace falta es un permiso; una ruta inventada o fuera del worktree es el agente leyendo
+    # donde no debe, y eso se arregla en el enunciado o no se arregla.
+    RUTA_NEGADA="$(grep -ao 'permission requested: [a-z_]* ([^)]*)' "$log" 2>/dev/null \
+                   | tail -1 | sed 's/.*(\(.*\))/\1/')"
+    if [ -n "$RUTA_NEGADA" ]; then
+      echo "     Pidió: $RUTA_NEGADA"
+      RUTA_BASE="${RUTA_NEGADA%%\**}"
+      if [ -n "$RUTA_BASE" ] && [ ! -e "$RUTA_BASE" ]; then
+        echo "     Esa ruta NO EXISTE: no falta un permiso, el agente la inventó. Se"
+        echo "     corrige diciéndole en el enunciado dónde vive lo que busca."
+      else
+        echo "     La ruta existe y está fuera de su worktree: si de verdad la necesita, es"
+        echo "     un permiso; si no, el enunciado tiene que decirle dónde buscar."
+      fi
+    fi
+    echo "     Reintentar vuelve a pedir lo mismo. Log: $log"
     break
   fi
   if [ "${PLATAFORMA_CORTO:-0}" = "1" ]; then
@@ -1226,7 +1274,7 @@ for id in "$@"; do
   # Lo que el mensaje tiene que decir es distinto del punto muerto: no «está trabado», sino
   # «estas dos cosas no se satisfacen juntas, y eso se decide cambiando el enfoque del test,
   # no reintentando».
-  elif printf '%s\n' "$MOTIVOS_VISTOS" | grep -qxF "$MOTIVO_TESTS"; then
+  elif ya_fallo_por_esto; then
     echo "  ✗ $id: ciclo — ya había fallado por esto y volvió:"
     echo "       $MOTIVO_TESTS"
     echo "     No está trabado: corrige un defecto y rompe el otro. Dos restricciones que"
@@ -1237,7 +1285,7 @@ for id in "$@"; do
     break
   fi
   MOTIVOS_VISTOS="${MOTIVOS_VISTOS:+$MOTIVOS_VISTOS
-}$MOTIVO_TESTS"
+}${ROJOS_DEL_INTENTO:-$MOTIVO_TESTS}"
   HUELLA_ANTERIOR="$MOTIVO_TESTS"
   intento=$((intento+1))
   if [ "$intento" -gt "$REINTENTOS_TESTS" ]; then

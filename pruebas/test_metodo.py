@@ -2784,6 +2784,98 @@ class TestLaConfigVersionadaDiceLaVerdad(unittest.TestCase):
                   f"diferencia es una mentira documentada. Muestra: {difs}")
 
 
+class TestElMotivoDeUnIntentoEsTodosSusRojos(unittest.TestCase):
+    """El detector de ciclos comparaba `MOTIVO_TESTS`, que guarda el ÚLTIMO rojo del intento
+    porque cada llamada a `malo` lo sobrescribe. Un intento con varios rojos quedaba
+    representado por el que salió al final, que es arbitrario.
+
+    Medido el 2026-11-27 en T16: el error de alcance —`favorites.py` fuera de la etapa— salió
+    en los TRES intentos, y en el tercero un rojo de contrato lo sobrescribió. La historia
+    quedó con tres cadenas distintas, el ciclo invisible, y tres corridas de agente gastadas
+    en un defecto que no se estaba arreglando."""
+
+    def ya_fallo(self, historia, rojos_del_intento):
+        fuente = (SCRIPTS / "escribir-tests.sh").read_text()
+        i = fuente.index("ya_fallo_por_esto() {")
+        cuerpo = fuente[i:fuente.index("\n}", i) + 2]
+        guion = ("set -uo pipefail\n" + cuerpo +
+                 f"\nMOTIVOS_VISTOS={shlex.quote(historia)}\n"
+                 f"ROJOS_DEL_INTENTO={shlex.quote(rojos_del_intento)}\n"
+                 "if ya_fallo_por_esto; then echo SI; else echo NO; fi\n")
+        return correr("bash -c " + shlex.quote(guion), RAIZ).stdout.strip().splitlines()[-1]
+
+    def test_el_caso_de_T16_un_rojo_que_vuelve_tapado_por_otro(self):
+        self.assertEqual("SI", self.ya_fallo("alcance favorites.py",
+                                             "contrato inventado\nalcance favorites.py"),
+                         "el rojo que volvió quedó invisible porque otro lo sobrescribió")
+
+    def test_brazo_nulo_ningun_rojo_de_este_intento_salio_antes(self):
+        self.assertEqual("NO", self.ya_fallo("alcance favorites.py",
+                                             "no compila\nno ejecuta"),
+                         "cortó una tarea que está corrigiendo cosas nuevas")
+
+    def test_brazo_nulo_un_intento_sin_rojos_no_es_ciclo(self):
+        self.assertEqual("NO", self.ya_fallo("alcance favorites.py", ""),
+                         "un intento sin rojos no puede repetir nada")
+
+    def test_los_rojos_del_intento_se_vacian_en_cada_intento(self):
+        """Si se acumularan entre intentos, el segundo intento siempre contendría los rojos
+        del primero y el ciclo cortaría a todos, siempre."""
+        s = codigo_de(SCRIPTS / "escribir-tests.sh")
+        self.assertIn('ROJOS_DEL_INTENTO=""', s, "no se vacía nunca")
+        # El orden del ARCHIVO no dice nada: `malo` es una función definida arriba y llamada
+        # después. Mi primera versión comparaba posiciones y acusaba al código por eso. Lo
+        # que importa es que el vaciado esté en la inicialización POR INTENTO, que en este
+        # script es el bloque de `fallos=0`.
+        lineas = s.split("\n")
+        i_fallos = next(n for n, l in enumerate(lineas) if l.strip() == "fallos=0")
+        cerca = "\n".join(lineas[i_fallos:i_fallos + 6])
+        self.assertIn('ROJOS_DEL_INTENTO=""', cerca,
+                      "el vaciado no está en la inicialización del intento: si vive en otro "
+                      "lado, los rojos se acumulan entre intentos y el ciclo corta a todos")
+
+    def test_malo_es_el_unico_que_acumula(self):
+        """`malo` es el único lugar del script que emite un rojo, así que es el único que
+        tiene que registrarlo. Dos puntos de registro serían dos criterios de qué es un rojo."""
+        s = codigo_de(SCRIPTS / "escribir-tests.sh")
+        self.assertEqual(1, s.count('ROJOS_DEL_INTENTO="${ROJOS_DEL_INTENTO:+'),
+                         "hay más de un lugar acumulando rojos del intento")
+
+
+class TestElRojoDelPermisoMuestraLaRuta(unittest.TestCase):
+    """Decía «le negó permiso a una herramienta que el agente NECESITA» y mandaba a «arreglá
+    el permiso». Medido el 2026-11-27 en T04: el agente trabajaba en el worktree `tests-T04`
+    y pidió leer `/…/tests-T00/…/users.py` —se inventó el número— y esa ruta no existe. El
+    sandbox lo negó bien y no había ningún permiso que arreglar: el rojo mandaba a cambiar la
+    config de la máquina por un error del agente.
+
+    Con la ruta a la vista los dos casos se distinguen solos."""
+
+    def test_el_rojo_imprime_la_ruta_negada(self):
+        s = codigo_de(SCRIPTS / "escribir-tests.sh")
+        self.assertIn("Pidió: $RUTA_NEGADA", s,
+                      "el rojo no dice qué pidió: sin la ruta no se puede saber si falta un "
+                      "permiso o si el agente la inventó")
+        self.assertIn("NO EXISTE", s,
+                      "no distingue una ruta inventada de un directorio real")
+        self.assertNotIn("que el agente necesita", s,
+                         "sigue afirmando que el agente lo NECESITA, que es justo lo que no "
+                         "se sabe")
+
+    def test_la_extraccion_lee_el_log_real_de_T04(self):
+        """El brazo nulo que vale: el log de la corrida, no un fixture mío. Si el formato del
+        aviso de permiso cambia, este test lo dice antes de que el rojo vuelva a mentir."""
+        log = pathlib.Path("/Users/jose/tests-T04/.tests.log")
+        if not log.exists():
+            self.skipTest("no está el log de esa corrida en esta máquina")
+        guion = ('log=%s; grep -ao "permission requested: [a-z_]* ([^)]*)" "$log" '
+                 '| tail -1 | sed "s/.*(\\(.*\\))/\\1/"' % shlex.quote(str(log)))
+        r = correr("bash -c " + shlex.quote(guion), RAIZ)
+        self.assertIn("tests-T00", r.stdout,
+                      f"no extrajo la ruta negada del log real:\n{r.stdout}")
+
+
+
 class TestUnCicloNoEsProgreso(unittest.TestCase):
     """El detector de punto muerto comparaba el motivo nuevo sólo con el INMEDIATAMENTE
     anterior, así que A→A se cazaba y A→B→A pasaba como progreso. Medido el 2026-11-27, dos
@@ -2802,14 +2894,21 @@ class TestUnCicloNoEsProgreso(unittest.TestCase):
     persona."""
 
     def criterio(self, historia, motivo):
-        """El criterio real, extraído del script y corrido contra una historia dada."""
-        s = codigo_de(SCRIPTS / "escribir-tests.sh")
-        self.assertIn('printf \'%s\\n\' "$MOTIVOS_VISTOS" | grep -qxF "$MOTIVO_TESTS"', s,
-                      "el criterio del ciclo cambió de forma: actualizá este test")
-        guion = ('set -uo pipefail\nMOTIVOS_VISTOS="%s"\nMOTIVO_TESTS="%s"\n'
-                 'if printf \'%%s\\n\' "$MOTIVOS_VISTOS" | grep -qxF "$MOTIVO_TESTS"; '
-                 'then echo CICLO; else echo SIGUE; fi' % (historia, motivo))
-        return correr("bash -c " + shlex.quote(guion), RAIZ).stdout.strip()
+        """El criterio real, extraído del script, para un intento con UN solo rojo.
+
+        Antes esto reproducía el `grep` inline que el script tenía. Cuando el criterio pasó a
+        ser una función —para comparar el CONJUNTO de rojos del intento y no el último— estos
+        dos tests siguieron afirmando la forma vieja y fallaron: un test atado a la
+        implementación y no al comportamiento. Ahora llaman a la función, que es lo que hay
+        que medir."""
+        fuente = (SCRIPTS / "escribir-tests.sh").read_text()
+        i = fuente.index("ya_fallo_por_esto() {")
+        cuerpo = fuente[i:fuente.index("\n}", i) + 2]
+        guion = ("set -uo pipefail\n" + cuerpo +
+                 f"\nMOTIVOS_VISTOS={shlex.quote(historia)}\n"
+                 f"ROJOS_DEL_INTENTO={shlex.quote(motivo)}\n"
+                 "if ya_fallo_por_esto; then echo CICLO; else echo SIGUE; fi\n")
+        return correr("bash -c " + shlex.quote(guion), RAIZ).stdout.strip().splitlines()[-1]
 
     def test_un_motivo_que_vuelve_a_distancia_dos_es_ciclo(self):
         self.assertEqual("CICLO", self.criterio("patch\nno ejecuta", "patch"),
