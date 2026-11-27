@@ -115,10 +115,14 @@ for tf in "$BASE"/tareas/T*.md; do
     sal="$(python3 "$AQUI/_aserciones.py" "$BASE/$su_test" 2>&1)"; rc_a=$?
     # El 2 —«no pude mirar»— se informa, no se descarta. Mirando sólo el 1, un test que no
     # parsea pasaba por auditado: el chequeo devolvía 2 y acá no lo leía nadie.
+    # Y el 3 —«no aplica a este lenguaje», desde el 2026-11-27— va al MISMO lado que el 2:
+    # no es un pase. La diferencia entre los dos no cambia el veredicto acá —ninguno
+    # verificó nada— pero sí lo que hay que hacer: con el 2 se arregla el test, con el 3
+    # falta un analizador para ese lenguaje. Por eso se informa la salida, que lo dice.
     case "$rc_a" in
       1) rojo_de_esta="${rojo_de_esta}
 $(printf '%s' "$sal" | sed 's/^  /     /')" ;;
-      2) vacios_de_esta="${vacios_de_esta}
+      2|3) vacios_de_esta="${vacios_de_esta}
 $(printf '%s' "$sal" | sed 's/^  /     /')" ;;
     esac
   fi

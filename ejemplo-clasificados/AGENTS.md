@@ -45,6 +45,16 @@ Esto se suma al `AGENTS.md` de la raíz del repo. Donde diga algo distinto, mand
 12. **No mockees lo que vinieron a probar.** Si mockeás un símbolo que vive en un archivo
     de TU tarea, estás reemplazando el sujeto: el gate lo nota porque las líneas de la
     implementación no se ejecutan. Mockeá lo de abajo, no la tarea.
+13. **Parcheá donde el nombre SE USA, no donde se define.** Si la implementación trae un
+    nombre con `from src.datos.d1 import leer1`, entonces `patch('src.datos.d1.leer1')` no
+    toca nada: cuando el patch corre, `src.servicios.s1.leer1` ya quedó ligado al original.
+    Va `patch('src.servicios.s1.leer1')`, el módulo que estás probando. Medido el
+    2026-10-27: siete tests de una etapa parchearon el módulo donde el nombre se define, y
+    las tres tareas que después obedecieron el contrato al pie de la letra quedaron en punto
+    muerto por eso, con la implementación correcta. Mirá con qué import la trae el contrato
+    antes de elegir el objetivo del patch: con `import src.datos.d1` y acceso por atributo,
+    o con el `from` adentro de la función, el lugar es otro.
+
 
 ## Dependencias permitidas
 

@@ -101,6 +101,25 @@ malo() {
   PASO=""
 }
 
+# ── ⊘ DECLINADO: el chequeo no APLICA a este material, y eso no rechaza el intento.
+#
+# Medido el 2026-11-27: las tres tareas de frontend de la etapa 1 —T32, T33, T34— murieron
+# en punto muerto porque `_aserciones.py` lee Python y sus tests son `.test.ts`. Seis
+# corridas de agente contra un muro que ningún agente puede mover: un `.ts` no va a ser un
+# `.py` nunca. Y eso viola la regla del método —un rojo que no se le puede atribuir al
+# agente es un defecto nuestro—.
+#
+# Lo que NO cambia: un chequeo que no pudo ejecutarse sigue dando rojo (rc=2), porque eso
+# salió de un falso verde real y está en EMPEZAR.md como algo que no se toca. Lo que se
+# agrega es la otra mitad: `rc=3` es «no aplica», se declina y se DICE, igual que el
+# `SIN_ARRANQUE` de `smoke.sh` y el 3 de `correr-suite.sh`. El veredicto queda en ⊘ para
+# que el registro diga que esa dimensión no se midió, en vez de afirmar que pasó.
+declinado() {
+  echo "  ⊘ $1"
+  dim "${PASO:-sin_paso_declarado}" ⊘
+  PASO=""
+}
+
 # ── El veredicto, escrito como DATO y no sólo como prosa ───────────────────────────────
 #
 # `colab-verdicts-v1` es el activo raro de este método: no trayectorias de código —eso
@@ -589,6 +608,9 @@ for id in "$@"; do
       if [ "$RC_A" = "1" ]; then
         malo "el test tiene aserciones que no pueden fallar con ninguna implementación" "$SAL_A"
         printf '%s\n' "$SAL_A" | sed 's/^  /     /'
+      elif [ "$RC_A" = "3" ]; then
+        declinado "las aserciones de este test no se verificaron: el analizador lee Python"
+        printf '%s\n' "$SAL_A" | sed 's/^/     /'
       elif [ "$RC_A" != "0" ]; then
         malo "_aserciones.py no pudo correr (rc=$RC_A): el chequeo no se puede saltear"
         printf '%s\n' "$SAL_A" | sed 's/^/     /'
@@ -719,6 +741,8 @@ for id in "$@"; do
     paso aserciones_fijan_valor
     if [ "$rc" = "1" ]; then
       malo "sin mutantes que matar, el test sólo afirma que el resultado existe"
+    elif [ "$rc" = "3" ]; then
+      declinado "no se pudo juzgar la fuerza de la aserción: el analizador lee Python"
     elif [ "$rc" = "2" ]; then
       # El 2 es «no pude mirar», y acá no se puede leer como pase: estamos en la rama en que
       # el paso que discrimina YA no corrió, así que si este tampoco corre no queda nada

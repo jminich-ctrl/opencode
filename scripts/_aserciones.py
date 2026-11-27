@@ -210,16 +210,19 @@ def sin_valor_en(arbol):
 
 
 def exigir_valor(archivos):
-    """Códigos: 0 alguna aserción fija un valor, 1 todas son de existencia, 2 no pude mirar."""
+    """Códigos: 0 fija un valor, 1 todas de existencia, 2 no pude mirar, 3 no aplica."""
     if not archivos:
         print("  ⊘ no me pasaron ningún archivo: no inspeccioné nada.")
         print("     No es un pase: nadie verificó si alguna aserción fija un valor.")
         return 2
-    flojos, mirados = [], 0
+    flojos, mirados, ajenos_v = [], 0, []
     for a in archivos:
         p = pathlib.Path(a)
-        if not p.exists() or p.suffix != ".py":
-            print(f"  ⊘ {a}: no existe o no es un .py — no pudo verificarse")
+        if p.exists() and p.suffix != ".py":
+            ajenos_v.append(f"{a}: {p.suffix or 'sin extensión'}, no es Python")
+            continue
+        if not p.exists():
+            print(f"  ⊘ {a}: no existe — no pudo verificarse")
             continue
         try:
             arbol = ast.parse(p.read_text())
@@ -228,6 +231,12 @@ def exigir_valor(archivos):
             continue
         mirados += 1
         flojos += [(p, linea, fn) for linea, fn in sin_valor_en(arbol)]
+    if mirados == 0 and ajenos_v:
+        print("  ⊘ este chequeo lee Python y no le pasaron ningún archivo Python:")
+        for m in ajenos_v:
+            print(f"     → {m}")
+        print("     NO APLICA. La fuerza de esas aserciones sigue sin verificar.")
+        return 3
     if mirados == 0:
         print("     No es un pase: «no pude leer el test» y «el test está bien» no son lo mismo.")
         return 2
@@ -253,14 +262,17 @@ def main(archivos):
     `_imports.py` y `_suprimidas.py`, imprimen su testigo: éste era el único mudo, y lo
     encontró un barrido que le preguntó a cada chequeo qué informa cuando no tiene material.
     """
-    malos, mirados, no_pude, aserciones = [], 0, [], 0
+    malos, mirados, no_pude, ajenos, aserciones = [], 0, [], [], 0
     for a in archivos:
         p = pathlib.Path(a)
         if not p.exists():
             no_pude.append(f"{a}: no existe")
             continue
         if p.suffix != ".py":
-            no_pude.append(f"{a}: no es un .py")
+            # NO es «no pude»: este analizador lee Python y el archivo es de otro lenguaje.
+            # La diferencia decide el veredicto, y hasta el 2026-11-27 no existía: ver el
+            # comentario de `AJENO` abajo.
+            ajenos.append(f"{a}: {p.suffix or 'sin extensión'}, no es Python")
             continue
         try:
             arbol = ast.parse(p.read_text())
@@ -282,13 +294,42 @@ def main(archivos):
         print("  ⊘ no me pasaron ningún archivo: no inspeccioné nada.")
         print("     No es un pase: nadie verificó si las aserciones pueden fallar.")
         return 2
-    if no_pude and mirados == 0:
+    # ── «NO APLICA» no es «NO PUDE». El código 3, y lo que costó no tenerlo.
+    #
+    # Medido el 2026-11-27 en la corrida de clasificados: las tres tareas de frontend —T32,
+    # T33, T34— murieron en punto muerto con este rojo:
+    #
+    #   ✗ _aserciones.py no pudo correr (rc=2): el chequeo no se puede saltear
+    #      ⊘ frontend/tests/test_index_html_frontend.test.ts: no es un .py
+    #
+    # Dos intentos cada una, seis corridas de agente, por un motivo que NINGÚN agente puede
+    # arreglar: un `.test.ts` no va a ser un `.py` nunca. Y viola la regla que el método se
+    # puso: un rojo que no se le puede atribuir al agente es un defecto NUESTRO.
+    #
+    # Lo que no se toca —y está en EMPEZAR.md como algo que no hay que tocar— es que un
+    # chequeo que no pudo ejecutarse dé ROJO: eso salió de un falso verde real. Lo que
+    # faltaba es la otra mitad: un chequeo que no APLICA no es un chequeo que falló. Un
+    # archivo que no existe o que no parsea es «no pude» y sigue siendo rojo; un archivo de
+    # otro lenguaje es «no aplica», se declina y se dice cuál.
+    #
+    # El 3 no es un número nuevo del método: es el mismo contrato que ya usan `smoke.sh`
+    # («este proyecto declara que no tiene nada que levantar») y `correr-suite.sh`. Quien
+    # llama lo lee como ⊘ declinado, no como pase.
+    if ajenos and mirados == 0 and not no_pude:
+        print("  ⊘ este chequeo lee Python y no le pasaron ningún archivo Python:")
+        for m in ajenos:
+            print(f"     → {m}")
+        print("     NO APLICA, que no es lo mismo que «no pude»: no hay nada que este")
+        print("     analizador pueda decir sobre un test de otro lenguaje. Lo que ese test")
+        print("     afirma sigue SIN verificar — hace falta un analizador para su lenguaje.")
+        return 3
+    if (no_pude or ajenos) and mirados == 0:
         print("  ⊘ no pude mirar ninguno de los archivos que me pasaron:")
-        for m in no_pude:
+        for m in no_pude + ajenos:
             print(f"     → {m}")
         print("     No es un pase: «no pude leer el test» y «el test está bien» no son lo mismo.")
         return 2
-    for m in no_pude:
+    for m in no_pude + ajenos:
         print(f"  ⊘ {m} — no pudo verificarse")
     if not malos:
         print("  ✓ ninguna aserción es vacua por construcción")

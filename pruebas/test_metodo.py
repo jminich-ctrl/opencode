@@ -2784,6 +2784,191 @@ class TestLaConfigVersionadaDiceLaVerdad(unittest.TestCase):
                   f"diferencia es una mentira documentada. Muestra: {difs}")
 
 
+class TestUnChequeoQueNoAplicaNoEsUnChequeoQueFalla(unittest.TestCase):
+    """Medido el 2026-11-27 en la etapa 1 de clasificados: las tres tareas de frontend —T32,
+    T33, T34— murieron en punto muerto, dos intentos cada una, con esto:
+
+        ✗ _aserciones.py no pudo correr (rc=2): el chequeo no se puede saltear
+           ⊘ frontend/tests/test_index_html_frontend.test.ts: no es un .py
+
+    Seis corridas de agente contra un muro que ningún agente puede mover: un `.test.ts` no va
+    a ser un `.py` nunca. Y viola la regla que el método se puso — un rojo que no se le puede
+    atribuir al agente es un defecto NUESTRO.
+
+    Lo que NO cambia, y está en EMPEZAR.md como algo que no se toca: un chequeo que no pudo
+    EJECUTARSE da rojo. Eso salió de un falso verde real. Lo que faltaba es la otra mitad: un
+    chequeo que no APLICA se declina y se dice cuál, con el mismo código 3 que ya usan
+    `smoke.sh` («nada que levantar») y `correr-suite.sh`."""
+
+    def correr_aserciones(self, nombre, contenido):
+        d = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(tirar_dir, d)
+        p = d / nombre
+        p.write_text(contenido)
+        return correr(f"python3 -I {SCRIPTS}/_aserciones.py {p}", d)
+
+    def test_un_test_de_otro_lenguaje_DECLINA_con_3(self):
+        r = self.correr_aserciones("x.test.ts", "it('anda', () => expect(1).toBe(1));\n")
+        self.assertEqual(3, r.returncode, f"\n{r.stdout}")
+        self.assertIn("NO APLICA", r.stdout, "no dice que declina")
+        self.assertIn("sigue", r.stdout.lower(),
+                      "declina y deja creer que está verificado: tiene que decir que lo que "
+                      "ese test afirma sigue sin verificar")
+
+    def test_brazo_nulo_un_archivo_que_NO_EXISTE_sigue_dando_2(self):
+        """El brazo nulo, y es el que protege lo que no hay que cambiar: «no pude» sigue
+        siendo rojo. Si esto diera 3, el arreglo habría convertido todos los «no pude» en
+        declinaciones, que es el falso verde del que venimos."""
+        d = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(tirar_dir, d)
+        r = correr(f"python3 -I {SCRIPTS}/_aserciones.py {d}/no_existe.py", d)
+        self.assertEqual(2, r.returncode,
+                         f"un archivo que falta no es «no aplica»:\n{r.stdout}")
+
+    def test_un_python_de_verdad_se_sigue_juzgando(self):
+        """El otro brazo: el camino normal no se tocó."""
+        r = self.correr_aserciones("test_x.py",
+                                   "def test_algo():\n    assert 1 == 1\n")
+        self.assertIn(r.returncode, (0, 1),
+                      f"dejó de juzgar Python:\n{r.stdout}")
+
+    def test_el_escritor_de_tests_lee_el_3_como_declinado_y_no_como_rojo(self):
+        s = codigo_de(SCRIPTS / "escribir-tests.sh")
+        self.assertIn("declinado()", s, "no existe el ⊘ declinado")
+        self.assertRegex(s, r'RC_A" = "3" \]; then\s*\n\s*declinado',
+                         "el rc=3 sigue cayendo en el `malo` genérico: la tarea muere por "
+                         "algo que el agente no puede arreglar")
+        self.assertRegex(s, r'RC_A" != "0" \]; then\s*\n\s*malo',
+                         "el «no pude» dejó de ser rojo: eso es el falso verde que el 3 "
+                         "NO tenía que traer")
+
+
+class TestElContextoYLaSalidaTienenQueEntrar(unittest.TestCase):
+    """Medido el 2026-11-27, matando una tarea a mitad de la etapa 1:
+
+        vLLM: maximum context length is 35221 tokens.
+              your prompt contains at least 35222 input tokens
+
+    El A3B declaraba `context: 32000` y `output: 4000`. 36000 contra un techo real de 35221:
+    un pedido que llene el contexto declarado y pida la salida declarada es imposible por
+    construcción. `sync_limits.py` comparaba el contexto contra el techo —32000 < 35221, «=»—
+    y nunca los dos juntos, porque `MARGEN` es un PORCENTAJE (8%, o 2821 tokens acá) y no una
+    reserva para la salida.
+
+    Es la misma forma del defecto que se cerró el 2026-11-26 con el tope de salida contra el
+    reloj del gateway: dos números declarados que hay que cruzar contra un tercero."""
+
+    def test_el_calculo_no_puede_pasarse_del_techo(self):
+        """Sobre el cálculo real del script, con los números del A3B."""
+        fuente = (RAIZ / "colabhive" / "scripts" / "sync_limits.py").read_text()
+        self.assertIn("if nuevo + salida > real:", fuente,
+                      "no cruza contexto + salida contra el techo del modelo")
+        # Y la aritmética, reproducida: 35221 con salida 4000 no puede dar 32000.
+        MARGEN = 0.92
+        real, salida_decl = 35221, 4000
+        nuevo = int(real * MARGEN) // 1000 * 1000
+        salida = min(salida_decl, max(nuevo // 8, 2048))
+        self.assertGreater(nuevo + salida, real,
+                           "el caso que motivó el arreglo dejó de reproducirse: revisá el test")
+        if nuevo + salida > real:
+            nuevo = (real - salida) // 1000 * 1000
+        self.assertLessEqual(nuevo + salida, real,
+                             f"con el arreglo todavía no entra: {nuevo} + {salida} > {real}")
+
+    def test_la_config_declarada_entra_en_el_techo_de_cada_modelo(self):
+        """Lo que importa no es el cálculo: es lo que quedó escrito. Los techos reales están
+        medidos en la propia config (`max_model_len` no, pero el comentario y las mediciones
+        sí), así que acá se verifica la relación interna que tiene que valer siempre:
+        ningún modelo puede declarar salida mayor que su contexto."""
+        import json
+        cfg = json.loads((RAIZ / "colabhive" / "config" / "opencode.json").read_text())
+        modelos = cfg["provider"]["colabhive"]["models"]
+        malos = []
+        for mid, m in modelos.items():
+            lim = m.get("limit") or {}
+            ctx, out = lim.get("context"), lim.get("output")
+            if not ctx or not out:
+                continue
+            if out >= ctx:
+                malos.append(f"{m.get('name', mid)[:30]}: salida {out} ≥ contexto {ctx}")
+        self.assertEqual([], malos, "\n  · ".join(malos))
+
+
+
+class TestLasReglasDelMetodoLleganALosProyectos(unittest.TestCase):
+    """Medido el 2026-11-27 en la etapa 1 de clasificados: T04 y T26 murieron, dos intentos
+    cada una, con este rojo de la fase de tests:
+
+        ✗ el test parchea un lugar donde el patch no va a tener efecto
+
+    La regla que lo evita existía: `AGENTS.md` del método, regla 13, «Parcheá donde el nombre
+    SE USA, no donde se define», con el `patch(...)` correcto al lado del incorrecto y la
+    medición del 2026-10-27 que la originó. Lo que pasó es que **ninguno de los dos proyectos
+    la tenía**: se agregó al método después de que sus `AGENTS.md` se escribieran y nadie la
+    propagó. De las 13 reglas, los proyectos tenían 12.
+
+    El agente leyó el `AGENTS.md` que sí existe —el del proyecto, 222 líneas— hizo lo que esa
+    regla prohíbe, y el gate se lo cobró. Cuatro corridas de agente, y es exactamente el
+    patrón que este repo persigue: «el arreglo vive en un hermano y no en el otro», con el
+    agravante de que acá el hermano es el que el agente LEE.
+
+    El canario de al lado —`test_lo_que_el_gate_le_cobra_al_agente_esta_en_AGENTS`— no lo
+    atrapó porque mira los rojos de `plantillas/gate.sh`, y éste lo emite
+    `escribir-tests.sh`. Éste cierra la otra mitad por el lado de la propagación: no importa
+    QUIÉN emita el rojo, si el método declara una regla para el agente, el agente tiene que
+    poder leerla donde se le dice que lea."""
+
+    def reglas_numeradas(self, texto):
+        import re
+        return re.findall(r"^\d+\.\s+\*\*(.+?)\*\*", texto, re.M)
+
+    def test_cada_regla_del_metodo_esta_en_el_AGENTS_de_cada_ejemplo(self):
+        import re
+        del_metodo = self.reglas_numeradas((RAIZ / "AGENTS.md").read_text())
+        self.assertGreaterEqual(len(del_metodo), 10,
+                                f"no pude leer las reglas del AGENTS.md del método: {del_metodo}")
+        for proy in sorted(RAIZ.glob("ejemplo-*/AGENTS.md")):
+            with self.subTest(proyecto=proy.parent.name):
+                suyo = proy.read_text().lower()
+                faltan = [r[:60] for r in del_metodo
+                          if re.sub(r"[`*]", "", r).lower()[:34] not in suyo]
+                self.assertEqual([], faltan,
+                                 "el método declara reglas que este proyecto NO tiene, y el "
+                                 "agente lee la del proyecto: el gate le va a cobrar algo "
+                                 "que nunca leyó.\n  · " + "\n  · ".join(faltan))
+
+    def faltantes(self, texto_del_proyecto):
+        """El comparador, aislado: qué reglas del método no están en ese texto."""
+        import re
+        del_metodo = self.reglas_numeradas((RAIZ / "AGENTS.md").read_text())
+        suyo = texto_del_proyecto.lower()
+        return [r for r in del_metodo if re.sub(r"[`*]", "", r).lower()[:34] not in suyo]
+
+    def test_el_comparador_detecta_una_regla_que_falta(self):
+        """Sin esto, el test de arriba podría estar pasando porque el comparador no compara
+        nada —el caso que este repo persigue—. Se le saca UNA regla y tiene que verla."""
+        import re
+        completo = (RAIZ / "AGENTS.md").read_text()
+        reglas = self.reglas_numeradas(completo)
+        victima = reglas[-1]
+        i = completo.index(victima)
+        mutilado = completo[:completo.rindex("\n", 0, i)] + "\n"
+        self.assertEqual([], self.faltantes(completo),
+                         "el comparador no se reconoce a sí mismo: algo está mal en el lector")
+        self.assertIn(victima, self.faltantes(mutilado),
+                      f"le saqué «{victima[:40]}» y el comparador no lo notó")
+
+    def test_lo_que_se_compara_es_el_ENUNCIADO_y_no_el_numero(self):
+        """Cada proyecto numera su propia lista, así que comparar por número daría falsos
+        rojos para siempre. Con las mismas reglas renumeradas, el comparador no se queja."""
+        import re
+        completo = (RAIZ / "AGENTS.md").read_text()
+        renumerado = re.sub(r"^\d+\.", "99.", completo, flags=re.M)
+        self.assertEqual([], self.faltantes(renumerado),
+                         "se queja por los números: el enunciado es el mismo")
+
+
+
 class TestElEncargoEsLoQueHayQueVerificar(unittest.TestCase):
     """El 2026-11-26 levantamos `ejemplo-clasificados` desde cero: 19 de 34 tareas cerradas,
     46 tests de backend y 27 de frontend en verde, `smoke.sh` en 0. Y la API publicaba UNA
@@ -14808,7 +14993,11 @@ class TestQuienLeeElVeredictoDistingueElNoPudeVerificar(unittest.TestCase):
     # Productor → (código de falla, códigos de «no pude verificar»). Cada uno declarado en el
     # propio productor; si se agrega uno nuevo, va acá.
     CONTRATOS = {
-        "_aserciones.py": ("1", ["2"]),
+        # El 3 de `_aserciones.py` entró el 2026-11-27: «no aplica a este lenguaje», que no
+        # es «no pude» pero tampoco es un pase. Va en la lista por la misma razón que el 2:
+        # un consumidor que ramifique en la falla y no en el 3 lo lee como verde, y así se
+        # perdería el único aviso de que las aserciones de ese test no se verificaron.
+        "_aserciones.py": ("1", ["2", "3"]),
         "_contrato.py": ("1", ["2"]),
         "_mocks.py": ("1", ["2"]),
         "vaciar.py": ("3", ["2"]),
@@ -14844,11 +15033,21 @@ class TestQuienLeeElVeredictoDistingueElNoPudeVerificar(unittest.TestCase):
 
         El brazo del `case` se ancla al PRINCIPIO de la línea, y eso lo pidió la mutación: con
         `codigo in tramo` a secas, cambiar `2)` por `22)` dejaba el mutante vivo porque «22)»
-        contiene «2)». Un matcher por subcadena no distingue el defecto que dice medir."""
+        contiene «2)». Un matcher por subcadena no distingue el defecto que dice medir.
+
+        Y lee las ALTERNATIVAS del brazo, `2|3)`, que es un idioma de `case` tan válido como
+        el simple. Lo pidió un falso rojo propio: el 2026-11-27 `auditar-cerradas.sh` pasó a
+        manejar el código nuevo con `2|3)` —leyendo los dos— y este canario informó que «lee
+        el 1 pero no el 2». Un matcher ciego a una forma correcta acusa al sujeto equivocado,
+        que es justo lo que el canario existe para evitar."""
+        objetivo = str(codigo)
         for linea in tramo.split("\n"):
             t = linea.strip()
-            if t.startswith(f"{codigo})") or t.startswith(f'"{codigo}")'):
-                return True
+            if ")" in t:
+                # Lo de antes del `)`: el patrón del brazo, con sus alternativas.
+                arma = t.split(")", 1)[0]
+                if objetivo in [p.strip().strip('"').strip("'") for p in arma.split("|")]:
+                    return True
             if any(m in t for m in (f'= "{codigo}"', f"-eq {codigo}", f"= {codigo} ]")):
                 return True
         return False
@@ -14863,6 +15062,19 @@ class TestQuienLeeElVeredictoDistingueElNoPudeVerificar(unittest.TestCase):
             if any(m in t for m in ('!= "0"', "-ne 0")) or t.startswith("else"):
                 return True
         return False
+
+    def test_el_matcher_lee_las_alternativas_y_NO_confunde_22_con_2(self):
+        """Los dos brazos del matcher, juntos porque uno sin el otro no sirve: si acepta
+        alternativas pero se come el `22)`, deja pasar la mutación que este canario vino a
+        atrapar; si rechaza el `22)` pero no lee `2|3)`, acusa a quien escribió bien."""
+        self.assertTrue(self.exacto("  2|3)\n", 2), "no lee la alternativa 2|3)")
+        self.assertTrue(self.exacto("  2|3)\n", 3), "no lee la alternativa 2|3) para el 3")
+        self.assertTrue(self.exacto('  "2"|"3")\n', 2), "no lee la alternativa entrecomillada")
+        self.assertTrue(self.exacto("  2)\n", 2), "dejó de leer el brazo simple")
+        self.assertFalse(self.exacto("  22)\n", 2),
+                         "22) cuenta como 2): volvió el defecto que la mutación encontró")
+        self.assertFalse(self.exacto("  12|13)\n", 2),
+                         "12|13) cuenta como 2): el separador no alcanza, hay que comparar")
 
     def test_el_que_ramifica_en_la_falla_tambien_ramifica_en_el_no_pude(self):
         ciegos = []

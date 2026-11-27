@@ -89,6 +89,27 @@ def sincronizar(cat, ruta, destino, escribir):
             continue
         nuevo = int(real * MARGEN) // 1000 * 1000
         salida = min(entry.get("limit", {}).get("output", 8192), max(nuevo // 8, 2048))
+        # ── Y EL CONTEXTO MÁS LA SALIDA TIENEN QUE ENTRAR.
+        #
+        # `MARGEN` es un PORCENTAJE, no una reserva para la salida, y cuando la salida es más
+        # grande que ese 8% la suma de los dos números declarados no cabe en el modelo.
+        # Medido el 2026-11-27, matando una tarea a mitad de la etapa 1 de clasificados:
+        #
+        #   vLLM: maximum context length is 35221 tokens.
+        #         your prompt contains at least 35222 input tokens
+        #
+        #   A3B: real 35221 → 35221 × 0,92 = 32403 → contexto 32000
+        #        salida 4000  →  32000 + 4000 = 36000 > 35221   (el margen era 2821)
+        #
+        # Este chequeo comparaba el contexto contra el techo —32000 < 35221, «=»— y nunca los
+        # dos juntos. Es la misma forma del defecto que cerramos el 2026-11-26 con el tope de
+        # salida contra el reloj del gateway: dos números declarados que hay que cruzar contra
+        # un tercero, y nadie los cruzaba.
+        #
+        # Medido sobre los tres modelos del equipo: sólo corrige al A3B (32000 → 31000); el
+        # 27B y el 20b no se mueven, porque ahí el margen del 8% ya es mayor que su salida.
+        if nuevo + salida > real:
+            nuevo = (real - salida) // 1000 * 1000
         viejo = entry.get("limit", {}).get("context")
         marca = "=" if viejo == nuevo else "→"
         print(f"  {marca} {entry.get('name', mid)[:40]:40} {str(viejo):>7} {marca} {nuevo:>7} "
