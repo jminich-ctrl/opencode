@@ -291,6 +291,48 @@ NO_SON_COLUMNAS = {"primary", "foreign", "unique", "key", "index", "constraint",
 RE_DICE_COLUMNA = re.compile(r"\bcolumnas?\s+((?:`[A-Za-z_][A-Za-z0-9_]*`[,\s]*(?:y|o)?[,\s]*)+)",
                              re.I)
 
+# Una línea que declara la FORMA de un dict. Es la otra manera de afirmar algo sobre el
+# esquema, y hasta el 2026-11-27 no la miraba nadie: el chequeo de arriba exige la palabra
+# «columna» y éste decía lo mismo sin usarla. El enunciado de T04 declaraba
+#
+#     """El usuario como dict con al menos `id`, `email` y `password_hash`, o None."""
+#
+# y la migración crea `usuarios(id, email, clave_hash, clave_salt, creado_en)`. Costó tres
+# corridas: cada intento de escribir sus tests inventaba el nombre y el cruce lo rechazaba,
+# y los tres diagnósticos apuntaron al síntoma.
+RE_FORMA_DICT = re.compile(r"\bdicts?\b|\bdiccionario", re.I)
+RE_CLAVE_DICT = re.compile(r"`([a-z][a-z0-9_]+)`")
+# Entre backticks también viene lo que no es una clave: tipos, llamadas, rutas.
+NO_ES_CLAVE = re.compile(r"\.|\(|/|^(none|dict|list|str|int|bool|float|true|false|null)$", re.I)
+
+
+def claves_ajenas_al_esquema(texto, columnas):
+    """Claves declaradas en una forma de dict que ninguna migración crea.
+
+    LA OBJECIÓN QUE ESTO RESPETA. El chequeo de «columna `x`» dice, en su propio comentario,
+    que un identificador suelto entre backticks «puede ser una variable, un campo de un JSON
+    o una columna», y que marcarlo «sería adivinar». Es cierto. Por eso acá sólo se marca
+    cuando la MISMA línea nombra DOS O MÁS columnas reales: ahí el dict es demostrablemente
+    una fila de una tabla —`id` y `email` lo son— y la clave suelta es un nombre de columna
+    equivocado, no una variable. Si ninguna clave es columna, el dict no es una fila y este
+    chequeo no opina.
+
+    Medido el 2026-11-27 antes de prenderlo: 0 falsos positivos en los 37 enunciados de
+    ejemplo-clasificados, y marca `password_hash` en el T04 que estaba commiteado. Sin esa
+    medición esto sería una regla más ancha que el defecto, que es como se consiguen los
+    rojos falsos.
+    """
+    ajenas = set()
+    for linea in texto.splitlines():
+        if not RE_FORMA_DICT.search(linea):
+            continue
+        claves = [c for c in RE_CLAVE_DICT.findall(linea) if not NO_ES_CLAVE.search(c)]
+        reales = [c for c in claves if c.lower() in columnas]
+        sueltas = [c for c in claves if c.lower() not in columnas]
+        if len(reales) >= 2 and sueltas:
+            ajenas |= set(sueltas)
+    return sorted(ajenas)
+
 
 def _cuerpos_create_table(txt: str):
     """`[(tabla, cuerpo)]`, delimitando con un CONTADOR de paréntesis y no con un regex.
@@ -843,6 +885,14 @@ def main():
                                   f"ejecute va a escribir esa consulta porque se la pidieron, "
                                   f"y la base la va a rechazar con «Unknown column». Se "
                                   f"corrige el enunciado antes de gastar un agente."))
+            for col in claves_ajenas_al_esquema(texto, todas_las_columnas):
+                rojos.append(("esquema",
+                              f"{tid} declara `{col}` como clave de un dict cuyas otras "
+                              f"claves SÍ son columnas, así que ese dict es una fila y "
+                              f"`{col}` es un nombre de columna que ninguna migración crea. "
+                              f"Quien escriba sus tests va a inventar el mapeo y el cruce "
+                              f"contra el enunciado lo va a rechazar: pasó tres veces con "
+                              f"T04. Se corrige el enunciado contra la migración."))
 
     # ── ROJO: una COLUMNA que el código consulta y ninguna migración crea ──────────
     #

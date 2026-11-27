@@ -2784,6 +2784,87 @@ class TestLaConfigVersionadaDiceLaVerdad(unittest.TestCase):
                   f"diferencia es una mentira documentada. Muestra: {difs}")
 
 
+class TestLaFormaDeUnDictTambienAfirmaSobreElEsquema(unittest.TestCase):
+    """El enunciado de T04 declaraba, commiteado:
+
+        El usuario como dict con al menos `id`, `email` y `password_hash`, o None.
+
+    —escrito como el docstring del contrato— y la migración crea `usuarios(id, email, clave_hash, clave_salt, creado_en)`. Costó TRES
+    corridas el 2026-11-27: cada intento de escribir sus tests inventaba el nombre, el cruce
+    contra el enunciado lo rechazaba —con razón— y los tres diagnósticos apuntaron al
+    síntoma. `coherencia.py` tenía el chequeo que debía verlo, pero exige la palabra
+    «columna» y esta línea dice lo mismo sin usarla.
+
+    LA OBJECIÓN QUE RESPETA. El chequeo hermano dice en su comentario que un identificador
+    suelto entre backticks «puede ser una variable, un campo de un JSON o una columna» y que
+    marcarlo «sería adivinar» —y nombra este mismo `password_hash` como ejemplo de lo que NO
+    hay que marcar. Es cierto. Por eso sólo dispara cuando la misma línea nombra DOS O MÁS
+    columnas reales: ahí el dict es demostrablemente una fila y la clave suelta es un nombre
+    de columna equivocado.
+
+    Medido antes de prenderlo: 0 falsos positivos en los 37 enunciados de
+    ejemplo-clasificados, y marca `password_hash` en el T04 que estaba commiteado."""
+
+    def claves(self, texto, columnas=("id", "email", "clave_hash", "clave_salt")):
+        import importlib.util
+        ruta = SCRIPTS / "coherencia.py"
+        spec = importlib.util.spec_from_file_location("coherencia_para_test", ruta)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.claves_ajenas_al_esquema(texto, set(columnas))
+
+    def test_marca_la_clave_que_no_es_columna(self):
+        linea = "El usuario como dict con al menos `id`, `email` y `password_hash`, o None."
+        self.assertEqual(["password_hash"], self.claves(linea),
+                         "no vio la clave inventada en una fila declarada")
+
+    def test_brazo_nulo_si_NINGUNA_clave_es_columna_no_opina(self):
+        """La objeción del chequeo hermano, hecha test: un dict que no es una fila —un token,
+        una respuesta de API— no se juzga contra el esquema. Si esto marcara, el chequeo
+        estaría adivinando y produciría los rojos falsos que ese comentario anticipaba."""
+        linea = "Devuelve un dict con `token` y `expira_en_segundos`."
+        self.assertEqual([], self.claves(linea),
+                         "marcó claves de un dict que no es una fila: eso es adivinar")
+
+    def test_brazo_nulo_una_sola_columna_real_no_alcanza(self):
+        """Con una sola columna real la línea puede ser cualquier cosa. El umbral de dos es
+        lo que convierte «podría ser una fila» en «es una fila»."""
+        linea = "Devuelve un dict con `email` y `token_de_sesion`."
+        self.assertEqual([], self.claves(linea),
+                         "una columna sola alcanzó: el umbral dejó de discriminar")
+
+    def test_una_fila_entera_y_correcta_no_se_marca(self):
+        linea = "El usuario como dict con `id`, `email`, `clave_hash` y `clave_salt`."
+        self.assertEqual([], self.claves(linea))
+
+    def test_sin_la_palabra_dict_no_se_mira_la_linea(self):
+        """El disparador sigue siendo una declaración de forma, no cualquier línea con
+        backticks: el enunciado nombra funciones, parámetros y módulos todo el tiempo."""
+        linea = "La función recibe `email` y `id` y valida `password_hash`."
+        self.assertEqual([], self.claves(linea),
+                         "miró una línea que no declara la forma de un dict")
+
+    def test_el_enunciado_de_T04_que_estaba_commiteado_se_marcaria(self):
+        """El brazo nulo que vale: el archivo real, de git, como estaba antes del arreglo. Un
+        chequeo que no caza el caso que lo motivó no sirve, y el caso está en la historia."""
+        r = correr("git show 67ee301:ejemplo-clasificados/tareas/T04-auth-backend.md", RAIZ)
+        if r.returncode != 0:
+            self.skipTest("no está ese commit en esta copia del repo")
+        self.assertIn("password_hash", self.claves(r.stdout),
+                      "el enunciado que costó tres corridas pasaría igual")
+
+    def test_el_proyecto_de_ejemplo_HOY_no_tiene_ninguna(self):
+        """Los 37 enunciados actuales, con el esquema real: cero. Es la medición que autoriza
+        a que esto sea ROJO y no aviso."""
+        proy = RAIZ / "ejemplo-clasificados"
+        if not (proy / "tareas").is_dir():
+            self.skipTest("no está el ejemplo")
+        r = correr(f"python3 -I {SCRIPTS}/coherencia.py", proy)
+        self.assertNotIn("clave de un dict", r.stdout,
+                         f"apareció un rojo nuevo en el proyecto de ejemplo:\n{r.stdout[-700:]}")
+
+
+
 class TestElTopeDeReintentosSoloAtaAQuienAvanza(unittest.TestCase):
     """El tope de reintentos de la fase de tests hacía doble trabajo. El caso «trabado» ya se
     detecta aparte, por motivo REPETIDO —ahí se declara punto muerto y no se gasta otra
