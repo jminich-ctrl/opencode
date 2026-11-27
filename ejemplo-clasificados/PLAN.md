@@ -149,7 +149,7 @@ vez de la aplicación.
 | T28 | backend/tests/test_search_backend.py | TestSearchBackend |
 | T29 | frontend/tests/test_search_frontend.test.ts | TestSearchFrontend |
 | T32 | frontend/tests/test_index_html_frontend.test.ts | TestIndexHtmlFrontend |
-| T33 | frontend/tests/test_montaje_app_frontend.test.ts | TestMontajeAppFrontend |
+| T33 | frontend/tests/test_montaje_app_frontend.test.tsx | TestMontajeAppFrontend |
 | T34 | frontend/tests/test_import_diseno_frontend.test.ts | TestImportDisenoFrontend |
 
 ### Un choque que encontró el arquitecto

@@ -227,7 +227,7 @@ for id in "$@"; do
     continue
   fi
 
-  intento=1; cortes=0; cortes_total=0; MOTIVO_TESTS=""; HUELLA_ANTERIOR=""; DETALLE_TESTS=""
+  intento=1; cortes=0; cortes_total=0; MOTIVO_TESTS=""; HUELLA_ANTERIOR=""; MOTIVOS_VISTOS=""; DETALLE_TESTS=""
   ENUNCIADO_ANTERIOR=""   # por tarea: sin esto la tarea hereda la huella de la anterior
   while :; do
   wt="$RAIZ/../tests-$id"
@@ -294,7 +294,7 @@ for id in "$@"; do
   ENUNCIADO="$(huella_enunciado "$wt/$PROYECTO/tareas/$(basename "$archivo")")"
   if el_enunciado_cambio "$ENUNCIADO" "${ENUNCIADO_ANTERIOR:-}"; then
     echo "  · $id: el enunciado cambió — intentos y cortes vuelven a cero (sujeto nuevo)"
-    intento=1; cortes=0; cortes_total=0; MOTIVO_TESTS=""; HUELLA_ANTERIOR=""; DETALLE_TESTS=""
+    intento=1; cortes=0; cortes_total=0; MOTIVO_TESTS=""; HUELLA_ANTERIOR=""; MOTIVOS_VISTOS=""; DETALLE_TESTS=""
   fi
   ENUNCIADO_ANTERIOR="$ENUNCIADO"
   # El worktree es nuevo: no tiene venv ni node_modules. Sin esto, una tarea de frontend
@@ -1208,7 +1208,36 @@ for id in "$@"; do
     echo "  ✗ $id: punto muerto — falló dos veces por lo mismo: $MOTIVO_TESTS"
     echo "     Log: $log"
     break
+  # ── Y EL CICLO, que no es lo mismo que el punto muerto.
+  #
+  # Hasta el 2026-11-27 esto comparaba el motivo nuevo sólo con el INMEDIATAMENTE anterior,
+  # así que A→A se cazaba y A→B→A pasaba como progreso. Medido ese día, dos tareas distintas
+  # con el mismo par de defectos alternándose:
+  #
+  #   T04   patch → no ejecuta → patch
+  #   T26   no ejecuta → patch → no ejecuta
+  #
+  # Seis intentos leídos como «va avanzando». Y el ciclo no es casualidad: parchear donde el
+  # patch PEGA significa parchear el módulo que se está probando, y eso stubea justo las
+  # líneas que el paso de mutación exige ver ejecutadas. El agente corrige una restricción y
+  # rompe la otra, indefinidamente. Darle más presupuesto compra más vueltas del mismo
+  # círculo.
+  #
+  # Lo que el mensaje tiene que decir es distinto del punto muerto: no «está trabado», sino
+  # «estas dos cosas no se satisfacen juntas, y eso se decide cambiando el enfoque del test,
+  # no reintentando».
+  elif printf '%s\n' "$MOTIVOS_VISTOS" | grep -qxF "$MOTIVO_TESTS"; then
+    echo "  ✗ $id: ciclo — ya había fallado por esto y volvió:"
+    echo "       $MOTIVO_TESTS"
+    echo "     No está trabado: corrige un defecto y rompe el otro. Dos restricciones que"
+    echo "     no se satisfacen juntas no se arreglan reintentando — se cambia el enfoque"
+    echo "     del test, y eso lo decide una persona. Motivos de esta tarea, en orden:"
+    printf '%s\n' "$MOTIVOS_VISTOS" | grep -v '^$' | sed 's/^/       · /' | cut -c1-110
+    echo "     Log: $log"
+    break
   fi
+  MOTIVOS_VISTOS="${MOTIVOS_VISTOS:+$MOTIVOS_VISTOS
+}$MOTIVO_TESTS"
   HUELLA_ANTERIOR="$MOTIVO_TESTS"
   intento=$((intento+1))
   if [ "$intento" -gt "$REINTENTOS_TESTS" ]; then

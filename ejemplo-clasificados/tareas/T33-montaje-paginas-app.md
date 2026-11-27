@@ -38,7 +38,9 @@ Cómo agrega su página una tarea posterior, sin coordinarse: importar el compon
 > existe en el repo y **no podés tocarlo** —el gate lo verifica—. Lo que sigue es para
 > quien escribió los tests, y está acá sólo para que puedas leer contra qué te juzgan.
 
-Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando vos**. Archivo: `frontend/tests/test_montaje_app_frontend.test.ts`, clase `TestMontajeAppFrontend`.
+Los tests de esta tarea se escriben **antes** que la implementación, en una corrida aparte. Si te toca implementar, ya están en el repo y fallan; si te toca escribirlos, **todavía no existen y los estás creando vos**. Archivo: `frontend/tests/test_montaje_app_frontend.test.tsx`, clase `TestMontajeAppFrontend`.
+
+> El test monta componentes, así que tiene que ser `.tsx`; el JSX en un archivo `.ts` no compila.
 
 ## Criterio de terminado
 

@@ -2784,6 +2784,70 @@ class TestLaConfigVersionadaDiceLaVerdad(unittest.TestCase):
                   f"diferencia es una mentira documentada. Muestra: {difs}")
 
 
+class TestUnCicloNoEsProgreso(unittest.TestCase):
+    """El detector de punto muerto comparaba el motivo nuevo sólo con el INMEDIATAMENTE
+    anterior, así que A→A se cazaba y A→B→A pasaba como progreso. Medido el 2026-11-27, dos
+    tareas distintas con el mismo par de defectos alternándose:
+
+        T04   patch → no ejecuta → patch
+        T26   no ejecuta → patch → no ejecuta
+
+    Seis intentos leídos como «va avanzando», y los seis gastados. Y el ciclo no es
+    casualidad: parchear donde el patch PEGA significa parchear el módulo que se está
+    probando, y eso stubea justo las líneas que el paso de mutación exige ver ejecutadas. El
+    agente corrige una restricción y rompe la otra. Más presupuesto compra más vueltas.
+
+    Por eso el mensaje es distinto del punto muerto: no «está trabado» sino «estas dos cosas
+    no se satisfacen juntas», que se arregla cambiando el enfoque del test y lo decide una
+    persona."""
+
+    def criterio(self, historia, motivo):
+        """El criterio real, extraído del script y corrido contra una historia dada."""
+        s = codigo_de(SCRIPTS / "escribir-tests.sh")
+        self.assertIn('printf \'%s\\n\' "$MOTIVOS_VISTOS" | grep -qxF "$MOTIVO_TESTS"', s,
+                      "el criterio del ciclo cambió de forma: actualizá este test")
+        guion = ('set -uo pipefail\nMOTIVOS_VISTOS="%s"\nMOTIVO_TESTS="%s"\n'
+                 'if printf \'%%s\\n\' "$MOTIVOS_VISTOS" | grep -qxF "$MOTIVO_TESTS"; '
+                 'then echo CICLO; else echo SIGUE; fi' % (historia, motivo))
+        return correr("bash -c " + shlex.quote(guion), RAIZ).stdout.strip()
+
+    def test_un_motivo_que_vuelve_a_distancia_dos_es_ciclo(self):
+        self.assertEqual("CICLO", self.criterio("patch\nno ejecuta", "patch"),
+                         "A→B→A pasó como progreso: es el caso de T04")
+
+    def test_un_motivo_nuevo_sigue_siendo_progreso(self):
+        """El brazo nulo: si todo fuera ciclo, el detector cortaría a la primera tarea que
+        corrige un defecto y encuentra otro — que es exactamente lo que queremos dejar pasar."""
+        self.assertEqual("SIGUE", self.criterio("patch\nno ejecuta", "el test no compila"),
+                         "cortó a una tarea que está avanzando")
+
+    def test_la_memoria_es_POR_TAREA_y_no_sobrevive_al_corte_de_plataforma(self):
+        """Dos reseteos y no cuatro. Acumular entre tareas cortaría a la siguiente por un
+        motivo que no es suyo; olvidar la historia cuando corta la plataforma haría invisible
+        el ciclo, porque un corte no es un motivo."""
+        s = codigo_de(SCRIPTS / "escribir-tests.sh")
+        self.assertEqual(2, s.count('MOTIVOS_VISTOS=""'),
+                         "la memoria del ciclo se resetea en otra cantidad de lugares que los "
+                         "dos que corresponden: arranque de tarea y enunciado nuevo")
+        # Y donde se resetea por corte de plataforma, NO tiene que estar.
+        i = s.index('PLATAFORMA_CORTO=0')
+        tramo = s[i:i + 400]
+        self.assertNotIn('MOTIVOS_VISTOS=""', tramo,
+                         "un corte de plataforma borra la historia del ciclo: con eso T04 "
+                         "habría girado para siempre")
+
+    def test_el_mensaje_del_ciclo_dice_que_lo_decide_una_persona(self):
+        """Un corte sin salida accionable se lee como «el modelo no puede», y la conclusión
+        correcta es otra: el enfoque del test está mal elegido."""
+        s = codigo_de(SCRIPTS / "escribir-tests.sh")
+        self.assertIn("ciclo —", s, "el corte por ciclo no se distingue del punto muerto")
+        self.assertIn("no se satisfacen juntas", s,
+                      "el mensaje no dice por qué reintentar no sirve")
+        self.assertIn("Motivos de esta tarea, en orden", s,
+                      "no lista los motivos: sin la secuencia nadie puede ver el ciclo")
+
+
+
 class TestLaFormaDeUnDictTambienAfirmaSobreElEsquema(unittest.TestCase):
     """El enunciado de T04 declaraba, commiteado:
 
