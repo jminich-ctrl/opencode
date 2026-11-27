@@ -108,7 +108,7 @@ for id in "$@"; do
   ( cd "$BASE" || exit 1
     export XDG_DATA_HOME="$BASE/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
     con_limite "${LIMITE_AGENTE:-1800}" opencode run --model "colabhive/$DIAGNOSTICA" \
-      "Mirá SOLO el brief de la tarea y, si hace falta, los archivos que la tarea nombra. NO explores .venv, node_modules, .git ni ningún directorio de dependencias: no tienen nada que ver con el enunciado y hay decenas de miles de archivos ahí. La tarea tareas/$(basename \"$archivo\") falló, y el motivo es cómo está escrita, no el agente que la intentó. $MOTIVO. $QUE_LEER NO modifiques ningún archivo del plan ni de las tareas. NO escribas ningún archivo: tu respuesta ES el entregable. Decí: (1) qué le falta o le sobra al enunciado para que el defecto no pueda repetirse, (2) para cada cosa que la tarea nombra, DÓNDE vive: archivo exacto e import exacto, (3) si falta algo que ninguna tarea del plan entrega, decilo. Sé concreto y breve. EMPEZÁ tu respuesta con una primera línea 'VEREDICTO PROVISORIO: HUECO' o 'VEREDICTO PROVISORIO: REESCRIBIR' con lo que te parezca ANTES de analizar: es por si tu respuesta se corta, no manda nada, y podés contradecirla abajo. Y TERMINÁ tu respuesta con una última línea que sea exactamente una de estas dos: 'VEREDICTO: HUECO — <qué falta y qué tarea debía entregarlo>' si falta algo que ninguna tarea del plan entrega, o 'VEREDICTO: REESCRIBIR' si el enunciado se puede arreglar solo. Esa línea la lee un programa: sin ella tu diagnóstico se descarta. En cuanto PUEDAS escribir esa línea, escribila y terminá: no vuelvas a verificar lo que ya decidiste. Medido el 2026-11-23: el arquitecto de T16 llegó al diagnóstico CORRECTO al 76% de su log —dijo que T15 debía entregar una función de listado y sólo entregó toggle_favorite_service, y era cierto— y gastó el 24% restante re-verificándolo contra archivos cuyo nombre adivinaba mal, hasta que el pedido se cortó. Un diagnóstico correcto que no llega a salir vale lo mismo que ninguno." 2>&1
+      "Mirá SOLO el brief de la tarea y, si hace falta, los archivos que la tarea nombra. NO explores .venv, node_modules, .git ni ningún directorio de dependencias: no tienen nada que ver con el enunciado y hay decenas de miles de archivos ahí. La tarea tareas/$(basename \"$archivo\") falló, y el motivo es cómo está escrita, no el agente que la intentó. $MOTIVO. $QUE_LEER NO modifiques ningún archivo del plan ni de las tareas. NO escribas ningún archivo: tu respuesta ES el entregable. Decí: (1) qué le falta o le sobra al enunciado para que el defecto no pueda repetirse, (2) para cada cosa que la tarea nombra, DÓNDE vive: archivo exacto e import exacto, (3) si falta algo que ninguna tarea del plan entrega, decilo. Sé concreto y breve: tu respuesta COMPLETA tiene que caber en 50 líneas. Medido el 2026-11-27 en esta misma tarea: una respuesta de 30447 bytes son unos 7319 tokens y el tope de salida de este modelo son 4600, así que se cortó antes de llegar al veredicto y el diagnóstico entero se descartó. Un diagnóstico correcto que no llega a salir vale lo mismo que ninguno. EMPEZÁ tu respuesta con una primera línea 'VEREDICTO PROVISORIO: HUECO' o 'VEREDICTO PROVISORIO: REESCRIBIR' con lo que te parezca ANTES de analizar: es por si tu respuesta se corta, no manda nada, y podés contradecirla abajo. Y TERMINÁ tu respuesta con una última línea que sea exactamente una de estas dos: 'VEREDICTO: HUECO — <qué falta y qué tarea debía entregarlo>' si falta algo que ninguna tarea del plan entrega, o 'VEREDICTO: REESCRIBIR' si el enunciado se puede arreglar solo. Esa línea la lee un programa: sin ella tu diagnóstico se descarta. En cuanto PUEDAS escribir esa línea, escribila y terminá: no vuelvas a verificar lo que ya decidiste. Medido el 2026-11-23: el arquitecto de T16 llegó al diagnóstico CORRECTO al 76% de su log —dijo que T15 debía entregar una función de listado y sólo entregó toggle_favorite_service, y era cierto— y gastó el 24% restante re-verificándolo contra archivos cuyo nombre adivinaba mal, hasta que el pedido se cortó. Un diagnóstico correcto que no llega a salir vale lo mismo que ninguno." 2>&1
   ) > "$LOG_VIGILADO" 2>&1
   E="$(error_del_agente "$LOG_VIGILADO" 2>/dev/null)"
   [ -n "$E" ] && { echo "  ✗ el diagnóstico no se pudo hacer: $E"; continue; }
@@ -174,6 +174,45 @@ for id in "$@"; do
   # así que TODO diagnóstico habría salido «incompleto» y el relevo no habría llegado al
   # paso 2 jamás. Una guarda que se dispara siempre es tan inútil como una que no se
   # dispara: lo vi probando los cuatro casos a mano antes de commitear.
+  # ── 1b. EL VEREDICTO, EN SU PROPIA LLAMADA.
+  #
+  # El campo que el programa lee se pide en la ÚLTIMA línea, y el razonamiento comparte el
+  # mismo presupuesto de salida que la respuesta: lo último es lo primero que se pierde.
+  # Medido el 2026-11-27 sobre el mismo T04, dos veces con el mismo modelo y tope 4600:
+  #
+  #   sin presupuesto declarado en el pedido   30447 bytes ≈ 7319 tokens   cortado
+  #   con «tu respuesta cabe en 50 líneas»     19354 bytes ≈ 4652 tokens   cortado por 52
+  #
+  # Declarar el presupuesto acortó la respuesta un 36% y no la acotó: un modelo chico no
+  # puede contar su propia salida. Lo que sí funciona —medido hoy tres veces con el
+  # arquitecto— es partir: una llamada larga que analiza y otra CORTA que concluye. Ésta
+  # recibe el análisis ya hecho, así que el veredicto sale DE él y no antes —que es lo que
+  # el provisorio no puede garantizar y la razón por la que no autoriza nada— y su respuesta
+  # es de una línea, que ningún tope puede truncar.
+  if [ -z "$(veredicto_declarado "$DIAG")" ] && [ -s "$DIAG" ]; then
+    echo "  · el diagnóstico no trae su veredicto: lo pido aparte, con el análisis ya hecho"
+    # Foto NUEVA antes de esta llamada: la prohibición de escribir vale TAMBIÉN acá. Mi
+    # primera versión la puso después del guardia del paso 1, así que esta segunda llamada
+    # podía escribir en el tronco sin que nadie la revisara — y el agente del paso 1 es
+    # justamente el que tiene la prohibición más explícita del método. Lo cazó
+    # `test_el_que_diagnostica_tampoco_puede_escribir`, que verifica que el archivo quede
+    # como estaba: un guardia que cubre la primera llamada y no la segunda no cubre nada.
+    foto_proyecto "$FOTO"
+    ( cd "$BASE" || exit 1
+      export XDG_DATA_HOME="$BASE/.opencode-data"; mkdir -p "$XDG_DATA_HOME"
+      con_limite "${LIMITE_AGENTE:-1800}" opencode run --model "colabhive/$DIAGNOSTICA" \
+        "Éste es TU PROPIO análisis de por qué falló la tarea $id, de una corrida anterior. Se cortó antes de que escribieras tu veredicto.
+
+$(tail -c 12000 "$DIAG")
+
+No lo analices de nuevo ni agregues nada. Tu respuesta COMPLETA es UNA sola línea, exactamente una de estas dos:
+VEREDICTO: HUECO — <qué falta y qué tarea debía entregarlo>
+VEREDICTO: REESCRIBIR
+Nada antes, nada después. Esa línea la lee un programa." 2>&1
+    ) >> "$DIAG" 2>&1
+    revisar_escrituras_de_mas "$FOTO" "$id" "$DIAGNOSTICA (paso 1b, veredicto)" || true
+  fi
+
   VER_DIAG="$(veredicto_declarado "$DIAG")"
   case "$VER_DIAG" in
     *HUECO*)

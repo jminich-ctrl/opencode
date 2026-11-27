@@ -194,8 +194,20 @@ PYTOPE
 # veredicto emitido ANTES de razonar no puede mandar.
 veredicto_provisorio() {
   [ -f "$1" ] || return 0
-  grep -av '^[[:space:]]*$' "$1" | head -1 \
-    | sed -nE 's/^[[:space:]*_`#>]*(VEREDICTO PROVISORIO: *(HUECO|REESCRIBIR)).*/\1/p'
+  # Las primeras líneas de LA RESPUESTA, no del archivo. `head -1` era una línea de más
+  # estricto: `opencode run` escribe su propio encabezado —el reset ANSI y la línea
+  # `> build · <id de modelo>`— antes de lo que dijo el modelo, así que la primera línea no
+  # vacía del archivo es nuestra, no suya.
+  #
+  # Medido el 2026-11-27 en el relevo de T04: el modelo cumplió y puso
+  # `VEREDICTO PROVISORIO: REESCRIBIR` en la línea 8 de 472, después de 7 de encabezado.
+  # Este lector devolvió vacío, así que el único dato que sobrevive a un corte de tope se
+  # perdió y el arnés no pudo informarlo. La ventana sigue siendo CHICA a propósito: el
+  # prompt pide ese campo PRIMERO, y buscarlo en todo el archivo lo confundiría con el
+  # veredicto final, que va al final y significa otra cosa.
+  grep -av '^[[:space:]]*$' "$1" | head -12 \
+    | sed -nE 's/^[[:space:]*_`#>]*(VEREDICTO PROVISORIO: *(HUECO|REESCRIBIR)).*/\1/p' \
+    | head -1
 }
 
 # Por qué puede haberse cortado una respuesta que NO trae error.

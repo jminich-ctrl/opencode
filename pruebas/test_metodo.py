@@ -2784,6 +2784,65 @@ class TestLaConfigVersionadaDiceLaVerdad(unittest.TestCase):
                   f"diferencia es una mentira documentada. Muestra: {difs}")
 
 
+class TestElVeredictoProvisorioSobreviveAlEncabezado(unittest.TestCase):
+    """El prompt del diagnóstico pide un `VEREDICTO PROVISORIO` como PRIMERA línea,
+    textualmente «es por si tu respuesta se corta». Medido el 2026-11-27 en el relevo de T04,
+    el caso para el que esa red existe: la respuesta fueron 30447 bytes —unos 7319 tokens
+    contra un tope de 4600— y se cortó antes del veredicto final.
+
+    El modelo cumplió: puso `VEREDICTO PROVISORIO: REESCRIBIR` en la línea 8 de 472, después
+    de las 7 que escribe `opencode run` de encabezado. Y el lector miraba sólo la PRIMERA
+    línea no vacía del archivo, que es nuestra y no suya, así que devolvió vacío: el único
+    dato que sobrevive a un corte se perdió, y el arnés no pudo ni informarlo.
+
+    La ventana sigue siendo chica a propósito. El campo se pide PRIMERO y significa «lo que
+    pensaba antes de analizar»; buscarlo en todo el archivo lo confundiría con el veredicto
+    final, que va al final y autoriza el paso 2. Son dos campos distintos y el provisorio
+    NO autoriza nada: sólo se informa."""
+
+    def leer(self, contenido):
+        d = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(tirar_dir, d)
+        log = d / "diag.log"
+        log.write_text(contenido)
+        guion = ('set +u; . "%s/_comun.sh" >/dev/null 2>&1; veredicto_provisorio "%s"'
+                 % (SCRIPTS, log))
+        return correr("bash -c " + shlex.quote(guion), d).stdout.strip()
+
+    ENCABEZADO = "\x1b[0m\n> build · 1af07b1f-5832-4451-a61c-76d1fe43115a\n\x1b[0m\n\n"
+
+    def test_lo_encuentra_despues_del_encabezado_del_arnes(self):
+        self.assertIn("REESCRIBIR",
+                      self.leer(self.ENCABEZADO + "VEREDICTO PROVISORIO: REESCRIBIR\n"
+                                "y acá sigue el análisis largo\n"),
+                      "no lo ve después del encabezado: es el caso medido en T04")
+
+    def test_lo_sigue_encontrando_en_la_primera_linea(self):
+        """El camino que ya funcionaba no se rompió."""
+        self.assertIn("HUECO", self.leer("VEREDICTO PROVISORIO: HUECO\nanálisis\n"))
+
+    def test_brazo_nulo_NO_lo_confunde_con_el_veredicto_final(self):
+        """El provisorio y el final son dos campos con significados distintos: el final
+        autoriza el paso 2 y el provisorio no autoriza nada. Si el lector tomara cualquier
+        línea del archivo, un diagnóstico completo —donde el campo final está al final—
+        pasaría a tener «provisorio» también, y el arnés informaría una inclinación que el
+        modelo nunca declaró."""
+        largo = self.ENCABEZADO + ("análisis\n" * 40) + "VEREDICTO PROVISORIO: HUECO\n"
+        self.assertEqual("", self.leer(largo),
+                         "lo encontró en la línea 44: la ventana dejó de ser «lo primero "
+                         "que dijo» y se volvió «en cualquier parte»")
+
+    def test_el_pedido_del_diagnostico_declara_su_presupuesto(self):
+        """Sin un límite declarado, el modelo escribió 7319 tokens contra un tope de 4600 y
+        perdió justo la última línea, que es la que el programa lee. El mismo lever que hizo
+        funcionar las dos fases del arquitecto: decirle cuánto puede durar."""
+        s = codigo_de(SCRIPTS / "replanificar-relevo.sh")
+        self.assertRegex(s, r"caber en \d+ líneas",
+                         "el pedido del diagnóstico no declara cuánto puede durar la "
+                         "respuesta, y el veredicto va al final")
+
+
+
 class TestUnChequeoQueNoAplicaNoEsUnChequeoQueFalla(unittest.TestCase):
     """Medido el 2026-11-27 en la etapa 1 de clasificados: las tres tareas de frontend —T32,
     T33, T34— murieron en punto muerto, dos intentos cada una, con esto:
