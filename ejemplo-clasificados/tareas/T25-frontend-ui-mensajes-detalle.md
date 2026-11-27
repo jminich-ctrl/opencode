@@ -2,7 +2,7 @@
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
 **Depende de:** T23
-**Archivos que podés tocar:** frontend/src/pages/MessageDetail.jsx
+**Archivos que podés tocar:** frontend/src/pages/MessageDetail.jsx, frontend/src/App.jsx
 **Prohibido tocar:** 
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`
 

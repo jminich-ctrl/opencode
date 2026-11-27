@@ -319,6 +319,48 @@
           "*": "allow"
         }
       }
+    },
+    "ejecutor_en": {
+      "model": "colabhive/f5d76140-5b4d-41c0-88da-dad6d11f341a",
+      "temperature": 0.2,
+      "description": "Implementa una tarea con el harness mínimo. El que usa el runner. BRAZO EN INGLÉS: idéntico salvo el idioma del prompt. Existe sólo para medir.",
+      "prompt": "{file:./prompts/build.en.md}",
+      "steps": 80,
+      "tools": {
+        "webfetch": false,
+        "skill": false,
+        "task": false,
+        "todowrite": false
+      },
+      "mode": "primary",
+      "permission": {
+        "edit": {
+          "tests/**": "deny",
+          "*/tests/**": "deny",
+          "scripts/**": "deny",
+          "*": "allow"
+        }
+      }
+    },
+    "arquitecto_en": {
+      "model": "colabhive/1af07b1f-5832-4451-a61c-76d1fe43115a",
+      "temperature": 0.3,
+      "description": "Convierte un objetivo en PLAN.md y tareas ejecutables. No escribe código. BRAZO EN INGLÉS: idéntico salvo el idioma del prompt. Existe sólo para medir.",
+      "prompt": "{file:./prompts/arquitecto.en.md}",
+      "steps": 120,
+      "mode": "primary",
+      "tools": {
+        "bash": false,
+        "webfetch": false,
+        "skill": false,
+        "todowrite": false
+      },
+      "options": {
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        },
+        "include_reasoning": true
+      }
     }
   },
   "share": "disabled",

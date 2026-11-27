@@ -745,6 +745,95 @@ eso, un requisito omitido no deja rastro y el gate lo aprueba igual.
 
 ---
 
+## 4b. Decidir y escribir son dos llamadas, no una
+
+Un modelo chico puesto a **decidir y escribir en la misma llamada** delibera hasta que se le
+acaba el reloj y no escribe nada. No es que no pueda: es que las dos cosas juntas no entran.
+
+Medido el 2026-11-26, cinco corridas del arquitecto (Qwen3.8-27B, 6,7 tok/s de mediana, 4,1
+en la peor) sobre el mismo pedido —agregarle al plan las tareas que le faltaban—:
+
+| pedido | tiempo | archivos escritos |
+|---|---|---|
+| decidir **y** escribir, en español | 1342s | **0** (58 líneas de deliberación) |
+| decidir **y** escribir, en inglés, con «WRITE FIRST» de primera línea | 1290s | **0** |
+| decidir **y** escribir, con el prompt de sistema también en inglés | 854s | **0** (38 líneas) |
+| **sólo decidir**, respuesta en 3 líneas | — | contestó, una vuelta |
+| **sólo escribir**, con su decisión servida de vuelta | — | los dos enunciados |
+
+Las tres primeras son el mismo modelo con el mismo reloj haciendo el mismo trabajo: en los
+transcriptos está **la tarea resuelta** —qué tareas agregar, sus dependencias, sus archivos,
+hasta cómo mockear los servicios en los tests— y ni una llamada a `write`. El reloj se lo
+llevó pensando.
+
+Dos cosas que esto deja claras, y las dos cuestan plata si se ignoran:
+
+- **El prompt no lo corrige.** «Escribí primero, deliberá después» como primera línea del
+  pedido deliberó 1290s igual. Un modo de falla que el prompt no corrige lo tiene que cortar
+  el arnés.
+- **Repetir el pedido no lo corrige.** La vuelta siguiente con el mismo pedido son otros
+  1200s contra el mismo muro. `planificar.sh` lo detecta —cero escrituras y deliberación en
+  el tramo de log de esa vuelta— y **parte el pedido solo**: una llamada que decide y
+  contesta entre marcadores, y otra que recibe esa decisión y únicamente la transcribe.
+
+Servirle de vuelta su propia decisión no es inferirle el plan: es devolverle el que ya
+escribió en su transcripto. La regla de que **el planner decide y nosotros no inferimos**
+queda intacta, y lo único que cambia es quién lo transcribe.
+
+Y el corolario para cualquier pedido a un modelo chico: **si el pedido tiene una decisión
+adentro, partilo antes de mandarlo.** Vale para el arquitecto y vale para el ejecutor.
+
+---
+
+## 4c. El encargo es el único veredicto que le importa a quien lo pidió
+
+Todo lo anterior verifica **tareas**: cada tarea contra su test, cada test contra su propia
+reversión, cada alcance contra lo declarado. Nada de eso verifica **el encargo**.
+
+Medido el 2026-11-26 en `ejemplo-clasificados`, levantándolo desde cero:
+
+| | |
+|---|---|
+| Tareas cerradas | 19 de 34 |
+| Tests | 46 backend + 27 frontend, **todos verdes** |
+| `smoke.sh` | **0** |
+| La API | publicaba **una** ruta: `/salud` |
+| El frontend | `vite build` → «Could not resolve entry module "index.html"» |
+| `App.jsx` | `<h1>Clasificados App</h1>`, y nada más |
+
+**Ninguno de los 1041 tests del método ni de los 73 del proyecto lo vio.** Lo vio levantar el
+sitio y mirarlo, diez minutos. Y la lección no es «faltaba un chequeo»: agregar un chequeo por
+cada defecto que aparece es una rueda de hámster. El hueco es de nivel.
+
+```bash
+python3 $AGENTES/scripts/verificar-encargo.py            # requisito por requisito
+python3 $AGENTES/scripts/verificar-encargo.py --exigir    # un ⊘ también es rojo
+```
+
+El encargo ya declara sus requisitos con clave —es lo que `cobertura.py` usa para verificar
+que cada uno tenga al menos una **tarea**—, y esto verifica que cada uno tenga algo que lo
+**ejercite contra el producto corriendo**. Los tres veredictos de siempre:
+
+- `✓` se ejercitó y pasó
+- `✗` se ejercitó y falló
+- `⊘` no hay con qué ejercitarlo
+
+**El ⊘ es la mitad del valor.** Hoy «nadie probó `registro` nunca» y «`registro` funciona» se
+imprimen igual: los dos como silencio. Eso es el veredicto vacío que el método persigue en
+todas sus otras formas, acá en su versión más cara — porque es el único nivel que le importa
+a quien hizo el pedido.
+
+**Quién trae qué.** El método trae el corredor; el proyecto trae la prueba, en
+`pruebas-de-uso/<clave>.sh`, que sale 0 o 1. Es el mismo seam que `scripts/entorno.sh` para
+los servicios y que `scripts/smoke.sh` para el arranque: el método no sabe qué base de datos
+usa nadie, y tampoco sabe qué significa «login» en tu proyecto. Una clave con alternativas
+—`publicar|crud`— se ejercita con cualquiera de sus nombres.
+
+`correr-todo.sh` lo corre **antes** de decir que terminó: «todas las etapas en verde» es un
+veredicto sobre las tareas, y no es lo que pidió nadie.
+
+---
+
 ## 5. Cómo se ejecuta
 
 Una tarea, una sesión, contexto limpio. Nada de sesiones largas: cuando el contexto crece,

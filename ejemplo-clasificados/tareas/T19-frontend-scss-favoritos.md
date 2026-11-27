@@ -2,13 +2,13 @@
 
 **Estado:** pendiente   ← al mergearla: `✅ hecha` (`estado.sh` lee esta línea)
 **Depende de:** T18
-**Archivos que podés tocar:** frontend/src/design/_favorites.scss
+**Archivos que podés tocar:** frontend/src/design/_favorites.scss, frontend/src/design/main.scss
 **Prohibido tocar:** 
 **Modelo:** el del agente `build` (el ejecutor, un modelo no pensante): `opencode run`
 
 ## Objetivo
 
-Agregar los estilos SCSS necesarios para el icono de favorito.
+Agregar los estilos SCSS necesarios para el icono de favorito. `main.scss` tiene que declarar el parcial con `@use`, o los estilos nunca llegan al build.
 
 ## Alcance
 

@@ -75,6 +75,13 @@ import sys
 import time
 import unicodedata
 
+# El lector de las claves del encargo, UNO solo. Hasta el 2026-11-26 el regex de la sección
+# «## Requisitos» vivía acá, y `verificar-encargo.py` —que lee las mismas claves para otra
+# cosa: que cada requisito tenga algo que lo EJERCITE— habría sido la segunda copia. Dos
+# lectores del mismo dato declarado es el defecto que este repo persigue.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _encargo
+
 
 def normalizar(t):
     """Sin acentos y en minúsculas: 'búsqueda' y 'busqueda' son la misma palabra, y
@@ -90,14 +97,13 @@ for f in (ENCARGO, PLAN):
         sys.exit(1)
 
 encargo = ENCARGO.read_text()
-m = re.search(r"^##+ *Requisitos *$(.*?)(?=^##+ |\Z)", encargo, re.M | re.S)
-if not m:
+if not _encargo.tiene_seccion(encargo):
     print(f"  · {ENCARGO.name} no tiene sección «## Requisitos» con claves: no se puede")
     print(f"    verificar la cobertura. Es la única parte de G0 que se puede mecanizar;")
     print(f"    sin ella queda entera en manos de quien lea el plan.")
     sys.exit(0)
 
-requisitos = re.findall(r"^\s*[-*] *`([^`]+)`(.*)$", m.group(1), re.M)
+requisitos = _encargo.requisitos(encargo)
 if not requisitos:
     print(f"  · la sección «## Requisitos» de {ENCARGO.name} no tiene claves entre backticks")
     sys.exit(0)

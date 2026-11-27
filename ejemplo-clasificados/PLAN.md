@@ -61,7 +61,9 @@ vez de la aplicación.
   - `pages/` : componentes de página (Login, AdsList, AdDetail, etc.).
   - `services/` : llamadas HTTP al backend.
   - `design/` : estilos SCSS.
-- **scripts/_arquitectura.py** : verifica la dirección de dependencias entre capas.
+- **scripts/_arquitectura.py** : verifica la dirección de dependencias entre capas.
+
+**Montajes automáticos:** backend/app/rutas/*.py — los monta backend/app/main.py (T06b)
 
 ## Tareas
 
@@ -87,20 +89,23 @@ vez de la aplicación.
 | T16 | Favoritos rutas | T15, T06c | backend/app/rutas/favorites.py | pendiente |
 | T17 | Favoritos servicio frontend | T16, T08 | frontend/src/services/favorites.ts | pendiente |
 | T18 | Favoritos UI lista | T17 | frontend/src/pages/AdsList.jsx | pendiente |
-| T19 | Favoritos SCSS | T18 | frontend/src/design/_favorites.scss | pendiente |
+| T19 | Favoritos SCSS | T18 | frontend/src/design/_favorites.scss, frontend/src/design/main.scss | pendiente |
 | T20 | Mensajes datos | T05a | backend/app/datos/messages.py | pendiente |
 | T21 | Mensajes servicio | T20 | backend/app/servicios/messages.py | pendiente |
 | T22 | Mensajes rutas | T21, T06c | backend/app/rutas/messages.py | pendiente |
 | T23 | Mensajes servicio frontend | T22 | frontend/src/services/messages.ts | pendiente |
-| T24 | Mensajes UI lista | T23 | frontend/src/pages/Messages.jsx | pendiente |
-| T25 | Mensajes UI detalle | T23 | frontend/src/pages/MessageDetail.jsx | pendiente |
-| T11 | Editar propios avisos | T05c, T08 | frontend/src/pages/EditAd.jsx, frontend/src/services/ads.ts | pendiente |
+| T24 | Mensajes UI lista | T23 | frontend/src/pages/Messages.jsx, frontend/src/App.jsx | pendiente |
+| T25 | Mensajes UI detalle | T23 | frontend/src/pages/MessageDetail.jsx, frontend/src/App.jsx | pendiente |
+| T11 | Editar propios avisos | T05c, T08 | frontend/src/pages/EditAd.jsx, frontend/src/services/ads.ts, frontend/src/App.jsx | pendiente |
 | T12 | Filtro por categoría en listado | T08 | frontend/src/pages/AdsList.jsx, frontend/src/design/_filters.scss | ✅ hecha |
 | T13 | Sistema de diseño propio en SCSS | T30 | frontend/src/design/_variables.scss, frontend/src/design/_mixins.scss, frontend/src/design/main.scss | ✅ hecha |
 | T26 | Registro backend (creación de cuenta) | T03, T06c | backend/app/rutas/register.py, backend/app/servicios/register.py, backend/app/datos/users_register.py | pendiente |
 | T27 | Registro frontend (página y servicio) | T31 | frontend/src/pages/Register.jsx, frontend/src/services/register.ts | ✅ hecha |
 | T28 | Búsqueda backend (texto y categoría) | T05a, T06c | backend/app/rutas/search.py, backend/app/servicios/search.py, backend/app/datos/search_ads.py | pendiente |
 | T29 | Búsqueda frontend (UI y servicio) | T08 | frontend/src/components/SearchBar.jsx, frontend/src/services/search.ts | ✅ hecha |
+| T32 | Punto de entrada HTML del frontend | T30, T31 | frontend/index.html | pendiente |
+| T33 | Montaje de páginas en App.jsx | T07, T08, T27, T29, T31 | frontend/src/App.jsx | pendiente |
+| T34 | Importar el sistema de diseño en el punto de entrada | T13, T31 | frontend/src/main.tsx | pendiente |
 > Las etapas **no se declaran acá**: se deducen de la tabla de arriba, que es lo que
 > respeta las dependencias y los choques de archivo sin que nadie tenga que acordarse.
 > Verlas: `SOLO_ETAPAS=1 bash $AGENTES/scripts/correr-plan.sh`
@@ -143,6 +148,9 @@ vez de la aplicación.
 | T27 | frontend/tests/test_register_frontend.test.ts | TestRegisterFrontend |
 | T28 | backend/tests/test_search_backend.py | TestSearchBackend |
 | T29 | frontend/tests/test_search_frontend.test.ts | TestSearchFrontend |
+| T32 | frontend/tests/test_index_html_frontend.test.ts | TestIndexHtmlFrontend |
+| T33 | frontend/tests/test_montaje_app_frontend.test.ts | TestMontajeAppFrontend |
+| T34 | frontend/tests/test_import_diseno_frontend.test.ts | TestImportDisenoFrontend |
 
 ### Un choque que encontró el arquitecto
 

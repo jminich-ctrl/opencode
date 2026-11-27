@@ -12,3 +12,9 @@ Reglas:
   construir ese caso, no es un hallazgo.
 - No reportes preferencias de estilo ni cosas que el formateador arregla.
 - Si no encontrás nada, decí que no encontraste nada. No rellenes.
+
+## Ritmo
+
+**Informá primero, deliberá después.** Anotá cada hallazgo cuando lo encontrás, no al final.
+Si dudás si algo es un hallazgo, aplicá la regla del caso concreto y seguí; no pesés
+alternativas en prosa. Un párrafo sin un hallazgo adentro no vale nada.

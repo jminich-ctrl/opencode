@@ -409,6 +409,29 @@ done
 
 echo
 echo "══ Todas las etapas en verde."
+
+# ── Y ANTES de decir que terminó: ¿el ENCARGO funciona?
+#
+# «Todas las etapas en verde» es un veredicto sobre las TAREAS, y eso no es lo que pidió
+# nadie. Medido el 2026-11-26 en ejemplo-clasificados: 19 tareas cerradas, 46 tests de
+# backend y 27 de frontend en verde, el smoke en 0 — y la API publicaba UNA ruta, el
+# frontend no se podía construir y App.jsx era un `<h1>`. Ninguno de los 1041 tests del
+# método ni de los 73 del proyecto lo vio: ninguno mira el producto corriendo.
+#
+# Esto lo mira, requisito por requisito, con las claves que el encargo ya declara. No es
+# rojo por omisión —un ⊘ no detiene nada, igual que en el paso 8 del gate— pero se IMPRIME,
+# que es la diferencia entre «pasó» y «nadie preguntó».
+echo "── el encargo, requisito por requisito"
+BASE="$BASE" ENCARGO="${ENCARGO_NOMBRE:-OBJETIVO.md}" \
+  python3 "$AQUI/verificar-encargo.py" || VERIFICAR_ENCARGO_RC=$?
+if [ "${VERIFICAR_ENCARGO_RC:-0}" != "0" ]; then
+  echo
+  echo "⚠ el encargo NO está cumplido aunque las tareas hayan cerrado. Eso no se arregla"
+  echo "   con otra vuelta del runner: o falta una tarea en el plan, o una tarea cerró"
+  echo "   verde sin hacer lo que el requisito necesita. Las dos las decide una persona."
+fi
+
+echo
 echo "Lo que sigue lo hace una persona:"
 echo "  1. G3 — USÁ la cosa. Las preguntas, del plan:"
 preguntas_de_g3 "$PLAN" || true

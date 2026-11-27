@@ -39,7 +39,7 @@ command -v opencode >/dev/null 2>&1 || { echo "✗ No hay opencode." >&2
 if ! opencode agent list 2>/dev/null | grep -qE "^$AGENTE \(primary\)"; then
   echo "✗ OpenCode no reconoce '$AGENTE' como agente primario." >&2
   echo "  Suele faltarle \"mode\": \"primary\" en opencode.json (OPENCODE.md §3)." >&2
-  echo "  Primarios: $(opencode agent list 2>/dev/null | grep -oE '^[a-z]+ \(primary\)' | cut -d' ' -f1 | tr '\n' ' ')" >&2
+  echo "  Primarios: $(opencode agent list 2>/dev/null | grep -oE '^[a-z0-9_]+ \(primary\)' | cut -d' ' -f1 | tr '\n' ' ')" >&2
   exit 1
 fi
 
@@ -76,12 +76,113 @@ revisar() {
   PROBLEMAS="$( { echo "$forma"; echo "$cobertura"; echo "$etapas"; } | grep '✗' | sed 's/^ *✗ *//' || true)"
 }
 
+# ── HABLÓ Y NO ESCRIBIÓ
+#
+# UN solo lector del criterio, y por eso es función: el rojo final de G0 también lo consulta.
+#
+# POR QUÉ NO MIRA EL TEXTO. Mi primera versión contaba «líneas de deliberación» con
+# `grep -cE "^(Hmm|Wait|Let me|Actually|OK|So )"` y las escrituras con `grep '→ Write'`. Las
+# dos cosas estaban mal por el mismo motivo: **atan el método a un idioma y a un formato**.
+# Los marcadores son ingleses, así que un modelo que razone en español deja el detector
+# callado — y callado se lee igual que «no rumió», que es un guardia incapaz de disparar—; y
+# `→ Write` es la forma del transcripto de OpenCode, así que el día que cambie el detector
+# pasa a disparar siempre o nunca sin que nadie lo note.
+#
+# La pregunta no necesita leer el texto: **¿cambiaron los archivos?** Eso es verdad de
+# terreno —la huella que el propio script ya calcula para el veredicto final—, no depende del
+# idioma del modelo, ni de qué herramienta usó, ni de cómo se imprime. `$1` es la huella de
+# antes de la vuelta y `$2` el byte donde empieza su tramo de log; `SALIDA_N` queda con
+# cuántos bytes habló, para informarlo.
+hablo_sin_escribir() {
+  local huella_antes="${1:-}" desde="${2:-0}" ahora
+  # `SALIDA_N` se define ANTES de cualquier salida temprana: quien llama la informa en su
+  # mensaje, y con `set -u` una variable sin definir mata al que la lee. Lo encontró el
+  # brazo nulo de su propio test —el caso en que el agente SÍ escribió—, que es para lo que
+  # está el brazo nulo.
+  SALIDA_N=0
+  if [ -f "$log" ]; then
+    SALIDA_N="$(tail -c "+$((desde + 1))" "$log" 2>/dev/null | wc -c | xargs)"
+  fi
+  ahora="$(huella_del_plan)"
+  [ "$ahora" = "$huella_antes" ] || return 1          # escribió: no hay nada que partir
+  # Que haya hablado. Si no produjo NADA, el problema no es el pedido: es que no contestó, y
+  # ese camino ya lo cubre `error_del_agente`. Partir un pedido que nunca llegó al modelo
+  # gasta otra corrida contra el mismo silencio.
+  [ "${SALIDA_N:-0}" -gt 500 ]
+}
+
+# La huella del plan y las tareas: un dato declarado, un solo lector. El veredicto final de
+# G0 la usaba inline en dos lugares con el mismo `cksum`.
+huella_del_plan() {
+  (cat "$BASE/PLAN.md" 2>/dev/null; ls "$BASE"/tareas/ 2>/dev/null; \
+   cat "$BASE"/tareas/*.md 2>/dev/null) | cksum
+}
+
+# ── EL PROTOCOLO DE DOS FASES: decidir en texto, transcribir después.
+#
+# Medido el 2026-11-26, cinco corridas del arquitecto (Qwen3.8-27B, 6.7 tok/s de mediana)
+# sobre el mismo pedido —agregarle al plan las tareas que faltaban—:
+#
+#   decidir Y escribir, en español              1342s   CERO archivos   58 líneas de delib.
+#   decidir Y escribir, en inglés + «write first» 1290s   CERO archivos
+#   decidir Y escribir, prompt de sistema inglés   854s   CERO archivos   38 líneas
+#   SÓLO decidir, respuesta en 3 líneas            ✓ contestó, una vuelta
+#   SÓLO escribir, con la decisión servida         ✓ escribió los dos enunciados
+#
+# No falla en decidir ni en escribir: falla cuando las dos cosas van en la misma llamada. Y
+# el prompt no lo corrige —«WRITE FIRST» como primera línea deliberó 1290s igual—, así que
+# lo tiene que cortar el arnés. Repetir el mismo pedido en la vuelta siguiente es gastar
+# otros 1200s contra el mismo muro.
+#
+# El texto hacia el modelo va en inglés: es el idioma en el que este modelo razona de todas
+# formas —medido en experimentos/plan-robustez.md— y cuesta 9,2% menos tokens para el mismo
+# contenido, lo que importa cuando el reloj del gateway es la restricción que ata. Los
+# mensajes para la persona siguen en español: son otra audiencia.
+dos_fases() {
+  local pedido_original="$1" bruto decision
+  echo "  · habló $(( ${SALIDA_N:-0} / 1024 )) KB y no cambió ningún archivo: parto el pedido en dos"
+  export LOG_VIGILADO="$log"
+
+  # FASE 1 — decidir. Sin archivos, y la respuesta delimitada: capturar la salida cruda de
+  # `opencode run` trae trazas de herramientas y color, y pasarle ESO como «tu decisión» es
+  # pasarle ruido. Los marcadores son lo que hace recortable la respuesta.
+  bruto="$( cd "$BASE" && con_limite "${LIMITE_AGENTE:-1200}" opencode run --agent "$AGENTE" \
+    "DECISION ONLY. Do not write or edit any single file: this run has no file output and anything you write will be discarded. State what you decided, nothing else.
+
+$pedido_original
+
+Answer with the decision between these two markers, and put nothing outside them:
+---DECISION---
+(one line per thing you would write: the file, and what goes in it)
+---END---" 2>&1 )"
+  printf '%s\n' "$bruto" >> "$log"
+  decision="$(printf '%s\n' "$bruto" | sed -n '/---DECISION---/,/---END---/p' \
+              | sed '1d;$d' | sed 's/\x1b\[[0-9;]*m//g')"
+  if [ -z "${decision//[[:space:]]/}" ]; then
+    echo "  ⊘ la fase de decisión no devolvió nada entre los marcadores: no hay qué transcribir"
+    return 1
+  fi
+  echo "  · decidió $(printf '%s\n' "$decision" | grep -c . ) línea(s); ahora sólo las escribe"
+
+  # FASE 2 — transcribir. Su propia decisión servida de vuelta: no es inferirle el plan, es
+  # devolverle el que ya escribió en su transcripto.
+  ( cd "$BASE" || exit 1
+    con_limite "${LIMITE_AGENTE:-1200}" opencode run --agent "$AGENTE" \
+      "TRANSCRIPTION JOB. No analysis, no design, no alternatives: the decision below is already yours, made in the previous run. Your first move is the write tool. Write the files exactly as decided and stop.
+
+YOUR DECISION:
+$decision
+
+Your only output is files on disk. Your final reply is the list of files you wrote." 2>&1
+    [ "$?" = "142" ] && echo "Error: el agente no respondió: $(motivo_del_corte "$log")"
+  ) >> "$log" 2>&1
+}
+
 [ -f "$BASE/PLAN.md" ] && cp "$BASE/PLAN.md" "$BASE/PLAN.md.previo"
 # Huella del estado antes de empezar. En modo INSTRUCCION hace falta: el plan ya validaba,
 # así que los validadores dan verde igual si el arquitecto no hizo nada. Nos pasó: una
 # corrida de 761s que razonó la tarea entera, no escribió un archivo, y G0 dijo VERDE.
-ANTES="$( (cat "$BASE/PLAN.md" 2>/dev/null; ls "$BASE"/tareas/ 2>/dev/null; \
-           cat "$BASE"/tareas/*.md 2>/dev/null) | cksum)"
+ANTES="$(huella_del_plan)"
 log="$BASE/.plan.log"
 inicio=$(date +%s)
 huella=""
@@ -114,13 +215,34 @@ No rehagas el resto del plan. No toques las tareas que ya están bien."
   fi
 
   echo "── vuelta $vuelta/$INTENTOS · $AGENTE"
+  # Byte donde empieza ESTA vuelta: el log se acumula entre vueltas y entre corridas, así
+  # que sin la marca el diagnóstico de abajo leería deliberación de ayer.
+  DESDE_BYTE="$(wc -c < "$log" 2>/dev/null | xargs || echo 0)"
+  HUELLA_VUELTA="$(huella_del_plan)"
+  # TECHO PROPIO. Hasta el 2026-11-26 esta era la ÚNICA invocación de agente del método sin
+  # `con_limite`: `correr-tarea.sh` y `escribir-tests.sh` ya lo usaban. El arreglo vivía en
+  # dos hermanos y no en el tercero, que es el patrón que este repo persigue.
+  #
+  # Qué pasaba sin techo: el arquitecto deliberaba hasta que el gateway cortaba el stream a
+  # los 1200s y la corrida terminaba sin un archivo. Medido ese día, tres veces: 117s, 1342s
+  # y 1290s —los dos largos son el muro del gateway más el preflight—. Y el veredicto que
+  # salía era «el arquitecto no cambió ni el plan ni las tareas», que acusa al sujeto
+  # equivocado: había decidido el plan entero.
+  export LOG_VIGILADO="$log"
   ( cd "$BASE" || exit 1
-    opencode run --agent "$AGENTE" \
+    con_limite "${LIMITE_AGENTE:-1200}" opencode run --agent "$AGENTE" \
       "$pedido Tu única salida son archivos, escritos con la herramienta write: lo que no quedó en un archivo no existe. Antes de terminar verificá con read que cada archivo que dijiste escribir esté ahí. Tu respuesta final es la lista de archivos que escribiste." 2>&1
+    # 142 = SIGALRM. Se deja escrito con la forma que `error_del_agente` reconoce, para que
+    # el bucle corte con el motivo real en vez de dar otra vuelta contra el mismo muro.
+    [ "$?" = "142" ] && echo "Error: el agente no respondió: $(motivo_del_corte "$log")"
   ) >> "$log" 2>&1
 
   err="$(error_del_agente "$log")"
   [ -n "$err" ] && { echo "  ✗ el agente cortó por un error: $err"; break; }
+
+  # Deliberó y no escribió: NO se repite el mismo pedido en la vuelta que viene —son otros
+  # 1200s contra el mismo muro—. Se parte acá mismo, en esta vuelta.
+  if hablo_sin_escribir "$HUELLA_VUELTA" "$DESDE_BYTE"; then dos_fases "$pedido"; fi
 
   revisar
   if [ -z "$PROBLEMAS" ]; then
@@ -143,12 +265,28 @@ duracion=$(( $(date +%s) - inicio ))
 
 # Sin cambios no hay trabajo hecho, y los validadores no lo ven porque miran la forma del
 # plan y no si se hizo lo que se pidió.
-DESPUES="$( (cat "$BASE/PLAN.md" 2>/dev/null; ls "$BASE"/tareas/ 2>/dev/null; \
-             cat "$BASE"/tareas/*.md 2>/dev/null) | cksum)"
+DESPUES="$(huella_del_plan)"
 if [ "$ANTES" = "$DESPUES" ] && [ "$YA_VALIDA" -eq 0 ]; then
   echo
   echo "✗ G0 ROJO en ${duracion}s: el arquitecto no cambió ni el plan ni las tareas."
   echo "  Los validadores dan verde porque el plan ya estaba bien, pero no se hizo lo pedido."
+  # QUÉ hizo, en vez de sólo qué no hizo. «No cambió nada» es verdad y acusa al sujeto
+  # equivocado: medido el 2026-11-26, dos corridas decidieron el plan completo —qué tareas,
+  # sus dependencias, sus archivos, hasta cómo mockear los servicios en los tests— y
+  # murieron sin transcribirlo. Un rojo que no distingue «no trabajó» de «deliberó y no
+  # escribió» manda a cambiar el modelo cuando lo que hay que cambiar es el pedido.
+  if hablo_sin_escribir "${HUELLA_VUELTA:-}" "${DESDE_BYTE:-0}"; then
+    {
+      echo "  Pero SÍ trabajó: produjo $(( ${SALIDA_N:-0} / 1024 )) KB de salida sin cambiar un archivo."
+      echo "  Eso no es un modelo que no puede, es un pedido que no entra en el reloj: a"
+      echo "  ${TOK_S_PISO:-6.1} tok/s, ${LIMITE_AGENTE:-1200}s no alcanzan para decidir Y escribir en la misma"
+      echo "  llamada. Partilo: una corrida que decida y conteste en pocas líneas, y otra que"
+      echo "  reciba esa decisión y sólo la escriba. Medido: partido, escribió los dos"
+      echo "  enunciados; junto, murió deliberando dos veces."
+      echo "  El arnés ya lo intenta solo: si pasó igual, mirá $log — puede que la fase de"
+      echo "  decisión no haya devuelto nada entre los marcadores."
+    }
+  fi
   echo "  Mirá $log: si el razonamiento está correcto y no hay llamadas a write, el problema"
   echo "  es del servidor y no del modelo (ver OPENCODE.md §8)."
   exit 1

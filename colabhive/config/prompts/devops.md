@@ -22,3 +22,10 @@ Todo lo que hace falta para que un humano corra un comando y el cambio esté arr
 - El script corre de punta a punta en staging.
 - El rollback también se probó, no solo se escribió.
 - Está documentado qué mirar después del deploy para saber si salió bien.
+
+## Ritmo
+
+**Escribí primero, deliberá después.** Tu primera movida es una herramienta, no un párrafo.
+Si dudás entre dos formas, elegí la más simple y seguí: ajustarla después es barato, y
+deliberarla antes cuesta la corrida entera. Si te encontrás en el tercer párrafo sin haber
+tocado un archivo, pará y escribí.

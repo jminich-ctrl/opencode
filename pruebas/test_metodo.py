@@ -2099,6 +2099,215 @@ class TestLaMemoriaEsParteDelEquipo(unittest.TestCase):
             "sobre los archivos que va a tocar: una memoria que no llega es como no tenerla")
 
 
+class TestElArquitectoDecideYEscribeEnDosLlamadas(unittest.TestCase):
+    """Medido el 2026-11-26, cinco corridas del arquitecto (Qwen3.8-27B, 6,7 tok/s) sobre el
+    MISMO pedido —agregarle al plan las tareas que faltaban—:
+
+        decidir Y escribir, español                    1342s  CERO archivos
+        decidir Y escribir, inglés + «WRITE FIRST»     1290s  CERO archivos
+        decidir Y escribir, prompt de sistema inglés    854s  CERO archivos
+        SÓLO decidir, respuesta en 3 líneas             ✓ contestó, una vuelta
+        SÓLO escribir, con la decisión servida          ✓ escribió los dos enunciados
+
+    No falla en decidir ni en escribir: falla cuando las dos van en la misma llamada. El
+    prompt no lo corrige —«WRITE FIRST» de primera línea deliberó 1290s igual—, así que lo
+    corta el arnés."""
+
+    def correr_detector(self, bytes_de_salida, escribir_algo):
+        """El detector real, extraído de `planificar.sh`, contra un plan de juguete.
+
+        No es una reimplementación: si el del script cambia, cambia esto."""
+        fuente = (SCRIPTS / "planificar.sh").read_text()
+        trozos = []
+        for nombre in ("hablo_sin_escribir", "huella_del_plan"):
+            i = fuente.index(f"{nombre}() {{")
+            trozos.append(fuente[i:fuente.index("\n}", i) + 2])
+        with tempfile.TemporaryDirectory() as d:
+            base = pathlib.Path(d) / "proy"
+            (base / "tareas").mkdir(parents=True)
+            (base / "PLAN.md").write_text("# Plan\n")
+            log = pathlib.Path(d) / "plan.log"
+            log.write_text("x" * bytes_de_salida)
+            guion = pathlib.Path(d) / "detector.sh"
+            guion.write_text(
+                'set -uo pipefail\nBASE="$1"\nlog="$2"\n' + "\n".join(trozos) +
+                '\nANTES="$(huella_del_plan)"\n'
+                + ('echo nuevo > "$BASE/tareas/T99-x.md"\n' if escribir_algo else '') +
+                'if hablo_sin_escribir "$ANTES" 0; then echo "PARTIR salida=$SALIDA_N"; '
+                'else echo "NO salida=$SALIDA_N"; fi\n')
+            return correr(f"bash {guion} {base} {log}", pathlib.Path(d)).stdout
+
+    def test_parte_el_pedido_cuando_hablo_y_no_escribio(self):
+        self.assertIn("PARTIR", self.correr_detector(5000, escribir_algo=False),
+                      "habló 5 KB y no cambió un archivo: ése es exactamente el caso")
+
+    def test_brazo_nulo_si_escribio_algo_no_parte_nada(self):
+        """El brazo nulo, y es el que define el criterio: la MISMA salida, pero con un
+        archivo escrito. Lo que se juzga es si escribió, no si habló — un detector que
+        castigue el pensamiento manda a cambiar lo que no hay que cambiar."""
+        self.assertIn("NO", self.correr_detector(5000, escribir_algo=True),
+                      "escribió: no hay pedido que partir")
+
+    def test_el_silencio_no_es_rumiado(self):
+        """Si no produjo nada, el problema no es el pedido: es que no contestó, y ese camino
+        lo cubre `error_del_agente`. Partir un pedido que nunca llegó al modelo gasta otra
+        corrida contra el mismo silencio."""
+        self.assertIn("NO", self.correr_detector(20, escribir_algo=False),
+                      "20 bytes es silencio, no deliberación")
+
+    def test_el_detector_NO_depende_del_IDIOMA_ni_del_FORMATO(self):
+        """El canario de mi propio defecto, cometido el 2026-11-26 y corregido el mismo día.
+
+        La primera versión contaba «líneas de deliberación» con
+        `grep -cE "^(Hmm|Wait|Let me|Actually|OK|So )"` y las escrituras con `grep '→ Write'`.
+        Las dos atan el método a cosas que no son el método: los marcadores son ingleses, así
+        que un modelo que razone en español deja el detector CALLADO —y callado se lee igual
+        que «no rumió», o sea un guardia incapaz de disparar—; y `→ Write` es la forma del
+        transcripto de OpenCode, así que el día que cambie el detector dispara siempre o
+        nunca sin que nadie lo note.
+
+        La pregunta no necesita leer el texto: ¿cambiaron los archivos? Eso es verdad de
+        terreno y no depende del idioma, de la herramienta ni de cómo se imprime."""
+        activo = codigo_de(SCRIPTS / "planificar.sh")
+        for marcador in ("Hmm", "Let me", "Actually,", "→ Write"):
+            self.assertNotIn(marcador, activo,
+                             f"el detector volvió a atarse al idioma o al formato: «{marcador}» "
+                             f"en código activo. Un modelo que no escriba así lo deja mudo.")
+        self.assertIn("huella_del_plan", activo,
+                      "no decide por los archivos: si no mira el disco, está leyendo texto")
+
+    def test_el_bucle_lo_parte_solo_en_vez_de_repetir_el_pedido(self):
+        s = codigo_de(SCRIPTS / "planificar.sh")
+        self.assertIn("dos_fases", s, "no existe el protocolo de dos fases")
+        self.assertRegex(s, r'if hablo_sin_escribir "\$HUELLA_VUELTA" "\$DESDE_BYTE"; then dos_fases',
+                         "el bucle no lo parte: repetir el mismo pedido en la vuelta "
+                         "siguiente son otros 1200s contra el mismo muro")
+
+    def test_la_fase_de_decision_no_escribe_y_la_de_escritura_no_decide(self):
+        """Si la fase 1 puede escribir, no es una fase de decisión: es el pedido entero otra
+        vez. Y si la fase 2 no trae la decisión adentro, le estamos pidiendo que vuelva a
+        decidir, que es el defecto que esto corrige."""
+        s = codigo_de(SCRIPTS / "planificar.sh")
+        self.assertIn("DECISION ONLY", s, "la fase 1 no se declara como sólo-decisión")
+        self.assertIn("Do not write or edit any single file", s,
+                      "la fase 1 no le prohíbe escribir")
+        self.assertIn("TRANSCRIPTION JOB", s, "la fase 2 no se declara como transcripción")
+        self.assertIn("YOUR DECISION:", s,
+                      "la fase 2 no le sirve de vuelta su propia decisión: sin eso vuelve "
+                      "a deliberar y el corte no compró nada")
+
+    def test_la_decision_se_recorta_entre_marcadores(self):
+        """La salida cruda de `opencode run` trae trazas de herramientas y códigos de color.
+        Pasarle ESO como «tu decisión» es pasarle ruido, y el modelo lo transcribe."""
+        s = codigo_de(SCRIPTS / "planificar.sh")
+        self.assertIn("---DECISION---", s, "no hay marcador de apertura")
+        self.assertIn("---END---", s, "no hay marcador de cierre")
+        self.assertIn("/---DECISION---/,/---END---/p", s,
+                      "no recorta entre marcadores: captura la salida entera")
+
+    def test_la_huella_del_plan_tiene_UN_solo_lector(self):
+        """La calculaban el veredicto final (dos veces, inline) y ahora el detector. Tres
+        copias del mismo `cksum` es el defecto que este repo persigue en todas sus formas."""
+        s = codigo_de(SCRIPTS / "planificar.sh")
+        self.assertEqual(s.count("huella_del_plan() {"), 1)
+        self.assertEqual(s.count("| cksum"), 1,
+                         "hay más de un lugar calculando la huella: un dato declarado, un "
+                         "solo lector")
+        self.assertGreaterEqual(s.count("huella_del_plan)"), 2,
+                                "si sólo lo llama uno, el resto tiene su propia copia")
+
+    def test_la_prosa_del_metodo_lo_dice_y_no_solo_el_codigo(self):
+        """«La prosa decía una cosa y el código otra» es el defecto más repetido de este
+        repo. Un protocolo que vive sólo en el script lo desarma el próximo que lo lea sin
+        saber qué costó: tres corridas de 1200s."""
+        doc = (RAIZ / "METODO.md").read_text()
+        self.assertIn("Decidir y escribir son dos llamadas", doc,
+                      "METODO.md no documenta el protocolo de dos fases")
+        self.assertIn("1290s", doc,
+                      "la sección no trae el número que la justifica: sin la medición es "
+                      "una opinión, y una opinión se discute")
+
+
+class TestNingunaCorridaDeAgenteSinTecho(unittest.TestCase):
+    """Medido el 2026-11-26: `planificar.sh` era la ÚNICA invocación de agente del método sin
+    `con_limite`. `correr-tarea.sh`, `escribir-tests.sh`, los tres replanificadores y
+    `comparar-modelos.sh` ya lo usaban: el arreglo vivía en seis hermanos y no en el séptimo.
+
+    Qué costó: tres corridas del arquitecto —117s, 1342s y 1290s—. Las dos largas son el muro
+    del gateway (1200s) más el preflight: deliberó hasta que la plataforma cortó el stream y
+    la corrida terminó sin un archivo escrito. Con techo propio, el corte es NUESTRO, sale
+    142, `motivo_del_corte` lo nombra y el bucle para en vez de dar otra vuelta contra el
+    mismo muro.
+
+    El canario mira TODAS las invocaciones, no sólo la que falló: la próxima que se agregue
+    sin techo cae acá."""
+
+    def invocaciones_reales(self):
+        """Las líneas que de verdad lanzan un agente. Un `pgrep -f "opencode run"` NO lanza
+        nada —hay cuatro en el método, contando concurrencia y procesos vivos— y un comentario
+        tampoco: contarlos es el defecto de «la regla más ancha que el defecto»."""
+        encontradas = []
+        for guion in sorted(SCRIPTS.glob("*.sh")):
+            texto = codigo_de(guion)
+            lineas = texto.split("\n")
+            for n, linea in enumerate(lineas):
+                if "opencode run" not in linea or "pgrep" in linea:
+                    continue
+                contexto = " ".join(lineas[max(0, n - 2):n + 1])
+                encontradas.append((guion.name, n + 1, "con_limite" in contexto))
+        return encontradas
+
+    def test_toda_invocacion_de_agente_corre_con_techo(self):
+        invocaciones = self.invocaciones_reales()
+        self.assertGreaterEqual(len(invocaciones), 7,
+                                f"el canario no encontró las invocaciones: {invocaciones}")
+        sin_techo = [f"{a}:{n}" for a, n, techo in invocaciones if not techo]
+        self.assertEqual(sin_techo, [],
+                         "invocación de agente sin `con_limite`: si el modelo se cuelga o el "
+                         "gateway corta el stream, la corrida se detiene para siempre y el "
+                         "veredicto le echa la culpa a la tarea — " + ", ".join(sin_techo))
+
+    def test_planificar_corta_con_el_motivo_y_no_da_otra_vuelta(self):
+        """El 142 tiene que quedar escrito con la forma que `error_del_agente` reconoce. Sin
+        eso el techo corta y el bucle reintenta igual: tres vueltas contra el mismo muro son
+        3600s de plataforma para el mismo rojo."""
+        s = codigo_de(SCRIPTS / "planificar.sh")
+        self.assertIn("con_limite", s, "planificar.sh no le pone techo a su agente")
+        self.assertIn("LOG_VIGILADO", s,
+                      "sin LOG_VIGILADO el guardián no puede ver inactividad: sólo le queda "
+                      "el límite total, que es la red de seguridad y no el detector")
+        self.assertIn("motivo_del_corte", s,
+                      "corta por tiempo y no dice por qué: un corte sin motivo se lee igual "
+                      "que un modelo que no contestó")
+        self.assertRegex(s, r'\[ "\$\?" = "142" \]',
+                         "no traduce el 142 a un error que `error_del_agente` reconozca")
+
+    def test_el_rojo_de_g0_distingue_deliberar_de_no_haber_trabajado(self):
+        """«El arquitecto no cambió ni el plan ni las tareas» es verdad y acusa al sujeto
+        equivocado. Medido: dos corridas decidieron el plan completo —qué tareas, sus
+        dependencias, sus archivos, hasta cómo mockear los servicios en los tests— y murieron
+        sin transcribirlo. Ese rojo manda a cambiar el modelo cuando lo que hay que cambiar es
+        el pedido, y el método ya sabía partirlo.
+
+        Y lo que el rojo informa NO puede ser una cuenta de palabras: la primera versión decía
+        «N líneas de deliberación», contadas con marcadores en inglés. Esta suite lo cazó
+        cuando el detector pasó a mirar el disco: un test atado a la frase que medía mal es un
+        test que defiende el defecto."""
+        s = codigo_de(SCRIPTS / "planificar.sh")
+        self.assertIn("de salida sin cambiar un archivo", s,
+                      "el rojo no cuenta lo que el agente SÍ hizo")
+        self.assertNotIn("líneas de deliberación", s,
+                         "volvió a contar deliberación por texto: eso ata el veredicto al "
+                         "idioma del modelo")
+        self.assertIn("DESDE_BYTE", s,
+                      "sin marca de dónde empieza la vuelta, el diagnóstico mide el tramo "
+                      "de corridas anteriores: el log se acumula")
+        self.assertIn("Partilo", s,
+                      "el rojo diagnostica y no dice qué hacer: partir el pedido es el "
+                      "arreglo medido, no una sugerencia")
+
+
+
 class TestElMetodoSabeReplanificar(unittest.TestCase):
     """Cuando una tarea falla por cómo está escrita, el método dice «se repiensa la tarea»
     y para esperando a una persona. Esa persona fui yo, y reescribí tres enunciados hasta
@@ -2573,6 +2782,159 @@ class TestLaConfigVersionadaDiceLaVerdad(unittest.TestCase):
         self.fail(f"la config versionada y la instalada no dicen lo mismo. "
                   f"OPENCODE.md llama «el archivo real» a la del repo, así que la "
                   f"diferencia es una mentira documentada. Muestra: {difs}")
+
+
+class TestElEncargoEsLoQueHayQueVerificar(unittest.TestCase):
+    """El 2026-11-26 levantamos `ejemplo-clasificados` desde cero: 19 de 34 tareas cerradas,
+    46 tests de backend y 27 de frontend en verde, `smoke.sh` en 0. Y la API publicaba UNA
+    ruta (`/salud`), el frontend no se podía construir («Could not resolve entry module
+    "index.html"») y `App.jsx` entero era un `<h1>`.
+
+    Nada de eso lo vio ninguno de los 1041 tests del método ni ninguno de los 73 del
+    proyecto. Lo vio levantar el sitio y mirarlo. El hueco es de NIVEL, no de cantidad: el
+    método verifica TAREAS —cada una contra su test, cada test contra su reversión— y nadie
+    verifica el ENCARGO, que es lo único que le importa a quien lo pidió. Agregar un chequeo
+    por cada defecto encontrado es una rueda de hámster; lo que la corta es subir un nivel.
+
+    Las claves las declara el encargo y la prueba la escribe el proyecto: el método no sabe
+    qué significa «login» acá, igual que no sabe qué base de datos usa nadie."""
+
+    def proyecto(self, requisitos, pruebas=None):
+        d = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(tirar_dir, d)
+        proy = d / "proy"
+        proy.mkdir(parents=True)
+        claves = "\n".join(f"- `{c}` — lo que sea" for c in requisitos)
+        (proy / "OBJETIVO.md").write_text(f"# Qué queremos\n\n## Requisitos\n\n{claves}\n")
+        for nombre, guion in (pruebas or {}).items():
+            p = proy / "pruebas-de-uso" / f"{nombre}.sh"
+            p.parent.mkdir(exist_ok=True)
+            p.write_text(guion)
+        return proy
+
+    def verificar(self, proy, extra=""):
+        return correr(f"python3 -I {SCRIPTS}/verificar-encargo.py {extra}", proy,
+                      BASE=str(proy))
+
+    def test_un_requisito_que_funciona_da_verde(self):
+        proy = self.proyecto(["login"], {"login": "echo 'entró con cookie'\nexit 0\n"})
+        r = self.verificar(proy)
+        self.assertIn("✓", r.stdout, f"\n{r.stdout}")
+        self.assertIn("entró con cookie", r.stdout,
+                      "no muestra lo que la prueba informó: un ✓ sin testigo no se audita")
+        self.assertEqual(0, r.returncode)
+
+    def test_un_requisito_que_no_funciona_es_ROJO_y_detiene(self):
+        """El caso de clasificados: `GET /ads` devolvió 404 con la app arriba. Las tareas de
+        ese requisito estaban cerradas y sus tests en verde."""
+        proy = self.proyecto(["listado"], {"listado": "echo 'GET /ads devolvió 404'\nexit 1\n"})
+        r = self.verificar(proy)
+        self.assertIn("✗", r.stdout, f"\n{r.stdout}")
+        self.assertIn("404", r.stdout, "no cita el motivo que dio la prueba")
+        self.assertEqual(1, r.returncode,
+                         "un requisito del encargo que no funciona tiene que frenar")
+
+    def test_un_requisito_que_NADIE_ejercita_se_dice_y_no_se_disimula(self):
+        """La mitad del valor. Hoy «nadie probó `registro` nunca» y «`registro` funciona» se
+        imprimen igual —los dos como silencio—, y es el veredicto vacío que este método
+        persigue en todas sus otras formas, acá en su versión más cara."""
+        proy = self.proyecto(["registro", "login"],
+                             {"login": "exit 0\n"})
+        r = self.verificar(proy)
+        self.assertIn("⊘", r.stdout, f"\n{r.stdout}")
+        self.assertIn("registro", r.stdout, "no nombra cuál quedó sin ejercitar")
+        self.assertIn("NO dice que el encargo esté cumplido", r.stdout,
+                      "imprime el ⊘ y deja creer que el verde vale: eso es el falso verde")
+        self.assertEqual(0, r.returncode,
+                         "un ⊘ no frena por omisión, igual que el paso 8 del gate")
+
+    def test_exigir_convierte_el_no_verificado_en_rojo(self):
+        """Para antes de desplegar: ahí «no se preguntó» no puede pasar. Es el mismo
+        precedente que el `SIN_ARRANQUE` del smoke — lo legítimo se declara, no se asume."""
+        proy = self.proyecto(["registro"])
+        self.assertEqual(0, self.verificar(proy).returncode)
+        self.assertEqual(1, self.verificar(proy, "--exigir").returncode,
+                         "con --exigir, un requisito sin prueba tiene que ser rojo")
+
+    def test_una_prueba_colgada_no_cuelga_el_veredicto(self):
+        """Un instrumento que no sobrevive al defecto que vino a medir no mide ese defecto:
+        una prueba de uso que se cuelga dejaría al verificador esperando para siempre."""
+        proy = self.proyecto(["colgada"], {"colgada": "sleep 60\n"})
+        r = correr(f"python3 -I {SCRIPTS}/verificar-encargo.py", proy,
+                   BASE=str(proy), TOPE_PRUEBA_S="2")
+        self.assertIn("✗", r.stdout, f"\n{r.stdout}")
+        self.assertIn("no terminó", r.stdout, "no dice que lo cortó el tope")
+        self.assertEqual(1, r.returncode)
+
+    def test_las_claves_del_encargo_tienen_UN_solo_lector(self):
+        """`cobertura.py` verifica que cada clave tenga una TAREA y `verificar-encargo.py`
+        que tenga algo que FUNCIONE. Son dos preguntas sobre el mismo dato declarado, y dos
+        copias del regex es el defecto que este repo persigue."""
+        lectores = [p for p in SCRIPTS.glob("*.py")
+                    if "Requisitos *$" in p.read_text()]
+        self.assertEqual(["_encargo.py"], [p.name for p in lectores],
+                         f"más de un lector de la sección «## Requisitos»: "
+                         f"{[p.name for p in lectores]}")
+
+    def test_el_runner_lo_corre_antes_de_declarar_el_final(self):
+        """Si no lo llama nadie, es un chequeo que existe y no se corre — que es cómo
+        quedaron `reviewer` y `seguridad`, configurados y nunca invocados."""
+        s = codigo_de(SCRIPTS / "correr-todo.sh")
+        self.assertIn("verificar-encargo.py", s,
+                      "correr-todo.sh dice «todas las etapas en verde» sin preguntar si el "
+                      "encargo funciona")
+
+
+
+class TestPrepararEntornoNoMienteConUnStackQueNoConoce(unittest.TestCase):
+    """Hasta el 2026-11-26 `preparar-entorno.sh` terminaba con
+
+        [ "$HIZO" = "1" ] || echo "· entorno al día"
+
+    y para un proyecto que no es Python ni Node —Go, Rust, cualquiera— ninguno de los dos
+    manifiestos matchea, así que informaba «entorno al día» habiendo preparado NADA.
+    Verificado ese día con un proyecto Go de dos archivos. Después el gate reprueba por «la
+    suite no corrió ningún test» y ese rojo se lo cobra a la tarea.
+
+    Es la regla del propio método aplicada al método: un paso que no pudo hacer su trabajo no
+    se informa como que lo hizo. Y no es rojo —preparar un stack que no conocemos no es
+    nuestro trabajo, es del `scripts/entorno.sh` del proyecto— pero DECIRLO sí lo es."""
+
+    def proyecto(self, archivos):
+        d = pathlib.Path(tempfile.mkdtemp())
+        # `tirar_dir` y no `rmtree`: los objetos de git son 444 y `rmtree` a secas falla
+        # callado. Lo encontró el canario de esta misma suite sobre mi primera versión.
+        self.addCleanup(tirar_dir, d)
+        proy = d / "proy"
+        (proy / "tareas").mkdir(parents=True)
+        for ruta, contenido in archivos.items():
+            p = proy / ruta
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(contenido)
+        correr("git init -q", proy)
+        correr("git add -A", proy)
+        return proy
+
+    def test_un_stack_que_no_conoce_se_informa_como_no_verificado(self):
+        proy = self.proyecto({"main.go": "package main\n"})
+        r = correr(f"bash {SCRIPTS}/preparar-entorno.sh", proy)
+        self.assertIn("⊘", r.stdout,
+                      f"informó algo que no es «no pude»:\n{r.stdout}")
+        self.assertNotIn("entorno al día", r.stdout,
+                         "dice que está al día habiendo preparado nada: ése es el falso "
+                         "verde que el gate después le cobra a la tarea")
+        self.assertIn("entorno.sh", r.stdout,
+                      "no dice dónde se declara: un ⊘ sin salida accionable se ignora")
+
+    def test_brazo_nulo_un_stack_que_SI_conoce_sigue_diciendo_al_dia(self):
+        """El brazo nulo: con un manifiesto reconocido y nada que hacer, el mensaje de
+        siempre. Sin esto, el arreglo podría estar imprimiendo ⊘ para todo el mundo —un
+        guardia que siempre dispara no informa nada— y el test anterior pasaría igual."""
+        proy = self.proyecto({"requirements.txt": "\n"})
+        r = correr(f"bash {SCRIPTS}/preparar-entorno.sh", proy)
+        self.assertNotIn("no reconocí el stack", r.stdout,
+                         f"hay requirements.txt: lo reconoce\n{r.stdout}")
+
 
 
 class TestTodoWorktreeJuzgadoTieneEntorno(unittest.TestCase):

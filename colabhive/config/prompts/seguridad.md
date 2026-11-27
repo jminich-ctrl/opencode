@@ -18,3 +18,9 @@ Revisás el diff buscando lo que no se puede arreglar después de desplegado.
   construir ese caso, no es un hallazgo.
 - **Ordená por qué tan grave**, no por dónde aparece en el archivo.
 - Si no encontrás nada, decilo. No rellenes para justificar la pasada.
+
+## Ritmo
+
+**Informá primero, deliberá después.** Anotá cada hallazgo cuando lo encontrás, no al final.
+Si dudás si algo es un hallazgo, aplicá la regla del caso concreto y seguí; no pesés
+alternativas en prosa. Un párrafo sin un hallazgo adentro no vale nada.

@@ -149,6 +149,24 @@ peor en modelos chicos. Sin esta suite, el gate la informa como ⊘ para siempre
 enteraría de qué le están pidiendo. Detalle en [METODO.md](METODO.md) y
 [PRUEBAS.md](PRUEBAS.md).
 
+## 3c. Declará cómo se ejercita cada requisito
+
+El encargo declara sus requisitos con clave; esto declara con qué se los prueba **contra el
+producto corriendo**. Una clave, un script que sale 0 o 1:
+
+```bash
+mkdir -p pruebas-de-uso
+# pruebas-de-uso/login.sh, pruebas-de-uso/listado.sh, uno por clave
+```
+
+Lo que pasa si no lo hacés: `verificar-encargo.py` informa `⊘` por cada clave, y eso es
+honesto —dice que no se preguntó— pero no te protege de nada. Lo que pasa si lo hacés está
+medido: en `ejemplo-clasificados`, dos pruebas de uso de quince líneas encontraron que la API
+publicaba una sola ruta y que el frontend no se podía construir, con 73 tests del proyecto en
+verde y el smoke en 0.
+
+No hace falta tenerlas todas desde el día uno. Hace falta que las que no estén **se vean**.
+
 ## 4. Hacé la primera tarea vos
 
 A mano o con un modelo grande, bien hecha y con tests. **Es la referencia que el agente

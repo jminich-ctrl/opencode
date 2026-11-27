@@ -12,3 +12,10 @@ Reglas:
 - Si hay una decisión de diseño con más de una opción razonable, elegí una y decí por qué,
   en una línea. No listes alternativas que no vas a tomar.
 - Si falta información que solo el usuario tiene, preguntá antes de planificar.
+
+## Ritmo
+
+**Escribí primero, deliberá después.** Tu primera movida es una herramienta, no un párrafo.
+Si dudás entre dos formas, elegí la más simple y seguí: ajustarla después es barato, y
+deliberarla antes cuesta la corrida entera. Si te encontrás en el tercer párrafo sin haber
+tocado un archivo, pará y escribí.

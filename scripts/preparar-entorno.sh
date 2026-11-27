@@ -339,4 +339,26 @@ if [ -n "$PKG" ]; then
   fi
 fi
 
-[ "$HIZO" = "1" ] || echo "· entorno al día"
+# ── «No reconocí el stack» no se informa igual que «está al día».
+#
+# Hasta el 2026-11-26 esta línea decía «entorno al día» en los dos casos. Para un proyecto
+# que no es Python ni Node —Go, Rust, Elixir, cualquiera— ninguno de los dos manifiestos
+# matchea, `HIZO` queda en 0, y este script informaba que el entorno estaba listo habiendo
+# preparado NADA. Después el gate reprueba por «la suite no corrió ningún test» o «falta el
+# corredor», y ese rojo se lo cobra a la tarea.
+#
+# Es la misma regla que el método le exige a los proyectos, aplicada acá: **un paso que no
+# pudo hacer su trabajo no se informa como que lo hizo**. Y no es un rojo: preparar el
+# entorno de un stack que no conocemos no es nuestro trabajo, es del `scripts/entorno.sh`
+# del proyecto, que es el seam que existe para eso. Lo que sí es nuestro es DECIRLO.
+if [ "$HIZO" = "1" ]; then
+  :
+elif [ -n "${REQ:-}" ] || [ -n "${PKG:-}" ] || [ -x "$BASE/scripts/entorno.sh" ]; then
+  echo "· entorno al día"
+else
+  echo "⊘ no reconocí el stack de este proyecto: no hay requirements.txt ni package.json,"
+  echo "   y tampoco scripts/entorno.sh. NO preparé nada — esto no es «al día»."
+  echo "   Si tu suite necesita dependencias o servicios, el gate va a dar rojo por falta de"
+  echo "   corredor y ese rojo NO es de la tarea. Declarálo en scripts/entorno.sh del"
+  echo "   proyecto, que es donde el método lo busca (EMPEZAR.md §1)."
+fi
