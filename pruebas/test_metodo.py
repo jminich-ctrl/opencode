@@ -2784,6 +2784,50 @@ class TestLaConfigVersionadaDiceLaVerdad(unittest.TestCase):
                   f"diferencia es una mentira documentada. Muestra: {difs}")
 
 
+class TestElTopeDeReintentosSoloAtaAQuienAvanza(unittest.TestCase):
+    """El tope de reintentos de la fase de tests hacía doble trabajo. El caso «trabado» ya se
+    detecta aparte, por motivo REPETIDO —ahí se declara punto muerto y no se gasta otra
+    corrida—, así que el tope sólo ata a las tareas que van corrigiendo un defecto y chocando
+    con el siguiente.
+
+    Medido el 2026-11-27 en una sola corrida de la etapa 1 de clasificados, ocho tareas:
+    0 punto muerto, 4 cortadas por el tope cambiando de defecto (T04 T16 T26 T33) y 4 con
+    tests aceptados (T20 T28 T32 T34). En la corrida anterior, con los defectos del método
+    todavía adentro, fueron 4 punto muerto y 2 cortes por tope: cerrados esos defectos, lo
+    único que queda cortado es progreso."""
+
+    def test_las_dos_salidas_siguen_siendo_distintas(self):
+        """Si el punto muerto desapareciera, el tope volvería a atar a los dos casos y subirlo
+        sería gastar corridas en tareas trabadas. Las dos ramas tienen que seguir existiendo,
+        y la del motivo repetido tiene que cortar ANTES de contar intentos."""
+        s = codigo_de(SCRIPTS / "escribir-tests.sh")
+        self.assertIn('MOTIVO_TESTS" = "$HUELLA_ANTERIOR"', s,
+                      "ya no detecta el motivo repetido: el tope volvió a hacer doble trabajo")
+        i_muerto = s.index('MOTIVO_TESTS" = "$HUELLA_ANTERIOR"')
+        i_tope = s.index('-gt "$REINTENTOS_TESTS"')
+        self.assertLess(i_muerto, i_tope,
+                        "el tope se evalúa antes que el punto muerto: una tarea trabada "
+                        "gastaría la vuelta extra que es para las que avanzan")
+
+    def test_el_tope_deja_lugar_para_la_tercera_vuelta(self):
+        """Dos defectos distintos corregidos en orden necesitan tres intentos: el que falla,
+        el que corrige y falla distinto, y el que cierra. Con el tope en 2 no hay tercero."""
+        s = codigo_de(SCRIPTS / "escribir-tests.sh")
+        m = re.search(r'REINTENTOS_TESTS="\$\{REINTENTOS_TESTS:-(\d+)\}"', s)
+        self.assertIsNotNone(m, "no pude leer el tope")
+        self.assertGreaterEqual(int(m.group(1)), 3,
+                                "con menos de 3 no hay tercera vuelta, y los cuatro cortes "
+                                "medidos el 2026-11-27 pasaban por ahí")
+
+    def test_la_medicion_que_lo_justifica_esta_escrita(self):
+        """Un número de presupuesto sin su medición al lado es una opinión, y la próxima
+        persona lo baja de nuevo sin saber qué costó."""
+        s = (SCRIPTS / "escribir-tests.sh").read_text()
+        self.assertIn("T04 T16 T26 T33", s,
+                      "el tope no trae las tareas medidas que lo justifican")
+
+
+
 class TestElVeredictoProvisorioSobreviveAlEncabezado(unittest.TestCase):
     """El prompt del diagnóstico pide un `VEREDICTO PROVISORIO` como PRIMERA línea,
     textualmente «es por si tu respuesta se corta». Medido el 2026-11-27 en el relevo de T04,

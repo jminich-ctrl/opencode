@@ -34,7 +34,27 @@ AGENTE="${AGENTE:-tester}"
 # Cuántas veces se reintenta la escritura de un test que no pasa su validación. Sin
 # esto, una generación inconsistente —el test del agente contra la implementación del
 # agente— paraba la corrida y pedía una persona.
-REINTENTOS_TESTS="${REINTENTOS_TESTS:-2}"
+# ── TRES, no dos. Y el motivo es que el tope hacía doble trabajo.
+#
+# El caso «trabado» ya se detecta aparte, por motivo REPETIDO: ahí se declara punto muerto y
+# no se gasta otra corrida, que está bien. Así que este tope sólo ata a las tareas que están
+# AVANZANDO: las que cambian de defecto en cada vuelta porque el arnés les devuelve el
+# detalle del rechazo y ellas lo corrigen.
+#
+# Medido el 2026-11-27, una sola corrida de la etapa 1 de clasificados, ocho tareas:
+#
+#   punto muerto (motivo repetido)                 0
+#   cortadas por este tope, cambiando de defecto   4   T04 T16 T26 T33
+#   tests aceptados                                4   T20 T28 T32 T34
+#
+# T04 es el caso típico: intento 1 parcheó donde el patch no pega, intento 2 ya no —pasó a
+# fallar porque el test no ejecutaba las líneas de la implementación—. Dos defectos distintos
+# corregidos en orden, y se le acabó el presupuesto en el medio. En la corrida anterior, con
+# los defectos del método todavía adentro, hubo 4 punto muerto y 2 cortes por tope; cerrados
+# esos defectos, los punto muerto pasaron a 0 y todo lo que queda es progreso cortado.
+#
+# La tercera vuelta cuesta una corrida de agente por tarea y sólo se gasta en quien avanza.
+REINTENTOS_TESTS="${REINTENTOS_TESTS:-3}"
 # Los cortes por cuelgue de la herramienta llevan cuenta aparte, y más generosa. No es lo
 # mismo que una falla de contenido: ésa no se va a ir sola y reintentarla gasta modelo, pero
 # un cuelgue intermitente sí se va —el mismo prompt anduvo seis de seis veces aislado—, así
