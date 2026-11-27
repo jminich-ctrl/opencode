@@ -32,7 +32,7 @@
           "reasoning": true,
           "temperature": true,
           "limit": {
-            "context": 120000,
+            "context": 116000,
             "output": 8625
           },
           "tok_s": 42.8,
