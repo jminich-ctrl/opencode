@@ -12,6 +12,19 @@ __pycache__/
 .tests-base
 .metricas/
 PLAN.md.previo
+# El motivo del corte que escribe el vigilante, como `<log>.corte`. El `*.log` de arriba no
+# lo tapa porque la extensión es otra, y el 2026-11-28 se me commiteó `.plan.log.corte`. El
+# gate ya lo declaraba infraestructura en la lista `infra` de `_comun.sh` —o sea que el
+# método SABÍA que no es un cambio del proyecto— y nadie había cruzado esa lista con esto.
+*.corte
+# El tramo de la vuelta que `planificar.sh` recorta para leerle el error sin arrastrar
+# corridas viejas. Mismo balde.
+.plan-vuelta.log
+# `replanificar.sh` saca el enunciado de HEAD acá para comparar criterios y después lo borra.
+# Si el script muere entre esas dos líneas, queda — y es un `.md` en la raíz del proyecto, así
+# que un `git add -A` lo commitea. Lo encontró el chequeo que cruza lo que el arnés escribe
+# contra `git check-ignore`, buscando el hermano de `.plan.log.corte`.
+.head-tarea.md
 
 # mediciones en vivo contra la plataforma
 colabhive/research/live/

@@ -23463,3 +23463,72 @@ class TestLaFaseDeDecisionDeclaraSuPresupuesto(unittest.TestCase):
         self.assertRegex(s, r"\d+ líneas|\d+ lines",
                          "replanificar-relevo.sh perdió la declaración de presupuesto, que es "
                          "de donde la copiamos")
+
+
+class TestLoQueElGateLlamaInfraestructuraNoSeCommitea(unittest.TestCase):
+    """`_comun.sh` declara en su lista `infra` qué archivos NO son un cambio del proyecto: los
+    escribe el arnés y el gate los descuenta del diff del agente. Esa lista existe desde hace
+    semanas y nadie la había cruzado con el `.gitignore`.
+
+    El 2026-11-28 se me commiteó `ejemplo-clasificados/.plan.log.corte` —el motivo del corte
+    que escribe el vigilante—. El `*.log` del gitignore no lo tapa porque la extensión es otra.
+    O sea: el método SABÍA que ese archivo es infraestructura, lo descontaba del veredicto del
+    agente, y lo versionaba igual.
+
+    Es la familia de siempre: un dato declarado que nadie cruzaba contra otro. Acá los dos
+    lectores son el gate y git."""
+
+    def archivos_que_el_arnes_escribe(self):
+        """Los archivos que el arnés escribe DURANTE una corrida, leídos de quien los escribe.
+
+        No se cruza contra la lista `infra` de `_comun.sh`, y eso lo decidí midiendo: esa
+        lista mezcla nombres exactos (`.base-ref`), extensiones (`.log`) y directorios
+        (`_env/`), así que generar una muestra por entrada produce falsos como
+        «cualquiera.opencode-data». Es el mismo ruido que ya descarté hoy con otra regla —30
+        falsos positivos en pacman— y la disciplina es la misma: medir, y si da ruido, tirarlo.
+
+        Lo que sí es preciso es preguntarle al código qué nombres escribe."""
+        nombres = set()
+        for f in sorted(SCRIPTS.glob("*.sh")):
+            s = codigo_de(f)
+            for m in re.finditer(r'>+ *"\$(?:BASE|LOG_VIGILADO)(?:/)?(\.[A-Za-z0-9_.-]+)"', s):
+                nombres.add(m.group(1))
+            for m in re.finditer(r'"\$LOG_VIGILADO(\.[a-z]+)"', s):
+                nombres.add("cualquiera" + m.group(1))
+        return sorted(nombres)
+
+    def test_lo_que_el_arnes_escribe_en_el_proyecto_no_lo_versiona_git(self):
+        """Se le pregunta a GIT y no al texto del .gitignore: una primera versión buscaba el
+        patrón literal y marcó `.tests.log` como faltante cuando el `*.log` ya lo tapa. Un
+        chequeo que reimplementa los comodines, el orden y las negaciones de `.gitignore` se
+        equivoca en los dos sentidos."""
+        escritos = self.archivos_que_el_arnes_escribe()
+        self.assertTrue(escritos, "no encontré ningún archivo que el arnés escriba: el "
+                                  "lector se quedó sin sujeto y este chequeo no verifica nada")
+        faltan = [n for n in escritos
+                  if correr(f"git check-ignore -q {shlex.quote(n)}", RAIZ).returncode != 0]
+        self.assertEqual([], faltan,
+                         f"el arnés escribe {faltan} dentro del proyecto y git los versiona. "
+                         f"Se me commiteó `.plan.log.corte` así: el gate ya lo descontaba del "
+                         f"diff del agente —o sea que el método SABÍA que es infraestructura— "
+                         f"y nadie había cruzado eso con git.")
+
+    def test_el_tramo_de_la_vuelta_tampoco_se_versiona(self):
+        """`planificar.sh` escribe `.plan-vuelta.log` para leer el error de ESTA vuelta sin
+        arrastrar corridas viejas. Es un intermedio de corrida, igual que los `.replan-*`."""
+        ignorado = (RAIZ / ".gitignore").read_text()
+        s = codigo_de(SCRIPTS / "planificar.sh")
+        m = re.search(r'"\$BASE/(\.[A-Za-z0-9_.-]+)"', s)
+        self.assertIsNotNone(m, "planificar.sh dejó de escribir su tramo de vuelta")
+        self.assertIn(".plan-vuelta.log", ignorado,
+                      "el tramo de la vuelta no está en el .gitignore")
+
+    def test_ningun_intermedio_de_corrida_quedo_versionado(self):
+        """Y el control directo: que el árbol no tenga ya uno adentro. Un test de la lista no
+        sirve si el archivo ya entró."""
+        r = correr("git ls-files", RAIZ)
+        culpables = [l for l in r.stdout.splitlines()
+                     if l.endswith(".corte") or l.endswith(".plan-vuelta.log")
+                     or l.endswith(".plan.log")]
+        self.assertEqual([], culpables,
+                         f"estos intermedios de corrida están versionados: {culpables}")
