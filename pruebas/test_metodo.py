@@ -22678,3 +22678,58 @@ class TestUnaTareaNoPuedeContradecirLaArquitecturaQueElProyectoDeclara(unittest.
         self.assertEqual(["_arquitectura_motor.py"], definiciones,
                          f"`declaracion` está definida en {definiciones}: tiene que haber un "
                          f"solo lector de `scripts/_arquitectura.py`")
+
+
+class TestElQueCorrigeElPlanVeLoMismoQueElQueLoFrena(unittest.TestCase):
+    """`correr-todo.sh` corre `coherencia.py` en G0 y FRENA el lanzamiento si da rojo. El
+    arquitecto —el único que puede arreglar el plan— veía la forma, la cobertura y las etapas,
+    y nunca veía el cruce entre tareas.
+
+    O sea: el planificador declaraba el plan terminado, el lanzador se negaba a arrancar, y
+    nadie le decía al planificador por qué. Es «el arreglo vive en un hermano y no en el otro»
+    otra vez, con el que juzga y el que corrige leyendo listas distintas del mismo plan.
+
+    El chequeo es de los DOS lados: cualquier juez que frene el lanzamiento tiene que estar en
+    la lista que el planificador le muestra al arquitecto. Si mañana se agrega un tercero y se
+    cablea sólo en el lanzador, este test lo nombra."""
+
+    PLANIFICAR = SCRIPTS / "planificar.sh"
+    LANZADOR = SCRIPTS / "correr-todo.sh"
+
+    def test_los_jueces_que_frenan_el_lanzamiento_los_ve_el_arquitecto(self):
+        lanzador = self.LANZADOR.read_text()
+        planificar = self.PLANIFICAR.read_text()
+        # Los jueces del plan que el lanzador consulta ANTES de gastar una llamada al modelo.
+        jueces = [j for j in ("validar-plan.py", "coherencia.py", "cobertura.py")
+                  if j in lanzador]
+        self.assertIn("coherencia.py", jueces,
+                      "el lanzador dejó de consultar el cruce entre tareas: si eso fue a "
+                      "propósito, este test sobra; si no, G0 perdió un juez")
+        ciegos = [j for j in jueces if j not in planificar]
+        self.assertEqual([], ciegos,
+                         f"el lanzador frena por {ciegos} y el planificador no los corre: el "
+                         f"arquitecto no puede arreglar un rojo que nadie le muestra, así que "
+                         f"el plan sale «terminado» y el lanzamiento se niega para siempre")
+
+    def test_el_rojo_del_cruce_llega_a_PROBLEMAS(self):
+        """Imprimirlo no alcanza: `PROBLEMAS` es lo que el pedido del arquitecto lleva
+        adentro. El primer cableado que escribí lo echaba y no lo sumaba, y eso es un juez
+        que habla donde nadie lo lee."""
+        t = self.PLANIFICAR.read_text()
+        i = t.index("PROBLEMAS=\"$( {")
+        tramo = t[i:i + 400]
+        self.assertIn("$cruce", tramo,
+                      f"el cruce no entra en PROBLEMAS, que es lo que el arquitecto recibe:\n"
+                      f"{tramo[:200]}")
+
+    def test_el_no_pude_verificar_del_cruce_no_se_le_cobra_al_arquitecto(self):
+        """Código 3 de `coherencia.py` es «no se pudo verificar» —el `python3` de macOS es
+        3.9— y no imprime ✗ a propósito. Si entrara como problema, el arquitecto recibiría un
+        pedido para arreglar el intérprete del entorno reescribiendo el plan."""
+        t = (SCRIPTS / "coherencia.py").read_text()
+        i = t.index("3.10+")
+        tramo = t[max(0, i - 400):i + 400]
+        self.assertNotIn("✗", tramo,
+                         "el «no pude verificar» del cruce imprime ✗: el planificador lo va "
+                         "a leer como defecto del plan y el arquitecto va a reescribirlo sin "
+                         "que eso arregle nada")

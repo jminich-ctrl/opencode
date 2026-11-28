@@ -63,17 +63,33 @@ revisar() {
   n_tareas="$(ls "$BASE"/tareas/T*.md 2>/dev/null | wc -l | xargs)"
   [ "${n_tareas:-0}" -gt 0 ] || { PROBLEMAS="No escribiste ningún archivo de tarea en tareas/."; return; }
 
-  local forma cobertura etapas
+  local forma cobertura etapas cruce
   forma="$(cd "$BASE" && PLAN=PLAN.md python3 "$AQUI/validar-plan.py" --arreglar 2>&1)"
   cobertura="$(cd "$BASE" && ENCARGO="$ENCARGO" PLAN=PLAN.md python3 "$AQUI/cobertura.py" 2>&1)"
   etapas="$(SOLO_ETAPAS=1 bash "$AQUI/correr-plan.sh" 2>&1 >/dev/null)"
+  # EL CRUCE ENTRE TAREAS, que es el que faltaba y explica una rueda entera.
+  #
+  # `correr-todo.sh` corre `coherencia.py` en G0 y FRENA si da rojo. El arquitecto —el único
+  # que puede arreglar el plan— veía la forma, la cobertura y las etapas, y nunca veía esto.
+  # O sea: el planificador declaraba el plan terminado, el lanzador se negaba a arrancar, y
+  # nadie le decía al planificador por qué. Dos componentes del método con criterios
+  # distintos sobre el mismo plan y sin un canal entre ellos.
+  #
+  # Es el mismo defecto que ya nombramos dos veces con otras caras: «el arreglo vive en un
+  # hermano y no en el otro». Acá el que juzga y el que corrige leían listas distintas.
+  cruce=""
+  [ -f "$AQUI/coherencia.py" ] && cruce="$(PROYECTO="$BASE" python3 "$AQUI/coherencia.py" 2>&1)"
 
   echo "$forma" | sed 's/^/  /'
   echo "$cobertura" | sed 's/^/  /'
   [ -n "$etapas" ] && echo "$etapas" | sed 's/^/  /'
+  [ -n "$cruce" ] && echo "$cruce" | sed 's/^/  /'
 
-  # Sólo los ✗ son problemas: los avisos los resuelve quien revisa, no el arquitecto.
-  PROBLEMAS="$( { echo "$forma"; echo "$cobertura"; echo "$etapas"; } | grep '✗' | sed 's/^ *✗ *//' || true)"
+  # Sólo los ✗ son problemas: los avisos los resuelve quien revisa, no el arquitecto. Y el
+  # «no se pudo verificar» de `coherencia.py` (código 3) no imprime ✗ a propósito: no es un
+  # defecto del plan y no se le pide al arquitecto que lo arregle.
+  PROBLEMAS="$( { echo "$forma"; echo "$cobertura"; echo "$etapas"; echo "$cruce"; } \
+                | grep '✗' | sed 's/^ *✗ *//' || true)"
 }
 
 # ── HABLÓ Y NO ESCRIBIÓ
