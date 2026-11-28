@@ -22933,3 +22933,65 @@ class TestUnVeredictoNoAfirmaLoQueNoMiro(unittest.TestCase):
         self.assertIn("grep -c", s[i:i + 200],
                       "dice que siguen en rojo sin decir cuántos: el que lo lee no sabe si "
                       "falta uno o cinco")
+
+
+class TestLaClaveNoViajaEnLaLineaDeComandos(unittest.TestCase):
+    """El argv de cualquier proceso lo lee cualquiera con un `ps`.
+
+    Medido el 2026-11-28: un `pgrep -fl curl` hecho para ver si la sonda de plataforma estaba
+    viva imprimió la clave de ColabHive entera, en texto plano, en una sesión que no la estaba
+    buscando. La sonda la pasaba como `-H "Authorization: Bearer $CLAVE"`, o sea en el argv
+    del curl. No es un riesgo teórico: pasó.
+
+    El camino correcto es `printf`, que es BUILTIN de bash y por lo tanto no crea un segundo
+    proceso cuyo argv exponga el valor, piped a `curl -H @-`, que lee la cabecera de stdin.
+    Verificado contra la API real: 200.
+
+    Este test es un canario de superficie, no de una línea: cubre TODOS los scripts, porque el
+    día que alguien agregue un curl nuevo el defecto vuelve por donde no estamos mirando."""
+
+    def scripts(self):
+        return sorted(list(SCRIPTS.glob("*.sh")) + list((RAIZ / "plantillas").glob("*.sh")))
+
+    def test_ningun_script_pone_la_clave_en_un_argumento(self):
+        culpables = []
+        for f in self.scripts():
+            for n, linea in enumerate(f.read_text().splitlines(), 1):
+                if linea.lstrip().startswith("#"):
+                    continue
+                # Una cabecera Authorization armada EN un argumento, con la clave adentro.
+                if re.search(r'-H\s+["\']Authorization:[^"\']*\$', linea):
+                    culpables.append(f"{f.name}:{n}")
+        self.assertEqual([], culpables,
+                         f"estos scripts ponen la clave en el argv, donde la lee cualquier "
+                         f"`ps`: {culpables}. Va por stdin: "
+                         f"`cabecera_de_autorizacion | curl ... -H @-`")
+
+    def test_el_que_la_manda_usa_printf_que_es_builtin(self):
+        """`echo` también es builtin, pero el riesgo no es el comando: es que el valor aparezca
+        como argumento de un proceso NUEVO. Un `cat archivo | curl` no expondría la clave y
+        también serviría; lo que no sirve es cualquier cosa que la pase por argv a un externo.
+        Se verifica que la función exista y que su cuerpo no invoque un programa externo."""
+        s = codigo_de(SCRIPTS / "_comun.sh")
+        self.assertIn("cabecera_de_autorizacion()", s,
+                      "no existe el único lugar que arma la cabecera: con la clave repetida "
+                      "en cada curl, arreglar uno deja los otros expuestos")
+        i = s.index("cabecera_de_autorizacion()")
+        cuerpo = s[i:s.index("\n}", i)]
+        self.assertIn("printf", cuerpo, "no usa printf")
+        for externo in ("openssl", "jq", "python", "curl", "awk", "sed"):
+            self.assertNotIn(externo, cuerpo,
+                             f"el cuerpo invoca `{externo}`, que es un proceso externo: si la "
+                             f"clave pasa por su argv volvemos a estar donde estábamos")
+
+    def test_los_curl_a_la_plataforma_leen_la_cabecera_de_stdin(self):
+        """El brazo positivo: no alcanza con que no esté en el argv, tiene que estar en algún
+        lado. Un curl sin cabecera da 401 y el método lo leería como «la plataforma no
+        responde», acusando a la plataforma de un defecto nuestro."""
+        s = codigo_de(SCRIPTS / "_comun.sh")
+        n_curl = len(re.findall(r"\|\s*curl -s -m \"\$ARRANQUE_FRIO\"", s))
+        n_stdin = s.count("-H @-")
+        self.assertGreater(n_curl, 0, "no hay ningún curl de sonda")
+        self.assertEqual(n_curl, n_stdin,
+                         f"{n_curl} curl(s) de sonda y {n_stdin} con `-H @-`: alguno quedó "
+                         f"sin cabecera y va a dar 401, que el método lee como plataforma caída")

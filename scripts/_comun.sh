@@ -569,6 +569,21 @@ json.dump({"model": os.environ["MODELO_SONDA_PL"], "max_tokens": 4,
 PYPAYLOAD
 }
 
+# LA CLAVE NUNCA EN LA LÍNEA DE COMANDOS.
+#
+# `-H "Authorization: Bearer $CLAVE"` pone la clave en el argv del curl, y el argv de
+# cualquier proceso lo lee cualquiera con un `ps`. Medido el 2026-11-28: un `pgrep -fl curl`
+# hecho para ver si la sonda estaba viva imprimió la clave entera en texto plano. No es un
+# riesgo teórico — pasó, y el que la vio no la estaba buscando.
+#
+# `printf` es BUILTIN de bash, así que no hay un segundo proceso cuyo argv exponga el valor;
+# curl lee la cabecera de stdin con `-H @-`. Verificado contra la API: 200.
+#
+# El `-d` del pedido sigue por donde iba —inline o `@archivo`—: stdin queda libre para esto.
+cabecera_de_autorizacion() {
+  printf 'Authorization: Bearer %s\n' "${COLABHIVE_API_KEY:-}"
+}
+
 plataforma_responde() {
   [ -n "${COLABHIVE_BASE_URL:-}" ] || return 0      # sin configurar, no opinamos
   local codigo modelo
@@ -615,9 +630,11 @@ plataforma_responde() {
   local intentos=3 i=1 codigos="" cuerpo_tmp pl_tmp codigo_grande
   cuerpo_tmp="$(mktemp)"
   while [ "$i" -le "$intentos" ]; do
-    codigo="$(curl -s -m "$ARRANQUE_FRIO" -o "$cuerpo_tmp" -w '%{http_code}' \
+    # LA CLAVE VA POR STDIN, NO POR LA LÍNEA DE COMANDOS. Ver `cabecera_de_autorizacion`.
+    codigo="$(cabecera_de_autorizacion \
+              | curl -s -m "$ARRANQUE_FRIO" -o "$cuerpo_tmp" -w '%{http_code}' \
               "$COLABHIVE_BASE_URL/chat/completions" \
-              -H "Authorization: Bearer ${COLABHIVE_API_KEY:-}" \
+              -H @- \
               -H "Content-Type: application/json" \
               -d '{"model":"'$modelo'",
                    "max_tokens":4,"messages":[{"role":"user","content":"OK"}],
@@ -644,9 +661,10 @@ plataforma_responde() {
       # que 20 KB con herramientas devolvían 502 mientras lo chico pasaba.
       pl_tmp="$(mktemp)"
       if payload_de_tamano_real "$modelo" "$pl_tmp"; then
-        codigo_grande="$(curl -s -m "$ARRANQUE_FRIO" -o "$cuerpo_tmp" -w '%{http_code}' \
+        codigo_grande="$(cabecera_de_autorizacion \
+                        | curl -s -m "$ARRANQUE_FRIO" -o "$cuerpo_tmp" -w '%{http_code}' \
                         "$COLABHIVE_BASE_URL/chat/completions" \
-                        -H "Authorization: Bearer ${COLABHIVE_API_KEY:-}" \
+                        -H @- \
                         -H "Content-Type: application/json" \
                         -d @"$pl_tmp" 2>/dev/null)"
         codigo_grande="${codigo_grande:-000}"
