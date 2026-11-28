@@ -25,6 +25,9 @@ cargar_entorno_colabhive
 
 AGENTE="${AGENTE:-arquitecto}"
 ENCARGO="${1:-OBJETIVO.md}"
+# Si el que llama lo fijó, manda él. Si no, lo decide la cantidad de defectos del plan: ver
+# el ajuste después del primer `revisar`.
+INTENTOS_EXPLICITO="${INTENTOS:+1}"
 INTENTOS="${INTENTOS:-3}"
 INSTRUCCION="${INSTRUCCION:-}"
 
@@ -154,9 +157,21 @@ huella_del_plan() {
 # formas —medido en experimentos/plan-robustez.md— y cuesta 9,2% menos tokens para el mismo
 # contenido, lo que importa cuando el reloj del gateway es la restricción que ata. Los
 # mensajes para la persona siguen en español: son otra audiencia.
+# CUÁNTO HABLÓ, EN LA UNIDAD QUE NO MIENTE.
+#
+# El arnés decía «habló 0 KB y no cambió ningún archivo». Se contradice solo: el umbral del
+# detector son 500 bytes y la división entera a KB los redondea a cero, así que la misma
+# línea afirmaba «habló» y «0 KB». El que lee el log concluye que el modelo no dijo nada, que
+# es exactamente la atribución equivocada que este guardia existe para evitar. Medido el
+# 2026-11-28, en la primera vuelta donde `dos_fases` llegó a disparar.
+cuanto_hablo() {
+  local n="${SALIDA_N:-0}"
+  if [ "$n" -lt 1024 ]; then printf '%s bytes' "$n"; else printf '%s KB' "$((n / 1024))"; fi
+}
+
 dos_fases() {
   local pedido_original="$1" bruto decision
-  echo "  · habló $(( ${SALIDA_N:-0} / 1024 )) KB y no cambió ningún archivo: parto el pedido en dos"
+  echo "  · habló $(cuanto_hablo) y no cambió ningún archivo: parto el pedido en dos"
   export LOG_VIGILADO="$log"
 
   # FASE 1 — decidir. Sin archivos, y la respuesta delimitada: capturar la salida cruda de
@@ -204,10 +219,29 @@ Your only output is files on disk. Your final reply is the list of files you wro
 # Lee `INSTRUCCION`, `PROBLEMAS`, `$BASE/PLAN.md` y `$ENCARGO`. `$1` es el número de vuelta.
 pedido_de_la_vuelta() {
   local vuelta="$1"
-  # Un pedido por vuelta: con cinco correcciones juntas arregla las mecánicas y deja las
-  # estructurales. Se le devuelve la lista, pero se le dice que arregle eso y nada más.
+  # UN PROBLEMA POR VUELTA, Y ES ARITMÉTICA, NO ESTILO.
+  #
+  # Hasta el 2026-11-28 acá iba `$PROBLEMAS` entero. Medido ese día sobre clasificados, con
+  # cinco rojos en el plan: tres tareas que cruzan capas hay que partirlas en tres cada una,
+  # así que arreglar los cinco es ESCRIBIR 9 enunciados nuevos más dos contratos más la
+  # tabla. Los enunciados de ese proyecto promedian 2472 caracteres, o sea ~690 tokens: nueve
+  # son ~6200 tokens de SALIDA. Y el techo a 6,1 tok/s en 1200 s es 7320 tokens.
+  #
+  # O sea que la escritura sola se come el 85% del presupuesto y no queda nada para decidir.
+  # No es un problema de prompt: es imposible, y por eso el protocolo de dos fases tampoco lo
+  # salvó — esa corrida murió 1200 s en la fase de DECISIÓN sin llegar a emitir los
+  # marcadores, y el total fueron 1764 s con cero archivos. Cuatro corridas, cero progreso.
+  #
+  # La lista en sí no era el problema: 2253 caracteres, 626 tokens. Pedirle cinco cosas sí.
+  #
+  # Y no se le dice cuántas quedan. El propio método tiene medido por qué: un dato
+  # irrelevante en el enunciado le baja el acierto a un modelo chico de 54,7% a 20,7%
+  # (Udgam Labs, citado en plantillas/TAREA.md). «Hay otros cuatro» no lo ayuda a arreglar
+  # este, y compite por la atención con lo que sí.
+  local uno
+  uno="$(printf '%s\n' "$PROBLEMAS" | grep . | head -1)"
   local corregir="Leé $ENCARGO y el PLAN.md que ya existe. Arreglá EXACTAMENTE esto y nada más:
-$PROBLEMAS
+$uno
 No rehagas el resto del plan. No toques las tareas que ya están bien."
 
   if [ "$vuelta" -eq 1 ] && [ -n "$INSTRUCCION" ]; then
@@ -253,6 +287,20 @@ if [ -z "$INSTRUCCION" ] && [ -s "$BASE/PLAN.md" ]; then
   if [ -z "$PROBLEMAS" ]; then
     echo "· el plan que ya existe valida: no se toca — refinar lo que pasa lo empeora"
     YA_VALIDA=1
+  fi
+fi
+
+# EL PRESUPUESTO DE VUELTAS ESCALA CON LOS DEFECTOS.
+#
+# Desde que cada vuelta arregla UN problema, un default fijo de 3 vueltas sobre un plan con 5
+# defectos no puede terminar nunca: arreglaría tres y saldría en rojo por los otros dos,
+# culpando al arquitecto de un techo que le pusimos nosotros. Es el mismo reparto que el tope
+# de reintentos de los tests, que ata a quien avanza.
+if [ -z "$INTENTOS_EXPLICITO" ] && [ -n "$PROBLEMAS" ]; then
+  n_defectos="$(printf '%s\n' "$PROBLEMAS" | grep -c . || true)"
+  if [ "${n_defectos:-0}" -ge "$INTENTOS" ]; then
+    INTENTOS=$((n_defectos + 1))
+    echo "· $n_defectos defecto(s) en el plan y una vuelta arregla uno: presupuesto $INTENTOS vueltas"
   fi
 fi
 
@@ -358,7 +406,7 @@ if [ "$ANTES" = "$DESPUES" ] && [ "$YA_VALIDA" -eq 0 ]; then
   # escribió» manda a cambiar el modelo cuando lo que hay que cambiar es el pedido.
   if hablo_sin_escribir "${HUELLA_VUELTA:-}" "${DESDE_BYTE:-0}"; then
     {
-      echo "  Pero SÍ trabajó: produjo $(( ${SALIDA_N:-0} / 1024 )) KB de salida sin cambiar un archivo."
+      echo "  Pero SÍ trabajó: produjo $(cuanto_hablo) de salida sin cambiar un archivo."
       echo "  Eso no es un modelo que no puede, es un pedido que no entra en el reloj: a"
       echo "  ${TOK_S_PISO:-6.1} tok/s, ${LIMITE_AGENTE:-1200}s no alcanzan para decidir Y escribir en la misma"
       echo "  llamada. Partilo: una corrida que decida y conteste en pocas líneas, y otra que"

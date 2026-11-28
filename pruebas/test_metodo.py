@@ -22995,3 +22995,141 @@ class TestLaClaveNoViajaEnLaLineaDeComandos(unittest.TestCase):
         self.assertEqual(n_curl, n_stdin,
                          f"{n_curl} curl(s) de sonda y {n_stdin} con `-H @-`: alguno quedó "
                          f"sin cabecera y va a dar 401, que el método lee como plataforma caída")
+
+
+class TestUnProblemaPorVueltaPorqueElRelojNoDaParaMas(unittest.TestCase):
+    """No es estilo: es aritmética, y los números son de hoy.
+
+    Medido el 2026-11-28 sobre clasificados, con cinco rojos en el plan: tres de ellos son
+    tareas que cruzan capas, y partir cada una en tres es ESCRIBIR 9 enunciados nuevos, más
+    dos contratos, más la tabla. Los enunciados de ese proyecto promedian 2472 caracteres
+    —~690 tokens— así que nueve son ~6200 tokens de salida. El techo a 6,1 tok/s en 1200 s es
+    7320 tokens.
+
+    La escritura sola se come el 85% del presupuesto y no queda nada para decidir. Por eso el
+    protocolo de dos fases tampoco lo salvó: esa corrida murió 1200 s en la fase de DECISIÓN
+    sin llegar a emitir los marcadores, total 1764 s y cero archivos. Cuatro corridas, cero
+    progreso.
+
+    Y la lista no era el problema —2253 caracteres, 626 tokens—. Pedirle cinco cosas sí."""
+
+    def pedido(self, problemas, plan_existe=True):
+        fuente = (SCRIPTS / "planificar.sh").read_text()
+        i = fuente.index("pedido_de_la_vuelta() {")
+        funcion = fuente[i:fuente.index("\n}", i) + 2]
+        with tempfile.TemporaryDirectory() as d:
+            base = pathlib.Path(d) / "proy"
+            base.mkdir()
+            if plan_existe:
+                (base / "PLAN.md").write_text("# Plan\n")
+            guion = pathlib.Path(d) / "elegir.sh"
+            guion.write_text(
+                'set -uo pipefail\nBASE="$1"\nENCARGO="OBJETIVO.md"\nAQUI="/x"\n'
+                'INSTRUCCION=""\n'
+                f'PROBLEMAS={shlex.quote(problemas)}\n'
+                + funcion + '\npedido_de_la_vuelta 1\n')
+            return correr(f"bash {guion} {base}", pathlib.Path(d)).stdout
+
+    CINCO = ("T04 declara archivos de 3 capas a la vez\n"
+             "T26 declara archivos de 3 capas a la vez\n"
+             "T28 declara archivos de 3 capas a la vez\n"
+             "T16 está en la capa rutas y EXIGE servicios\n"
+             "T22 está en la capa rutas y EXIGE servicios")
+
+    def test_el_pedido_lleva_UN_problema_y_no_los_cinco(self):
+        salida = self.pedido(self.CINCO)
+        self.assertIn("T04", salida, f"no le dio ninguno:\n{salida}")
+        for otro in ("T26", "T28", "T16", "T22"):
+            self.assertNotIn(otro, salida,
+                             f"le mandó {otro} también: arreglar los cinco es ~6200 tokens de "
+                             f"salida contra un techo de 7320, así que no queda presupuesto "
+                             f"para decidir y la corrida muere sin escribir nada\n{salida}")
+
+    def test_no_le_dice_cuantos_quedan(self):
+        """El propio método tiene medido por qué: un dato irrelevante en el enunciado le baja
+        el acierto a un modelo chico de 54,7% a 20,7% (Udgam Labs, citado en
+        plantillas/TAREA.md). «Hay otros cuatro» no lo ayuda a arreglar este."""
+        salida = self.pedido(self.CINCO)
+        for pista in ("4 problema", "cuatro", "otros 4", "5 problema", "quedan"):
+            self.assertNotIn(pista, salida,
+                             f"mete un dato que no sirve para arreglar ESTE problema y "
+                             f"compite por la atención: «{pista}»\n{salida}")
+
+    def test_con_un_solo_problema_el_pedido_es_el_mismo(self):
+        """Brazo nulo: el recorte no puede cambiar el caso de un problema, que es el que ya
+        funcionaba."""
+        salida = self.pedido("T04 declara archivos de 3 capas a la vez")
+        self.assertIn("T04 declara archivos de 3 capas", salida)
+        self.assertIn("Arreglá EXACTAMENTE esto", salida)
+
+    def test_el_presupuesto_de_vueltas_escala_con_los_defectos(self):
+        """Con una vuelta por problema, un default fijo de 3 sobre un plan de 5 defectos no
+        puede terminar nunca: arreglaría tres y saldría en rojo por los otros dos, culpando al
+        arquitecto de un techo que le pusimos nosotros."""
+        s = codigo_de(SCRIPTS / "planificar.sh")
+        self.assertIn("INTENTOS_EXPLICITO", s,
+                      "no distingue el presupuesto que fijó el que llama del default: subirle "
+                      "las vueltas a quien pidió 1 es desobedecerlo")
+        i = s.index("INTENTOS_EXPLICITO=")
+        self.assertIn("INTENTOS=$((n_defectos + 1))", s,
+                      "el presupuesto no escala con los defectos")
+        j = s.index("INTENTOS=$((n_defectos + 1))")
+        self.assertIn("-z \"$INTENTOS_EXPLICITO\"", s[max(0, j - 400):j],
+                      "sube las vueltas incluso cuando el que llama las fijó")
+
+    def test_el_pedido_explicito_del_que_llama_no_se_toca(self):
+        """Brazo nulo del anterior, y el que define el criterio: `INTENTOS=1` tiene que seguir
+        siendo 1. Un arnés que mejora el número que le pediste es un arnés que no se puede
+        usar para medir."""
+        s = codigo_de(SCRIPTS / "planificar.sh")
+        i = s.index('INTENTOS_EXPLICITO="${INTENTOS:+1}"')
+        j = s.index('INTENTOS="${INTENTOS:-3}"')
+        self.assertLess(i, j,
+                        "lee si fue explícito DESPUÉS de ponerle el default, así que siempre "
+                        "le va a parecer explícito y nunca va a escalar")
+
+
+class TestElArnesNoSeContradiceAlContarLoQueHablo(unittest.TestCase):
+    """«habló 0 KB y no cambió ningún archivo» se contradice solo: el umbral del detector son
+    500 bytes y la división entera a KB los redondea a cero, así que la misma línea afirmaba
+    «habló» y «0 KB». El que lee el log concluye que el modelo no dijo nada — exactamente la
+    atribución equivocada que este guardia existe para evitar.
+
+    Medido el 2026-11-28, en la primera vuelta de la historia del repo donde `dos_fases` llegó
+    a disparar: el log decía «habló 0 KB» sobre ~700 bytes."""
+
+    def contar(self, n):
+        fuente = (SCRIPTS / "planificar.sh").read_text()
+        i = fuente.index("cuanto_hablo() {")
+        funcion = fuente[i:fuente.index("\n}", i) + 2]
+        with tempfile.TemporaryDirectory() as d:
+            guion = pathlib.Path(d) / "c.sh"
+            guion.write_text(f'set -uo pipefail\nSALIDA_N={n}\n' + funcion + '\ncuanto_hablo\n')
+            return correr(f"bash {guion}", pathlib.Path(d)).stdout.strip()
+
+    def test_por_debajo_de_un_kilo_informa_bytes(self):
+        self.assertEqual("700 bytes", self.contar(700),
+                         "redondea a 0 KB lo que el detector considera deliberación")
+        self.assertEqual("1023 bytes", self.contar(1023))
+
+    def test_por_encima_informa_kilos(self):
+        self.assertEqual("1 KB", self.contar(1024))
+        self.assertEqual("4 KB", self.contar(5000))
+
+    def test_nunca_dice_cero_de_algo_que_el_detector_dejo_pasar(self):
+        """El umbral del detector son 500 bytes, así que cualquier valor que llegue acá es
+        mayor que eso. Decir «0» de algo mayor que 500 es el defecto; este test lo fija sobre
+        el borde."""
+        for n in (501, 600, 999):
+            salida = self.contar(n)
+            self.assertNotIn("0 KB", salida, f"con {n} bytes dijo «{salida}»")
+            self.assertIn(str(n), salida, f"con {n} bytes no dijo el número: «{salida}»")
+
+    def test_un_solo_lector_de_la_unidad(self):
+        """Dos lugares lo imprimen —`dos_fases` y el rojo final— y escrito dos veces iba a
+        derivar: el defecto de hoy vivía en los dos a la vez."""
+        s = codigo_de(SCRIPTS / "planificar.sh")
+        self.assertEqual(0, s.count("/ 1024 )) KB"),
+                         "quedó una división entera a KB escrita a mano")
+        self.assertGreaterEqual(s.count("$(cuanto_hablo)"), 2,
+                                "no todos los que informan la salida usan el lector único")

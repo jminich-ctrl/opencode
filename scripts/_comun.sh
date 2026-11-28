@@ -21,7 +21,15 @@
 # ejecutor desalojado contestó 200 a los 41,5 s después de que pedidos anteriores lo
 # arrancaran. El número vive acá y lo usan los dos que lo necesitan —la sonda de plataforma y
 # el presupuesto del calentador—, porque tenerlo dos veces es tenerlo mal una vez.
-: "${ARRANQUE_FRIO:=240}"
+# Y 240 no alcanzaba, por una razón distinta de la de arriba: no es cuánto tarda el modelo en
+# levantarse, es cuánto tarda el GATEWAY en decir que no. Medido el 2026-11-28, 9 pedidos a 5
+# modelos: el gateway devuelve 503 —o 504— entre 296,6 y 299,9 s, un número tan estable que
+# es claramente su tope y no conducta de los modelos. Con 240 el curl cortaba 58 s ANTES, así
+# que la sonda nunca veía el 503 y reportaba «000 = ni contestó», que es otro diagnóstico:
+# 000 se lee como silencio de red y 503 es el gateway diciendo explícitamente que no está
+# sirviendo ese modelo. Y encima el mensaje de 000 aconseja reintentar, que con un 503 es
+# gastar 5 minutos para que diga lo mismo (medido: 3 de 3 en el A3B).
+: "${ARRANQUE_FRIO:=330}"
 
 # Ubica el proyecto: el repo git del directorio actual (no el de estos scripts), así el
 # mismo runner sirve para tu proyecto y para ejemplo-pacman. Deja RAIZ, PROYECTO y BASE.
@@ -683,11 +691,35 @@ plataforma_responde() {
       rm -f "$cuerpo_tmp" "$pl_tmp"
       return 0
     fi
+    # UNA NEGATIVA EXPLÍCITA NO SE MUESTREA TRES VECES.
+    #
+    # Las tres muestras existen por la intermitencia: un 502 o un 000 pueden ser pasajeros y
+    # el 2026-10-21 un 502 abortó un plan de 7 etapas mientras dos minutos después el mismo
+    # pedido contestaba 200. Pero 503 y 504 no son eso: son el gateway diciendo que no está
+    # sirviendo ese modelo. Medido el 2026-11-28 sobre el A3B de 35B: 3 intentos, 3 veces 503,
+    # ~298 s cada uno, 15 minutos de reloj para enterarse de lo que el primero ya había dicho.
+    #
+    # Cortar acá hace el caso malo MÁS rápido —una muestra en vez de tres— y el diagnóstico
+    # correcto. Insistir contra una negativa explícita es lo que el propio mensaje de abajo
+    # dice que no hay que hacer.
+    case "$codigo" in
+      503|504)
+        rm -f "$cuerpo_tmp"
+        echo "✗ el gateway RECHAZA este modelo: HTTP $codigo en ${COLABHIVE_BASE_URL}/chat/completions" >&2
+        echo "  No es intermitencia y no es la tarea: 503/504 es el gateway diciendo que no" >&2
+        echo "  está sirviendo «${modelo}». Reintentar no cambia nada —medido: 3 de 3 con el" >&2
+        echo "  mismo código— así que no gasto $intentos muestras de ${ARRANQUE_FRIO}s." >&2
+        echo "  Lo que hay que mirar es qué réplicas están levantadas, no el plan." >&2
+        return 1 ;;
+    esac
     i=$((i+1))
   done
   rm -f "$cuerpo_tmp"
   echo "✗ la plataforma de modelos no responde: HTTP $codigos ($intentos intentos) en $COLABHIVE_BASE_URL/chat/completions" >&2
-  [ "$codigo" = "000" ] && echo "  (000 = ni contestó en ${ARRANQUE_FRIO}s. Si el modelo estaba desalojado, este mismo pedido lo arrancó: reintentá una vez.)" >&2
+  # 000 es silencio de verdad: el curl se fue sin respuesta. Con ARRANQUE_FRIO por encima del
+  # punto donde el gateway contesta (~298 s medidos), un 000 ya no puede ser un 503 que no
+  # alcanzamos a ver, así que el consejo de reintentar vuelve a ser honesto.
+  [ "$codigo" = "000" ] && echo "  (000 = ni contestó en ${ARRANQUE_FRIO}s, que es MÁS que los ~298s en que el gateway rechaza: esto es silencio, no un rechazo que no vimos. Si el modelo estaba desalojado, este mismo pedido lo arrancó: reintentá una vez.)" >&2
   echo "  No es la tarea ni el agente. Reintentar contra una plataforma caída gasta el" >&2
   echo "  presupuesto de todas las tareas sin aprender nada." >&2
   return 1
