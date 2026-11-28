@@ -23133,3 +23133,179 @@ class TestElArnesNoSeContradiceAlContarLoQueHablo(unittest.TestCase):
                          "quedó una división entera a KB escrita a mano")
         self.assertGreaterEqual(s.count("$(cuanto_hablo)"), 2,
                                 "no todos los que informan la salida usan el lector único")
+
+
+class TestLaSondaVeElRechazoDelGatewayYNoDejaDeCalentar(unittest.TestCase):
+    """Dos mediciones del 2026-11-28 que apuntan en direcciones opuestas, y la regla sale de
+    las dos juntas.
+
+    La primera: el gateway contesta 503 o 504 entre 296,6 y 299,9 s —9 pedidos a 5 modelos, un
+    número tan estable que es su tope y no conducta de los modelos—. Con `ARRANQUE_FRIO=240`
+    el curl cortaba 58 s ANTES, así que la sonda nunca veía el 503 y reportaba «000 = ni
+    contestó». Son dos diagnósticos distintos: 000 se lee como silencio de red y 503 es el
+    gateway diciendo que tiene el modelo desalojado.
+
+    La segunda, que corrige la conclusión fácil: el arquitecto dio 504 a las 09:0x y 200 en
+    233 s a las 10:00, después de que varios pedidos lo arrancaran. **El POST es lo que levanta
+    la réplica**, así que las tres muestras no son sólo muestras: son el calentador.
+
+    Mi primera corrección fue cortar en la primera muestra al ver un 503, porque había medido
+    3 de 3 en el A3B. Eso cambia un diagnóstico lento por uno rápido y equivocado, y este test
+    existe para que no vuelva: una muestra no distingue «desalojado y cargando» de «no se va a
+    servir nunca», y lo que hacen las tres es darle tiempo a la carga.
+
+    Y de paso: 240 estaba a 7 segundos de declarar muerto a un modelo que levantaba bien."""
+
+    def fuente(self):
+        return codigo_de(SCRIPTS / "_comun.sh")
+
+    def test_la_paciencia_pasa_el_punto_donde_el_gateway_contesta(self):
+        s = self.fuente()
+        m = re.search(r'ARRANQUE_FRIO:=(\d+)', s)
+        self.assertIsNotNone(m, "no encuentro el default de ARRANQUE_FRIO")
+        self.assertGreater(int(m.group(1)), 300,
+                           f"ARRANQUE_FRIO={m.group(1)}s corta antes de los ~298s en que el "
+                           f"gateway devuelve 503/504, así que la sonda no puede verlo y va a "
+                           f"reportar «000 = ni contestó», que es otro diagnóstico")
+        self.assertGreater(int(m.group(1)), 233,
+                           "y tiene que cubrir el arranque en frío legítimo más largo que "
+                           "medimos (233s en el arquitecto), o declara muerto a un modelo que "
+                           "está levantando bien")
+
+    def test_un_503_no_corta_el_muestreo(self):
+        """El brazo que fija mi propia sobre-corrección. Si la sonda vuelve de la primera
+        muestra con un 503, deja de golpear la puerta — y golpear la puerta es lo que arranca
+        la réplica."""
+        s = self.fuente()
+        i = s.index("plataforma_responde()")
+        j = s.index("\n}\n", i)
+        cuerpo = s[i:j]
+        for corte in ("503|504)", '"$codigo" = "503"', '"$codigo" = "504"'):
+            self.assertNotIn(corte, cuerpo,
+                             f"la sonda corta el muestreo al ver un 503 («{corte}»). El POST "
+                             f"es lo que levanta la réplica: medido, el arquitecto pasó de 504 "
+                             f"a 200 en 233s después de varios pedidos. Cortar cambia un "
+                             f"diagnóstico lento por uno rápido y equivocado.")
+
+    def test_pero_cuando_termina_nombra_el_503_y_dice_que_reintentar(self):
+        """No alcanza con seguir muestreando: el defecto original era el MENSAJE. Si las tres
+        muestras dan 503, quien lo lee tiene que saber que el modelo está desalojado —no que
+        la red se cayó— y que reintentar el comando entero sí puede andar, porque estos mismos
+        pedidos lo arrancaron."""
+        s = self.fuente()
+        i = s.index("la plataforma de modelos no responde")
+        tramo = s[i:i + 1400]
+        self.assertIn("503", tramo, f"el mensaje final no nombra el 503:\n{tramo[:200]}")
+        self.assertIn("DESALOJADO", tramo,
+                      "no dice qué significa un 503: sin eso es indistinguible de la red caída")
+        self.assertIn("Reintentá", tramo,
+                      "no dice qué hacer, y en este caso reintentar SÍ sirve porque las "
+                      "muestras calientan la réplica")
+
+    def test_el_mensaje_del_000_ya_no_puede_confundirse_con_un_503(self):
+        """Con la paciencia por encima del punto donde el gateway contesta, un 000 es silencio
+        de verdad. Antes podía ser un 503 que no alcanzábamos a ver, y el consejo de reintentar
+        se daba sobre un diagnóstico equivocado."""
+        s = self.fuente()
+        i = s.index('"$codigo" = "000"')
+        tramo = s[i:i + 400]
+        self.assertIn("298", tramo,
+                      "el mensaje del 000 no dice que la paciencia ya pasa el punto donde el "
+                      "gateway rechaza, así que sigue pudiendo ser un 503 no visto")
+
+
+class TestElPedidoNoLeCobraAlModeloLoQueElArnesYaSabe(unittest.TestCase):
+    """Dejé de arreglar el arnés a ciegas y leí el transcripto. La vuelta gastó sus 1200 s en
+    SIETE lecturas y murió sin escribir una línea:
+
+        → Read OBJETIVO.md · → Read PLAN.md · ✱ Glob "tareas/*.md" · 37 matches
+        → Read tareas/T04-auth-backend.md · → Read tareas/T04b-verificar-sesion.md
+        → Read /Users/jose/metodo-agentes/DESCOMPOSICION.md · → Read tareas/T05a-avisos-datos.md
+
+    Dos cosas, las dos nuestras:
+
+    1. Fue a leer la documentación del método —21889 caracteres, el 41% de los 52875 que
+       leyó— porque mi propio mensaje de rojo termina en «(ver DESCOMPOSICION.md §5c)». Para
+       una persona en la terminal eso es lo mejor del mensaje; para el modelo es una orden de
+       abrir un archivo enorme. Y el costo no es sólo esa lectura: cada paso siguiente vuelve
+       a prefillear lo acumulado, y entre paso y paso delibera (los `</think>` del log). A
+       6,7 tok/s, 1200 s son ~8000 tokens de generación: ~1150 por paso.
+
+    2. Hizo un Glob de 37 archivos y abrió tres tareas buscando el patrón, cuando el rojo ya
+       dice de qué tarea habla y el arnés tiene la ruta a mano. Si la sabemos y no la pasamos,
+       le estamos cobrando al modelo una búsqueda que nosotros teníamos hecha.
+
+    El límite no era el contexto: 14688 tokens entran de sobra en 117000. Era el reloj."""
+
+    def pedido(self, problemas, tareas=("T04-auth-backend.md",)):
+        fuente = (SCRIPTS / "planificar.sh").read_text()
+        i = fuente.index("pedido_de_la_vuelta() {")
+        funcion = fuente[i:fuente.index("\n}", i) + 2]
+        with tempfile.TemporaryDirectory() as d:
+            base = pathlib.Path(d) / "proy"
+            (base / "tareas").mkdir(parents=True)
+            (base / "PLAN.md").write_text("# Plan\n")
+            for n in tareas:
+                (base / "tareas" / n).write_text("# tarea\n")
+            guion = pathlib.Path(d) / "elegir.sh"
+            guion.write_text(
+                'set -uo pipefail\nBASE="$1"\nENCARGO="OBJETIVO.md"\nAQUI="/x"\n'
+                'INSTRUCCION=""\n'
+                f'PROBLEMAS={shlex.quote(problemas)}\n'
+                + funcion + '\npedido_de_la_vuelta 1\n')
+            return correr(f"bash {guion} {base}", pathlib.Path(d)).stdout
+
+    ROJO = ("T04 declara archivos de 3 capas a la vez (datos: a.py). Partila en una tarea "
+            "por capa, como el plan ya hace en otras (ver DESCOMPOSICION.md §5c)")
+
+    def test_el_puntero_a_la_documentacion_no_entra_en_el_pedido(self):
+        salida = self.pedido(self.ROJO)
+        self.assertNotIn("DESCOMPOSICION", salida,
+                         f"manda al modelo a leer 21889 caracteres de documentación del "
+                         f"método, que es el 41% de lo que leyó en la vuelta que murió sin "
+                         f"escribir:\n{salida}")
+        self.assertNotIn("(ver ", salida, f"quedó un puntero a un archivo:\n{salida}")
+
+    def test_pero_el_resto_del_rojo_sobrevive_entero(self):
+        """El brazo nulo del recorte, y el que importa: si se comiera la instrucción, el
+        modelo recibiría el diagnóstico sin saber qué hacer. Lo que se saca es la cita, no el
+        contenido."""
+        salida = self.pedido(self.ROJO)
+        self.assertIn("declara archivos de 3 capas", salida, salida)
+        self.assertIn("Partila en una tarea por capa", salida,
+                      f"el recorte se comió la instrucción:\n{salida}")
+
+    def test_le_dice_cual_es_el_archivo_de_la_tarea(self):
+        salida = self.pedido(self.ROJO)
+        self.assertIn("tareas/T04-auth-backend.md", salida,
+                      f"no le pasa la ruta que el arnés ya tiene, así que el modelo la va a "
+                      f"buscar con un Glob de 37 archivos y tres lecturas:\n{salida}")
+
+    def test_brazo_nulo_si_no_encuentra_el_archivo_no_lo_inventa(self):
+        """Un rojo sobre una tarea cuyo enunciado no existe —el caso de los huérfanos, que el
+        validador informa— no puede producir una ruta falsa: el modelo iría a leer un archivo
+        que no está y gastaría un paso en el error."""
+        salida = self.pedido(self.ROJO, tareas=())
+        self.assertNotIn("tareas/T04", salida,
+                         f"inventó una ruta que no existe:\n{salida}")
+        self.assertIn("Arreglá EXACTAMENTE esto", salida,
+                      f"y el pedido tiene que seguir siendo válido:\n{salida}")
+
+    def test_le_prohibe_abrir_la_documentacion_del_metodo(self):
+        """Sacar el puntero no alcanza: el modelo igual puede decidir ir a buscarla, y el
+        pedido de cero sí la nombra. Se lo dice con el motivo, porque una prohibición sin
+        motivo es una que el modelo pondera contra su propio criterio."""
+        salida = self.pedido(self.ROJO)
+        self.assertIn("No abras la documentación del método", salida, salida)
+        self.assertIn("presupuesto", salida,
+                      "prohíbe sin decir por qué: el modelo no tiene cómo saber que leerla "
+                      "le cuesta la corrida")
+
+    def test_el_pedido_entero_entra_en_el_orden_de_un_kilobyte(self):
+        """No es un número mágico: es la consecuencia de las dos reglas. Si alguien vuelve a
+        meter la lista entera de problemas o un puntero a un .md, esto se dispara antes de
+        gastar 1200 s para enterarse."""
+        salida = self.pedido(self.ROJO)
+        self.assertLess(len(salida), 2000,
+                        f"el pedido creció a {len(salida)} caracteres; cada cosa que entra "
+                        f"acá es contexto que el modelo prefillea en CADA paso")

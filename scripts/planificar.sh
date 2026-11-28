@@ -240,9 +240,46 @@ pedido_de_la_vuelta() {
   # este, y compite por la atención con lo que sí.
   local uno
   uno="$(printf '%s\n' "$PROBLEMAS" | grep . | head -1)"
+
+  # SIN EL PUNTERO A LA DOCUMENTACIÓN DEL MÉTODO.
+  #
+  # Los rojos del validador terminan en «(ver DESCOMPOSICION.md §5c)». Para una persona
+  # leyendo la terminal eso es lo mejor del mensaje; para el arquitecto es una orden de abrir
+  # un archivo de 21889 caracteres.
+  #
+  # Medido el 2026-11-28, leyendo el transcripto en vez de seguir arreglando el arnés a
+  # ciegas: la vuelta gastó sus 1200 s en SIETE lecturas y murió sin escribir. Una de ellas
+  # era `/Users/jose/metodo-agentes/DESCOMPOSICION.md`, el 41% de los 52875 caracteres que
+  # leyó. Y el costo no es sólo esa lectura: cada paso siguiente vuelve a prefillear todo lo
+  # acumulado, y entre paso y paso el modelo delibera —el log muestra los `</think>`—. A 6,7
+  # tok/s, 1200 s son ~8000 tokens de generación, o sea ~1150 por paso: el presupuesto se va
+  # en decidir qué leer.
+  #
+  # El puntero se queda para quien lee la terminal y se saca del pedido. El mismo mensaje
+  # sirve a los dos lectores sin escribirlo dos veces.
+  uno="$(printf '%s\n' "$uno" | sed 's/ *(ver [A-Za-z_.]*\.md[^)]*)//g')"
+
+  # Y SE LE DICE QUÉ ABRIR, PARA QUE NO LO DELIBERE.
+  #
+  # Del transcripto: antes de leer la tarea hizo `Glob "tareas/*.md" · 37 matches` y después
+  # abrió T04, T04b y T05a buscando el patrón. Tres de las siete lecturas fueron para
+  # ENCONTRAR el archivo, y el rojo ya dice de qué tarea habla. Si el arnés sabe la ruta y no
+  # la pasa, le está cobrando al modelo una búsqueda que nosotros teníamos hecha.
+  local tid archivo
+  tid="$(printf '%s\n' "$uno" | grep -oE '\bT[0-9]+[a-z]?\b' | head -1 || true)"
+  archivo=""
+  if [ -n "${tid:-}" ]; then
+    archivo="$(ls "$BASE"/tareas/"${tid}"-*.md 2>/dev/null | head -1 || true)"
+    [ -n "$archivo" ] && archivo="tareas/$(basename "$archivo")"
+  fi
+
   local corregir="Leé $ENCARGO y el PLAN.md que ya existe. Arreglá EXACTAMENTE esto y nada más:
 $uno
 No rehagas el resto del plan. No toques las tareas que ya están bien."
+  [ -n "$archivo" ] && corregir="$corregir
+El enunciado de ${tid} está en ${archivo}: abrí ese y no busques entre los demás."
+  corregir="$corregir
+Todo lo que necesitás saber para esto está en este pedido. No abras la documentación del método: leerla te consume el presupuesto de la corrida y después no te alcanza para escribir."
 
   if [ "$vuelta" -eq 1 ] && [ -n "$INSTRUCCION" ]; then
     printf '%s' "Leé $ENCARGO y el PLAN.md que ya existe. $INSTRUCCION No rehagas el resto del plan ni toques las tareas que ya están."

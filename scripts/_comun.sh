@@ -691,31 +691,32 @@ plataforma_responde() {
       rm -f "$cuerpo_tmp" "$pl_tmp"
       return 0
     fi
-    # UNA NEGATIVA EXPLÍCITA NO SE MUESTREA TRES VECES.
-    #
-    # Las tres muestras existen por la intermitencia: un 502 o un 000 pueden ser pasajeros y
-    # el 2026-10-21 un 502 abortó un plan de 7 etapas mientras dos minutos después el mismo
-    # pedido contestaba 200. Pero 503 y 504 no son eso: son el gateway diciendo que no está
-    # sirviendo ese modelo. Medido el 2026-11-28 sobre el A3B de 35B: 3 intentos, 3 veces 503,
-    # ~298 s cada uno, 15 minutos de reloj para enterarse de lo que el primero ya había dicho.
-    #
-    # Cortar acá hace el caso malo MÁS rápido —una muestra en vez de tres— y el diagnóstico
-    # correcto. Insistir contra una negativa explícita es lo que el propio mensaje de abajo
-    # dice que no hay que hacer.
-    case "$codigo" in
-      503|504)
-        rm -f "$cuerpo_tmp"
-        echo "✗ el gateway RECHAZA este modelo: HTTP $codigo en ${COLABHIVE_BASE_URL}/chat/completions" >&2
-        echo "  No es intermitencia y no es la tarea: 503/504 es el gateway diciendo que no" >&2
-        echo "  está sirviendo «${modelo}». Reintentar no cambia nada —medido: 3 de 3 con el" >&2
-        echo "  mismo código— así que no gasto $intentos muestras de ${ARRANQUE_FRIO}s." >&2
-        echo "  Lo que hay que mirar es qué réplicas están levantadas, no el plan." >&2
-        return 1 ;;
-    esac
     i=$((i+1))
   done
   rm -f "$cuerpo_tmp"
   echo "✗ la plataforma de modelos no responde: HTTP $codigos ($intentos intentos) en $COLABHIVE_BASE_URL/chat/completions" >&2
+  # EL 503 SE NOMBRA, Y SE DICE QUÉ HACER CON ÉL.
+  #
+  # El defecto original era que con ARRANQUE_FRIO=240 el curl cortaba 58 s antes de que el
+  # gateway contestara —503/504 entre 296,6 y 299,9 s, medido el 2026-11-28 en 9 pedidos a 5
+  # modelos— así que esto decía «000 = ni contestó», que es otro diagnóstico.
+  #
+  # Mi primera corrección fue peor: cortar en la PRIMERA muestra al ver un 503, porque medí
+  # 3 de 3 en el A3B de 35B. Está mal, y lo desmiente la otra medición del mismo día: el
+  # arquitecto dio 504 a las 09:0x y 200 en 233 s a las 10:00, después de que varios pedidos
+  # míos lo arrancaran. El POST es lo que levanta la réplica —está escrito veinte líneas más
+  # arriba— así que las tres muestras no son sólo muestras: son el calentador. Sacarlas
+  # cambia un diagnóstico lento por uno rápido y equivocado.
+  #
+  # Una muestra no puede distinguir «desalojado y cargando» de «no se va a servir nunca», y
+  # tres tampoco: lo que hacen las tres es darle tiempo a la carga. Así que se queda el
+  # muestreo, y lo que se arregla es lo que esto DICE.
+  case "$codigos" in
+    *503*|*504*)
+      echo "  (503/504 = el gateway tiene el modelo DESALOJADO. Estos $intentos pedidos son" >&2
+      echo "  además lo que lo arranca: medido el 2026-11-28, «${modelo}» dio 504 y 50 minutos" >&2
+      echo "  después, tras varios pedidos, contestó 200 en 233s. Reintentá el comando entero.)" >&2 ;;
+  esac
   # 000 es silencio de verdad: el curl se fue sin respuesta. Con ARRANQUE_FRIO por encima del
   # punto donde el gateway contesta (~298 s medidos), un 000 ya no puede ser un 503 que no
   # alcanzamos a ver, así que el consejo de reintentar vuelve a ser honesto.
