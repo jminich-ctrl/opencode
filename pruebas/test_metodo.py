@@ -2177,11 +2177,24 @@ class TestElArquitectoDecideYEscribeEnDosLlamadas(unittest.TestCase):
                       "no decide por los archivos: si no mira el disco, está leyendo texto")
 
     def test_el_bucle_lo_parte_solo_en_vez_de_repetir_el_pedido(self):
+        """Lo que importa es que DENTRO del bucle el detector gobierne la llamada a
+        `dos_fases`. La primera versión de este test exigía el `if` entero en una línea, y el
+        2026-11-28 se puso rojo porque la condición pasó a tener un cuerpo de tres ramas: un
+        test atado a cómo está escrito y no a lo que hace. El criterio es el de siempre —
+        apuntarlo a la conducta— y el dato que lo sostiene es que `dos_fases` no se llame
+        desde ningún lugar donde el detector no haya opinado."""
         s = codigo_de(SCRIPTS / "planificar.sh")
         self.assertIn("dos_fases", s, "no existe el protocolo de dos fases")
-        self.assertRegex(s, r'if hablo_sin_escribir "\$HUELLA_VUELTA" "\$DESDE_BYTE"; then dos_fases',
-                         "el bucle no lo parte: repetir el mismo pedido en la vuelta "
-                         "siguiente son otros 1200s contra el mismo muro")
+        cuerpo = s[s.index("while [ \"$YA_VALIDA\""):s.index("\ndone")]
+        i_det = cuerpo.index("hablo_sin_escribir")
+        i_dos = cuerpo.index("dos_fases \"$pedido\"")
+        self.assertLess(i_det, i_dos,
+                        "el bucle llama a `dos_fases` sin que el detector haya decidido: "
+                        "partir el pedido de un agente que SÍ escribió manda a rehacer lo "
+                        "que ya está")
+        self.assertEqual(1, cuerpo.count("dos_fases "),
+                         "el bucle parte el pedido en más de un lugar: con dos llamadas, una "
+                         "puede quedar sin el detector adelante y nadie se entera")
 
     def test_la_fase_de_decision_no_escribe_y_la_de_escritura_no_decide(self):
         """Si la fase 1 puede escribir, no es una fase de decisión: es el pedido entero otra
@@ -22819,3 +22832,104 @@ class TestUnPlanQueYaExisteSeCorrigeNoSeRehace(unittest.TestCase):
         s = codigo_de(SCRIPTS / "planificar.sh")
         self.assertEqual(1, s.count("Arreglá EXACTAMENTE esto y nada más"),
                          "el pedido de corrección está escrito más de una vez")
+
+
+class TestElGuardiaDelRumiadoAlcanzaElCasoQueLoMotivo(unittest.TestCase):
+    """`dos_fases` existe para un caso medido: el arquitecto delibera 1200 s, decide el plan
+    completo en su transcripto, y muere sin escribir un archivo. Hasta el 2026-11-28 era
+    INALCANZABLE en ese caso, porque el corte por techo rompía la vuelta tres líneas antes —y
+    el techo es la forma normal en que ese caso termina.
+
+    Medido ese día sobre clasificados: el arquitecto recibió los cinco rojos del validador,
+    habló 1204 s, no escribió nada, y el guardia que tenía que partirle el pedido no corrió.
+    Un guardia incapaz de disparar se lee igual que un guardia que no encontró nada — es el
+    mismo defecto que los marcadores en inglés del detector de rumiado, dos días antes.
+
+    Estos tests miran el ORDEN, que es donde estaba el defecto: no alcanza con que las dos
+    piezas existan."""
+
+    def fuente(self):
+        return codigo_de(SCRIPTS / "planificar.sh")
+
+    def test_el_corte_por_techo_no_rompe_la_vuelta_antes_de_preguntar_si_rumio(self):
+        s = self.fuente()
+        i_pregunta = s.index("hablo_sin_escribir \"$HUELLA_VUELTA\"")
+        # El `break` por error del agente, el que cortaba antes de tiempo.
+        i_break = s.index("el agente cortó por un error")
+        self.assertLess(i_pregunta, i_break,
+                        "el bucle abandona la vuelta por el error ANTES de preguntar si "
+                        "deliberó y no escribió. El corte por techo es exactamente el "
+                        "síntoma de ese caso, así que `dos_fases` no corre nunca cuando hace "
+                        "falta")
+
+    def test_el_silencio_sigue_terminando_la_vuelta(self):
+        """El brazo nulo, y es el que evita el sobre-arreglo. Si ahora cualquier error cayera
+        en `dos_fases`, una plataforma caída se respondería con dos llamadas más contra la
+        misma pared. El discriminante lo pone `hablo_sin_escribir`, que exige 500 bytes: un
+        corte con 20 bytes de salida es la plataforma y ahí sí hay que cortar."""
+        s = self.fuente()
+        self.assertIn("elif [ -n \"$err\" ]", s,
+                      "el error dejó de terminar la vuelta en algún caso: una plataforma "
+                      "caída tiene que cortar, no partir el pedido en dos")
+        self.assertIn("-gt 500", codigo_de(SCRIPTS / "planificar.sh"),
+                      "`hablo_sin_escribir` ya no exige un piso de salida, así que el "
+                      "silencio y la deliberación vuelven a ser indistinguibles")
+
+    def test_si_partido_tampoco_escribio_no_da_otra_vuelta(self):
+        """Partir el pedido es el último recurso de la vuelta. Si después de partirlo la
+        huella del plan sigue igual, repetir es otro muro idéntico: 1200 s más por nada."""
+        s = self.fuente()
+        i = s.index("dos_fases \"$pedido\"")
+        tramo = s[i:i + 500]
+        self.assertIn("huella_del_plan", tramo,
+                      f"después de partir el pedido no vuelve a mirar si escribió:\n{tramo[:200]}")
+        self.assertIn("break", tramo,
+                      "partió el pedido, tampoco escribió, y da otra vuelta igual")
+
+    def test_el_error_que_corta_es_el_de_ESTA_vuelta_y_no_el_de_anteayer(self):
+        """`.plan.log` se acumula entre vueltas y entre corridas —208 KB el 2026-11-28, con
+        errores de días anteriores adentro— y `error_del_agente` devuelve el PRIMER error que
+        encuentra. Sin recortar, la vuelta 1 podía cortar acusando un error de anteayer.
+
+        El detector de rumiado ya recortaba por `DESDE_BYTE` desde el 2026-11-26 y este
+        hermano no: el mismo arreglo en uno y no en el otro."""
+        s = self.fuente()
+        i = s.index("err=\"$(error_del_agente")
+        tramo = s[max(0, i - 400):i + 120]
+        self.assertIn("DESDE_BYTE", tramo,
+                      f"el error se lee sobre el log entero, que tiene corridas viejas:\n"
+                      f"{tramo[-250:]}")
+        self.assertNotIn('error_del_agente "$log"', s,
+                         "sigue habiendo una lectura del error sobre el log sin recortar")
+
+
+class TestUnVeredictoNoAfirmaLoQueNoMiro(unittest.TestCase):
+    """El rojo final de `planificar.sh` decía, fijo, «los validadores dan verde porque el plan
+    ya estaba bien». El 2026-11-28 lo imprimió sobre una corrida donde los validadores habían
+    dado CINCO rojos —tres tareas cruzando capas y dos sin declarar qué consumen—.
+
+    Un veredicto que afirma algo falso sobre su propio chequeo manda a buscar el problema
+    donde no está: el que lo lee concluye que el plan está bien y que el agente no quiso
+    trabajar. Es la misma familia que «un veredicto que no nombra a su sujeto», que este repo
+    persigue desde el principio."""
+
+    def test_el_rojo_final_mira_PROBLEMAS_antes_de_decir_que_estan_en_verde(self):
+        s = codigo_de(SCRIPTS / "planificar.sh")
+        i = s.index("el arquitecto no cambió ni el plan ni las tareas")
+        tramo = s[i:i + 700]
+        self.assertIn("$PROBLEMAS", tramo,
+                      f"afirma el estado de los validadores sin consultarlo:\n{tramo[:250]}")
+        j = tramo.index("Los validadores dan verde")
+        k = tramo.index("$PROBLEMAS")
+        self.assertLess(k, j,
+                        "dice «los validadores dan verde» antes de mirar si lo están")
+
+    def test_y_cuando_siguen_en_rojo_lo_dice_con_el_numero(self):
+        s = codigo_de(SCRIPTS / "planificar.sh")
+        self.assertIn("SIGUEN en rojo", s,
+                      "no hay rama para el caso real: el plan no validaba y el agente "
+                      "tampoco lo arregló. Son dos cosas y el veredicto tiene que decir las dos")
+        i = s.index("SIGUEN en rojo")
+        self.assertIn("grep -c", s[i:i + 200],
+                      "dice que siguen en rojo sin decir cuántos: el que lo lee no sabe si "
+                      "falta uno o cinco")

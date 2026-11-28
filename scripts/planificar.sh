@@ -283,12 +283,38 @@ while [ "$YA_VALIDA" -eq 0 ] && [ "$vuelta" -lt "$INTENTOS" ]; do
     [ "$?" = "142" ] && echo "Error: el agente no respondió: $(motivo_del_corte "$log")"
   ) >> "$log" 2>&1
 
-  err="$(error_del_agente "$log")"
-  [ -n "$err" ] && { echo "  ✗ el agente cortó por un error: $err"; break; }
+  # EL TRAMO DE ESTA VUELTA, no el log entero. `.plan.log` se acumula entre vueltas y entre
+  # corridas —208 KB el 2026-11-28, con errores de días anteriores adentro— y
+  # `error_del_agente` devuelve el PRIMER error que encuentra. O sea que sin recortar, la
+  # vuelta 1 podía cortar acusando un error de anteayer. El detector de rumiado ya recortaba
+  # por `DESDE_BYTE` desde el 2026-11-26 y este hermano no: el mismo arreglo en uno y no en
+  # el otro, que es el patrón que este repo persigue.
+  tail -c "+$((DESDE_BYTE + 1))" "$log" > "$BASE/.plan-vuelta.log" 2>/dev/null || true
+  err="$(error_del_agente "$BASE/.plan-vuelta.log")"
 
-  # Deliberó y no escribió: NO se repite el mismo pedido en la vuelta que viene —son otros
-  # 1200s contra el mismo muro—. Se parte acá mismo, en esta vuelta.
-  if hablo_sin_escribir "$HUELLA_VUELTA" "$DESDE_BYTE"; then dos_fases "$pedido"; fi
+  # DELIBERÓ Y NO ESCRIBIÓ: se pregunta ANTES de decidir qué hacer con el error, y el orden
+  # es el arreglo.
+  #
+  # Hasta el 2026-11-28 el corte por techo rompía la vuelta tres líneas más arriba, así que
+  # `dos_fases` —construido exactamente para «deliberó 1200s y no escribió un archivo»— era
+  # INALCANZABLE en el único caso que lo motiva: el techo es la forma normal en que ese caso
+  # termina. Medido ese día sobre clasificados: el arquitecto recibió los cinco rojos, habló
+  # 1204s, no escribió nada, y el guardia que tenía que partirle el pedido no corrió. Un
+  # guardia incapaz de disparar se lee igual que un guardia que no encontró nada.
+  #
+  # El discriminante no es el error: es si habló y no escribió. Un corte con 20 bytes de
+  # salida es la plataforma —`hablo_sin_escribir` exige 500— y ése sí termina la vuelta.
+  if hablo_sin_escribir "$HUELLA_VUELTA" "$DESDE_BYTE"; then
+    dos_fases "$pedido"
+    # Y si partido TAMPOCO escribió, otra vuelta es otro muro igual: no hay forma de pedirlo
+    # que no hayamos probado ya en esta misma vuelta.
+    if [ "$(huella_del_plan)" = "$HUELLA_VUELTA" ]; then
+      echo "  ✗ partido en dos y tampoco escribió${err:+ · último error: $err}"
+      break
+    fi
+  elif [ -n "$err" ]; then
+    echo "  ✗ el agente cortó por un error: $err"; break
+  fi
 
   revisar
   if [ -z "$PROBLEMAS" ]; then
@@ -315,7 +341,16 @@ DESPUES="$(huella_del_plan)"
 if [ "$ANTES" = "$DESPUES" ] && [ "$YA_VALIDA" -eq 0 ]; then
   echo
   echo "✗ G0 ROJO en ${duracion}s: el arquitecto no cambió ni el plan ni las tareas."
-  echo "  Los validadores dan verde porque el plan ya estaba bien, pero no se hizo lo pedido."
+  # NO SE AFIRMA LO QUE NO SE MIRÓ. Esta línea decía fija «los validadores dan verde porque
+  # el plan ya estaba bien», y el 2026-11-28 la imprimió sobre una corrida donde los
+  # validadores habían dado CINCO rojos. Un veredicto que afirma algo falso sobre su propio
+  # chequeo manda a buscar el problema donde no está: el que lo lee concluye que el plan está
+  # bien y el agente no quiso trabajar.
+  if [ -n "$PROBLEMAS" ]; then
+    echo "  Y los validadores SIGUEN en rojo: $(printf '%s\n' "$PROBLEMAS" | grep -c .) problema(s) sin resolver."
+  else
+    echo "  Los validadores dan verde porque el plan ya estaba bien, pero no se hizo lo pedido."
+  fi
   # QUÉ hizo, en vez de sólo qué no hizo. «No cambió nada» es verdad y acusa al sujeto
   # equivocado: medido el 2026-11-26, dos corridas decidieron el plan completo —qué tareas,
   # sus dependencias, sus archivos, hasta cómo mockear los servicios en los tests— y
