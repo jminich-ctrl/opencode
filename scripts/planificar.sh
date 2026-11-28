@@ -39,10 +39,39 @@ command -v opencode >/dev/null 2>&1 || { echo "✗ No hay opencode." >&2
   echo "  y seguí con 'bash scripts/correr-plan.sh'." >&2; exit 1; }
 
 # Un agente que no está registrado responde como el agente por defecto y no avisa.
-if ! opencode agent list 2>/dev/null | grep -qE "^$AGENTE \(primary\)"; then
+#
+# UNA SOLA LECTURA DE LA LISTA, y de ahí salen el juicio Y el mensaje.
+#
+# Antes había dos: el `if` grepeaba una invocación de `opencode agent list` y el mensaje
+# corría OTRA para enumerar los primarios. Medido el 2026-11-28: la corrida murió con
+#
+#   ✗ OpenCode no reconoce 'arquitecto' como agente primario.
+#     Primarios: build compaction plan summary title arquitecto arquitecto_en
+#
+# o sea un veredicto que se desmiente a sí mismo dos líneas más abajo. `opencode agent list`
+# es intermitente —ese día lo vi devolver un volcado de JSON de permisos en vez de la lista, y
+# 13 de 13 invocaciones siguientes salieron bien—, así que las dos lecturas contestaron
+# distinto. Con una captura eso no puede pasar: lo que se juzga es lo que se informa.
+#
+# Y TRES INTENTOS, pero sólo mientras la lista sea ILEGIBLE. Si se lee y el agente no está,
+# reintentar no cambia nada: es config, no intermitencia. Es la misma distinción que la sonda
+# de plataforma hace entre «no contestó» y «contestó que no».
+PRIMARIOS=""
+for _i in 1 2 3; do
+  PRIMARIOS="$(opencode agent list 2>/dev/null \
+               | grep -oE '^[a-z0-9_]+ \(primary\)' | cut -d' ' -f1 | tr '\n' ' ')"
+  [ -n "${PRIMARIOS// /}" ] && break
+done
+if [ -z "${PRIMARIOS// /}" ]; then
+  echo "✗ no pude leer la lista de agentes de OpenCode en 3 intentos." >&2
+  echo "  Esto NO dice que '$AGENTE' falte: dice que no sé si está, y no es lo mismo." >&2
+  echo "  \`opencode agent list\` devolvió algo que no es una lista de agentes." >&2
+  exit 1
+fi
+if ! printf '%s\n' $PRIMARIOS | grep -qxF "$AGENTE"; then
   echo "✗ OpenCode no reconoce '$AGENTE' como agente primario." >&2
   echo "  Suele faltarle \"mode\": \"primary\" en opencode.json (OPENCODE.md §3)." >&2
-  echo "  Primarios: $(opencode agent list 2>/dev/null | grep -oE '^[a-z0-9_]+ \(primary\)' | cut -d' ' -f1 | tr '\n' ' ')" >&2
+  echo "  Primarios: $PRIMARIOS" >&2
   exit 1
 fi
 

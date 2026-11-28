@@ -2185,7 +2185,13 @@ class TestElArquitectoDecideYEscribeEnDosLlamadas(unittest.TestCase):
         desde ningún lugar donde el detector no haya opinado."""
         s = codigo_de(SCRIPTS / "planificar.sh")
         self.assertIn("dos_fases", s, "no existe el protocolo de dos fases")
-        cuerpo = s[s.index("while [ \"$YA_VALIDA\""):s.index("\ndone")]
+        # El `done` SE BUSCA DESPUÉS del `while`, no desde el principio del archivo. La
+        # primera versión usaba `s.index("\ndone")` a secas y se rompió el 2026-11-28 cuando
+        # el guardia de agentes ganó un `for ... done` más arriba: el corte quedaba antes del
+        # inicio y el tramo salía vacío. Un test que localiza código por posición absoluta se
+        # rompe con cualquier línea nueva, y eso no es información sobre el sujeto.
+        _i_while = s.index("while [ \"$YA_VALIDA\"")
+        cuerpo = s[_i_while:s.index("\ndone", _i_while)]
         i_det = cuerpo.index("hablo_sin_escribir")
         i_dos = cuerpo.index("dos_fases \"$pedido\"")
         self.assertLess(i_det, i_dos,
@@ -23532,3 +23538,71 @@ class TestLoQueElGateLlamaInfraestructuraNoSeCommitea(unittest.TestCase):
                      or l.endswith(".plan.log")]
         self.assertEqual([], culpables,
                          f"estos intermedios de corrida están versionados: {culpables}")
+
+
+class TestElGuardiaDeAgentesNoSeDesmienteASiMismo(unittest.TestCase):
+    """Medido el 2026-11-28, con el pedido ya arreglado y la plataforma arriba, la corrida
+    murió en un segundo con esto:
+
+        ✗ OpenCode no reconoce 'arquitecto' como agente primario.
+          Primarios: build compaction plan summary title arquitecto arquitecto_en
+
+    Un veredicto que se desmiente a sí mismo dos líneas más abajo. La causa es la familia del
+    día: el `if` grepeaba una invocación de `opencode agent list` y el mensaje corría OTRA
+    para enumerar los primarios. Ese comando es intermitente —ese mismo día lo vi devolver un
+    volcado de JSON de permisos en vez de la lista, y las 13 invocaciones siguientes salieron
+    bien— así que las dos lecturas contestaron distinto.
+
+    Con una sola captura no puede pasar: lo que se juzga es lo que se informa."""
+
+    def fuente(self):
+        return codigo_de(SCRIPTS / "planificar.sh")
+
+    def test_la_lista_de_agentes_se_lee_una_vez_por_intento(self):
+        s = self.fuente()
+        i = s.index("PRIMARIOS=")
+        j = s.index("plataforma_responde", i)
+        tramo = s[i:j]
+        # Se cuentan las SUSTITUCIONES, no las menciones: el mensaje del ⊘ nombra
+        # `opencode agent list` entre backticks para explicar qué falló, y mi primera versión
+        # de este test contó esa mención como una segunda lectura. Confundir nombrar con usar
+        # es el mismo defecto que el método persigue, al revés.
+        self.assertEqual(1, tramo.count("$(opencode agent list"),
+                         f"hay más de una lectura de la lista entre el juicio y el mensaje, "
+                         f"así que pueden contestar distinto y el veredicto contradecirse:\n"
+                         f"{tramo[:400]}")
+
+    def test_el_mensaje_informa_la_misma_captura_que_juzgo(self):
+        s = self.fuente()
+        i = s.index("no reconoce '$AGENTE' como agente primario")
+        tramo = s[i:i + 400]
+        self.assertIn("$PRIMARIOS", tramo,
+                      f"el mensaje enumera los primarios con otra fuente que el `if`:\n{tramo}")
+        self.assertNotIn("opencode agent list", tramo,
+                         "el mensaje vuelve a llamar al comando: es la segunda lectura que "
+                         "produjo el veredicto contradictorio")
+
+    def test_no_pude_leer_la_lista_no_es_el_agente_no_esta(self):
+        """⊘ no es ✗, y acá la diferencia es accionable: con la lista ilegible, mandar a
+        revisar `opencode.json` manda a arreglar lo que no está roto."""
+        s = self.fuente()
+        self.assertIn("no pude leer la lista de agentes", s,
+                      "no distingue «no sé si está» de «no está»")
+        i = s.index("no pude leer la lista de agentes")
+        tramo = s[i:i + 400]
+        self.assertIn("no es lo mismo", tramo,
+                      "informa el ⊘ sin decir que no equivale al ✗")
+        self.assertNotIn("mode", tramo,
+                         "con la lista ilegible manda a revisar opencode.json, que es "
+                         "mandar a arreglar lo que no está roto")
+
+    def test_reintenta_solo_mientras_sea_ilegible(self):
+        """El brazo que evita la sobre-corrección —la que cometí hoy con el 503 de la sonda—.
+        Si la lista se lee y el agente no está, eso es config y reintentar no cambia nada."""
+        s = self.fuente()
+        i = s.index("for _i in 1 2 3")
+        tramo = s[i:s.index("fi", i)]
+        self.assertIn("break", tramo, "no corta el bucle cuando ya pudo leer")
+        self.assertNotIn("grep -qxF", tramo,
+                         "reintenta mirando si el agente está, así que una config equivocada "
+                         "gasta tres lecturas para decir lo mismo")
