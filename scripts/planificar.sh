@@ -177,10 +177,19 @@ dos_fases() {
   # FASE 1 — decidir. Sin archivos, y la respuesta delimitada: capturar la salida cruda de
   # `opencode run` trae trazas de herramientas y color, y pasarle ESO como «tu decisión» es
   # pasarle ruido. Los marcadores son lo que hace recortable la respuesta.
+  # EL PRESUPUESTO SE DECLARA. `replanificar-relevo.sh` ya lo hacía —«tu respuesta COMPLETA
+  # tiene que caber en 50 líneas», y con eso el diagnóstico bajó de 30447 a 19354 bytes— y
+  # esta fase no lo declaraba. El arreglo vivía en un hermano y no en el otro.
+  #
+  # Importa especialmente acá: medido el 2026-11-28, esta fase leyó sus tres archivos, empezó
+  # a deliberar y murió sin llegar a los marcadores. Una fase cuya única salida son unas
+  # líneas entre dos marcas no puede permitirse deliberar sin techo declarado.
   bruto="$( cd "$BASE" && con_limite "${LIMITE_AGENTE:-1200}" opencode run --agent "$AGENTE" \
     "DECISION ONLY. Do not write or edit any single file: this run has no file output and anything you write will be discarded. State what you decided, nothing else.
 
 $pedido_original
+
+YOUR BUDGET: your COMPLETE answer must fit in 30 lines. You generate about 6 tokens per second, so a long deliberation does not reach the end of this run. Decide, then answer. Do not weigh alternatives in writing.
 
 Answer with the decision between these two markers, and put nothing outside them:
 ---DECISION---
@@ -273,9 +282,22 @@ pedido_de_la_vuelta() {
     [ -n "$archivo" ] && archivo="tareas/$(basename "$archivo")"
   fi
 
+  # LO QUE EL ARREGLO ARRASTRA ESTÁ AUTORIZADO, Y HAY QUE DECIRLO.
+  #
+  # «No toques las tareas que ya están bien» creaba un dilema real, y el transcripto del
+  # 2026-11-28 lo muestra deliberándolo: para partir T04 en una por capa, el nombre natural
+  # del pedazo del medio es T04b y T04b YA EXISTE en el plan —«verificar sesión»— y además
+  # DEPENDE de T04. Textual del modelo: «If I split T04, T04b's dependency needs to change to
+  # point at the new servicio task. Hmm, but that's a necessary change.»
+  #
+  # Tenía razón, y una tarea que depende de la que estás partiendo ya NO está bien. Esa
+  # llamada gastó 15 KB razonando correctamente —resolvió la colisión, derivó los nombres de
+  # los tests— y murió sin escribir un archivo. Lo que pagó esos tokens fue preguntarse si
+  # tenía permiso.
   local corregir="Leé $ENCARGO y el PLAN.md que ya existe. Arreglá EXACTAMENTE esto y nada más:
 $uno
-No rehagas el resto del plan. No toques las tareas que ya están bien."
+No rehagas el resto del plan: las tareas que no tienen que ver con esto no se tocan.
+Pero lo que ESTE arreglo arrastra sí es parte del arreglo, y no hace falta que lo preguntes: si el identificador que necesitás ya está usado, elegí uno libre; si otras tareas dependían de la que cambiás, actualizá su «Depende de»; y si la tabla de tests nombra la tarea que partiste, actualizá también esas filas."
   [ -n "$archivo" ] && corregir="$corregir
 El enunciado de ${tid} está en ${archivo}: abrí ese y no busques entre los demás."
   corregir="$corregir

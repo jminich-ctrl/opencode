@@ -23309,3 +23309,157 @@ class TestElPedidoNoLeCobraAlModeloLoQueElArnesYaSabe(unittest.TestCase):
         self.assertLess(len(salida), 2000,
                         f"el pedido creció a {len(salida)} caracteres; cada cosa que entra "
                         f"acá es contexto que el modelo prefillea en CADA paso")
+
+
+class TestElPedidoAutorizaLoQueElArregloArrastra(unittest.TestCase):
+    """Leyendo el transcripto del 2026-11-28, la vuelta que produjo 15 KB y cero archivos:
+
+        «If I split T04, T04b's dependency needs to change to point at the new servicio
+         task. Hmm, but that's a necessary change.»
+
+    Tenía razón. Para partir T04 en una tarea por capa, el nombre natural del pedazo del
+    medio es T04b, y T04b YA EXISTE —«verificar sesión»— y además DEPENDE de T04. Mi pedido
+    decía «no toques las tareas que ya están bien», y una tarea que depende de la que estás
+    partiendo ya NO está bien.
+
+    El modelo razonó todo correctamente: resolvió la colisión (T04b nuevo = login, T04d = el
+    viejo), derivó los nombres de los tests siguiendo el patrón de T05, y vio que había que
+    actualizar la tabla de tests. Y murió deliberando sin escribir un archivo. Lo que pagó
+    esos tokens fue preguntarse si tenía permiso.
+
+    El pedido no puede dejar una ambigüedad que cuesta una corrida entera resolver."""
+
+    def pedido(self):
+        fuente = (SCRIPTS / "planificar.sh").read_text()
+        i = fuente.index("pedido_de_la_vuelta() {")
+        funcion = fuente[i:fuente.index("\n}", i) + 2]
+        with tempfile.TemporaryDirectory() as d:
+            base = pathlib.Path(d) / "proy"
+            (base / "tareas").mkdir(parents=True)
+            (base / "PLAN.md").write_text("# Plan\n")
+            (base / "tareas" / "T04-auth.md").write_text("# t\n")
+            guion = pathlib.Path(d) / "e.sh"
+            guion.write_text(
+                'set -uo pipefail\nBASE="$1"\nENCARGO="OBJETIVO.md"\nAQUI="/x"\n'
+                'INSTRUCCION=""\nPROBLEMAS="T04 declara 3 capas. Partila en una por capa"\n'
+                + funcion + '\npedido_de_la_vuelta 1\n')
+            return correr(f"bash {guion} {base}", pathlib.Path(d)).stdout
+
+    def test_autoriza_renombrar_cuando_el_identificador_esta_tomado(self):
+        salida = self.pedido()
+        self.assertIn("ya está usado", salida,
+                      f"no dice qué hacer con la colisión de identificadores, que es el "
+                      f"dilema que le costó la corrida:\n{salida}")
+
+    def test_autoriza_actualizar_a_los_que_dependian(self):
+        salida = self.pedido()
+        self.assertIn("Depende de", salida,
+                      f"no autoriza tocar el «Depende de» de las tareas que apuntaban a la "
+                      f"que se parte, así que el modelo lo va a deliberar:\n{salida}")
+
+    def test_autoriza_actualizar_la_tabla_de_tests(self):
+        salida = self.pedido()
+        self.assertIn("tabla de tests", salida,
+                      f"la tabla de tests nombra la tarea partida y queda inconsistente; el "
+                      f"modelo ya lo detectó solo y preguntó si podía:\n{salida}")
+
+    def test_pero_sigue_prohibiendo_rehacer_el_resto(self):
+        """El brazo nulo, y el que importa: autorizar el colateral no puede volverse permiso
+        para reescribir el plan. Refinar lo que ya pasa lo empeora —medido, HumanEval 96,3% →
+        66,5%— y acá hay 19 tareas cerradas."""
+        salida = self.pedido()
+        self.assertIn("No rehagas el resto del plan", salida, salida)
+        self.assertIn("no se tocan", salida,
+                      f"perdió el límite: sin él, «arreglá esto» autoriza todo\n{salida}")
+
+    def test_le_dice_que_no_pregunte(self):
+        """Autorizar no alcanza si el modelo igual gasta tokens en chequear que esté
+        autorizado. El transcripto muestra tres «Hmm, but the instructions say...» seguidos."""
+        salida = self.pedido()
+        self.assertIn("no hace falta que lo preguntes", salida, salida)
+
+
+class TestElRojoNombraElPrecedenteQueElPlanYaTiene(unittest.TestCase):
+    """El rojo decía «partila en una tarea por capa, como el plan ya hace en otras». Medido el
+    2026-11-28: el arquitecto fue a buscar cuáles, dedujo el patrón T05a/T05b/T05c leyendo la
+    tabla del plan, y de ahí derivó también la convención de nombres de los tests. Todo eso lo
+    pagó con tokens de un presupuesto que después no le alcanzó para escribir.
+
+    El dato lo tenemos y es mecánico: son las tareas cuyo id comparte prefijo y que declaran
+    una capa cada una. Insinuar que existe un precedente y no nombrarlo es cobrarle al modelo
+    una búsqueda que el chequeo ya tiene hecha."""
+
+    def test_nombra_el_grupo_concreto_en_el_proyecto_real(self):
+        r = correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py",
+                   RAIZ / "ejemplo-clasificados")
+        linea = [l for l in r.stdout.splitlines() if "capas a la vez" in l]
+        self.assertTrue(linea, f"el chequeo no dio su rojo:\n{r.stdout}")
+        self.assertRegex(linea[0], r"como ya se hace en T\d+[a-z]/T\d+[a-z]",
+                         f"no nombra el precedente:\n{linea[0]}")
+        self.assertNotIn("como el plan ya hace en otras", linea[0],
+                         "quedó la insinuación vieja, que obliga a buscarlo")
+
+    def test_brazo_nulo_sin_precedente_no_inventa_uno(self):
+        """Un plan con una sola tarea que cruza capas y ninguna partida no tiene precedente
+        que mostrar. Nombrar uno falso sería mandarlo a leer tareas que no existen — un paso
+        perdido y un error que el modelo tiene que interpretar."""
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-prec-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        (d / "tareas").mkdir()
+        (d / "scripts").mkdir()
+        (d / "scripts" / "_arquitectura.py").write_text(
+            'CAPAS = ["datos", "servicios"]\nREQUERIDAS = []\n')
+        (d / "PLAN.md").write_text(
+            "# Plan\n\n**Estado del gate G0:** aprobado por nadie el 2026-01-01\n\n"
+            "## Tareas\n\n| ID | Qué | Depende de | Archivos | Estado |\n"
+            "|---|---|---|---|---|\n"
+            "| T01 | Todo junto | — | src/datos/a.py src/servicios/b.py | pendiente |\n")
+        (d / "tareas" / "T01-x.md").write_text(
+            "# T01 — Todo junto\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** src/datos/a.py, src/servicios/b.py\n"
+            "**Prohibido tocar:** tests/\n\n## Objetivo\n\nQue haya todo.\n")
+        r = correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py", d)
+        linea = [l for l in r.stdout.splitlines() if "capas a la vez" in l]
+        self.assertTrue(linea, f"no dio el rojo:\n{r.stdout}")
+        self.assertNotIn("como ya se hace en", linea[0],
+                         f"inventó un precedente que el plan no tiene:\n{linea[0]}")
+        self.assertIn("una tarea por capa", linea[0],
+                      f"y la instrucción tiene que seguir estando:\n{linea[0]}")
+
+
+class TestLaFaseDeDecisionDeclaraSuPresupuesto(unittest.TestCase):
+    """`replanificar-relevo.sh` ya le declaraba el presupuesto al modelo —«tu respuesta
+    COMPLETA tiene que caber en 50 líneas», y con eso el diagnóstico bajó de 30447 a 19354
+    bytes— y la fase de decisión de `dos_fases` no lo declaraba. El arreglo vivía en un
+    hermano y no en el otro, que es el patrón que este repo persigue.
+
+    Importa especialmente ahí: medido el 2026-11-28, esa fase leyó sus tres archivos, empezó a
+    deliberar y murió sin llegar a los marcadores. Una fase cuya única salida son unas líneas
+    entre dos marcas no puede permitirse deliberar sin techo declarado."""
+
+    def test_la_fase_1_le_dice_cuanto_puede_escribir(self):
+        s = codigo_de(SCRIPTS / "planificar.sh")
+        i = s.index("DECISION ONLY")
+        tramo = s[i:s.index("---END---", i)]
+        self.assertRegex(tramo, r"(?i)budget|líneas|lines",
+                         f"la fase de decisión no declara presupuesto:\n{tramo[:300]}")
+        self.assertRegex(tramo, r"\d+ lines|\d+ líneas",
+                         "declara un presupuesto sin número, que no es un presupuesto")
+
+    def test_y_le_dice_a_cuanto_genera(self):
+        """El número solo no explica por qué. El relevo declara el motivo junto con el techo, y
+        un modelo que sabe que genera a 6 tok/s puede dimensionar su respuesta."""
+        s = codigo_de(SCRIPTS / "planificar.sh")
+        i = s.index("DECISION ONLY")
+        tramo = s[i:s.index("---END---", i)]
+        self.assertRegex(tramo, r"tokens per second|tok/s",
+                         f"no le dice a qué velocidad genera, así que el techo en líneas es "
+                         f"un número sin motivo:\n{tramo[:300]}")
+
+    def test_el_hermano_que_ya_lo_hacia_sigue_haciendolo(self):
+        """Canario del reparto: si mañana el relevo pierde su presupuesto, este test lo dice.
+        Es de donde salió la técnica."""
+        s = codigo_de(SCRIPTS / "replanificar-relevo.sh")
+        self.assertRegex(s, r"\d+ líneas|\d+ lines",
+                         "replanificar-relevo.sh perdió la declaración de presupuesto, que es "
+                         "de donde la copiamos")

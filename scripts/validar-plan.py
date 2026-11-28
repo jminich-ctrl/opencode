@@ -324,16 +324,47 @@ if _problema:
                   f"verificado que ninguna lo hace")
 elif _capas:
     _nivel = set(_capas)
-    for tid in sorted(set(tareas) & set(en_disco), key=lambda x: (len(x), x)):
-        cuerpo = en_disco[tid][0].read_text()
-        m = re.search(r"^\*\*Archivos que podés tocar:\*\* *(.*)$", cuerpo, re.M)
+
+    def _capas_de(tid):
+        """Las capas que declara una tarea, por archivo. `{}` si no declara alcance."""
+        f = en_disco[tid][0]
+        m = re.search(r"^\*\*Archivos que podés tocar:\*\* *(.*)$", f.read_text(), re.M)
         if not m:
-            continue
-        por_capa = {}
+            return {}
+        salida = {}
         for a in rutas(m.group(1)):
             c = capa_de(str(pathlib.PurePath(a).with_suffix("")), _nivel)
             if c:
-                por_capa.setdefault(c, []).append(a)
+                salida.setdefault(c, []).append(a)
+        return salida
+
+    # EL PRECEDENTE SE NOMBRA, NO SE INSINÚA.
+    #
+    # El rojo decía «partila en una tarea por capa, como el plan ya hace en otras». Medido el
+    # 2026-11-28 leyendo el transcripto: el arquitecto fue a buscar cuáles, dedujo el patrón
+    # T05a/T05b/T05c leyendo la tabla, y de ahí derivó también la convención de nombres de los
+    # tests. Todo eso lo pagó con tokens de un presupuesto que después no le alcanzó para
+    # escribir. El dato lo tenemos: son las tareas cuyo id comparte prefijo y que cubren una
+    # capa cada una.
+    _grupos = {}
+    for tid in set(tareas) & set(en_disco):
+        _cs = _capas_de(tid)
+        if len(_cs) == 1:
+            # La raíz es el id SIN su sufijo de letra, y se saca sin regex a propósito: un
+            # patrón `T\d+` es justo la trampa que parte las subtareas, y el canario
+            # `test_el_sufijo_de_letra_es_parte_del_id` lo prohíbe en todo el método. Acá la
+            # letra se quita porque agrupo T05a/T05b/T05c bajo T05; eso es lo contrario de
+            # ignorarla, y escrito así se lee.
+            _grupos.setdefault(tid.rstrip("abcdefghijklmnopqrstuvwxyz"), {})[tid] = next(iter(_cs))
+    _precedente = ""
+    for _raiz, _miembros in sorted(_grupos.items()):
+        if len(_miembros) >= 2 and len(set(_miembros.values())) >= 2:
+            _ids = sorted(_miembros, key=lambda x: (len(x), x))
+            if len(_ids) > len(_precedente.split("/")) or not _precedente:
+                _precedente = "/".join(_ids)
+
+    for tid in sorted(set(tareas) & set(en_disco), key=lambda x: (len(x), x)):
+        por_capa = _capas_de(tid)
         if len(por_capa) >= 2:
             detalle = "; ".join(f"{c}: {' '.join(v)}"
                                 for c, v in sorted(por_capa.items(),
@@ -343,8 +374,9 @@ elif _capas:
                 f"La costura queda DENTRO de su alcance, así que no hay ningún lugar donde "
                 f"poner un doble que no apague líneas que el gate va a mutar: el test "
                 f"aísla y los mutantes sobreviven por «la línea NO se ejecuta». Partila en "
-                f"una tarea por capa, como el plan ya hace en otras "
-                f"(ver DESCOMPOSICION.md §5c)")
+                f"una tarea por capa"
+                + (f", como ya se hace en {_precedente}" if _precedente else "")
+                + f" (ver DESCOMPOSICION.md §5c)")
 
 # ── Lo que el plan SEPARA, algo lo tiene que JUNTAR.
 #
