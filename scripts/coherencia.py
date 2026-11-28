@@ -38,6 +38,12 @@ import pathlib
 import re
 import sys
 
+# El mismo reconocedor de capas y el mismo lector de la declaración que usan el chequeo de
+# arquitectura y `validar-plan.py`. Tres copias de esto podrían discrepar sobre qué capas
+# declaró el proyecto, y el desacuerdo no lo vería nadie.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _arquitectura_motor import capa_de, declaracion
+
 # `sys.stdlib_module_names` existe desde Python 3.10 y este chequeo no puede andar sin ella.
 # Sin esta guarda el script moría con `AttributeError: module 'sys' has no attribute
 # 'stdlib_module_names'` y quien lo llama lo leía como un defecto del proyecto: medido el
@@ -696,6 +702,65 @@ def main():
                            f"nada que leer en ellas: {' '.join(sin_cruzar[:6])}"
                            f"{' ...' if len(sin_cruzar) > 6 else ''}")
 
+    # ── ROJO: una tarea cuyo contrato contradice una dependencia que la arquitectura EXIGE.
+    #
+    # El proyecto declara en `scripts/_arquitectura.py` qué dependencias son obligatorias:
+    # `("rutas", "servicios")` quiere decir «los endpoints no hablan con datos directamente».
+    # El chequeo de arquitectura verifica eso sobre el TRONCO, o sea DESPUÉS, cuando el código
+    # ya está escrito y la tarea ya se gastó. Acá se verifica sobre el ENUNCIADO, antes.
+    #
+    # Lo que lo hace falsable y no una corazonada: la tarea declara su capa (sus archivos) y
+    # declara sus imports (su contrato). Si su capa exige usar otra capa y sus imports no
+    # nombran NINGÚN módulo de esa capa, las dos declaraciones de la misma tarea se
+    # contradicen. No hay que adivinar qué quiso decir.
+    #
+    # Sólo habla de tareas que SÍ declaran imports. La versión sin esa restricción marcó 12
+    # tareas en pacman —un proyecto que cerró 19 de 19— porque ahí la mayoría no declara
+    # ningún import, y «no declara el que hace falta» quedaba indistinguible de «no declara
+    # nada». Eso último ya lo informa `aviso_cobertura` como ⊘, que es otra afirmación.
+    # Medido el 2026-11-27 con la restricción: clasificados 2 de 37 (T16 y T22), pacman 0 de 19.
+    #
+    # T16 es el caso que lo motivó: implementa `rutas/favoritos.py`, declara exactamente
+    # `from fastapi import APIRouter`, y nunca dice de dónde saca la lógica de favoritos.
+    # Pasaba como «cruzada» —declara un import, así que no entra en la cobertura— y el agente
+    # gastó 21 intentos y 4940 s sin llegar nunca a verde. T22 es su gemela en mensajes.
+    capas_p, requeridas_p, problema_capas = declaracion(base)
+    if problema_capas:
+        avisos_capas = (f"{problema_capas}: NO verifiqué si alguna tarea contradice una "
+                        f"dependencia requerida por la arquitectura")
+    else:
+        avisos_capas = ""
+    if capas_p and requeridas_p:
+        nivel_p = set(capas_p)
+        exige_de = {}
+        for arriba, abajo in requeridas_p:
+            exige_de.setdefault(arriba, set()).add(abajo)
+        for tid, texto in sorted(textos.items()):
+            imps = imports_del_contrato(texto)
+            if not imps:
+                continue      # ⊘, y ya lo cuenta `aviso_cobertura`
+            m = re.search(r"^\*\*Archivos que podés tocar:\*\* *(.*)$", texto, re.M)
+            if not m:
+                continue
+            mis = {capa_de(str(pathlib.PurePath(r).with_suffix("")), nivel_p)
+                   for r in re.findall(r"[A-Za-z0-9_./-]+\.py", m.group(1))}
+            mis.discard(None)
+            exige = sorted({d for c in mis for d in exige_de.get(c, set())} - mis)
+            if not exige:
+                continue
+            partes = {p for mo, _ in imps for p in mo.split(".")}
+            falta = [d for d in exige if d not in partes]
+            if falta:
+                rojos.append((tid, (
+                    f"está en la capa «{'/'.join(sorted(mis))}» y la arquitectura de este "
+                    f"proyecto EXIGE que use «{'/'.join(falta)}» (REQUERIDAS de "
+                    f"scripts/_arquitectura.py), pero su contrato declara sólo "
+                    f"{', '.join('`' + mo + '`' for mo, _ in sorted(set(imps)))}. Las dos "
+                    f"declaraciones de esta misma tarea se contradicen: el agente no tiene de "
+                    f"dónde sacar la lógica, así que la va a inventar en la capa equivocada y "
+                    f"el paso 5 del gate se lo va a rechazar. Declará en el contrato el import "
+                    f"exacto de lo que consume")))
+
     # ── ROJO: un import del contrato que nadie provee ────────────────────────────────
     for tid, texto in sorted(textos.items()):
         for modulo, simbolo in imports_del_contrato(texto):
@@ -1016,7 +1081,10 @@ def main():
               f" el algoritmo sino EL ARCHIVO donde vive el que ya se usa.")
     if aviso_cobertura:
         print(f"  ⚠ cobertura: {aviso_cobertura}")
-    avisos_total = len(avisos) + len(cubiertos) + (1 if aviso_cobertura else 0)
+    if avisos_capas:
+        print(f"  ⚠ {avisos_capas}")
+    avisos_total = (len(avisos) + len(cubiertos) + (1 if aviso_cobertura else 0)
+                    + (1 if avisos_capas else 0))
     if not rojos and not avisos_total:
         print(f"  ✓ {len(textos)} tareas cruzadas: ningún import huérfano, ningún módulo en disputa")
     elif not rojos:

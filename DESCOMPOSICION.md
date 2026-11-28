@@ -191,6 +191,85 @@ Si ninguna tarea lo declara, no existe, y el proyecto no se puede ni construir.
 
 ---
 
+## 5c. Una tarea por capa, y la costura en el borde
+
+Si el proyecto declara capas, **una tarea no puede declarar archivos de dos capas a la
+vez.** No es estética: es la única forma de que el alcance de la tarea satisfaga al mismo
+tiempo al test y a la mutación.
+
+Las dos reglas que chocan ya estaban escritas, en dos lugares distintos:
+
+- el test tiene que doblar sus dependencias **en el sitio donde se usan**, no donde se
+  definen (regla 13 de `AGENTS.md`);
+- el alcance de mutación **es** el alcance declarado de la tarea: `gate.sh` arma la lista a
+  mutar a partir de «**Archivos que podés tocar:**», no de otra lista.
+
+Juntalas y sale una sola conclusión. Doblar una dependencia apaga las líneas de su
+definición. Si esa definición está **fuera** del alcance, no pasa nada: el doble está en el
+borde, el test aísla y la mutación no pierde nada. Si está **adentro**, la mutación va a
+mutar líneas que el test apagó, y esos mutantes sobreviven con «la línea NO se ejecuta» —
+un rojo que no es del agente y que ningún arreglo del agente puede sacar.
+
+Una tarea que declara dos capas tiene la costura adentro **siempre**. No hay dónde poner el
+doble.
+
+Medido con el `mutar.py` real, el mismo test, el mismo parche y la misma implementación,
+cambiando sólo el alcance declarado:
+
+| Alcance declarado | Sobrevivientes |
+|---|---|
+| `{servicios/s1.py}` | **0** |
+| `{servicios/s1.py, datos/d1.py}` | **3**, todos «la línea NO se ejecuta» |
+| `{servicios/s1.py}`, sin doble, contra la dependencia real | **0** |
+
+Y el plan de clasificados se demuestra a sí mismo, que es mejor que cualquier argumento:
+T05, T14 y T20 son el mismo trabajo que T04 —una ruta, un servicio y un dato— pero
+**partidas por capa** (`T05a`, `T05b`, `T05c`), y las nueve cerraron. T04, T26 y T28
+declaran las tres capas juntas; las tres siguen pendientes, una de ellas después de 21
+intentos y 4940 s.
+
+`validar-plan.py` lo da en **rojo**, no en aviso, porque la tarea es insatisfacible desde
+antes de que exista una línea de código: el agente puede escribir el mejor test posible y
+el gate lo va a rechazar igual. Medido el 2026-11-27: **3 de 37 en clasificados y 0 de 19
+en pacman**. Las capas las declara el proyecto en `scripts/_arquitectura.py`; un proyecto
+que no declara capas no tiene capas que cruzar y el chequeo no dice nada.
+
+Lo honesto del número: «cruza capas» y «la tarea es más grande» son colineales en esta
+muestra, así que **la medición no distingue las dos explicaciones**. Lo que sostiene la
+regla es la deducción de arriba, que no depende de la muestra.
+
+Y la tercera opción, para la capa más baja: **ahí no dobles nada.** Un doble del driver de
+la base en la capa de datos es tautológico —el test afirma que la consulta se armó como el
+test dice que se arma, y pasa en verde con una columna que no existe; la base real la
+rechaza en medio milisegundo—. Medido: 2,5 ms por test contra el motor ya levantado, contra
+los ~250 ms que tarda el intérprete en arrancar. Cuesta el 1% del reloj.
+
+### Y si la capa exige usar otra, el contrato lo tiene que decir
+
+El mismo archivo donde el proyecto declara sus capas declara cuáles dependencias son
+**obligatorias**: `("rutas", "servicios")` quiere decir «los endpoints no hablan con datos
+directamente». El chequeo de arquitectura verifica eso sobre el tronco, o sea **después**,
+cuando el código ya está escrito y la tarea ya se gastó.
+
+`coherencia.py` lo verifica sobre el **enunciado**, antes, y sin adivinar nada: la tarea
+declara su capa (sus archivos) y declara sus imports (su contrato). Si su capa exige usar
+otra y sus imports no nombran ningún módulo de esa capa, **las dos declaraciones de la misma
+tarea se contradicen**. No hay interpretación: las dos las escribió el plan.
+
+T16 de clasificados es el caso. Implementa `rutas/favoritos.py`, declara exactamente
+`from fastapi import APIRouter`, y nunca dice de dónde saca la lógica de favoritos. Pasaba
+como «cruzada» —declara *un* import, así que no caía en el aviso de cobertura— y el agente
+gastó **21 intentos y 4940 s sin llegar nunca a verde**, inventando la lógica en la capa
+equivocada. T22 es su gemela en mensajes.
+
+El chequeo sólo habla de tareas que **sí** declaran imports, y esa restricción es la que
+decide si sirve o es ruido: sin ella marcaba **12 de 19 tareas en pacman**, un proyecto que
+cerró completo, porque ahí casi ninguna declara imports y «no declara el que hace falta»
+quedaba indistinguible de «no declara nada». Eso último ya se informa como **⊘**, que es
+otra afirmación. Con la restricción: **clasificados 2 de 37, pacman 0 de 19.**
+
+---
+
 ## 6. Qué va en el plan y qué va en la tarea
 
 Es la distinción que más ordena, y la que más se hace mal.

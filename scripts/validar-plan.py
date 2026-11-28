@@ -32,6 +32,9 @@ import sys
 # Ver `_grafo.py`: el mismo buscador de ciclos que usa `_etapas.py`, sin una segunda copia.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _grafo import un_ciclo
+# Y el MISMO reconocedor de capas que usa el chequeo de arquitectura. Si acá hubiera una
+# segunda copia, el plan y el gate podrían discrepar sobre en qué capa vive un archivo.
+from _arquitectura_motor import capa_de, declaracion
 
 RAIZ = pathlib.Path(os.environ.get("PLAN", "PLAN.md")).resolve().parent
 PLAN = pathlib.Path(os.environ.get("PLAN", "PLAN.md"))
@@ -283,6 +286,65 @@ for tid in sorted(set(tareas) & set(en_disco)):
     if n_archivos > 3:
         avisos.append(f"{tid} toca {n_archivos} archivos: candidata a partirse "
                       f"(ver DESCOMPOSICION.md §4)")
+
+# ── Ninguna tarea puede declarar archivos de DOS capas a la vez.
+#
+# No es una regla de estilo: es la única forma en que el alcance de una tarea puede
+# satisfacer a la vez al test y a la mutación. El test de una tarea tiene que doblar sus
+# dependencias en el sitio donde SE USAN (regla 13 de AGENTS.md), y el alcance de mutación
+# es exactamente el alcance declarado de la tarea — `plantillas/gate.sh` arma `PY_MUT` a
+# partir de `IMPL`, o sea de «**Archivos que podés tocar:**». Entonces:
+#
+#   · si la DEFINICIÓN de lo que el test dobla queda FUERA del alcance, el doble está en el
+#     borde y todo cierra: el test aísla y la mutación no pierde líneas.
+#   · si queda ADENTRO, doblar apaga líneas que la mutación va a mutar, y esos mutantes
+#     sobreviven con «la línea NO se ejecuta». No hay ningún lugar legal para el doble.
+#
+# Una tarea que declara archivos de dos capas tiene la costura ADENTRO, así que cae siempre
+# en el segundo caso. Medido con el `mutar.py` real sobre el mismo test, el mismo parche y
+# la misma implementación: con alcance `{servicios/s1.py}`, 0 sobrevivientes; agregando
+# `datos/` al alcance, 3 sobrevivientes, todos por «la línea NO se ejecuta».
+#
+# Y el plan de clasificados ya tiene las dos formas, lo que ahorra el argumento: T05, T14 y
+# T20 son el mismo trabajo que T04 —una ruta, un servicio y un dato— pero PARTIDAS por capa
+# (`T05a`/`T05b`/`T05c`), y las nueve cerraron. T04, T26 y T28 declaran las tres capas
+# juntas y las tres siguen pendientes después de 21 intentos y 4940 s en una de ellas.
+# Medido el 2026-11-27: cruzan capas 3 de 37 en clasificados y 0 de 19 en pacman.
+#
+# Advertencia honesta sobre esa medición: «cruza capas» y «la tarea es más grande» son
+# colineales en esta muestra, así que el número NO distingue las dos explicaciones. Lo que
+# sostiene la regla es la deducción de arriba, que no depende de la muestra.
+#
+# Las capas las declara el proyecto en `scripts/_arquitectura.py`, que es config. Acá no hay
+# ninguna lista de capas: un proyecto sin capas declaradas no tiene capas que cruzar.
+_capas, _requeridas, _problema = declaracion(RAIZ)
+if _problema:
+    avisos.append(f"{_problema}: NO verifiqué si alguna tarea cruza capas ni si alguna "
+                  f"contradice una dependencia requerida, que no es lo mismo que haber "
+                  f"verificado que ninguna lo hace")
+elif _capas:
+    _nivel = set(_capas)
+    for tid in sorted(set(tareas) & set(en_disco), key=lambda x: (len(x), x)):
+        cuerpo = en_disco[tid][0].read_text()
+        m = re.search(r"^\*\*Archivos que podés tocar:\*\* *(.*)$", cuerpo, re.M)
+        if not m:
+            continue
+        por_capa = {}
+        for a in rutas(m.group(1)):
+            c = capa_de(str(pathlib.PurePath(a).with_suffix("")), _nivel)
+            if c:
+                por_capa.setdefault(c, []).append(a)
+        if len(por_capa) >= 2:
+            detalle = "; ".join(f"{c}: {' '.join(v)}"
+                                for c, v in sorted(por_capa.items(),
+                                                   key=lambda kv: _capas.index(kv[0])))
+            errores.append(
+                f"{tid} declara archivos de {len(por_capa)} capas a la vez ({detalle}). "
+                f"La costura queda DENTRO de su alcance, así que no hay ningún lugar donde "
+                f"poner un doble que no apague líneas que el gate va a mutar: el test "
+                f"aísla y los mutantes sobreviven por «la línea NO se ejecuta». Partila en "
+                f"una tarea por capa, como el plan ya hace en otras "
+                f"(ver DESCOMPOSICION.md §5c)")
 
 # ── Lo que el plan SEPARA, algo lo tiene que JUNTAR.
 #

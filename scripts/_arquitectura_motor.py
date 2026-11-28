@@ -33,6 +33,7 @@ Tres cosas, y la segunda es la que casi nadie hace:
 import ast
 import csv
 import datetime
+import pathlib
 
 def modulos_del_proyecto(raiz):
     """Un nodo por archivo, identificado por su RUTA relativa sin `.py` (`datos/ads`).
@@ -123,6 +124,52 @@ def grafo_de_imports(raiz):
                 if destino and destino != nid:
                     grafo[nid].add(destino)
     return grafo
+
+
+def declaracion(proyecto):
+    """`CAPAS` y `REQUERIDAS` tal como las declara el proyecto, SIN ejecutar su archivo.
+
+    Vive acá, con `capa_de`, porque son el mismo tema: todo lo que el método sabe sobre capas
+    se lee de un solo lugar. Lo leen el chequeo de arquitectura, `validar-plan.py` y
+    `coherencia.py`; con tres copias de este parseo, los tres podrían discrepar sobre qué
+    capas declaró el proyecto y nadie vería el desacuerdo.
+
+    Se parsea con `ast` y no se importa a propósito: `scripts/_arquitectura.py` es config,
+    pero es un archivo ejecutable del proyecto JUZGADO, y un chequeo no corre código del
+    sujeto para decidir cómo juzgarlo.
+
+    Devuelve `(capas, requeridas, problema)`:
+      · sin archivo        → `(None, None, "")`     — no declaró capas, no hay nada que verificar
+      · archivo ilegible   → `([], [], "<por qué>")` — ⊘: hay algo que NO se verificó
+      · declaración leída  → `([...], [(a, b), ...], "")`
+    """
+    f = pathlib.Path(proyecto) / "scripts" / "_arquitectura.py"
+    if not f.is_file():
+        return None, None, ""
+    try:
+        arbol = ast.parse(f.read_text())
+    except (OSError, SyntaxError) as e:
+        return [], [], f"no pude parsear scripts/_arquitectura.py ({e.__class__.__name__})"
+    leido = {}
+    for nodo in arbol.body:
+        if not isinstance(nodo, ast.Assign):
+            continue
+        for destino in nodo.targets:
+            nombre = getattr(destino, "id", "")
+            if nombre not in ("CAPAS", "REQUERIDAS"):
+                continue
+            try:
+                leido[nombre] = ast.literal_eval(nodo.value)
+            except (ValueError, SyntaxError, TypeError):
+                return [], [], (f"`{nombre}` de scripts/_arquitectura.py no es una lista "
+                                f"literal: no la puedo leer sin ejecutar el archivo")
+    if "CAPAS" not in leido:
+        return [], [], "scripts/_arquitectura.py no declara `CAPAS`"
+    capas = [x for x in leido["CAPAS"] if isinstance(x, str)]
+    requeridas = [tuple(x) for x in leido.get("REQUERIDAS", [])
+                  if isinstance(x, (list, tuple)) and len(x) == 2
+                  and all(isinstance(y, str) for y in x)]
+    return capas, requeridas, ""
 
 
 def capa_de(nid, nivel):

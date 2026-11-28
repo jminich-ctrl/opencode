@@ -22431,3 +22431,250 @@ class TestUnaTareaUnDocumento(CasoBase):
                              f"campo se arreglan de a uno y nadie se entera.")
             self.assertIn('PERMITIDOS="$(archivos_de_la_tarea)"', t,
                           f"{gate.relative_to(RAIZ)}: el paso 2 no usa el lector único")
+
+
+class TestUnaTareaNoPuedeCruzarCapas(CasoBase):
+    """La costura tiene que caer en el BORDE del alcance declarado, no adentro.
+
+    Dos reglas que ya estaban escritas en lugares distintos chocan cuando una tarea declara
+    archivos de dos capas: el test tiene que doblar sus dependencias donde SE USAN (regla 13
+    de AGENTS.md) y el alcance de mutación ES el alcance declarado (`gate.sh` arma la lista a
+    mutar desde «Archivos que podés tocar»). Si la definición de lo doblado cae adentro del
+    alcance, doblar apaga líneas que la mutación va a mutar y esos mutantes sobreviven con
+    «la línea NO se ejecuta»: un rojo que no es del agente y que el agente no puede sacar.
+
+    Medido con el `mutar.py` real, mismo test y misma implementación, cambiando SÓLO el
+    alcance declarado: `{servicios/s1.py}` → 0 sobrevivientes; agregando `datos/d1.py` → 3,
+    todos por «la línea NO se ejecuta».
+
+    Y el plan de clasificados se demuestra a sí mismo: T05, T14 y T20 son el mismo trabajo
+    que T04 —ruta, servicio y dato— pero partidas por capa, y las nueve cerraron; T04, T26 y
+    T28 declaran las tres juntas y las tres siguen pendientes. Medido el 2026-11-27: cruzan
+    3 de 37 en clasificados y 0 de 19 en pacman.
+
+    Lo honesto: en esa muestra «cruza capas» y «la tarea es más grande» son colineales, así
+    que el número no distingue las dos explicaciones. Lo que sostiene la regla es la
+    deducción, y por eso estos tests miden la deducción —el alcance— y no el tamaño.
+    """
+
+    ROJO = "capas a la vez"
+
+    def declarar_capas(self, texto='CAPAS = ["datos", "servicios", "rutas"]'):
+        (self.p.dir / "scripts" / "_arquitectura.py").write_text(
+            f"#!/usr/bin/env python3\n{texto}\nREQUERIDAS = []\n")
+
+    def tarea_con(self, archivos):
+        """T01 declarando `archivos`, en la tabla y en su archivo: el validador cruza los dos
+        y declarar sólo uno mediría el cruce en vez de lo que quiero medir."""
+        self.p.escribir_tarea("T01", archivos)
+        p = self.p.dir / "PLAN.md"
+        t = p.read_text()
+        nueva = re.sub(r"^\| T01 \|([^|]*)\|([^|]*)\|[^|]*\|",
+                       lambda m: f"| T01 |{m.group(1)}|{m.group(2)}| {archivos} |",
+                       t, count=1, flags=re.M)
+        self.assertNotEqual(t, nueva, "no encontré la fila de T01 en el plan de juguete")
+        p.write_text(nueva)
+
+    def validar(self):
+        return correr(f"PLAN=PLAN.md python3 {SCRIPTS}/validar-plan.py", self.p.dir)
+
+    def test_dos_capas_en_una_tarea_es_rojo_y_nombra_las_dos(self):
+        self.declarar_capas()
+        self.tarea_con("src/servicios/s1.py, src/datos/d1.py")
+        r = self.validar()
+        self.assertIn(self.ROJO, r.stdout, f"no dijo nada:\n{r.stdout}")
+        self.assertIn("T01", r.stdout, f"el rojo no nombra a su sujeto:\n{r.stdout}")
+        for capa in ("datos", "servicios"):
+            self.assertIn(capa, r.stdout.split(self.ROJO)[1][:300],
+                          f"el rojo no dice qué capas cruzó:\n{r.stdout}")
+        self.assertEqual(1, r.returncode, "tiene que FRENAR el plan: la tarea es insatisfacible "
+                                  "desde antes de que exista una línea de código, así que "
+                                  "avisar y dejar lanzar cuesta una corrida entera")
+
+    def test_brazo_nulo_las_mismas_dos_capas_partidas_en_dos_tareas_no_son_rojo(self):
+        """El discriminador de todo el chequeo. Los MISMOS dos archivos, el MISMO proyecto,
+        las mismas dos capas — repartidos en una tarea cada uno. Si esto diera rojo, el
+        chequeo estaría midiendo «el proyecto tiene dos capas» y no «la costura cae adentro
+        del alcance de una tarea», y la regla no tendría salida posible."""
+        self.declarar_capas()
+        self.tarea_con("src/servicios/s1.py")
+        p = self.p.dir / "PLAN.md"
+        p.write_text(p.read_text().replace(
+            "| T01 |", "| T02 | El dato | — | src/datos/d1.py | pendiente |\n| T01 |", 1))
+        (self.p.dir / "tareas" / "T02-dato.md").write_text(
+            "# T02 — El dato\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** src/datos/d1.py\n**Prohibido tocar:** tests/\n\n"
+            "## Objetivo\n\nQue haya un dato.\n")
+        r = self.validar()
+        self.assertNotIn(self.ROJO, r.stdout,
+                         f"una capa por tarea es exactamente la forma que SÍ cierra:\n{r.stdout}")
+
+    def test_brazo_nulo_un_proyecto_que_no_declara_capas_no_tiene_capas_que_cruzar(self):
+        """Sin `scripts/_arquitectura.py` el chequeo no dice nada. El fixture no lo trae, así
+        que este es además el estado en que corren los otros ~300 tests que heredan de
+        CasoBase: si acá hablara, les cambiaría el veredicto a todos."""
+        self.tarea_con("src/servicios/s1.py, src/datos/d1.py")
+        r = self.validar()
+        self.assertNotIn(self.ROJO, r.stdout,
+                         f"nadie declaró capas: no hay nada que cruzar\n{r.stdout}")
+
+    def test_si_no_puede_leer_las_capas_lo_dice_en_vez_de_pasar(self):
+        """⊘ no es ✓. Con el archivo presente y la declaración ilegible, el chequeo no corrió,
+        y callarse convierte «no verifiqué» en «verifiqué que no pasa». Es el mismo defecto
+        que el código 3 de `_aserciones.py` y el tercer brazo de `preparar-entorno.sh`."""
+        self.declarar_capas('CAPAS = [os.environ["CAPAS"]]')
+        self.tarea_con("src/servicios/s1.py, src/datos/d1.py")
+        r = self.validar()
+        self.assertIn("NO verifiqué", r.stdout,
+                      f"no pude leer las capas y no lo dijo:\n{r.stdout}")
+        self.assertNotIn(self.ROJO, r.stdout,
+                         f"no puede acusar con una declaración que no leyó:\n{r.stdout}")
+
+    def test_las_capas_las_declara_el_proyecto_y_no_el_validador(self):
+        """El canario de no-hardcodeo. Si `validar-plan.py` trajera su propia lista de
+        nombres de capa, funcionaría en estos dos proyectos y en ninguno más, y sería un
+        chequeo que no se puede equivocar porque no mide nada del proyecto que juzga."""
+        t = (RAIZ / "scripts" / "validar-plan.py").read_text()
+        for nombre in ("datos", "servicios", "rutas", "laberinto", "entidades", "render"):
+            self.assertNotIn(f'"{nombre}"', t,
+                             f"validar-plan.py nombra la capa «{nombre}»: las capas las "
+                             f"declara el proyecto en scripts/_arquitectura.py")
+        self.assertIn("capa_de", t, "tiene que usar el reconocedor del motor, no una copia")
+        motor = (RAIZ / "scripts" / "_arquitectura_motor.py").read_text()
+        self.assertIn("def capa_de", motor,
+                      "el único reconocedor de capas vive en el motor: si el validador "
+                      "tuviera el suyo, el plan y el gate podrían discrepar sobre en qué "
+                      "capa vive un archivo, y el desacuerdo no lo vería nadie")
+
+
+class TestUnaTareaNoPuedeContradecirLaArquitecturaQueElProyectoDeclara(unittest.TestCase):
+    """El chequeo de arquitectura verifica las dependencias OBLIGATORIAS sobre el tronco, o sea
+    después, cuando la tarea ya se gastó. Esto las verifica sobre el ENUNCIADO, antes.
+
+    La tarea declara dos cosas: su capa (sus archivos) y sus imports (su contrato). Si su capa
+    exige usar otra capa —`REQUERIDAS` de `scripts/_arquitectura.py`— y sus imports no nombran
+    ningún módulo de esa capa, las dos declaraciones de la MISMA tarea se contradicen. No hay
+    que adivinar qué quiso decir: las dos las escribió el plan.
+
+    T16 es el caso que lo motivó: implementa `rutas/favoritos.py`, declara exactamente
+    `from fastapi import APIRouter`, nunca dice de dónde saca la lógica. Pasaba como «cruzada»
+    —declara UN import, así que no entraba en el aviso de cobertura— y el agente gastó 21
+    intentos y 4940 s sin llegar nunca a verde. T22 es su gemela en mensajes.
+
+    La primera versión no tenía la restricción a tareas que SÍ declaran imports y marcó **12
+    tareas en pacman**, un proyecto que cerró 19 de 19: ahí casi ninguna declara imports, y
+    «no declara el que hace falta» quedaba indistinguible de «no declara nada». Eso último ya
+    lo informa el aviso de cobertura como ⊘, que es otra afirmación. Con la restricción,
+    medido el 2026-11-27: clasificados 2 de 37, pacman 0 de 19.
+    """
+
+    ROJO = "EXIGE que use"
+
+    def proyecto(self, capas='CAPAS = ["datos", "servicios", "rutas"]',
+                 requeridas='REQUERIDAS = [("rutas", "servicios")]'):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="prueba-req-")).resolve()
+        self.addCleanup(tirar_dir, d)
+        (d / "tareas").mkdir()
+        (d / "scripts").mkdir()
+        if capas is not None:
+            (d / "scripts" / "_arquitectura.py").write_text(
+                f"#!/usr/bin/env python3\n{capas}\n{requeridas}\n")
+        return d
+
+    def tarea(self, d, tid, archivos, contrato, depende="—"):
+        (d / "tareas" / f"{tid}-x.md").write_text(
+            f"# {tid} — x\n\n**Estado:** pendiente\n**Depende de:** {depende}\n"
+            f"**Archivos que podés tocar:** {archivos}\n**Prohibido tocar:** \n\n"
+            f"## Contrato\n\n```python\n{contrato}\n```\n")
+
+    def correr(self, d):
+        return correr(f"python3 {SCRIPTS}/coherencia.py", d)
+
+    def test_una_ruta_que_no_declara_su_servicio_es_rojo_y_frena(self):
+        d = self.proyecto()
+        self.tarea(d, "T16", "app/rutas/favoritos.py",
+                   "from fastapi import APIRouter\nrouter = APIRouter()  # APIRouter\n")
+        r = self.correr(d)
+        self.assertEqual(1, r.returncode, f"tiene que frenar el plan:\n{r.stdout}")
+        self.assertIn(self.ROJO, r.stdout, f"no dijo nada:\n{r.stdout}")
+        self.assertIn("T16", r.stdout, f"el rojo no nombra a su sujeto:\n{r.stdout}")
+        tramo = r.stdout.split(self.ROJO)[1][:200]
+        self.assertIn("servicios", tramo, f"no dice qué capa falta:\n{r.stdout}")
+
+    def test_brazo_nulo_si_declara_el_import_del_servicio_no_es_rojo(self):
+        """La misma tarea, la misma capa, la misma arquitectura — declarando de dónde saca la
+        lógica. Si esto diera rojo igual, el chequeo estaría midiendo «la tarea está en rutas»
+        y no «su contrato contradice lo que su arquitectura exige»."""
+        d = self.proyecto()
+        self.tarea(d, "T15", "app/servicios/fav.py", "def listar(uid: int) -> list: ...\n")
+        self.tarea(d, "T16", "app/rutas/favoritos.py",
+                   "from fastapi import APIRouter\nfrom app.servicios.fav import listar\n"
+                   "router = APIRouter()  # APIRouter\n", depende="T15")
+        r = self.correr(d)
+        self.assertNotIn(self.ROJO, r.stdout, f"declaró su servicio:\n{r.stdout}")
+        self.assertEqual(0, r.returncode, f"no debería haber ningún rojo:\n{r.stdout}")
+
+    def test_brazo_nulo_una_tarea_que_no_declara_NINGUN_import_no_es_rojo(self):
+        """El discriminador que decide si el chequeo sirve o es ruido. Sin esta restricción
+        marcaba 12 de 19 tareas en pacman, donde casi ninguna declara imports, y pacman cerró
+        completo. «No declara nada» es ⊘ y lo informa el aviso de cobertura; «declara otra
+        cosa» es ✗. Son dos afirmaciones distintas y las confundía una sola."""
+        d = self.proyecto()
+        (d / "tareas" / "T16-x.md").write_text(
+            "# T16 — x\n\n**Estado:** pendiente\n**Depende de:** —\n"
+            "**Archivos que podés tocar:** app/rutas/favoritos.py\n**Prohibido tocar:** \n\n"
+            "## Objetivo\n\nQue haya favoritos.\n")
+        r = self.correr(d)
+        self.assertNotIn(self.ROJO, r.stdout,
+                         f"no declara imports: eso es ⊘, no ✗\n{r.stdout}")
+        self.assertIn("no declaran ningún import", r.stdout,
+                      f"y el ⊘ tiene que seguir informándose:\n{r.stdout}")
+
+    def test_brazo_nulo_sin_arquitectura_declarada_no_hay_nada_que_exigir(self):
+        d = self.proyecto(capas=None)
+        self.tarea(d, "T16", "app/rutas/favoritos.py",
+                   "from fastapi import APIRouter\nrouter = APIRouter()  # APIRouter\n")
+        r = self.correr(d)
+        self.assertNotIn(self.ROJO, r.stdout,
+                         f"nadie declaró REQUERIDAS: no hay nada que exigir\n{r.stdout}")
+
+    def test_brazo_nulo_capas_declaradas_sin_REQUERIDAS_no_exigen_nada(self):
+        """Declarar las capas es prohibir; declarar REQUERIDAS es obligar. El motor ya lo dice
+        en su propio comentario: «declarar esto es una afirmación más fuerte que prohibir». Un
+        proyecto que sólo declara el orden de sus capas no pidió que nadie use a nadie."""
+        d = self.proyecto(requeridas="REQUERIDAS = []")
+        self.tarea(d, "T16", "app/rutas/favoritos.py",
+                   "from fastapi import APIRouter\nrouter = APIRouter()  # APIRouter\n")
+        r = self.correr(d)
+        self.assertNotIn(self.ROJO, r.stdout, f"REQUERIDAS está vacío:\n{r.stdout}")
+
+    def test_si_no_puede_leer_la_declaracion_lo_dice_en_vez_de_callarse(self):
+        """⊘ no es ✓: con el archivo presente y la declaración ilegible el chequeo no corrió,
+        y callarse convierte «no verifiqué» en «verifiqué que no pasa»."""
+        d = self.proyecto(capas='CAPAS = [os.environ["X"]]')
+        self.tarea(d, "T16", "app/rutas/favoritos.py",
+                   "from fastapi import APIRouter\nrouter = APIRouter()  # APIRouter\n")
+        r = self.correr(d)
+        self.assertIn("NO verifiqué", r.stdout,
+                      f"no pudo leer la declaración y no lo dijo:\n{r.stdout}")
+        self.assertNotIn(self.ROJO, r.stdout,
+                         f"no puede acusar con una declaración que no leyó:\n{r.stdout}")
+
+    def test_la_arquitectura_la_declara_el_proyecto_y_la_lee_un_solo_lector(self):
+        """Canario doble. Primero el no-hardcodeo: si los chequeos trajeran su propia lista de
+        capas, andarían en estos dos proyectos y en ninguno más. Y después el lector único: el
+        parseo de la declaración vive SÓLO en el motor, porque con una copia por consumidor el
+        plan, el cruce y el paso 5 podrían discrepar sobre qué declaró el proyecto y el
+        desacuerdo no lo vería nadie."""
+        for script in ("coherencia.py", "validar-plan.py"):
+            t = (SCRIPTS / script).read_text()
+            for nombre in ("laberinto", "entidades", "render"):
+                self.assertNotIn(f'"{nombre}"', t,
+                                 f"{script} nombra la capa «{nombre}» de un proyecto concreto")
+            self.assertIn("from _arquitectura_motor import", t,
+                          f"{script} tiene que leer la declaración con el lector del motor")
+        definiciones = [f.name for f in sorted(SCRIPTS.glob("*.py"))
+                        if "def declaracion(" in f.read_text()]
+        self.assertEqual(["_arquitectura_motor.py"], definiciones,
+                         f"`declaracion` está definida en {definiciones}: tiene que haber un "
+                         f"solo lector de `scripts/_arquitectura.py`")
