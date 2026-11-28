@@ -195,6 +195,43 @@ Your only output is files on disk. Your final reply is the list of files you wro
 }
 
 [ -f "$BASE/PLAN.md" ] && cp "$BASE/PLAN.md" "$BASE/PLAN.md.previo"
+# QUÉ SE LE PIDE AL ARQUITECTO EN CADA VUELTA.
+#
+# Es función y no un `if` en el medio del bucle para que un test pueda preguntarle qué elige
+# sin levantar un modelo —el mismo reparto que `hablo_sin_escribir`— y para que el texto de
+# corrección exista UNA vez: lo usan dos ramas y escrito dos veces iba a derivar.
+#
+# Lee `INSTRUCCION`, `PROBLEMAS`, `$BASE/PLAN.md` y `$ENCARGO`. `$1` es el número de vuelta.
+pedido_de_la_vuelta() {
+  local vuelta="$1"
+  # Un pedido por vuelta: con cinco correcciones juntas arregla las mecánicas y deja las
+  # estructurales. Se le devuelve la lista, pero se le dice que arregle eso y nada más.
+  local corregir="Leé $ENCARGO y el PLAN.md que ya existe. Arreglá EXACTAMENTE esto y nada más:
+$PROBLEMAS
+No rehagas el resto del plan. No toques las tareas que ya están bien."
+
+  if [ "$vuelta" -eq 1 ] && [ -n "$INSTRUCCION" ]; then
+    printf '%s' "Leé $ENCARGO y el PLAN.md que ya existe. $INSTRUCCION No rehagas el resto del plan ni toques las tareas que ya están."
+  elif [ "$vuelta" -eq 1 ] && [ -s "$BASE/PLAN.md" ] && [ -n "$PROBLEMAS" ]; then
+    # UN PLAN QUE YA EXISTE Y TIENE DEFECTOS SE CORRIGE, NO SE REHACE.
+    #
+    # Hasta el 2026-11-28 la vuelta 1 sin INSTRUCCION pedía siempre «escribí PLAN.md y un
+    # archivo por tarea», y eso sobre un plan de 37 tareas con 19 cerradas es pedirle al
+    # arquitecto que tire el trabajo hecho. Peor: `revisar` ya había corrido antes del bucle
+    # y YA TENÍA la lista de defectos en la mano — el bucle la ignoraba justo en la única
+    # vuelta donde servía y recién la mostraba en la vuelta 2, después de gastar una llamada
+    # entera (1342s medidos en este agente) rehaciendo lo que no había que rehacer.
+    #
+    # Es el defecto que este repo persigue desde el principio: un dato declarado que nadie
+    # cruzaba contra otro. Estaba calculado, y el que decidía no lo miraba.
+    printf '%s' "$corregir"
+  elif [ "$vuelta" -eq 1 ]; then
+    printf '%s' "Leé $ENCARGO. Es el encargo. Escribí PLAN.md y un archivo por tarea en tareas/, siguiendo el método del repo ($AQUI/../METODO.md, $AQUI/../DESCOMPOSICION.md, plantillas en $AQUI/../plantillas/). Escribilos aunque te falte información: las decisiones que queden abiertas van en una sección 'Decisiones abiertas' DENTRO de PLAN.md."
+  else
+    printf '%s' "$corregir"
+  fi
+}
+
 # Huella del estado antes de empezar. En modo INSTRUCCION hace falta: el plan ya validaba,
 # así que los validadores dan verde igual si el arquitecto no hizo nada. Nos pasó: una
 # corrida de 761s que razonó la tarea entera, no escribió un archivo, y G0 dijo VERDE.
@@ -204,6 +241,9 @@ inicio=$(date +%s)
 huella=""
 vuelta=0
 limpias=0
+# `revisar` la llena, pero puede no haber corrido todavía (modo INSTRUCCION) y abajo se la
+# lee para decidir el pedido de la vuelta 1. Sin esto, `set -u` mata el script.
+PROBLEMAS=""
 
 # Nunca mandar a refinar algo que ya pasa: medido, HumanEval cae de 96,3% a 66,5% cuando se
 # refina código que ya era correcto. Si el plan existe y ya valida, no se toca.
@@ -218,17 +258,7 @@ fi
 
 while [ "$YA_VALIDA" -eq 0 ] && [ "$vuelta" -lt "$INTENTOS" ]; do
   vuelta=$((vuelta+1))
-  if [ "$vuelta" -eq 1 ] && [ -n "$INSTRUCCION" ]; then
-    pedido="Leé $ENCARGO y el PLAN.md que ya existe. $INSTRUCCION No rehagas el resto del plan ni toques las tareas que ya están."
-  elif [ "$vuelta" -eq 1 ]; then
-    pedido="Leé $ENCARGO. Es el encargo. Escribí PLAN.md y un archivo por tarea en tareas/, siguiendo el método del repo ($AQUI/../METODO.md, $AQUI/../DESCOMPOSICION.md, plantillas en $AQUI/../plantillas/). Escribilos aunque te falte información: las decisiones que queden abiertas van en una sección 'Decisiones abiertas' DENTRO de PLAN.md."
-  else
-    # Un pedido por vuelta: con cinco correcciones juntas arregla las mecánicas y deja las
-    # estructurales. Se le devuelve la lista, pero se le dice que arregle eso y nada más.
-    pedido="Leé $ENCARGO y el PLAN.md que ya existe. Arreglá EXACTAMENTE esto y nada más:
-$PROBLEMAS
-No rehagas el resto del plan. No toques las tareas que ya están bien."
-  fi
+  pedido="$(pedido_de_la_vuelta "$vuelta")"
 
   echo "── vuelta $vuelta/$INTENTOS · $AGENTE"
   # Byte donde empieza ESTA vuelta: el log se acumula entre vueltas y entre corridas, así

@@ -22733,3 +22733,89 @@ class TestElQueCorrigeElPlanVeLoMismoQueElQueLoFrena(unittest.TestCase):
                          "el «no pude verificar» del cruce imprime ✗: el planificador lo va "
                          "a leer como defecto del plan y el arquitecto va a reescribirlo sin "
                          "que eso arregle nada")
+
+
+class TestUnPlanQueYaExisteSeCorrigeNoSeRehace(unittest.TestCase):
+    """Hasta el 2026-11-28 la vuelta 1 de `planificar.sh` sin `INSTRUCCION` pedía siempre
+    «escribí PLAN.md y un archivo por tarea en tareas/». Sobre un plan de 37 tareas con 19
+    cerradas, eso es pedirle al arquitecto que tire el trabajo hecho.
+
+    Y lo peor no es el riesgo: `revisar` ya había corrido ANTES del bucle y ya tenía la lista
+    de defectos en la mano. El bucle la ignoraba justo en la única vuelta donde servía y
+    recién la mostraba en la vuelta 2, después de gastar una llamada entera —1342 s medidos en
+    este agente— rehaciendo lo que no había que rehacer.
+
+    Es el defecto que este repo persigue desde el principio: un dato declarado que nadie
+    cruzaba contra otro. Estaba calculado y el que decidía no lo miraba.
+
+    Los tests le preguntan a la función REAL, extraída del script, qué pedido elige. No es una
+    reimplementación: si la del script cambia, cambia esto."""
+
+    def elige(self, plan_existe, problemas, instruccion=""):
+        fuente = (SCRIPTS / "planificar.sh").read_text()
+        i = fuente.index("pedido_de_la_vuelta() {")
+        funcion = fuente[i:fuente.index("\n}", i) + 2]
+        with tempfile.TemporaryDirectory() as d:
+            base = pathlib.Path(d) / "proy"
+            base.mkdir()
+            if plan_existe:
+                (base / "PLAN.md").write_text("# Plan\n\n| T01 | x | — | a.py | hecha |\n")
+            guion = pathlib.Path(d) / "elegir.sh"
+            guion.write_text(
+                'set -uo pipefail\nBASE="$1"\nENCARGO="OBJETIVO.md"\nAQUI="/x"\n'
+                f'INSTRUCCION={shlex.quote(instruccion)}\n'
+                f'PROBLEMAS={shlex.quote(problemas)}\n'
+                + funcion + '\npedido_de_la_vuelta 1\n')
+            return correr(f"bash {guion} {base}", pathlib.Path(d)).stdout
+
+    def test_con_plan_y_defectos_la_vuelta_1_ya_pide_la_correccion(self):
+        salida = self.elige(plan_existe=True, problemas="T04 declara 3 capas a la vez")
+        self.assertIn("Arreglá EXACTAMENTE esto", salida,
+                      f"la vuelta 1 no le dio los defectos que ya estaban calculados:\n{salida}")
+        self.assertIn("T04 declara 3 capas", salida,
+                      f"pidió corregir sin decir qué:\n{salida}")
+        self.assertNotIn("Escribí PLAN.md", salida,
+                         f"le pidió rehacer un plan que ya existe:\n{salida}")
+
+    def test_sin_plan_la_vuelta_1_sigue_pidiendo_escribirlo(self):
+        """El brazo nulo, y es el que define el criterio. Un proyecto nuevo no tiene nada que
+        corregir: si esto también pidiera «arreglá», G0 no podría arrancar nunca."""
+        salida = self.elige(plan_existe=False, problemas="")
+        self.assertIn("Escribí PLAN.md", salida,
+                      f"sin plan hay que escribirlo:\n{salida}")
+        self.assertNotIn("Arreglá EXACTAMENTE", salida, salida)
+
+    def test_brazo_nulo_un_plan_con_defectos_pero_vacio_se_escribe(self):
+        """Un `PLAN.md` de cero bytes es «no hay plan», no «hay plan roto»: la rama mira `-s`
+        y no `-f`. Sin esta distinción, un archivo que quedó vacío por un corte mandaría a
+        corregir un plan inexistente y el arquitecto no tendría qué leer."""
+        with tempfile.TemporaryDirectory() as d:
+            base = pathlib.Path(d) / "proy"
+            base.mkdir()
+            (base / "PLAN.md").write_text("")
+            fuente = (SCRIPTS / "planificar.sh").read_text()
+            i = fuente.index("pedido_de_la_vuelta() {")
+            funcion = fuente[i:fuente.index("\n}", i) + 2]
+            guion = pathlib.Path(d) / "elegir.sh"
+            guion.write_text(
+                'set -uo pipefail\nBASE="$1"\nENCARGO="OBJETIVO.md"\nAQUI="/x"\n'
+                'INSTRUCCION=""\nPROBLEMAS="algo"\n' + funcion + '\npedido_de_la_vuelta 1\n')
+            salida = correr(f"bash {guion} {base}", pathlib.Path(d)).stdout
+        self.assertIn("Escribí PLAN.md", salida,
+                      f"un PLAN.md vacío es no tener plan:\n{salida}")
+
+    def test_la_INSTRUCCION_explicita_le_sigue_ganando_a_todo(self):
+        """Quien pide algo acotado a mano no quiere la lista de defectos del validador: quiere
+        su pedido. Esa rama estaba antes y tiene que seguir primero."""
+        salida = self.elige(plan_existe=True, problemas="T04 declara 3 capas a la vez",
+                            instruccion="Agregá la tarea del index.html.")
+        self.assertIn("Agregá la tarea del index.html", salida, salida)
+        self.assertNotIn("Arreglá EXACTAMENTE", salida, salida)
+
+    def test_el_texto_de_correccion_existe_una_sola_vez(self):
+        """Lo usan dos ramas —la vuelta 1 sobre un plan existente y todas las siguientes—. Con
+        dos copias, el día que una se mejore la otra queda vieja y nadie se entera: es el
+        mismo reparto que obligó a sacar `rutas()` del bucle de tareas."""
+        s = codigo_de(SCRIPTS / "planificar.sh")
+        self.assertEqual(1, s.count("Arreglá EXACTAMENTE esto y nada más"),
+                         "el pedido de corrección está escrito más de una vez")
